@@ -1,0 +1,56 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+name: Bug report
+description: Report a defect in the resource server, the scopes, the machine authentication or the audit line.
+type: Bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. A maintainer sets the priority during
+        triage. Do not use this form for a security vulnerability; see
+        [SECURITY.md](https://github.com/FerroHEALTH/FerroSMART/blob/main/SECURITY.md).
+        Never paste a real token, key, secret or password: describe its
+        shape, or mint a synthetic one.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What goes wrong, in one or two sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The configuration, the authorization server, the request, and what you did.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What the specification says should happen, with the section if you have it.
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead, with the status, the `WWW-Authenticate` challenge and the audit line if any.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: 0.1.0, or a commit SHA
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Authorization server and product
+      description: The authorization server and its version, and the FerroHEALTH product that embeds the crate.
+    validations:
+      required: false

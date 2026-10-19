@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+name: Feature request
+description: Propose a capability or an improvement.
+type: Feature
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: The product or the deployment that needs it, and why.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What the library does, and which seam (the resource server, the scopes, the machine authentication, the audit line, the configuration) it changes.
+    validations:
+      required: true
+  - type: textarea
+    id: standard
+    attributes:
+      label: Specification reference
+      description: The SMART App Launch page, the RFC and section, or the OpenID Connect Discovery section this relates to, if any.
+    validations:
+      required: false

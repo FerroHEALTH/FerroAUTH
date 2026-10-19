@@ -84,6 +84,22 @@ sources, the IETF Trust Legal Provisions for the RFCs, Apache License 2.0
 for the SMART on openEHR source, and the OpenID Foundation's notice for the
 Discovery specification.
 
-The crate and tool pins (the Rust toolchain, the edition, the MSRV, the
-third-party crates and the CI analyzers) join this file with the Cargo
-workspace.
+## The toolchain and the crate
+
+| Item | Pin | Repeated in |
+|---|---|---|
+| Rust toolchain | 1.98.1, profile `minimal`, components `rustfmt` and `clippy` | `rust-toolchain.toml` |
+| Rust edition | 2024 | `Cargo.toml` `[workspace.package] edition`, `rustfmt.toml` |
+| MSRV | 1.97 | `Cargo.toml` `[workspace.package] rust-version` |
+| `ferrohealth-smart` | 0.1.0, the workspace version, the release tag `v0.1.0` and the `CHANGELOG.md` section | `Cargo.toml` `[workspace.package] version`, `Cargo.lock`, `CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
+| Third-party crates | the `[workspace.dependencies]` table, each version checked against crates.io on 2026-10-19 | `Cargo.toml`, `Cargo.lock` |
+
+## The CI tools
+
+| Item | Pin | Repeated in |
+|---|---|---|
+| zizmor | 1.31.1 | `.github/workflows/ci.yml` |
+| actionlint | 1.7.12, image digest `sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` | `.github/workflows/ci.yml` |
+| shellcheck | 0.11.0 | `.github/workflows/ci.yml` |
+| cargo-nextest, cargo-deny | the newest release `taiki-e/install-action` resolves at run time | `.github/workflows/ci.yml` |
+| GitHub Actions | every `uses:` pinned to a full commit SHA with its version in a trailing comment, bumped by Dependabot | `.github/workflows/*.yml`, `.github/actions/setup-rust/action.yml` |
