@@ -11,6 +11,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-20
+
+The gaps FerroBRIDGE's migration to 0.1.0 found, closed in the crate so no
+product carries a copy: the Basic password readable as a secret, the audit
+line's `addressed` field, the client credentials grant checked at load, a
+product scope and validated capabilities in `[auth]`, and
+`scopes_supported` in the SMART discovery document. Products pin
+`=0.1.1`; the audit field rename and the new `[auth]` fields are the
+changes a product makes.
+
 ### Added
 
 - `basic::Credential::password` returns the password of an outgoing Basic
@@ -44,7 +54,6 @@ and this project adheres to
   8414 §2 URL rule, which was applied only at the first token request, and
   a `resource` with a fragment (RFC 8707 §2) (#29).
 - `openehr-sdt` 0.0.89, the line FerroEHR v5.0.0 publishes (#22).
-
 - `SECURITY.md`: only the newest release is supported. An earlier release
   receives no fix; upgrade to the newest release, which is free. Cadasto B.V.
   publishes security fixes for at least five years after each release (CRA
@@ -138,5 +147,6 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/FerroHEALTH/FerroSMART/releases/tag/v0.1.0
