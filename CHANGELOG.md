@@ -11,6 +11,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `SECURITY.md`: only the newest release is supported. An earlier release
+  receives no fix; upgrade to the newest release, which is free. Cadasto B.V.
+  publishes security fixes for at least five years after each release (CRA
+  Art 13(8)) and ships them only in the newest release (Art 13(10)).
+
 ## [0.1.0] - 2026-10-19
 
 The first release: the shared SMART App Launch 2.x and OAuth 2.0
