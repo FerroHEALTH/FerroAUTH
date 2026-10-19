@@ -8,9 +8,9 @@ Vendored verbatim by `scripts/vendor/rfcs.sh` from the RFC Editor
 change the pin in docs/VERSIONS.md and re-run the script.
 
 - Fetched: 2026-10-19
-- Files: 12
+- Files: 16
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `9054391158770fc4bd86262d264456aa61dea665706eff5f3071d6ed8f976ce7`
+  `PROVENANCE.md` excluded): `3729be6e70a0f6bf68c2aa2cfbb0909126224be2e23a7bef7bf6a0cde9963cef`
 - Upstream licence: each RFC is "Copyright (c) <year> IETF Trust and the
   persons identified as the document authors. All rights reserved." and is
   "subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF
@@ -43,6 +43,10 @@ change the pin in docs/VERSIONS.md and re-run the script.
 | RFC 8725 | JSON Web Token Best Current Practices | February 2020 | BEST CURRENT PRACTICE | none | `737b7013a2495dcfd5481cf4c57c87e2455d537c4cec1140c9096a71fcef0812` |
 | RFC 9068 | JSON Web Token (JWT) Profile for OAuth 2.0 Access Tokens | October 2021 | PROPOSED STANDARD | none | `68d3ff3910c0f2340fd7b93b430e00053da845b6eebe095ebef0c8bfda5e14c5` |
 | RFC 9700 | Best Current Practice for OAuth 2.0 Security | January 2025 | BEST CURRENT PRACTICE | none | `9919d061d40a97886ca866b51c69389b6c81c65cd4b979056c14fdbebfcf622a` |
+| RFC 8707 | Resource Indicators for OAuth 2.0 | February 2020 | PROPOSED STANDARD | none | `3b89844a938b9219571931b664ed4a7b380555a4dda1df4e9445a2f72188e76b` |
+| RFC 7638 | JSON Web Key (JWK) Thumbprint | September 2015 | PROPOSED STANDARD | none | `98b29ab9652070e6a5fec748d43e221bbedc66b6b22e05903fb5366c04ef3110` |
+| RFC 9449 | OAuth 2.0 Demonstrating Proof of Possession (DPoP) | September 2023 | PROPOSED STANDARD | none | `3842c58e1f6043389416023b9bb8d765048266024982fbbd90640e05943f4e13` |
+| RFC 8705 | OAuth 2.0 Mutual-TLS Client Authentication and Certificate-Bound Access Tokens | February 2020 | PROPOSED STANDARD | none | `6e45a1ee94c6a6a177a4cb077fe67d74bd70c1218c9362f2db2f153239612414` |
 
 An "Updated by" entry names an RFC that changes the document without
 replacing it; the design reads each update that bears on the resource

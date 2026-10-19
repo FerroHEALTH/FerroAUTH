@@ -83,14 +83,12 @@ with the matrix.
 | Item | Pin | Ground |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | The registry's `latest` on 2026-10-19 and the current 2.x publication; the 2.x line is where the `cruds` scope grammar, the `.well-known/smart-configuration` document and the asymmetric client profile live. Vendored as the package `hl7.fhir.uv.smart-app-launch` 2.2.0 and the page sources at the release tag. |
-| OAuth 2.0 and JOSE | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 7662 is in the set for reference: section 6 says why introspection is not the default. |
+| OAuth 2.0 and JOSE | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. Three are in the set for reference: RFC 7662, because section 6 says why introspection is not the default, and RFC 9449 (DPoP) and RFC 8705 (mutual TLS), the sender-constraining mechanisms that stay product-specific (section 9). |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 
-What is deliberately outside the pinned set: RFC 8707 (resource indicators),
-RFC 9449 (DPoP), RFC 8705 (mutual TLS), RFC 9396 (authorization details),
-RFC 7638 (JWK thumbprints) and the ITS-REST SMART on openEHR draft. Section 9
-lists each as an owner item, because the products reference some of them
-today and this document makes no claim about their content.
+What is deliberately outside the pinned set: RFC 9396 (authorization
+details, which SMART marks experimental) and the ITS-REST SMART on openEHR
+draft. This document makes no claim about the content of either.
 
 ## 3. The components
 
@@ -383,7 +381,12 @@ the credential type redacts itself in every `Debug` rendering.
 `grant_type=client_credentials` posted form-encoded to the token endpoint
 (`rfc6749 §4.4.2`, with the UTF-8 form encoding of Appendix B), with `scope`
 when configured (`§3.3`). The token endpoint is configured outright or
-discovered from the issuer as in 3.1. The client authenticates one of three
+discovered from the issuer as in 3.1. A configured `resource` is sent as
+the resource indicator of `rfc8707 §2`, "an absolute URI" that names the
+upstream the token is for, so the authorization server can restrict the
+token's audience to it (`rfc9700 §4.10.2`); an `audience` parameter has no
+specification and is sent only when configured, for an authorization server
+that reads one in its place. The client authenticates one of three
 ways, configured, never guessed from the server's metadata:
 
 - `client_secret_basic`: HTTP Basic over the form-encoded client id and
@@ -409,7 +412,11 @@ ways, configured, never guessed from the server's metadata:
   `private_key_file`; the product serves the matching public JWK Set at a
   route of its own, which the library renders (`rfc7517 §5`, bare `n`/`e` or
   `crv`/`x`/`y` as the SMART profile requires), holding the current and the
-  successor key during a rotation, the page's own advice.
+  successor key during a rotation, the page's own advice. The `kid` of the
+  product's own key is configured, or, when it is not, the SHA-256 JWK
+  thumbprint of the key (`rfc7638 §3`), which names the key without a
+  registry and changes with the key; the default is our own design, the
+  thumbprint is the RFC's.
 
 The response is read under `rfc6749 §5.1`: `access_token`, `token_type`
 (`bearer`, compared case-insensitively, the one type the products send;
@@ -604,9 +611,8 @@ refresh_margin_ms = 30000
 
 `user`/`password` and `oauth` are exclusive; a lane that obtains no token of
 its own refuses an `oauth` table at load (FerroBRIDGE's `NoGrant` shape). The
-`audience` and `resource` request parameters FerroBRIDGE sends today are
-outside the pinned set (`resource` is RFC 8707) and are an owner item in
-section 9.
+`resource` key is the `rfc8707 §2` resource indicator and `audience` the
+parameter without a specification, both sent only when set (3.5).
 
 Validation at load, refusing the start: the issuer URL rule of 3.1, at least
 one audience, at least one algorithm and none symmetric, the skew bound, every
@@ -716,9 +722,10 @@ by editing the test.
   control stack" the scopes do not model (`smart scopes-and-launch-context`,
   SMART's scopes are used to delegate access), so they stay in the product.
 - **Sender-constrain tokens.** RFC 9700 §2.2.1 has resource servers "SHOULD
-  use mechanisms for sender-constraining access tokens" (mutual TLS, DPoP).
-  Neither RFC is in the pinned set and no product but FerroFED needs one
-  today; section 9 holds the owner item.
+  use mechanisms for sender-constraining access tokens" (mutual TLS,
+  `rfc8705`; DPoP, `rfc9449`). Both RFCs are vendored for reference, and
+  only FerroFED needs one today, so DPoP stays product-specific in FerroFED
+  for now (owner decision 2026-10-19; section 9).
 - **Read a token from a query string or a form body** (3.3).
 
 ## 7. Reference: what the products run today and the design changes
@@ -761,7 +768,7 @@ four agree on and settles each difference:
   hop, and the rule that a caller's token is never forwarded. `jti` is not
   tracked: a replay inside the lifetime at the same resource server is
   indistinguishable from the client's own retry, and the countermeasure RFC
-  9700 §4.9.3 names is sender-constraining, which is section 9's owner item.
+  9700 §4.9.3 names is sender-constraining, which stays FerroFED's (section 9).
 - **Clock skew.** `exp` and `nbf` take the configured leeway, at most five
   minutes; a token issued in the future beyond the leeway is refused; the
   skew never widens by configuration beyond the bound (3.3).
@@ -793,12 +800,12 @@ four agree on and settles each difference:
 | One `401` for every invalid credential, naming nothing; `403` naming no scope | `rfc6750 §3.1`; `rfc9068 §4`; the omissions are our own design | none |
 | `503` when the key set cannot be read | our own design | none |
 | The `patient` claim is read from the access token when present | our own design (SMART places the context in the token response and the introspection response) | none |
-| `scp` is read when `scope` is absent | our own tolerance (FerroTERM's) | keep it, or require `scope`? |
-| Product scopes (`ferrobridge.operator`, `ferroterm/admin`) are plain scope tokens the product names | `smart scopes-and-launch-context`, Extensibility, admits a `__` prefix or a full URI for an extension scope | rename the two to the `__` form or a URI, or keep the current names? |
+| Under the `rfc9068` profile only `scope` counts; under the `jwt` profile `scp` is read as a fallback when `scope` is absent, for an issuer such as Entra ID that mints the array form | `rfc9068 §2.2.3` names `scope`; `scp` is no specification's, so it is admitted only outside the profile (owner decision 2026-10-19) | none |
+| Product scopes (`ferrobridge.operator`, `ferroterm/admin`) are renamed to a form SMART's Extensibility section admits, a `__` prefix or a full URI, during each product's migration | `smart scopes-and-launch-context`, Extensibility (owner decision 2026-10-19) | each product's migration names the new scope and the deployments that must update their authorization server |
 | Granular scopes grant nothing without a product evaluator | the safe reading of "MAY be ignored" | none |
-| `jti` is read, not tracked | `rfc9700 §4.9.3` names sender-constraining as the countermeasure | vendor RFC 8705 and RFC 9449 and decide whether FerroFED's DPoP moves into the library |
-| `resource` and `audience` token-request parameters | RFC 8707 is outside the pinned set; FerroBRIDGE sends both today | vendor RFC 8707 (resource indicators) and keep `resource`; `audience` has no specification and is sent only when configured |
-| The `kid` of the product's own JWK | no pinned specification derives one; RFC 7638 would | vendor RFC 7638 and derive the `kid` as the JWK thumbprint, or keep it configured |
+| `jti` is read, not tracked; DPoP (`rfc9449`) and mutual TLS (`rfc8705`) stay product-specific, in FerroFED, for now | `rfc9700 §4.9.3` names sender-constraining as the countermeasure; both RFCs are vendored for reference (owner decision 2026-10-19) | none |
+| `resource` is the RFC 8707 resource indicator, sent when configured; `audience` has no specification and is sent only when configured | `rfc8707 §2`; FerroBRIDGE sends both today | none |
+| The `kid` of the product's own JWK is configured, or defaults to the RFC 7638 SHA-256 thumbprint | `rfc7638 §3`; the default is our own design | none |
 | SMART on openEHR stays in FerroFED | it is an ITS-REST DEVELOPMENT draft the release does not stabilise, and only FerroFED reads it | none |
 
 ## 10. Verification
