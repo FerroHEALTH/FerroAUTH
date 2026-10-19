@@ -52,12 +52,8 @@ that is a separate step the caller takes after seeing the plan.
      the `spec-researcher` agent. Doing the work starts by reading those.
    - **What "done" looks like** for this task specifically: the issue's
      `## Acceptance criteria` checklist, plus what proves it.
-3. **When work on the picked issue actually starts** (the plan is accepted and
-   the session proceeds), move it to `In Progress` on the public roadmap board:
-   `scripts/gh/project.sh status <n> in-progress`, the one manual board move in
-   the lifecycle (`.claude/rules/project-board.md`). If the session parks the
-   issue unfinished, move it back (`scripts/gh/project.sh status <n> todo`); a
-   stale In Progress column is a false public claim. If the board does not
-   exist yet, the command fails loud; note that and continue.
+3. **There is no board move.** FerroSMART has no roadmap board
+   (`.claude/rules/project-board.md`), so starting or parking the issue
+   changes nothing on GitHub.
 4. **Do not edit the issue or commit:** recording progress happens after the
    work is actually done, not as part of planning it.

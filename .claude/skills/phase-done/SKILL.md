@@ -67,12 +67,9 @@ records, and it does not decide the work is done on your behalf.
     hand when a PR carries the work. One `Closes` keyword per issue. Confirm
     auto-merge is armed (`gh pr view --json autoMergeRequest`); arm it if not,
     as its own command (`.claude/memory/pr-auto-merge.md`).
-11. **Roadmap-board check** (`.claude/rules/project-board.md`): `Done` is set
-    by the built-in workflow when the merge closes the issue, never by hand.
-    After the merge, `scripts/gh/project.sh show <n>` should say `Done`; if the
-    issue is missing from the board entirely, `scripts/gh/project.sh add <n>`
-    and let the closed-to-Done workflow settle it. Do not archive or delete
-    board items.
+11. **Milestone check:** FerroSMART has no roadmap board
+    (`.claude/rules/project-board.md`). After the merge, confirm the issue is
+    closed in its milestone (`gh issue view <n> --json state,milestone`).
 12. **Remind the user to commit** the close on the current conventional-type
     branch.
 

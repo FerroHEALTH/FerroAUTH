@@ -6,8 +6,8 @@
 **The tracker is GitHub Issues: the open issue list IS the worklist.** Issue
 state is edited only via `gh`; never track work only in chat. This file is the
 loop, the type, priority and label model, and the cadence. Relationships
-between issues live in `issue-relationships.md`; the public board is
-`project-board.md`.
+between issues live in `issue-relationships.md`; `project-board.md` records
+that this repository has no roadmap board.
 
 ## The loop
 
@@ -38,8 +38,8 @@ between issues live in `issue-relationships.md`; the public board is
    that is then **linked** with `scripts/gh/rel.sh`, as a sub-issue of the
    issue it decomposes or a `blocked-by`/`blocking` dependency for real
    sequencing, never a prose "see also" deferral.
-3. **Do the work.** At pickup, move the issue to `In Progress` on the board
-   (`scripts/gh/project.sh status <n> in-progress`). First read the governing
+3. **Do the work.** This repository has no roadmap board, so pickup moves
+   nothing (`project-board.md`). First read the governing
    specification text (SMART App Launch, the RFCs and OpenID Connect Discovery
    are the oracles, see `spec-adherence.md`). A research issue
    delivers cited evidence and a recommendation, and records the decision on
@@ -129,8 +129,7 @@ Labels carry what the platform has no field for. Bootstrap them with
 
 The organisation also defines `Start date` and `Target date` issue fields;
 this repository leaves both empty, because the milestone is the release spine
-and its due date is the target (the board's own `Target date` field is the
-derived mirror `project-board.md` describes).
+and its due date is the target.
 
 ## Milestones = releases
 
@@ -139,9 +138,7 @@ issues, so it is cut when that theme is done and never waits on an unrelated
 one; a theme that outgrows that size splits into two milestones. A release is cut when its
 milestone reaches zero open issues (or the owner calls the cut and moves the
 stragglers to the next milestone). Every en-route issue goes in the CURRENT
-milestone, never the next. A new `vX.Y.Z` milestone gets a due date (the
-board's Roadmap view places items by it, via `scripts/gh/project.sh
-sync-dates`).
+milestone, never the next. A new `vX.Y.Z` milestone gets a due date.
 
 **The release workflow enforces both ends.** Its `plan` job refuses a tag
 when no milestone is titled exactly as the tag or that milestone still holds
