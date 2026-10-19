@@ -23,3 +23,6 @@
 - [All products in lockstep](lockstep.md): every release rolls out to every
   product at once, one pull request per product, coordinated from the
   FerroBRIDGE session
+- [Release closes milestone](release-closes-milestone.md): release.yml refuses
+  a tag whose milestone is missing or not empty and closes it after every
+  leg; check it after a manual or recovery release; owner 2026-10-19 (#25)

@@ -38,6 +38,11 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
   publishes the release, and then its `crates` leg uploads the crate through
   Trusted Publishing behind the `crates-io` environment
   (`crates-publishing.md`).
+  Its `plan` job refuses a tag when no milestone is titled exactly as the tag
+  or that milestone still holds an open issue or pull request, naming each
+  one, and its last job, `milestone`, closes that milestone once every leg,
+  crates included, has succeeded; a failed leg leaves it open and the job log
+  names the leg. Both call `scripts/release/milestone.sh`.
 - `.github/workflows/publish-crates.yml`: the manual crates.io lane, a dry
   run unless `publish` is set, sharing `scripts/release/publish-crates.sh`
   with the release lane.
