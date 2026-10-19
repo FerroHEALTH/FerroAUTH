@@ -1,0 +1,49 @@
+<!-- This file describes vendored third-party material; the bytes beside it
+     keep their upstream licence, not the licence of this repository. -->
+
+# Provenance: the OAuth 2.0 and JOSE RFCs
+
+Vendored verbatim by `scripts/vendor/rfcs.sh` from the RFC Editor
+(<https://www.rfc-editor.org/rfc/>), the text form of each, as published. Never edit a file here:
+change the pin in docs/VERSIONS.md and re-run the script.
+
+- Fetched: 2026-10-19
+- Files: 12
+- Tree digest (sha256 over the sorted per-file `sha256  path` listing,
+  `PROVENANCE.md` excluded): `9054391158770fc4bd86262d264456aa61dea665706eff5f3071d6ed8f976ce7`
+- Upstream licence: each RFC is "Copyright (c) <year> IETF Trust and the
+  persons identified as the document authors. All rights reserved." and is
+  "subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF
+  Documents (<https://trustee.ietf.org/license-info>) in effect on the date
+  of publication", as its Copyright Notice states. Section 3.c.i of the
+  Trust Legal Provisions grants "to each person who wishes to exercise such
+  rights ... a non-exclusive, royalty-free, worldwide right and license under
+  all copyrights and rights of authors: i. to copy, publish, display and
+  distribute IETF Contributions and IETF Documents in full and without
+  modification" (TLP 5.0, effective 2015-03-25,
+  <https://trustee.ietf.org/documents/trust-legal-provisions/tlp-5/>; RFC 6749
+  and RFC 6750, published in 2012, fall under TLP 4.0, effective
+  2009-12-28, <https://trustee.ietf.org/license-info/IETF-TLP-4.htm>, whose
+  section 3.c grants the same in the same words). Each file here is the
+  whole document, unmodified, with
+  every legend and notice it carries, which is what that grant covers. The
+  BSD licence of section 4 covers only Code Components and is not relied on.
+
+| Document | Title | Published | Status | Updated by | sha256 |
+|---|---|---|---|---|---|
+| RFC 6749 | The OAuth 2.0 Authorization Framework | October 2012 | PROPOSED STANDARD | RFC8252, RFC8996, RFC9700 | `f204fc8661d6c92d2ec6e0b54808f961a9ad26e792f57f312d9528335519bd71` |
+| RFC 6750 | The OAuth 2.0 Authorization Framework: Bearer Token Usage | October 2012 | PROPOSED STANDARD | RFC8996, RFC9700 | `9dc385cf4ecdd85024e5a95e447ede9230e11700bf35251906b25b37557d604b` |
+| RFC 7515 | JSON Web Signature (JWS) | May 2015 | PROPOSED STANDARD | none | `ecbf84674118e62526511c1237e1deaa86aada86d25b247623a2a7e04ae62e40` |
+| RFC 7517 | JSON Web Key (JWK) | May 2015 | PROPOSED STANDARD | none | `681c19b92a85068716b7e89c5815aa821bd3f11c755ff1c641b40ae9851bb33c` |
+| RFC 7519 | JSON Web Token (JWT) | May 2015 | PROPOSED STANDARD | RFC7797, RFC8725 | `fecd930e9ccf2276b95c0017c6c4ff5d09352e4bc3c7629946447894e0f97248` |
+| RFC 7523 | JSON Web Token (JWT) Profile for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | none | `ae24f77a8fc4338903c805c6ace38def1f23d40194aea87b123b13c5b3d2d915` |
+| RFC 7617 | The 'Basic' HTTP Authentication Scheme | September 2015 | PROPOSED STANDARD | none | `bc941321da9912fbb1bc92ad1820848ddfd3283dbfbc30f26ea2800bdaf541db` |
+| RFC 7662 | OAuth 2.0 Token Introspection | October 2015 | PROPOSED STANDARD | none | `2b7d688cb849f093e860557ac97e6cddac2556d69a4386561b22cdf97bf13657` |
+| RFC 8414 | OAuth 2.0 Authorization Server Metadata | June 2018 | PROPOSED STANDARD | none | `16c816e4e0fdbffb7e910ff3017867bf39debe9cb7f52f5cbc508a052ed660e8` |
+| RFC 8725 | JSON Web Token Best Current Practices | February 2020 | BEST CURRENT PRACTICE | none | `737b7013a2495dcfd5481cf4c57c87e2455d537c4cec1140c9096a71fcef0812` |
+| RFC 9068 | JSON Web Token (JWT) Profile for OAuth 2.0 Access Tokens | October 2021 | PROPOSED STANDARD | none | `68d3ff3910c0f2340fd7b93b430e00053da845b6eebe095ebef0c8bfda5e14c5` |
+| RFC 9700 | Best Current Practice for OAuth 2.0 Security | January 2025 | BEST CURRENT PRACTICE | none | `9919d061d40a97886ca866b51c69389b6c81c65cd4b979056c14fdbebfcf622a` |
+
+An "Updated by" entry names an RFC that changes the document without
+replacing it; the design reads each update that bears on the resource
+server role (RFC 9700 over RFC 6749 and RFC 6750, RFC 8725 over RFC 7519).
