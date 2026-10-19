@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+# The vendored specification corpora keep their upstream bytes: no line-ending
+# normalization, and collapsed in diffs and language statistics.
+docs/specs/** linguist-vendored -text

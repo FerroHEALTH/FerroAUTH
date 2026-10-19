@@ -1,0 +1,109 @@
+{
+  "index-version" : 2,
+  "files" : [
+    {
+      "filename" : "ImplementationGuide-hl7.fhir.uv.smart-app-launch.json",
+      "resourceType" : "ImplementationGuide",
+      "id" : "hl7.fhir.uv.smart-app-launch",
+      "url" : "http://hl7.org/fhir/smart-app-launch/ImplementationGuide/hl7.fhir.uv.smart-app-launch",
+      "version" : "2.2.0"
+    },
+    {
+      "filename" : "CapabilityStatement-smart-app-state-server.json",
+      "resourceType" : "CapabilityStatement",
+      "id" : "smart-app-state-server",
+      "url" : "http://hl7.org/fhir/smart-app-launch/CapabilityStatement/smart-app-state-server",
+      "version" : "2.2.0",
+      "kind" : "requirements"
+    },
+    {
+      "filename" : "CodeSystem-smart-codes.json",
+      "resourceType" : "CodeSystem",
+      "id" : "smart-codes",
+      "url" : "http://hl7.org/fhir/smart-app-launch/CodeSystem/smart-codes",
+      "version" : "2.2.0",
+      "content" : "complete"
+    },
+    {
+      "filename" : "StructureDefinition-user-access-brand.json",
+      "resourceType" : "StructureDefinition",
+      "id" : "user-access-brand",
+      "url" : "http://hl7.org/fhir/smart-app-launch/StructureDefinition/user-access-brand",
+      "version" : "2.2.0",
+      "kind" : "resource",
+      "type" : "Organization",
+      "derivation" : "constraint"
+    },
+    {
+      "filename" : "StructureDefinition-smart-app-state-basic.json",
+      "resourceType" : "StructureDefinition",
+      "id" : "smart-app-state-basic",
+      "url" : "http://hl7.org/fhir/smart-app-launch/StructureDefinition/smart-app-state-basic",
+      "version" : "2.2.0",
+      "kind" : "resource",
+      "type" : "Basic",
+      "derivation" : "constraint"
+    },
+    {
+      "filename" : "StructureDefinition-task-ehr-launch.json",
+      "resourceType" : "StructureDefinition",
+      "id" : "task-ehr-launch",
+      "url" : "http://hl7.org/fhir/smart-app-launch/StructureDefinition/task-ehr-launch",
+      "version" : "2.2.0",
+      "kind" : "resource",
+      "type" : "Task",
+      "derivation" : "constraint"
+    },
+    {
+      "filename" : "StructureDefinition-task-standalone-launch.json",
+      "resourceType" : "StructureDefinition",
+      "id" : "task-standalone-launch",
+      "url" : "http://hl7.org/fhir/smart-app-launch/StructureDefinition/task-standalone-launch",
+      "version" : "2.2.0",
+      "kind" : "resource",
+      "type" : "Task",
+      "derivation" : "constraint"
+    },
+    {
+      "filename" : "StructureDefinition-user-access-brands-bundle.json",
+      "resourceType" : "StructureDefinition",
+      "id" : "user-access-brands-bundle",
+      "url" : "http://hl7.org/fhir/smart-app-launch/StructureDefinition/user-access-brands-bundle",
+      "version" : "2.2.0",
+      "kind" : "resource",
+      "type" : "Bundle",
+      "derivation" : "constraint"
+    },
+    {
+      "filename" : "StructureDefinition-user-access-endpoint.json",
+      "resourceType" : "StructureDefinition",
+      "id" : "user-access-endpoint",
+      "url" : "http://hl7.org/fhir/smart-app-launch/StructureDefinition/user-access-endpoint",
+      "version" : "2.2.0",
+      "kind" : "resource",
+      "type" : "Endpoint",
+      "derivation" : "constraint"
+    },
+    {
+      "filename" : "ValueSet-smart-launch-info.json",
+      "resourceType" : "ValueSet",
+      "id" : "smart-launch-info",
+      "url" : "http://hl7.org/fhir/smart-app-launch/ValueSet/smart-launch-info",
+      "version" : "2.2.0"
+    },
+    {
+      "filename" : "ValueSet-smart-launch-types.json",
+      "resourceType" : "ValueSet",
+      "id" : "smart-launch-types",
+      "url" : "http://hl7.org/fhir/smart-app-launch/ValueSet/smart-launch-types",
+      "version" : "2.2.0"
+    },
+    {
+      "filename" : "ValueSet-user-access-category.json",
+      "resourceType" : "ValueSet",
+      "id" : "user-access-category",
+      "url" : "http://hl7.org/fhir/smart-app-launch/ValueSet/user-access-category",
+      "version" : "2.2.0"
+    }
+  ]
+}
