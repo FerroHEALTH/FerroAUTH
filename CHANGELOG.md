@@ -11,7 +11,39 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `basic::Credential::password` returns the password of an outgoing Basic
+  credential as `&SecretString`, for an HTTP client that takes the user-id
+  and the password itself; its `Debug` stays redacted (#27).
+- `[auth] product_scope`: the product's own scope, a full URI or a string
+  starting with `__` (SMART App Launch 2.2.0, Scopes and Launch Context,
+  Extensibility), refused at load in any other form and resolved to
+  `Resolved::product_scope` (#30).
+- `scope::is_scope_token` (the RFC 6749 §3.3 scope-token rule) and
+  `scope::is_extension_scope` are public, so a product checks its own
+  scopes with the crate's rule instead of a copy (#30).
+- `[auth] scopes_supported` and `Resolved::smart_options`: the scopes the
+  product honours reach `scopes_supported` of the SMART discovery document,
+  which "the server SHALL support" (SMART App Launch 2.2.0, Conformance,
+  Metadata); each is checked as one scope token at load (#31).
+- `resource::configuration::SMART_CAPABILITIES` and `is_capability`.
+
 ### Changed
+
+- **Breaking for consumers of the audit log:** the audit line's `target`
+  field is renamed `addressed`, and `audit::MAX_TARGET_LENGTH` is
+  `MAX_ADDRESSED_LENGTH`. A JSON formatter that flattens the event fields
+  wrote the field and the `tracing` target under one key, so a reader kept
+  only one. A log query or dashboard that reads `target` for the addressed
+  resource reads `addressed` (#28).
+- `[auth] capabilities` refuses at load a value that SMART App Launch 2.2.0
+  (Conformance, Capabilities) and the SMART on openEHR draft do not define
+  and that is no full URI (#30).
+- `[<lane>.credentials.oauth]` refuses at load an `issuer` outside the RFC
+  8414 §2 URL rule, which was applied only at the first token request, and
+  a `resource` with a fragment (RFC 8707 §2) (#29).
+- `openehr-sdt` 0.0.89, the line FerroEHR v5.0.0 publishes (#22).
 
 - `SECURITY.md`: only the newest release is supported. An earlier release
   receives no fix; upgrade to the newest release, which is free. Cadasto B.V.

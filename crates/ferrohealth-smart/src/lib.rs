@@ -31,9 +31,9 @@
 //!   with a secret or a `private_key_jwt` assertion). A static bearer token
 //!   or an API key is not a mode.
 //! - [`audit`]: one audit line per request, which carries the principal, the
-//!   client, the scheme, the issuer, the method, the route, the target, the
-//!   interaction, the status and the duration, and never the token or any
-//!   content.
+//!   client, the scheme, the issuer, the method, the route, what was
+//!   addressed, the interaction, the status and the duration, and never the
+//!   token or any content.
 //!
 //! [`config`] holds the `[auth]` and `[<lane>.credentials]` sections every
 //! product embeds. The `axum` feature adds [`guard`], the `tower::Layer` that

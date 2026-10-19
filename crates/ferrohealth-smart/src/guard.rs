@@ -8,12 +8,12 @@
 //! interaction it records, what it requires of the caller
 //! ([`Requirement`]), which grammar that requirement is checked against
 //! (SMART on FHIR or SMART on openEHR), the matched route template and the
-//! target name for the audit line. A request without a valid credential
-//! answers `401`, one whose credential grants no permission for the
-//! interaction `403` (RFC 6750 §3.1), and the body of either is the
-//! product's ([`Render`]). What a scope reaches inside a type (the patient
-//! compartment, the launch context's EHR) is checked by the handler, which
-//! reads the [`Access`] the layer leaves on the request.
+//! name of what was addressed, which the audit line records as `addressed`.
+//! A request without a valid credential answers `401`, one whose credential
+//! grants no permission for the interaction `403` (RFC 6750 §3.1), and the
+//! body of either is the product's ([`Render`]). What a scope reaches inside
+//! a type (the patient compartment, the launch context's EHR) is checked by
+//! the handler, which reads the [`Access`] the layer leaves on the request.
 
 use std::future::Future;
 use std::pin::Pin;

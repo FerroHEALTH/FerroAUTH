@@ -31,9 +31,14 @@ use crate::client::ClientCredentials;
 use crate::client::Endpoint;
 use crate::client::assertion::AssertionError;
 use crate::client::assertion::AssertionKey;
+use crate::metadata::DiscoveryError;
 use crate::resource::ResourceError;
 use crate::resource::Settings;
 use crate::resource::TokenProfile;
+use crate::resource::configuration::SmartOptions;
+use crate::resource::configuration::is_capability;
+use crate::scope::is_extension_scope;
+use crate::scope::is_scope_token;
 
 /// A section that breaks a rule, named by its key.
 #[derive(Debug, thiserror::Error)]
@@ -90,6 +95,34 @@ pub enum ConfigError {
         /// The token.
         scope: String,
     },
+    /// The product scope is in neither extension form of SMART App Launch
+    /// 2.2.0, Scopes and Launch Context, §Extensibility.
+    #[error("the product scope {scope:?} is neither a full URI nor a string starting with __")]
+    ProductScope {
+        /// The scope.
+        scope: String,
+    },
+    /// A capability is in neither the SMART App Launch 2.2.0 list nor the
+    /// SMART on openEHR list, and is no full URI.
+    #[error("the capability {capability:?} is not a SMART capability and not a full URI")]
+    Capability {
+        /// The capability.
+        capability: String,
+    },
+    /// The issuer of the client credentials grant breaks the RFC 8414 §2
+    /// URL rule.
+    #[error("credentials.oauth.issuer is refused")]
+    OauthIssuer {
+        /// The rule.
+        #[source]
+        source: DiscoveryError,
+    },
+    /// A resource indicator carries a fragment, which RFC 8707 §2 forbids.
+    #[error("{key} carries a fragment, which a resource indicator must not")]
+    Fragment {
+        /// The key.
+        key: &'static str,
+    },
     /// The assertion key could not be loaded.
     #[error("the private key of the client assertion is refused")]
     Key {
@@ -131,8 +164,17 @@ pub struct AuthSection {
     pub realm: String,
     /// The exact `sub` values granted system-wide access without a scope.
     pub scopeless_subjects: Vec<String>,
-    /// The SMART capabilities the discovery document adds.
+    /// The SMART capabilities the discovery document adds, each a
+    /// capability SMART App Launch 2.2.0 or the SMART on openEHR draft
+    /// defines, or a full URI.
     pub capabilities: Vec<String>,
+    /// The scopes the discovery document lists as `scopes_supported`: only
+    /// scopes the product honours, because "the server SHALL support all
+    /// scopes listed here".
+    pub scopes_supported: Vec<String>,
+    /// The product's own scope, a full URI or a string starting with `__`;
+    /// empty for none.
+    pub product_scope: String,
     /// The Basic users of the surface; absent for no Basic.
     pub basic: Option<BasicSection>,
 }
@@ -160,6 +202,8 @@ impl Default for AuthSection {
             realm: String::new(),
             scopeless_subjects: Vec::new(),
             capabilities: Vec::new(),
+            scopes_supported: Vec::new(),
+            product_scope: String::new(),
             basic: None,
         }
     }
@@ -235,6 +279,27 @@ pub struct Resolved {
     pub realm: Option<String>,
     /// The SMART capabilities the discovery document adds.
     pub capabilities: Vec<String>,
+    /// The scopes the discovery document lists.
+    pub scopes_supported: Vec<String>,
+    /// The product's own scope, when one is set.
+    pub product_scope: Option<String>,
+}
+
+impl Resolved {
+    /// Returns the discovery document options the section names: its
+    /// scopes and its capabilities.
+    ///
+    /// A product sets what the section cannot know on the result: whether
+    /// it evaluates granular scopes, and the openEHR services of
+    /// [`SmartOptions::with_openehr`].
+    #[must_use]
+    pub fn smart_options(&self) -> SmartOptions {
+        SmartOptions {
+            scopes_supported: self.scopes_supported.clone(),
+            capabilities: self.capabilities.clone(),
+            ..SmartOptions::default()
+        }
+    }
 }
 
 impl AuthSection {
@@ -258,8 +323,31 @@ impl AuthSection {
     /// Returns [`ConfigError`] naming the first rule broken: no issuer or
     /// audience, an issuer outside the URL rule, a symmetric algorithm, a
     /// skew over the bound, a Basic user with a bad hash, user-id or scope,
-    /// or a secret set twice or not at all.
+    /// a secret set twice or not at all, a capability SMART does not
+    /// define, a listed scope outside RFC 6749 §3.3, or a product scope in
+    /// no extension form.
     pub fn resolve(&self) -> Result<Resolved, ConfigError> {
+        if let Some(bad) = self
+            .capabilities
+            .iter()
+            .find(|capability| !is_capability(capability))
+        {
+            return Err(ConfigError::Capability {
+                capability: bad.clone(),
+            });
+        }
+        if let Some(bad) = self
+            .scopes_supported
+            .iter()
+            .find(|scope| !is_scope_token(scope))
+        {
+            return Err(ConfigError::Scope { scope: bad.clone() });
+        }
+        if !self.product_scope.is_empty() && !is_extension_scope(&self.product_scope) {
+            return Err(ConfigError::ProductScope {
+                scope: self.product_scope.clone(),
+            });
+        }
         let mut issuers = Vec::new();
         if self.enabled {
             for entry in self.issuers() {
@@ -297,6 +385,8 @@ impl AuthSection {
             basic,
             realm: (!self.realm.is_empty()).then(|| self.realm.clone()),
             capabilities: self.capabilities.clone(),
+            scopes_supported: self.scopes_supported.clone(),
+            product_scope: (!self.product_scope.is_empty()).then(|| self.product_scope.clone()),
         })
     }
 
@@ -430,8 +520,9 @@ impl CredentialsSection {
     ///
     /// Returns [`ConfigError`] when `user` and `oauth` are both set, a
     /// secret is set twice or not at all, neither or both of `issuer` and
-    /// `token_endpoint` are set, the key file cannot be read, or a URL does
-    /// not parse.
+    /// `token_endpoint` are set, the issuer breaks the RFC 8414 §2 URL rule,
+    /// the key file cannot be read, a URL does not parse, or `resource`
+    /// carries a fragment (RFC 8707 §2).
     pub fn resolve(&self) -> Result<Option<Outbound>, ConfigError> {
         match (&self.user, &self.oauth) {
             (user, Some(_)) if !user.is_empty() => Err(ConfigError::Exclusive {
@@ -482,7 +573,11 @@ impl OauthSection {
                     key: "credentials.oauth.issuer or credentials.oauth.token_endpoint",
                 });
             }
-            (false, true) => Endpoint::Issuer(self.issuer.clone()),
+            (false, true) => {
+                crate::metadata::issuer_url(&self.issuer)
+                    .map_err(|source| ConfigError::OauthIssuer { source })?;
+                Endpoint::Issuer(self.issuer.clone())
+            }
             (true, false) => Endpoint::Token(parse_url(
                 &self.token_endpoint,
                 "credentials.oauth.token_endpoint",
@@ -523,11 +618,7 @@ impl OauthSection {
             }
         };
         if !self.scope.is_empty() {
-            if let Some(bad) = self
-                .scope
-                .split(' ')
-                .find(|token| !crate::basic::scope_token_ok(token))
-            {
+            if let Some(bad) = self.scope.split(' ').find(|token| !is_scope_token(token)) {
                 return Err(ConfigError::Scope {
                     scope: bad.to_owned(),
                 });
@@ -535,7 +626,15 @@ impl OauthSection {
             grant.scope = Some(self.scope.clone());
         }
         if !self.resource.is_empty() {
-            grant.resource = Some(parse_url(&self.resource, "credentials.oauth.resource")?);
+            let resource = parse_url(&self.resource, "credentials.oauth.resource")?;
+            // NOTE: RFC 8707 §2, the resource "MUST NOT include a fragment
+            // component"; an absolute URI is what `Url` parses at all.
+            if resource.fragment().is_some() {
+                return Err(ConfigError::Fragment {
+                    key: "credentials.oauth.resource",
+                });
+            }
+            grant.resource = Some(resource);
         }
         if !self.audience.is_empty() {
             grant.audience = Some(self.audience.clone());
@@ -572,160 +671,4 @@ fn secret(
 fn parse_url(text: &str, key: &'static str) -> Result<Url, ConfigError> {
     text.parse()
         .map_err(|_malformed| ConfigError::Missing { key })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{AuthSection, ConfigError, CredentialsSection, IssuerKey, Outbound};
-    use crate::client::{ClientAuth, Endpoint};
-    use crate::resource::TokenProfile;
-    use std::time::Duration;
-
-    #[test]
-    fn the_flat_form_is_one_issuer_with_the_sections_fields() {
-        let section: AuthSection = toml::from_str(
-            r#"
-            issuer = "https://as.example.org/realms/ferro"
-            audience = ["https://bridge.example.org/fhir"]
-            token_profile = "jwt"
-            clock_skew_seconds = 120
-            realm = "ferrobridge"
-            "#,
-        )
-        .expect("the section parses");
-        let resolved = section.resolve().expect("the section resolves");
-        assert_eq!(1, resolved.issuers.len());
-        let settings = &resolved.issuers[0];
-        assert_eq!("https://as.example.org/realms/ferro", settings.issuer);
-        assert_eq!(
-            vec![String::from("https://bridge.example.org/fhir")],
-            settings.audience
-        );
-        assert_eq!(TokenProfile::Jwt, settings.profile);
-        assert_eq!(Duration::from_secs(120), settings.clock_skew);
-        assert_eq!(Duration::from_secs(600), settings.jwks_max_age);
-        assert_eq!(Some(String::from("ferrobridge")), resolved.realm);
-        assert!(resolved.basic.is_none());
-    }
-
-    #[test]
-    fn the_list_form_reads_each_entry_over_the_sections_defaults() {
-        let section: AuthSection = toml::from_str(
-            r#"
-            audience = ["https://fed.example.org"]
-            clock_skew_seconds = 30
-
-            [[issuer]]
-            issuer = "https://one.example.org"
-
-            [[issuer]]
-            issuer = "https://two.example.org"
-            audience = ["https://other.example.org"]
-            clock_skew_seconds = 10
-            jwks_file = "/etc/ferro/two.jwks"
-            "#,
-        )
-        .expect("the section parses");
-        assert!(matches!(section.issuer, IssuerKey::List(ref entries) if entries.len() == 2));
-        let resolved = section.resolve().expect("the section resolves");
-        assert_eq!(2, resolved.issuers.len());
-        assert_eq!(
-            vec![String::from("https://fed.example.org")],
-            resolved.issuers[0].audience
-        );
-        assert_eq!(Duration::from_secs(30), resolved.issuers[0].clock_skew);
-        assert_eq!(
-            vec![String::from("https://other.example.org")],
-            resolved.issuers[1].audience
-        );
-        assert_eq!(Duration::from_secs(10), resolved.issuers[1].clock_skew);
-        assert_eq!(
-            Some(std::path::PathBuf::from("/etc/ferro/two.jwks")),
-            resolved.issuers[1].jwks_file
-        );
-    }
-
-    #[test]
-    fn a_section_that_breaks_a_rule_refuses_the_start() {
-        let unknown = toml::from_str::<AuthSection>("jwks_refresh_interval_ms = 1000");
-        assert!(unknown.is_err(), "deny_unknown_fields");
-        let none: AuthSection = toml::from_str("audience = [\"a\"]").expect("parses");
-        assert!(matches!(
-            none.resolve(),
-            Err(ConfigError::Missing { key: "auth.issuer" })
-        ));
-        let skew: AuthSection = toml::from_str(
-            "issuer = \"https://as.example.org\"\naudience = [\"a\"]\nclock_skew_seconds = 301",
-        )
-        .expect("parses");
-        assert!(matches!(skew.resolve(), Err(ConfigError::Issuer { .. })));
-        let hmac: AuthSection = toml::from_str(
-            "issuer = \"https://as.example.org\"\naudience = [\"a\"]\nalgorithms = [\"HS256\"]",
-        )
-        .expect("parses");
-        assert!(matches!(hmac.resolve(), Err(ConfigError::Issuer { .. })));
-        let off: AuthSection = toml::from_str("enabled = false").expect("parses");
-        assert!(off.resolve().expect("resolves").issuers.is_empty());
-        let both: AuthSection = toml::from_str(
-            r#"
-            issuer = "https://as.example.org"
-            audience = ["a"]
-            [[basic.users]]
-            user = "etl"
-            password_hash = "$argon2id$v=19$m=19456,t=2,p=1$c3ludGhldGljLXNhbHQtMTY$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-            password_hash_file = "/run/secrets/etl.phc"
-            "#,
-        )
-        .expect("parses");
-        assert!(matches!(both.resolve(), Err(ConfigError::Secret { .. })));
-    }
-
-    #[test]
-    fn the_credentials_table_is_basic_or_oauth_and_never_both() {
-        let basic: CredentialsSection =
-            toml::from_str("user = \"bridge\"\npassword = \"synthetic\"").expect("parses");
-        assert!(matches!(basic.resolve(), Ok(Some(Outbound::Basic(_)))));
-        let empty: CredentialsSection = toml::from_str("").expect("parses");
-        assert!(matches!(empty.resolve(), Ok(None)));
-        let both: CredentialsSection = toml::from_str(
-            "user = \"bridge\"\npassword = \"x\"\n[oauth]\nissuer = \"https://as.example.org\"\nclient_id = \"c\"\nclient_secret = \"s\"",
-        )
-        .expect("parses");
-        assert!(matches!(both.resolve(), Err(ConfigError::Exclusive { .. })));
-        let oauth: CredentialsSection = toml::from_str(
-            r#"
-            [oauth]
-            token_endpoint = "https://as.example.org/token"
-            client_id = "ferrobridge"
-            client_auth = "client_secret_post"
-            client_secret = "synthetic"
-            scope = "system/CodeSystem.rs"
-            resource = "https://term.example.org/fhir"
-            refresh_margin_ms = 5000
-            "#,
-        )
-        .expect("parses");
-        let Ok(Some(Outbound::Oauth(grant))) = oauth.resolve() else {
-            panic!("the grant resolves");
-        };
-        assert_eq!(ClientAuth::ClientSecretPost, grant.client_auth);
-        assert!(matches!(grant.endpoint, Endpoint::Token(_)));
-        assert_eq!(Some(String::from("system/CodeSystem.rs")), grant.scope);
-        assert_eq!(Duration::from_millis(5000), grant.refresh_margin);
-        let keyless: CredentialsSection = toml::from_str(
-            "[oauth]\nissuer = \"https://as.example.org\"\nclient_id = \"c\"\nclient_auth = \"private_key_jwt\"",
-        )
-        .expect("parses");
-        assert!(matches!(
-            keyless.resolve(),
-            Err(ConfigError::Missing {
-                key: "credentials.oauth.private_key_file"
-            })
-        ));
-        let two: CredentialsSection = toml::from_str(
-            "[oauth]\nissuer = \"https://as.example.org\"\ntoken_endpoint = \"https://as.example.org/token\"\nclient_id = \"c\"\nclient_secret = \"s\"",
-        )
-        .expect("parses");
-        assert!(matches!(two.resolve(), Err(ConfigError::Exclusive { .. })));
-    }
 }

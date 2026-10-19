@@ -38,7 +38,9 @@ ferrohealth-smart = { version = "=0.1.0", features = ["axum", "openehr"] }
   `client_secret_basic`, `client_secret_post` or `private_key_jwt`, and
   `call`, which renews the token once when the upstream answers `401`.
 - **`audit`**: one line per request under the `tracing` target
-  `ferrohealth_smart::audit`, with a fixed field set and never the token.
+  `ferrohealth_smart::audit`, with a fixed field set and never the token;
+  what a request addressed is the `addressed` field, so a JSON log that
+  flattens the fields keeps the `tracing` target beside it.
 - **`refusal`**: the status and `WWW-Authenticate` challenge of every
   refusal; the body is the product's.
 - **`config`**: the `[auth]` and `[<lane>.credentials]` sections a product

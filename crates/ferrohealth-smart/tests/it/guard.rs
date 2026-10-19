@@ -312,6 +312,7 @@ async fn a_valid_token_reaches_the_handler_and_is_audited_with_the_fixed_fields(
     let line = case.last_line();
     assert_eq!(
         vec![
+            "addressed",
             "at",
             "client",
             "duration_ms",
@@ -323,7 +324,6 @@ async fn a_valid_token_reaches_the_handler_and_is_audited_with_the_fixed_fields(
             "request_id",
             "route",
             "status",
-            "target",
             "via",
         ],
         line.names(),
@@ -335,7 +335,7 @@ async fn a_valid_token_reaches_the_handler_and_is_audited_with_the_fixed_fields(
     assert_eq!(case.issuer.uri(), line.field("issuer"));
     assert_eq!("GET", line.field("method"));
     assert_eq!("/fhir/{resource_type}/{id}", line.field("route"));
-    assert_eq!("Condition/c-1", line.field("target"));
+    assert_eq!("Condition/c-1", line.field("addressed"));
     assert_eq!("read", line.field("interaction"));
     assert_eq!("200", line.field("status"));
     assert_eq!("req-1", line.field("request_id"));
@@ -508,7 +508,7 @@ async fn either_a_permission_or_the_products_scope_admits() -> Result<(), Box<dy
             .await?;
         assert_eq!(expected, status, "{scope}");
     }
-    assert_eq!("Condition/$check", case.last_line().field("target"));
+    assert_eq!("Condition/$check", case.last_line().field("addressed"));
     Ok(())
 }
 
