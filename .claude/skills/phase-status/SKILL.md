@@ -51,13 +51,9 @@ cd "${CLAUDE_PROJECT_DIR}" && git status --short | head -40 && echo "---" && git
    uncommitted files, last commits. Flag uncommitted work that looks finished;
    never leave finished work sitting unmerged. Flag an open pull request
    without auto-merge armed (`gh pr list --json number,autoMergeRequest`).
-3. If the user asks how things look publicly, `scripts/gh/project.sh board`
-   prints the public roadmap board grouped by Status, a presentation view over
-   the same issues rather than a second source of truth
-   (`.claude/rules/project-board.md`); the issue list above stays the working
-   ground truth. Flag any `In Progress` item nobody is working on (it should be
-   parked back to `todo`). If the board does not exist yet, the command fails
-   loud; note that and continue.
+3. If the user asks how things look publicly, point at the milestone page:
+   FerroSMART has no roadmap board (`.claude/rules/project-board.md`), so the
+   milestones and the issue list are the public view.
 4. **Do not** modify any issue or make any commit; this is a read-only status
    check. If the user wants the next task turned into a work plan, point them
    at `/next-task` instead.
