@@ -12,7 +12,10 @@ The release pull request bumps the workspace version, the changelog section
 and the lock. After it merges, the tag `vX.Y.Z` is created signed
 (`git tag -s`) on that merge commit and pushed; `release.yml` builds the
 draft, attests the `.crate`, publishes the release, and its `crates` leg
-pauses on the `crates-io` environment until the owner approves.
+pauses on the `crates-io` environment until the owner approves. `plan`
+refuses the tag while the milestone titled as it is missing or holds an open
+item, and the last job closes the milestone once every leg succeeded
+([[release-closes-milestone]]).
 
 **How to apply:** never move or delete a pushed tag (the `release-tags`
 ruleset refuses it); a bad cut is fixed by a new patch version. Tell the owner

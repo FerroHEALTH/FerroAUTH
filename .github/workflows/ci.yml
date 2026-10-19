@@ -88,6 +88,8 @@ jobs:
           tool: shellcheck@0.11.0
       - name: Every tracked shell program is clean at severity=style
         run: git ls-files -z '*.sh' | xargs -0 -r shellcheck --severity=style
+      - name: The release milestone script refuses open items and closes only after every leg
+        run: bash scripts/release/milestone.sh --self-test
 
   comment-style:
     name: comment-style
