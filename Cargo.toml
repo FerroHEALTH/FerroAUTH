@@ -35,7 +35,7 @@ base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 jiff = { version = "0.2.38", default-features = false, features = ["std"] }
 # The SMART on openEHR scope grammar, the one parser every product reads it
 # with; without its default features it depends on nothing.
-openehr-sdt = { version = "0.0.87", default-features = false }
+openehr-sdt = { version = "0.0.89", default-features = false }
 # The framework integrations, each behind its feature.
 tower = { version = "0.5.3", default-features = false }
 axum = { version = "0.8.9", default-features = false }
@@ -43,10 +43,12 @@ axum = { version = "0.8.9", default-features = false }
 # assertion, the crypto provider jsonwebtoken already links.
 aws-lc-rs = { version = "1.18.2", default-features = false, features = ["aws-lc-sys"] }
 # Test-only: the stub authorization server, the body reader of the
-# framework tests, and the TOML reader of the configuration cases.
+# framework tests, the TOML reader of the configuration cases, and the JSON
+# formatter the audit line is read back through.
 wiremock = "0.6.5"
 http-body-util = "0.1.5"
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "json"] }
 
 # The reliability bar (no specification governs it: our own design), the
 # FerroHEALTH family's lint set as FerroBRIDGE, FerroFED and FerroUI carry it.

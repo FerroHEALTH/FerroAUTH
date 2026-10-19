@@ -303,9 +303,43 @@ fn grant(token: &str, known: &impl Fn(&str) -> bool) -> Option<Grant> {
     })
 }
 
+/// Returns whether `token` is one scope token of RFC 6749 §3.3,
+/// `1*( %x21 / %x23-5B / %x5D-7E )`: not empty, no space, no quote and no
+/// backslash.
+#[must_use]
+pub fn is_scope_token(token: &str) -> bool {
+    !token.is_empty()
+        && token
+            .bytes()
+            .all(|byte| matches!(byte, 0x21 | 0x23..=0x5B | 0x5D..=0x7E))
+}
+
+/// Returns whether `scope` is a scope token in an extension form of SMART
+/// App Launch 2.2.0, Scopes and Launch Context, §Extensibility: "a full URI
+/// that you control", or "any string starting with `__`".
+///
+/// A product names its own scope in one of these forms, so it can never
+/// collide with a scope SMART defines.
+#[must_use]
+pub fn is_extension_scope(scope: &str) -> bool {
+    let underscored = scope.len() > 2 && scope.starts_with("__");
+    is_scope_token(scope) && (underscored || is_full_uri(scope))
+}
+
+/// Returns whether `text` is an absolute URI with an authority, the reading
+/// of SMART's "full URI that you control" this crate applies.
+///
+/// A URI with a host names a namespace someone controls; `scheme:opaque`
+/// names none (no specification governs the reading: our own design).
+pub(crate) fn is_full_uri(text: &str) -> bool {
+    // NOTE: text that does not parse as a URL is legitimately no URI form,
+    // so the failed parse is the answer.
+    url::Url::parse(text).is_ok_and(|url| url.has_host())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Context, Permission, Reach, Scopes};
+    use super::{Context, Permission, Reach, Scopes, is_extension_scope, is_scope_token};
 
     #[test]
     fn a_v2_scope_grants_exactly_its_letters() {
@@ -421,5 +455,35 @@ mod tests {
     fn a_letter_names_itself() {
         assert_eq!('c', Permission::Create.letter());
         assert_eq!('s', Permission::Search.letter());
+    }
+
+    #[test]
+    fn a_scope_token_is_the_rfc_6749_character_set() {
+        for token in ["system/*.rs", "openid", "__ferro.operator", "!"] {
+            assert!(is_scope_token(token), "{token}");
+        }
+        for token in ["", "two words", "quo\"te", "back\\slash", "caf\u{e9}"] {
+            assert!(!is_scope_token(token), "{token}");
+        }
+    }
+
+    #[test]
+    fn an_extension_scope_is_a_full_uri_or_starts_with_two_underscores() {
+        for scope in [
+            "__ferrobridge.operator",
+            "https://bridge.example.org/scope/operator",
+        ] {
+            assert!(is_extension_scope(scope), "{scope}");
+        }
+        for scope in [
+            "ferrobridge.operator",
+            "bridge:operator",
+            "__",
+            "__two words",
+            "",
+            "system/*.rs",
+        ] {
+            assert!(!is_extension_scope(scope), "{scope}");
+        }
     }
 }

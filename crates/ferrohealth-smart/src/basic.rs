@@ -27,6 +27,8 @@ use http::HeaderValue;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
 
+use crate::scope::is_scope_token;
+
 /// The RFC 4648 §4 decoder of the RFC 7617 §2 credential, padded only:
 /// RFC 7617 defers to RFC 4648 §4, and RFC 4648 §3.2 requires the pad
 /// characters "unless the specification referring to this document
@@ -159,7 +161,7 @@ impl PasswordStore {
         if let Some(bad) = scope
             .split(' ')
             .filter(|token| !token.is_empty())
-            .find(|token| !scope_token_ok(token))
+            .find(|token| !is_scope_token(token))
         {
             return Err(StoreError::Scope {
                 scope: bad.to_owned(),
@@ -256,15 +258,6 @@ fn user_id_ok(username: &str) -> bool {
     !username.is_empty() && !username.chars().any(|c| c == ':' || c.is_control())
 }
 
-/// Returns whether `token` is inside the RFC 6749 §3.3 scope-token character
-/// set, `%x21 / %x23-5B / %x5D-7E`, and not empty.
-pub(crate) fn scope_token_ok(token: &str) -> bool {
-    !token.is_empty()
-        && token.bytes().all(|byte| {
-            byte == 0x21 || (0x23..=0x5B).contains(&byte) || (0x5D..=0x7E).contains(&byte)
-        })
-}
-
 /// A credential sent to an upstream with HTTP Basic.
 ///
 /// The `Debug` rendering never carries the password.
@@ -305,6 +298,17 @@ impl Credential {
         &self.username
     }
 
+    /// Returns the password, still behind [`SecretString`], for an HTTP
+    /// client that takes the user-id and the password itself rather than
+    /// the field value of [`Credential::header_value`].
+    ///
+    /// The value is read only through [`ExposeSecret`] at the call site, and
+    /// its `Debug` rendering stays redacted.
+    #[must_use]
+    pub const fn password(&self) -> &SecretString {
+        &self.password
+    }
+
     /// Returns the `Authorization` field value of the credential (RFC 7617
     /// §2, UTF-8 then base64), marked sensitive so a header `Debug`
     /// rendering never shows it.
@@ -328,7 +332,7 @@ mod tests {
     use argon2::{Argon2, PasswordHash};
     use base64::Engine as _;
     use http::HeaderValue;
-    use secrecy::SecretString;
+    use secrecy::{ExposeSecret, SecretString};
 
     fn hash(password: &str) -> SecretString {
         // A fixed salt keeps the test hermetic without a random source.
@@ -472,6 +476,8 @@ mod tests {
         assert!(value.is_sensitive());
         assert!(!format!("{credential:?}").contains("synthetic-pw"));
         assert_eq!("ferro", credential.username());
+        assert_eq!("synthetic-pw", credential.password().expose_secret());
+        assert!(!format!("{:?}", credential.password()).contains("synthetic-pw"));
         assert!(Credential::new("fer:ro", SecretString::from("x")).is_err());
         let utf8 = Credential::new("Müller", SecretString::from("pässwörd")).expect("UTF-8");
         assert_eq!(

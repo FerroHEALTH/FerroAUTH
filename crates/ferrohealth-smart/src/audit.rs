@@ -4,8 +4,8 @@
 //! The one audit line of a request.
 //!
 //! It names who called (the principal, the client, the scheme and the
-//! issuer), what was asked (the method, the matched route, the target and
-//! the interaction) and how it ended (the status and the duration). It
+//! issuer), what was asked (the method, the matched route, what was
+//! addressed and the interaction) and how it ended (the status and the duration). It
 //! never carries the token, a claim beyond those three, a scope, a query
 //! string, a header or a body. No specification governs the line: our own
 //! design, shaped so it can serve as the access record the products keep
@@ -23,10 +23,14 @@ use crate::resource::Access;
 use crate::resource::Via;
 
 /// The audit line's `tracing` target.
+///
+/// No field of the line is named `target`, `level` or after any other key a
+/// `tracing` formatter writes from the event's metadata, so a JSON log that
+/// flattens the fields keeps every one of them.
 pub const AUDIT_TARGET: &str = "ferrohealth_smart::audit";
 
-/// The longest a logged target may be.
-pub const MAX_TARGET_LENGTH: usize = 64;
+/// The longest the logged `addressed` value may be.
+pub const MAX_ADDRESSED_LENGTH: usize = 64;
 
 /// Who a line records as the caller.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,7 +83,7 @@ pub struct AuditLine<'a> {
     /// The matched route template, never the raw path.
     route: Option<&'a str>,
     /// The product's name for what was addressed.
-    target: Option<&'a str>,
+    addressed: Option<&'a str>,
     /// The interaction, by the name the product records (the FHIR R4
     /// restful interaction codes on a FHIR surface, an ITS-REST operation id
     /// on an openEHR surface).
@@ -103,7 +107,7 @@ impl<'a> AuditLine<'a> {
             actor: Actor::Unauthenticated,
             method,
             route: None,
-            target: None,
+            addressed: None,
             interaction,
             status,
             request_id: None,
@@ -126,12 +130,12 @@ impl<'a> AuditLine<'a> {
         self
     }
 
-    /// Returns this line naming the matched `route` template and the
-    /// `target` addressed.
+    /// Returns this line naming the matched `route` template and what was
+    /// `addressed`.
     #[must_use]
-    pub const fn on(mut self, route: Option<&'a str>, target: Option<&'a str>) -> Self {
+    pub const fn on(mut self, route: Option<&'a str>, addressed: Option<&'a str>) -> Self {
         self.route = route;
-        self.target = target;
+        self.addressed = addressed;
         self
     }
 
@@ -166,11 +170,11 @@ impl<'a> AuditLine<'a> {
             Actor::Open => ("-", "-", "open", "-"),
             Actor::Unauthenticated => ("unauthenticated", "-", "none", "-"),
         };
-        let target: String = self
-            .target
+        let addressed: String = self
+            .addressed
             .unwrap_or("-")
             .chars()
-            .take(MAX_TARGET_LENGTH)
+            .take(MAX_ADDRESSED_LENGTH)
             .collect();
         let at = self.at.strftime("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
         let duration_ms = self.duration.as_secs_f64() * 1000.0;
@@ -185,7 +189,7 @@ impl<'a> AuditLine<'a> {
                 issuer,
                 method = self.method.as_str(),
                 route = self.route.unwrap_or("-"),
-                target,
+                addressed,
                 interaction = self.interaction,
                 status = self.status.as_u16(),
                 duration_ms,
@@ -204,7 +208,7 @@ impl<'a> AuditLine<'a> {
             issuer,
             method = self.method.as_str(),
             route = self.route.unwrap_or("-"),
-            target,
+            addressed,
             interaction = self.interaction,
             status = self.status.as_u16(),
             duration_ms,

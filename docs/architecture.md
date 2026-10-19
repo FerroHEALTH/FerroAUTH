@@ -467,11 +467,16 @@ from it, so the four products' records read the same:
 | `issuer` | the issuer that signed the token, `-` otherwise |
 | `method` | the HTTP method |
 | `route` | the matched route template, never the raw path |
-| `target` | the product's name for what was addressed (`Condition/c-1`, `ehr/…/composition`), at most 64 characters, `-` when none |
+| `addressed` | the product's name for what was addressed (`Condition/c-1`, `ehr/…/composition`), at most 64 characters, `-` when none |
 | `interaction` | the product's name for the interaction (`read`, `search-type`, an ITS-REST operation id) |
 | `status` | the response status |
 | `duration_ms` | the time to the response |
 | `entry` | the position of a batch or transaction entry, absent on a request line |
+
+No field is named `target`, `level` or after another key a `tracing`
+formatter writes from the event's metadata, so a JSON log that flattens the
+event fields beside the metadata keeps all thirteen; the field was `target`
+in 0.1.0 and is `addressed` from 0.1.1.
 
 Never on the line: the token or any part of it, a claim beyond `sub`,
 `client_id` and `iss`, a scope string, a query string, a header, a body, a
@@ -541,13 +546,20 @@ mounts it. The rules the builder keeps:
   value kept only when the issuer advertises it, because those are "the
   options" the page defines and the document is the product's own assertion
   about itself.
-- `scopes_supported` lists only scopes the product serves: "The server SHALL
-  support all scopes listed here".
+- `scopes_supported` lists only scopes the product honours: "The server SHALL
+  support all scopes listed here". It is RECOMMENDED, so the product fills
+  it from `[auth] scopes_supported` (`Resolved::smart_options`), and the
+  builder never copies the issuer's own list, which names scopes the
+  issuer grants and the resource server may not enforce.
 - `capabilities` holds what the library enforces for every product
   (`permission-v1`, `permission-patient`, `permission-user`; `permission-v2`
   only when the product supplies a constraint evaluator), the client types
   and launch modes the issuer's metadata supports, and what the product adds
-  by configuration.
+  by configuration. A configured capability is one the page lists, one the
+  SMART on openEHR draft lists (`soe master04`, Capabilities), or a full
+  URI: "Simple, non-URI capability strings are reserved for definition in
+  SMART App Launch", and other capabilities are "represented with full
+  URIs" (`smart conformance`, Capabilities).
 
 The route stays public: a client reads it before it holds a token. For an
 openEHR surface the builder adds the `services` map and the openEHR
@@ -680,6 +692,8 @@ timeout_ms = 10000                   # one call to the authorization server
 realm = "ferrobridge"                # the product's default
 scopeless_subjects = []              # exact `sub` values granted system-wide access without a scope
 capabilities = []                    # SMART capabilities the discovery document adds
+scopes_supported = []                # the scopes the product honours, listed in the discovery document
+product_scope = ""                   # the product's own scope: `__name` or a full URI
 
 [[auth.basic.users]]                 # absent: no Basic on this surface
 user = "etl"
@@ -723,8 +737,16 @@ parameter without a specification, both sent only when set (3.5).
 Validation at load, refusing the start: the issuer URL rule of 3.1, at least
 one audience, at least one algorithm and none symmetric, the skew bound, every
 Basic user with a parseable Argon2id PHC string and a non-empty user-id
-without a colon, every scope token inside the `rfc6749 §3.3` character set,
-and exactly one of each secret and its `_file`.
+without a colon, every scope token inside the `rfc6749 §3.3` character set
+(`scope::is_scope_token`, public so a product checks its own scopes with
+the same rule), every capability as 3.8 describes, a product scope in one
+of the two extension forms of `smart scopes-and-launch-context`
+(Extensibility: "a full URI that you control" or "any string starting with
+`__`", `scope::is_extension_scope`), and exactly one of each secret and its
+`_file`. An outgoing `oauth` table is held to the same issuer URL rule at
+load, and its `resource` to `rfc8707 §2` ("The URI MUST NOT include a
+fragment component"), so a bad grant refuses the start rather than the
+first token request.
 
 ## 5. How a product integrates
 

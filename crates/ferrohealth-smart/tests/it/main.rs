@@ -14,8 +14,10 @@
     reason = "a test support function fails the case the way a test body does"
 )]
 
+mod audit;
 mod basic;
 mod client;
+mod config;
 #[cfg(feature = "axum")]
 mod guard;
 #[cfg(feature = "openehr")]

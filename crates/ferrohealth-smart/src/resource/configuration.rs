@@ -49,6 +49,53 @@ pub const OPENEHR_CAPABILITIES: [&str; 3] = [
     "launch-base64-json",
 ];
 
+/// The capabilities SMART App Launch 2.2.0 defines (Conformance,
+/// §Capabilities), which reserves "simple, non-URI capability strings" for
+/// itself.
+pub const SMART_CAPABILITIES: [&str; 20] = [
+    "launch-ehr",
+    "launch-standalone",
+    "authorize-post",
+    "client-public",
+    "client-confidential-symmetric",
+    "client-confidential-asymmetric",
+    "sso-openid-connect",
+    "context-banner",
+    "context-style",
+    "context-ehr-patient",
+    "context-ehr-encounter",
+    "context-standalone-patient",
+    "context-standalone-encounter",
+    "permission-offline",
+    "permission-online",
+    "permission-patient",
+    "permission-user",
+    "permission-v1",
+    "permission-v2",
+    "smart-app-state",
+];
+
+/// The experimental episode context of a SMART on openEHR platform
+/// (`master04 §Capabilities`), which a product adds only by configuration.
+pub const OPENEHR_EPISODE_CAPABILITY: &str = "context-openehr-episode";
+
+/// Returns whether `capability` is one a discovery document may list: a
+/// capability of [`SMART_CAPABILITIES`], of the SMART on openEHR draft, or
+/// a full URI.
+///
+/// "Additional capabilities MAY be listed by a server or defined by other
+/// implementation guides, as long as these capabilities are represented
+/// with full URIs" (SMART App Launch 2.2.0, Conformance, §Capabilities);
+/// the SMART on openEHR draft is the one other guide whose simple strings
+/// the crate admits.
+#[must_use]
+pub fn is_capability(capability: &str) -> bool {
+    SMART_CAPABILITIES.contains(&capability)
+        || OPENEHR_CAPABILITIES.contains(&capability)
+        || capability == OPENEHR_EPISODE_CAPABILITY
+        || (crate::scope::is_scope_token(capability) && crate::scope::is_full_uri(capability))
+}
+
 /// The key of the openEHR REST API in the `services` map, required of a
 /// SMART on openEHR platform (`master04 §Services`).
 pub const OPENEHR_REST_SERVICE: &str = "org.openehr.rest";
@@ -60,8 +107,15 @@ pub const FHIR_REST_SERVICE: &str = "org.fhir.rest";
 /// What the product adds to the discovery document.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SmartOptions {
-    /// The scopes the product serves, which "the server SHALL support";
+    /// The scopes the product honours, listed as `scopes_supported`;
     /// omitted when empty.
+    ///
+    /// The member is RECOMMENDED, and "the server SHALL support all scopes
+    /// listed here" (SMART App Launch 2.2.0, Conformance, §Metadata), so a
+    /// resource server lists only scopes its route table enforces, never
+    /// the issuer's own `scopes_supported`.
+    /// [`crate::config::Resolved::smart_options`] fills it from `[auth]
+    /// scopes_supported`.
     pub scopes_supported: Vec<String>,
     /// The capabilities the product adds to the enforced ones (`launch-ehr`,
     /// `context-ehr-patient`, `sso-openid-connect`).
@@ -237,7 +291,7 @@ fn capabilities<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{SmartOptions, document};
+    use super::{SmartOptions, document, is_capability};
     use crate::metadata::ServerMetadata;
 
     #[test]
@@ -322,5 +376,21 @@ mod tests {
             document["capabilities"]
         );
         assert!(document.get("scopes_supported").is_none());
+    }
+
+    #[test]
+    fn a_capability_is_defined_by_smart_or_a_full_uri() {
+        for capability in [
+            "launch-ehr",
+            "smart-app-state",
+            "context-openehr-ehr",
+            "context-openehr-episode",
+            "https://example.org/capability/x",
+        ] {
+            assert!(is_capability(capability), "{capability}");
+        }
+        for capability in ["launch-anything", "x:y", "", "https://example.org/a b"] {
+            assert!(!is_capability(capability), "{capability}");
+        }
     }
 }
