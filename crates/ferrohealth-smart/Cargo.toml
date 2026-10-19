@@ -1,0 +1,53 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+[package]
+name = "ferrohealth-smart"
+description = "The shared SMART App Launch and OAuth 2.0 resource-server crate of the FerroHEALTH products: token validation against the authorization server's keys, SMART v2 scopes and the patient compartment, Basic and client-credentials machine authentication, and the audit line"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = true
+readme = "README.md"
+keywords = ["smart-on-fhir", "oauth2", "jwt", "resource-server", "fhir"]
+categories = ["authentication", "web-programming"]
+include = ["src/**", "tests/**", "README.md"]
+
+[features]
+default = []
+# The tower Layer that guards an axum router (the credential check, the
+# scope check and the audit line in front of every route), the extractor of
+# the caller it admitted, and the default renderer of a refusal.
+axum = ["dep:axum", "dep:tower"]
+
+[dependencies]
+argon2.workspace = true
+aws-lc-rs.workspace = true
+base64.workspace = true
+http.workspace = true
+jiff.workspace = true
+jsonwebtoken.workspace = true
+reqwest.workspace = true
+secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "rt", "fs"] }
+tracing.workspace = true
+url.workspace = true
+tower = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+
+[dev-dependencies]
+http-body-util.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+toml.workspace = true
+tower = { workspace = true, features = ["util"] }
+axum = { workspace = true, features = ["http1", "json", "matched-path", "tokio"] }
+wiremock.workspace = true
+
+[lints]
+workspace = true
