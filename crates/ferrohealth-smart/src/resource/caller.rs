@@ -41,6 +41,8 @@ impl Caller {
             via: Via::Bearer,
             issuer: None,
             claims: serde_json::Map::new(),
+            cached: false,
+            extensions: http::Extensions::new(),
         }
     }
 
@@ -75,6 +77,81 @@ impl Caller {
     pub fn with_claims(mut self, claims: serde_json::Map<String, serde_json::Value>) -> Self {
         self.claims = claims;
         self
+    }
+
+    /// Returns this caller carrying `value`, which a handler reads with
+    /// [`Caller::extension`].
+    ///
+    /// A product's own [`Verifier`](crate::resource::Verifier) attaches its
+    /// per-issuer policy this way; the crate reads no extension (no
+    /// specification governs this: our own design).
+    #[must_use]
+    pub fn with_extension<T: Clone + Send + Sync + 'static>(mut self, value: T) -> Self {
+        self.extensions.insert(value);
+        self
+    }
+
+    /// Returns this caller carrying every value of `extensions` beside its
+    /// own.
+    pub(crate) fn with_extensions(mut self, extensions: http::Extensions) -> Self {
+        self.extensions.extend(extensions);
+        self
+    }
+
+    /// Returns this caller marked as admitted from the verified-credential
+    /// cache, or not.
+    #[must_use]
+    pub const fn with_cached(mut self, cached: bool) -> Self {
+        self.cached = cached;
+        self
+    }
+
+    /// Returns the product's value of type `T`, when its resource server or
+    /// verifier attached one.
+    #[must_use]
+    pub fn extension<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.extensions.get::<T>()
+    }
+
+    /// Returns whether the caller's Basic credential was admitted from the
+    /// verified-credential cache (`[auth.basic] cache_ttl_seconds`) without
+    /// the key derivation.
+    ///
+    /// A bearer caller, and a Basic credential verified on this request,
+    /// are `false`, so a product that records each fresh authentication
+    /// records it once per cache lifetime (no specification governs the
+    /// cache: our own design).
+    #[must_use]
+    pub const fn cached(&self) -> bool {
+        self.cached
+    }
+
+    /// Returns the Basic user-id when the caller authenticated with HTTP
+    /// Basic (RFC 7617) and its user-id is one of `users`.
+    ///
+    /// A bearer caller never matches, whatever its subject, the scheme rule
+    /// of [`Requirement::Client`](crate::guard::Requirement) (no
+    /// specification governs the list: our own design).
+    #[must_use]
+    pub fn basic_user_in<S: AsRef<str>>(&self, users: &[S]) -> Option<&str> {
+        (self.via == Via::Basic && users.iter().any(|user| user.as_ref() == self.subject))
+            .then_some(self.subject.as_str())
+    }
+
+    /// Returns the `acr` claim, the authentication context class the
+    /// authentication event satisfied (RFC 9068 §2.2.1; RFC 9470 §6).
+    #[must_use]
+    pub fn acr(&self) -> Option<&str> {
+        self.claims.get("acr").and_then(serde_json::Value::as_str)
+    }
+
+    /// Returns the `auth_time` claim, when the authentication event took
+    /// place, in seconds since the epoch (RFC 9068 §2.2.1; RFC 9470 §6).
+    #[must_use]
+    pub fn auth_time(&self) -> Option<i64> {
+        self.claims
+            .get("auth_time")
+            .and_then(serde_json::Value::as_i64)
     }
 
     /// Returns the subject: the token's `sub` or the Basic user-id.
@@ -266,6 +343,21 @@ impl Access {
         self.caller().is_some_and(|caller| caller.has_scope(scope))
     }
 
+    /// Returns the product's value of type `T` on the caller, or `None` on
+    /// an open surface or when none was attached.
+    #[must_use]
+    pub fn extension<T: Send + Sync + 'static>(&self) -> Option<&T> {
+        self.caller().and_then(Caller::extension::<T>)
+    }
+
+    /// Returns the Basic user-id when the caller authenticated with HTTP
+    /// Basic and its user-id is one of `users`; an open surface has no
+    /// caller and matches none.
+    #[must_use]
+    pub fn basic_user_in<S: AsRef<str>>(&self, users: &[S]) -> Option<&str> {
+        self.caller().and_then(|caller| caller.basic_user_in(users))
+    }
+
     /// Returns the caller's claims, or `None` on an open surface.
     #[must_use]
     pub fn claims(&self) -> Option<&serde_json::Map<String, serde_json::Value>> {
@@ -306,7 +398,7 @@ impl Access {
 
 #[cfg(test)]
 mod tests {
-    use crate::resource::{Caller, Compartment, Via};
+    use crate::resource::{Access, Caller, Compartment, Via};
     use crate::scope::Permission;
 
     #[test]
@@ -363,6 +455,52 @@ mod tests {
             Some(Compartment::Patient(String::from("123"))),
             with.reach(Permission::Read, "Condition")
         );
+    }
+
+    #[test]
+    fn a_basic_user_matches_its_list_and_a_bearer_subject_never_does() {
+        let basic = Caller::basic(String::from("scrape"), "");
+        assert_eq!(Some("scrape"), basic.basic_user_in(&["feed", "scrape"]));
+        assert_eq!(None, basic.basic_user_in(&["feed"]), "an unlisted user");
+        let bearer = Caller::new(String::from("scrape"), None, "", None, false);
+        assert_eq!(
+            None,
+            bearer.basic_user_in(&["scrape"]),
+            "a bearer subject never passes for a Basic user-id"
+        );
+        assert_eq!(None, Access::Open.basic_user_in(&["scrape"]));
+        assert_eq!(
+            Some("scrape"),
+            Access::Caller(std::sync::Arc::new(basic)).basic_user_in(&[String::from("scrape")])
+        );
+    }
+
+    #[test]
+    fn an_extension_rides_on_the_caller_and_equality_ignores_it() {
+        #[derive(Debug, Clone, PartialEq)]
+        struct Policy(&'static str);
+        let plain = Caller::new(String::from("svc"), None, "", None, false);
+        let extended = plain.clone().with_extension(Policy("issuer-a"));
+        assert_eq!(Some(&Policy("issuer-a")), extended.extension::<Policy>());
+        assert_eq!(None, plain.extension::<Policy>());
+        assert_eq!(plain, extended, "equality ignores the extensions");
+        let access = Access::Caller(std::sync::Arc::new(extended));
+        assert_eq!(Some(&Policy("issuer-a")), access.extension::<Policy>());
+        assert_eq!(None, Access::Open.extension::<Policy>());
+        assert!(!plain.cached(), "a bearer caller is never from the cache");
+    }
+
+    #[test]
+    fn acr_and_auth_time_are_read_from_the_claims() {
+        let mut claims = serde_json::Map::new();
+        claims.insert(String::from("acr"), serde_json::json!("urn:acr:high"));
+        claims.insert(String::from("auth_time"), serde_json::json!(1_700_000_000));
+        let caller = Caller::new(String::from("svc"), None, "", None, false).with_claims(claims);
+        assert_eq!(Some("urn:acr:high"), caller.acr());
+        assert_eq!(Some(1_700_000_000), caller.auth_time());
+        let bare = Caller::new(String::from("svc"), None, "", None, false);
+        assert_eq!(None, bare.acr());
+        assert_eq!(None, bare.auth_time());
     }
 
     #[test]

@@ -28,9 +28,11 @@ use url::Url;
 use crate::basic::Credential;
 use crate::basic::PasswordStore;
 use crate::basic::StoreError;
+use crate::client::AssertionAudience;
 use crate::client::ClientAuth;
 use crate::client::ClientCredentials;
 use crate::client::Endpoint;
+use crate::client::Tls;
 use crate::client::assertion::AssertionError;
 use crate::client::assertion::AssertionKey;
 use crate::metadata::DiscoveryError;
@@ -131,6 +133,14 @@ pub enum ConfigError {
         /// Why.
         #[source]
         source: AssertionError,
+    },
+    /// The trust roots or the client certificate of the token endpoint
+    /// connection are refused.
+    #[error("the TLS material of credentials.oauth is refused")]
+    Tls {
+        /// Why.
+        #[source]
+        source: Box<DiscoveryError>,
     },
 }
 
@@ -511,6 +521,18 @@ pub struct OauthSection {
     pub refresh_margin_ms: u64,
     /// How long one call to the authorization server may take.
     pub timeout_ms: u64,
+    /// The `aud` of a `private_key_jwt` assertion: `token_endpoint` (the
+    /// default) or `issuer`, which needs `issuer` set.
+    pub assertion_audience: AssertionAudience,
+    /// A PEM file of trust roots added to the built-in ones, for a token
+    /// endpoint behind a private certificate authority.
+    pub ca_file: Option<PathBuf>,
+    /// The PEM file of the client certificate chain presented over mutual
+    /// TLS (RFC 8705 §2); set with `client_key_file`.
+    pub client_certificate_file: Option<PathBuf>,
+    /// The PEM file of the client certificate's private key; set with
+    /// `client_certificate_file`.
+    pub client_key_file: Option<PathBuf>,
 }
 
 impl Default for OauthSection {
@@ -530,6 +552,10 @@ impl Default for OauthSection {
             audience: String::new(),
             refresh_margin_ms: 30_000,
             timeout_ms: 10_000,
+            assertion_audience: AssertionAudience::TokenEndpoint,
+            ca_file: None,
+            client_certificate_file: None,
+            client_key_file: None,
         }
     }
 }
@@ -552,7 +578,8 @@ impl CredentialsSection {
     /// secret is set twice or not at all, neither or both of `issuer` and
     /// `token_endpoint` are set, the issuer breaks the RFC 8414 §2 URL rule,
     /// the key file cannot be read, a URL does not parse, or `resource`
-    /// carries a fragment (RFC 8707 §2).
+    /// carries a fragment (RFC 8707 §2), and as [`OauthSection::resolve`]
+    /// does for the `oauth` table.
     pub fn resolve(&self) -> Result<Option<Outbound>, ConfigError> {
         match (&self.user, &self.oauth) {
             (user, Some(_)) if !user.is_empty() => Err(ConfigError::Exclusive {
@@ -589,7 +616,11 @@ impl OauthSection {
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigError`] as [`CredentialsSection::resolve`] does.
+    /// Returns [`ConfigError`] as [`CredentialsSection::resolve`] does, and
+    /// for a client certificate file without its key file or the reverse,
+    /// a mutual-TLS `client_auth` without a client certificate, TLS
+    /// material that is no PEM (with the `fetch` feature), and
+    /// `assertion_audience = "issuer"` without `issuer`.
     pub fn resolve(&self) -> Result<ClientCredentials, ConfigError> {
         let endpoint = match (self.issuer.is_empty(), self.token_endpoint.is_empty()) {
             (false, false) => {
@@ -618,6 +649,7 @@ impl OauthSection {
                 key: "credentials.oauth.client_id",
             });
         }
+        let tls = self.tls()?;
         let mut grant = match self.client_auth {
             ClientAuth::ClientSecretBasic | ClientAuth::ClientSecretPost => {
                 let client_secret = secret(
@@ -646,7 +678,25 @@ impl OauthSection {
                     .map_err(|source| ConfigError::Key { source })?;
                 ClientCredentials::with_private_key_jwt(endpoint, self.client_id.clone(), key)
             }
+            ClientAuth::TlsClientAuth | ClientAuth::SelfSignedTlsClientAuth => {
+                let identity = tls.identity.clone().ok_or(ConfigError::Missing {
+                    key: "credentials.oauth.client_certificate_file",
+                })?;
+                ClientCredentials::with_mutual_tls(
+                    endpoint,
+                    self.client_id.clone(),
+                    identity,
+                    self.client_auth == ClientAuth::SelfSignedTlsClientAuth,
+                )
+            }
         };
+        if self.assertion_audience == AssertionAudience::Issuer && self.issuer.is_empty() {
+            return Err(ConfigError::Missing {
+                key: "credentials.oauth.issuer, which assertion_audience = \"issuer\" names",
+            });
+        }
+        grant.assertion_audience = self.assertion_audience;
+        grant.tls = tls;
         if !self.scope.is_empty() {
             if let Some(bad) = self.scope.split(' ').find(|token| !is_scope_token(token)) {
                 return Err(ConfigError::Scope {
@@ -672,6 +722,48 @@ impl OauthSection {
         grant.refresh_margin = Duration::from_millis(self.refresh_margin_ms);
         grant.timeout = Duration::from_millis(self.timeout_ms);
         Ok(grant)
+    }
+
+    /// Returns the TLS material the table names, each file read and, with
+    /// the `fetch` feature, parsed, so a bad file refuses the start.
+    fn tls(&self) -> Result<Tls, ConfigError> {
+        let read = |path: &Path| {
+            std::fs::read(path).map_err(|source| ConfigError::SecretFile {
+                path: path.to_path_buf(),
+                source,
+            })
+        };
+        let root_certificates = self.ca_file.as_deref().map(read).transpose()?;
+        let identity = match (&self.client_certificate_file, &self.client_key_file) {
+            (None, None) => None,
+            (Some(_), None) => {
+                return Err(ConfigError::Missing {
+                    key: "credentials.oauth.client_key_file",
+                });
+            }
+            (None, Some(_)) => {
+                return Err(ConfigError::Missing {
+                    key: "credentials.oauth.client_certificate_file",
+                });
+            }
+            (Some(certificate), Some(key)) => {
+                let mut pem = read(certificate)?;
+                pem.push(b'\n');
+                pem.extend(read(key)?);
+                Some(std::sync::Arc::new(secrecy::SecretSlice::from(pem)))
+            }
+        };
+        let tls = Tls {
+            root_certificates,
+            identity,
+        };
+        #[cfg(feature = "fetch")]
+        crate::metadata::Http::with_tls(Duration::from_millis(self.timeout_ms), &tls).map_err(
+            |source| ConfigError::Tls {
+                source: Box::new(source),
+            },
+        )?;
+        Ok(tls)
     }
 }
 

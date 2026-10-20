@@ -123,6 +123,9 @@ pub struct Verified {
     /// The space-delimited scope the user's configuration grants it
     /// (RFC 6749 §3.3).
     pub scope: String,
+    /// Whether the credential was admitted from the verified-credential
+    /// cache, without the key derivation.
+    pub cached: bool,
 }
 
 /// One user of the store.
@@ -333,7 +336,10 @@ impl PasswordStore {
         let decoded = String::from_utf8(decoded).map_err(|_opaque| Reason::BasicMalformed)?;
         let (username, password) = decoded.split_once(':').ok_or(Reason::BasicMalformed)?;
         if let Some(verified) = self.cache.as_ref().and_then(|cache| cache.get(&decoded)) {
-            return Ok(verified);
+            return Ok(Verified {
+                cached: true,
+                ..verified
+            });
         }
         let verified = self
             .verify_password(username, password)
@@ -372,6 +378,7 @@ impl PasswordStore {
         Ok(Verified {
             username: username.to_owned(),
             scope: entry.scope.clone(),
+            cached: false,
         })
     }
 }
@@ -490,6 +497,7 @@ mod tests {
         let verified = Verified {
             username: String::from("alice"),
             scope: String::from("system/*.rs"),
+            cached: false,
         };
         assert_eq!(
             Ok(verified.clone()),
@@ -524,6 +532,28 @@ mod tests {
             "a wrong password is never kept"
         );
         assert_eq!(Err(Reason::BasicMalformed), store.check(&raw("QQ===")));
+    }
+
+    #[test]
+    fn the_outcome_says_whether_the_cache_admitted_the_credential() {
+        let cached = store()
+            .with_cache(Duration::from_secs(60))
+            .expect("the cache key is drawn");
+        let first = cached
+            .verify(&header("Basic", "alice", "s3cret"))
+            .expect("verifies");
+        assert!(!first.cached, "the first request pays the key derivation");
+        let repeat = cached
+            .verify(&header("Basic", "alice", "s3cret"))
+            .expect("verifies");
+        assert!(repeat.cached, "the repeat is admitted from the cache");
+        let uncached = store();
+        for _ in 0..2 {
+            let verified = uncached
+                .verify(&header("Basic", "alice", "s3cret"))
+                .expect("verifies");
+            assert!(!verified.cached, "no cache, never cached");
+        }
     }
 
     #[test]

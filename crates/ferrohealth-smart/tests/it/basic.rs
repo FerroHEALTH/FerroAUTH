@@ -35,6 +35,7 @@ fn the_sent_credential_verifies_against_the_store() -> Result<(), Box<dyn StdErr
         Ok(Verified {
             username: String::from("ferro-bridge"),
             scope: String::from("system/*.rs"),
+            cached: false,
         }),
         store.verify(&sent.header_value())
     );

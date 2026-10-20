@@ -91,8 +91,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 - **The specifications are the authority**: SMART App Launch 2.2.0, the
   SMART on openEHR draft (DEVELOPMENT, pinned by commit and read weekly
   upstream), RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725,
-  9068, 9700, 8707 and 7638, and OpenID Connect Discovery 1.0, as vendored
-  under `docs/specs/`. Cite the section in every `// NOTE:`; never resolve a
+  9068, 9700, 8707, 7638, 8705, 9449 and 9470, and OpenID Connect
+  Discovery 1.0, as vendored under `docs/specs/`. Cite the section in every `// NOTE:`; never resolve a
   question from memory or from another implementation's behaviour. Where
   none governs a decision, say so: "no specification governs this: our own
   design" (`.claude/rules/spec-adherence.md`).
@@ -100,8 +100,9 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   under the default profile; `aud` is required; one `401` with
   `error="invalid_token"` and no `error_description`; a `403` with
   `error="insufficient_scope"` and no `scope` attribute; `503` when the key
-  set cannot be read; the token is read from the `Authorization` header
-  alone. Every refusal is an asserted negative test.
+  set cannot be read; the token is read from the `Authorization` header, or
+  the one header a product names for its edge proxy, never a query or a
+  form body. Every refusal is an asserted negative test.
 - **No token, secret, key, password or claim beyond `sub`, `client_id` and
   `iss` reaches a log line, a `Debug` rendering or an error message.** Every
   credential type redacts itself.

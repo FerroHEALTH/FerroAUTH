@@ -7,10 +7,10 @@ Vendored verbatim by `scripts/vendor/rfcs.sh` from the RFC Editor
 (<https://www.rfc-editor.org/rfc/>), the text form of each, as published. Never edit a file here:
 change the pin in docs/VERSIONS.md and re-run the script.
 
-- Fetched: 2026-10-19
-- Files: 16
+- Fetched: 2026-10-20
+- Files: 17
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `3729be6e70a0f6bf68c2aa2cfbb0909126224be2e23a7bef7bf6a0cde9963cef`
+  `PROVENANCE.md` excluded): `c51a535f8c17c8d48544a8786c1663a3850430cc387b8622d3be6e6046b428e2`
 - Upstream licence: each RFC is "Copyright (c) <year> IETF Trust and the
   persons identified as the document authors. All rights reserved." and is
   "subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF
@@ -47,6 +47,7 @@ change the pin in docs/VERSIONS.md and re-run the script.
 | RFC 7638 | JSON Web Key (JWK) Thumbprint | September 2015 | PROPOSED STANDARD | none | `98b29ab9652070e6a5fec748d43e221bbedc66b6b22e05903fb5366c04ef3110` |
 | RFC 9449 | OAuth 2.0 Demonstrating Proof of Possession (DPoP) | September 2023 | PROPOSED STANDARD | none | `3842c58e1f6043389416023b9bb8d765048266024982fbbd90640e05943f4e13` |
 | RFC 8705 | OAuth 2.0 Mutual-TLS Client Authentication and Certificate-Bound Access Tokens | February 2020 | PROPOSED STANDARD | none | `6e45a1ee94c6a6a177a4cb077fe67d74bd70c1218c9362f2db2f153239612414` |
+| RFC 9470 | OAuth 2.0 Step Up Authentication Challenge Protocol | September 2023 | PROPOSED STANDARD | none | `02d742f49cc0a03fb09197563c436b6f38928a71b0d8e41cde9cfe0362363e56` |
 
 An "Updated by" entry names an RFC that changes the document without
 replacing it; the design reads each update that bears on the resource

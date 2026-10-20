@@ -84,7 +84,7 @@ with the matrix.
 | Item | Pin | Ground |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | The registry's `latest` on 2026-10-19 and the current 2.x publication; the 2.x line is where the `cruds` scope grammar, the `.well-known/smart-configuration` document and the asymmetric client profile live. Vendored as the package `hl7.fhir.uv.smart-app-launch` 2.2.0 and the page sources at the release tag. |
-| OAuth 2.0 and JOSE | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. Three are in the set for reference: RFC 7662, because section 6 says why introspection is not the default, and RFC 9449 (DPoP) and RFC 8705 (mutual TLS), the sender-constraining mechanisms that stay product-specific (section 9). |
+| OAuth 2.0 and JOSE | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5); its certificate-bound tokens stay product-specific (section 9). RFC 9470 is the step-up challenge of 3.7. Two are in the set for reference: RFC 7662, because section 6 says why introspection is not the default, and RFC 9449 (DPoP), the sender-constraining mechanism that stays product-specific (section 9). |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 | SMART on openEHR | DEVELOPMENT (the ITS-REST draft, `openEHR/specifications-ITS-REST` at commit `9d25ea78…`, its tree last changed at `5183c1f9…`, amendment record 1.1.0 of 2025-05-20) | The one specification of openEHR scopes, which FerroEHR, FerroFED and FerroBRIDGE reach. It is a draft the ITS-REST release does not stabilise, so it is pinned by commit, its status is checked on every vendor run, and a weekly job fails when upstream moves (3.9). |
 
@@ -124,7 +124,15 @@ FerroEHR's `allow_insecure_issuer` switch is replaced by it.
 
 Discovery runs once at boot and refuses the start when the metadata or the
 key set cannot be read: a server that cannot check a token must not serve a
-surface it declares protected. The members read are `issuer`, `jwks_uri`,
+surface it declares protected. A product that would rather start and answer
+an unreachable issuer per request builds the server with
+`ResourceServer::lazy`: the settings are checked at once, the metadata and
+key set are read when the first token needs them, and a read that fails
+answers that token `503` (3.7) and is not repeated inside
+`jwks_refresh_interval_seconds`, the bound 3.2 sets on key set reads. No
+specification governs when the key set is first read: our own design,
+FerroFED's, moved into the crate (#55). Both constructors return `Send`
+futures, so a product calls them from a request. The members read are `issuer`, `jwks_uri`,
 `token_endpoint`, `authorization_endpoint`, `registration_endpoint`,
 `introspection_endpoint`, `revocation_endpoint`, `grant_types_supported`,
 `scopes_supported`, `response_types_supported`,
@@ -183,7 +191,12 @@ never combined with a fetched one.
 ### 3.3 Token validation
 
 A bearer token arrives in the `Authorization` header with the `Bearer` scheme
-(`rfc6750 §2.1`), the scheme compared case-insensitively. The form-encoded
+(`rfc6750 §2.1`), the scheme compared case-insensitively. A product behind
+an edge proxy that forwards the credential in a header of its own names that
+header (`Gate::with_credential_header`), either schemed like `Authorization`
+or bare, its whole value a bearer token; the default stays `Authorization`,
+and the rules below hold in whichever header is read (#56). Basic is read
+from a schemed header only. The form-encoded
 body parameter and the URI query parameter of `rfc6750 §2.2` and `§2.3` are
 not read: a token in a query string reaches logs and browser history
 (`rfc9700 §4.3.2`), and nothing in SMART needs either form. A request that
@@ -388,6 +401,10 @@ is kept, so a wrong password always pays the derivation; the cache holds at
 most 4096 entries. No specification governs the cache: our own design,
 FerroEHR's, moved into the crate.
 
+The outcome says whether a credential was admitted from the cache
+(`Verified::cached`, `Caller::cached`), so a product that records each fresh
+authentication records one per cache lifetime (#63).
+
 **Basic, sending.** The outbound `[<lane>.credentials]` with `user` and
 `password` renders the same header (`rfc7617 §2`), UTF-8 then base64, and
 the credential type redacts itself in every `Debug` rendering.
@@ -412,6 +429,18 @@ ways, configured, never guessed from the server's metadata:
   the same section calls NOT RECOMMENDED and limits to clients unable to use
   Basic. Supported for an authorization server that accepts nothing else;
   the parameters "MUST NOT be included in the request URI", and are not.
+- `tls_client_auth` and `self_signed_tls_client_auth`: a client
+  certificate in the TLS handshake, checked by the authorization server
+  against its PKI or the client's registered keys (`rfc8705 §2.1`, `§2.2`),
+  with `client_id` in the body, which "the client MUST include" (`§2`), and
+  no secret. When the endpoint is discovered and a certificate is
+  configured, the client posts to `mtls_endpoint_aliases.token_endpoint`
+  when the metadata names it (`rfc8705 §5`, a MUST). A certificate may also
+  be presented under the other methods, for an authorization server that
+  binds the token to it. Extra trust roots for a token endpoint behind a
+  private certificate authority are added to the built-in ones; a product
+  may instead hand the client its own `reqwest::Client`, which is used as
+  built, its redirect policy then the product's (#58).
 - `private_key_jwt`: `client_assertion_type` of
   `urn:ietf:params:oauth:client-assertion-type:jwt-bearer` with a single
   JWT in `client_assertion` (`rfc7523 §2.2`), the form RFC 9700 §2.5
@@ -423,7 +452,11 @@ ways, configured, never guessed from the server's metadata:
   unique in the client's set) and `typ` of `JWT`; claims `iss` and `sub` both
   the `client_id`, `aud` the token endpoint URL, `exp` "no more than five
   minutes in the future" and a unique `jti`; one assertion per request,
-  never reused (`rfc7523 §3` items 1 to 7). The private key comes from
+  never reused (`rfc7523 §3` items 1 to 7). The `aud` is configurable:
+  `token_endpoint`, the default and SMART's rule, or `issuer`, the
+  configured issuer identifier, which `rfc7523 §3` item 3 also admits as "a
+  value that identifies the authorization server", for an authorization
+  server outside the SMART profile that asks for it (#59). The private key comes from
   `private_key_file`; the product serves the matching public JWK Set at a
   route of its own, which the library renders (`rfc7517 §5`, bare `n`/`e` or
   `crv`/`x`/`y` as the SMART profile requires), holding the current and the
@@ -533,8 +566,17 @@ the format the request negotiates (the `Accept` header, a FHIR `_format`). The s
 - **Two credentials, or a malformed `Authorization` value:** `400` with
   `error="invalid_request"` (`rfc6750 §3.1`).
 - **The key set or the metadata cannot be read when a token needs it:**
-  `503`, never `401` (3.2). No specification governs this status: our own
-  design.
+  `503`, never `401` (3.2). A product's own verifier whose upstream fails
+  (an RFC 7662 introspection endpoint) reports it as `Rejection::Upstream`,
+  which answers the same `503` (#57). No specification governs this status:
+  our own design.
+- **A credential that holds, from an authentication event the resource
+  does not accept:** `401` with `error="insufficient_user_authentication"`
+  and, when the product names them, `acr_values` and `max_age` (`rfc9470
+  §3`), and no `error_description`. What a resource requires is the
+  product's ("out of scope", `rfc9470 §3`); `StepUp::satisfied_by` checks it
+  against the token's `acr` and `auth_time` (`rfc9470 §6`, `rfc9068 §2.2.1`)
+  and `Refusal::StepUp` renders it (#60).
 - **A route the product's classifier does not know:** `403` on a guarded
   deployment, so a route mounted without a classification fails closed. Our
   own design, FerroBRIDGE's.
@@ -771,8 +813,14 @@ client_secret_file = "/run/secrets/terminology-client-secret"
 # private_key_file = "/run/secrets/terminology-client.pem"
 # kid = "2026-10"
 # assertion_alg = "ES384"
+# assertion_audience = "issuer"      # the default names the token endpoint
 scope = "system/CodeSystem.rs"
 refresh_margin_ms = 30000
+# mutual TLS (RFC 8705 §2) instead, or a certificate beside another method:
+# client_auth = "tls_client_auth"    # or "self_signed_tls_client_auth"
+# client_certificate_file = "/run/secrets/client.crt"
+# client_key_file = "/run/secrets/client.key"
+# ca_file = "/run/secrets/private-ca.pem"   # roots added to the built-in ones
 ```
 
 `user`/`password` and `oauth` are exclusive; a lane that obtains no token of
@@ -793,7 +841,10 @@ of the two extension forms of `smart scopes-and-launch-context`
 `_file`. An outgoing `oauth` table is held to the same issuer URL rule at
 load, and its `resource` to `rfc8707 §2` ("The URI MUST NOT include a
 fragment component"), so a bad grant refuses the start rather than the
-first token request.
+first token request. The TLS files are read and parsed at load too: a
+certificate file without its key file or the reverse, a mutual-TLS method
+without a certificate, and roots that hold no certificate each refuse the
+start, and so does `assertion_audience = "issuer"` without `issuer`.
 
 ## 5. How a product integrates
 
@@ -813,7 +864,13 @@ The library offers three seams, and nothing in it names a product.
   layer, which is a `500`, never an open door. `Access::reach(permission,
   resource_type)` answers `Any`, `Patient(id)` or `None`; `Access::has_scope`
   answers for a product scope; `Access::claims()` hands the raw claims to a
-  product rule that needs more.
+  product rule that needs more; `Access::basic_user_in` answers whether a
+  Basic caller is one of a list of user-ids (#62); and
+  `Access::extension::<T>()` hands back the product's own value of type `T`,
+  which the issuer's resource server (`ResourceServer::with_extension`) or
+  the product's verifier (`Caller::with_extension`) attached, so a
+  product's per-issuer policy travels with the verified caller and is not
+  looked up again by issuer string (#61).
 - **The outbound side.** `BasicSender` renders the header; `ClientCredentials`
   implements the credentials-provider trait the product's upstream client
   takes (the generated ITS-REST client's for FerroBRIDGE and FerroFED, the
@@ -902,8 +959,10 @@ by editing the test.
 - **Sender-constrain tokens.** RFC 9700 §2.2.1 has resource servers "SHOULD
   use mechanisms for sender-constraining access tokens" (mutual TLS,
   `rfc8705`; DPoP, `rfc9449`). Both RFCs are vendored for reference, and
-  only FerroFED needs one today, so DPoP stays product-specific in FerroFED
-  for now (owner decision 2026-10-19; section 9).
+  only FerroFED needs one today, so DPoP and certificate-bound access tokens
+  stay product-specific in FerroFED for now (owner decision 2026-10-19;
+  section 9). The token client's own mutual-TLS client authentication
+  (`rfc8705 §2`) is the crate's (3.5).
 - **Read a token from a query string or a form body** (3.3).
 
 ## 7. Reference: what the products run today and the design changes
@@ -956,10 +1015,11 @@ four agree on and settles each difference:
   the header only (3.3, 3.6, 3.7; `rfc9700 §4.9.3`).
 - **The reverse proxy.** A deployment that terminates TLS in front of a
   product must sanitize inbound headers and protect the link to the product
-  (`rfc9700 §4.13`); the library reads no `X-Forwarded-*` header and treats
-  the `Authorization` header as the only credential, so a proxy cannot
-  inject a caller by header unless the product's edge mode (FerroFED) was
-  configured to accept a signed assertion.
+  (`rfc9700 §4.13`); the library reads no `X-Forwarded-*` header and reads
+  the credential from one header, `Authorization` unless the product names
+  another for its edge proxy (3.3). A product that names one owes the
+  sanitizing of that header at the proxy, because whatever arrives in it is
+  checked as the caller's credential.
 - **The issuer itself.** The issuer is trusted entirely: a compromised
   authorization server mints valid tokens for every product that trusts it.
   That is the OAuth model, and the mitigation is operational (one issuer per
@@ -993,6 +1053,15 @@ four agree on and settles each difference:
 | Verified Basic credentials may be cached for a configured TTL under an HMAC of the credential | our own design, FerroEHR's (#47) | none |
 | `[auth]` and `[[auth.basic.users]]` take no product extension fields; a product keeps its own policy in its own section, as FerroEHR's `[authz]` does | `deny_unknown_fields` refuses a mistyped or retired key (4); product policy stays in the product (6) (#49, not planned) | none |
 | A plain-`http` issuer on a host that is no loopback stays refused, with no development switch; a development authorization server gets TLS | `rfc8414 §2`; `discovery §3` (orchestrator decision 2026-10-20 on the FerroEHR migration) | none |
+| `ResourceServer::lazy` reads the issuer on its first token, a failed read answering `503` and not repeated inside the refresh interval; `discover` stays the eager default and both return `Send` futures | our own design, FerroFED's (#55) | none |
+| A product may name the header the credential travels in, schemed or bare; the default stays `Authorization` and the rules of 3.3 hold in any header | `rfc6750 §2.1`, `§3.1`; `rfc9700 §4.13` puts the sanitizing on the proxy (#56) | a deployment that names a header sanitizes it at its proxy |
+| A product verifier reports an upstream failure as `Rejection::Upstream`, answered `503` like an unreadable key set | our own design (#57) | none |
+| The token client authenticates with mutual TLS (`tls_client_auth`, `self_signed_tls_client_auth`), uses the mTLS alias of a discovered token endpoint, adds configured trust roots, and takes a product `reqwest::Client` | `rfc8705 §2`, `§5` (#58); certificate-bound access tokens at the resource server stay product-specific | none |
+| The assertion `aud` is the token endpoint by default and the issuer identifier when configured | SMART App Launch 2.2.0, Client Authentication: Asymmetric, fixes the token URL; `rfc7523 §3` item 3 admits the issuer (#59) | none |
+| The RFC 9470 step-up challenge is a crate refusal, with `acr_values` and `max_age`, and the crate checks `acr` and `auth_time` against the product's requirement | `rfc9470 §3`, `§6`; what a resource requires is the product's (#60) | none |
+| `Caller` carries a typed extension map a resource server or a product verifier fills; the configuration sections still take no product field (#49) | our own design: the verifier that routed the token already knows the issuer's policy, and the crate reads no extension (#61) | none |
+| `Caller::basic_user_in` and `Requirement::basic_users` answer whether a Basic caller is one of a list | our own design (#62) | none |
+| The outcome of a Basic check says whether the verified-credential cache admitted it | our own design (#63) | none |
 
 ## 10. Verification
 

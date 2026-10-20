@@ -102,6 +102,21 @@ pub enum Requirement {
 }
 
 impl Requirement {
+    /// Returns the requirement that the caller authenticated with HTTP Basic
+    /// as one of `users`, a [`Requirement::Client`] that lists no bearer
+    /// client.
+    #[must_use]
+    pub fn basic_users<I, S>(users: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        Self::Client {
+            client_ids: Vec::new(),
+            basic_users: users.into_iter().map(Into::into).collect(),
+        }
+    }
+
     /// Returns whether `access` meets this requirement, `honoured` saying
     /// what the product honours for the caller beyond a `user/` grant.
     #[must_use]
@@ -265,6 +280,60 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AnsweredAs(pub &'static str);
 
+/// The header a gate reads the credential from.
+///
+/// The default is `Authorization` (RFC 6750 §2.1). A product behind an edge
+/// proxy that forwards the credential in a header of its own names that
+/// header: schemed, carrying a scheme and a credential as `Authorization`
+/// does (RFC 9110 §11.6.2), or bare, its whole value a bearer token. RFC
+/// 9700 §4.13 has the proxy sanitize that header on every inbound request,
+/// which is the deployment's duty once it names one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialHeader {
+    /// The header's name.
+    name: HeaderName,
+    /// Whether the value is a bare bearer token with no scheme.
+    bare: bool,
+}
+
+impl Default for CredentialHeader {
+    fn default() -> Self {
+        Self::authorization()
+    }
+}
+
+impl CredentialHeader {
+    /// Returns the `Authorization` header, the default.
+    #[must_use]
+    pub const fn authorization() -> Self {
+        Self::schemed(http::header::AUTHORIZATION)
+    }
+
+    /// Returns the header `name`, carrying a scheme and a credential.
+    #[must_use]
+    pub const fn schemed(name: HeaderName) -> Self {
+        Self { name, bare: false }
+    }
+
+    /// Returns the header `name`, whose whole value is a bearer token.
+    #[must_use]
+    pub const fn bare(name: HeaderName) -> Self {
+        Self { name, bare: true }
+    }
+
+    /// Returns the header's name.
+    #[must_use]
+    pub const fn name(&self) -> &HeaderName {
+        &self.name
+    }
+
+    /// Returns whether the value is a bare bearer token.
+    #[must_use]
+    pub const fn is_bare(&self) -> bool {
+        self.bare
+    }
+}
+
 /// What a product honours for a caller, read from its issuer or client
 /// lists once the credential holds.
 type Honours = Arc<dyn Fn(&Caller) -> Honoured + Send + Sync>;
@@ -281,6 +350,8 @@ pub struct Gate {
     realm: Option<String>,
     /// What the product honours for a caller.
     honours: Honours,
+    /// The header the credential is read from.
+    credential: CredentialHeader,
 }
 
 impl Default for Gate {
@@ -290,6 +361,7 @@ impl Default for Gate {
             basic: None,
             realm: None,
             honours: Arc::new(|_caller| Honoured::default()),
+            credential: CredentialHeader::default(),
         }
     }
 }
@@ -300,6 +372,7 @@ impl std::fmt::Debug for Gate {
             .field("bearer", &self.bearer.is_some())
             .field("basic", &self.basic)
             .field("realm", &self.realm)
+            .field("credential", &self.credential)
             .finish_non_exhaustive()
     }
 }
@@ -342,6 +415,25 @@ impl Gate {
     ) -> Self {
         self.honours = Arc::new(honours);
         self
+    }
+
+    /// Returns this gate reading the credential from `header` in place of
+    /// `Authorization`.
+    ///
+    /// The rules stay those of `Authorization`: one field, a bearer token in
+    /// the `b64token` syntax, and the bearer challenge on every refusal. A
+    /// bare header admits a bearer token alone; Basic is read from a
+    /// schemed header only.
+    #[must_use]
+    pub fn with_credential_header(mut self, header: CredentialHeader) -> Self {
+        self.credential = header;
+        self
+    }
+
+    /// Returns the header the credential is read from.
+    #[must_use]
+    pub const fn credential_header(&self) -> &CredentialHeader {
+        &self.credential
     }
 
     /// Returns whether the gate admits no credential at all.

@@ -15,9 +15,9 @@ version `docs/VERSIONS.md` pins, and the design of record,
    tokens), 7515 (JWS), 7517 (JWK), 7519 (JWT), 7523 (the JWT client
    assertion), 7617 (Basic), 7662 (introspection), 8414 (server metadata),
    8725 (JWT best practices), 9068 (the JWT access token profile), 9700
-   (the security best practice), 8707 (resource indicators) and 7638 (the
-   JWK thumbprint); 9449 (DPoP) and 8705 (mutual TLS) are vendored for
-   reference.
+   (the security best practice), 8707 (resource indicators), 7638 (the
+   JWK thumbprint), 8705 (mutual TLS client authentication, §2 and §5) and
+   9470 (the step-up challenge); 9449 (DPoP) is vendored for reference.
 3. **OpenID Connect Discovery 1.0** (incorporating errata set 2): the
    fallback metadata location and the `issuer` and `jwks_uri` rules.
 4. **The docs.rs pages of the pinned crates** (`jsonwebtoken`, `argon2`,

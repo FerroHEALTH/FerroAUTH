@@ -11,7 +11,10 @@
 //! checked against, or a key set file handed over out of band does. A token
 //! is an RFC 7519 JWT, read under the RFC 9068 access token profile unless
 //! the deployment says otherwise. A product that trusts several issuers
-//! holds them in an [`IssuerSet`]; a product that checks a token another
+//! holds them in an [`IssuerSet`]. [`ResourceServer::lazy`] defers the
+//! metadata and key set read to the first token, for a product that answers
+//! an unreachable issuer with `503` rather than refusing to start. A product
+//! that checks a token another
 //! way (RFC 7662 introspection, a signed edge assertion) implements
 //! [`Verifier`] beside them. A product never forwards a caller's token
 //! upstream: an access token names the resource server it is for (RFC 9068
@@ -29,9 +32,13 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::PoisonError;
 use std::time::Duration;
+use std::time::Instant;
 
 use base64::Engine as _;
+use http::Extensions;
 use http::StatusCode;
 use jsonwebtoken::Algorithm;
 use serde::Deserialize;
@@ -286,6 +293,8 @@ pub struct ResourceServer {
     /// The resource types a clinical scope may name, when the product holds
     /// a table; the lexical rule of [`Scopes::parse`] otherwise.
     resource_types: Option<ResourceTypes>,
+    /// The product's values copied onto every caller this server admits.
+    extensions: Extensions,
 }
 
 impl std::fmt::Debug for ResourceServer {
@@ -347,9 +356,13 @@ impl ResourceServer {
             settings.jwks_refresh_interval,
         )
         .await?;
+        // NOTE: no specification governs this: our own design; the count is read
+        // before the log line, so no formatting argument is held across an await
+        // and the future stays `Send`.
+        let count = keys.len().await;
         tracing::info!(
             issuer = %settings.issuer,
-            keys = keys.len().await,
+            keys = count,
             source = %keys.source(),
             "validating access tokens of this issuer"
         );
@@ -358,7 +371,49 @@ impl ResourceServer {
             metadata,
             keys,
             resource_types: None,
+            extensions: Extensions::new(),
         })
+    }
+
+    /// Returns a resource server for `settings` that reads the metadata and
+    /// the key set when the first token needs them.
+    ///
+    /// The settings are checked here, so a broken rule still refuses the
+    /// start. A read that fails answers that token, and every token inside
+    /// `jwks_refresh_interval`, with [`Rejection::Unavailable`] (`503`), and
+    /// the next token after the interval reads again. No specification
+    /// governs when the key set is first read: our own design.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ResourceError`] of [`Settings::validate`], or, without
+    /// the `fetch` feature, [`ResourceError::KeySetFileRequired`] when the
+    /// settings name no `jwks_file`.
+    pub fn lazy(settings: Settings) -> Result<LazyResourceServer, ResourceError> {
+        settings.validate()?;
+        #[cfg(not(feature = "fetch"))]
+        if settings.jwks_file.is_none() {
+            return Err(ResourceError::KeySetFileRequired);
+        }
+        Ok(LazyResourceServer {
+            settings,
+            resource_types: None,
+            extensions: Extensions::new(),
+            server: tokio::sync::OnceCell::new(),
+            failed: Mutex::new(None),
+        })
+    }
+
+    /// Returns this resource server copying `value` onto every caller it
+    /// admits, which a handler reads with [`Caller::extension`].
+    ///
+    /// This is how a product attaches its own per-issuer policy to the
+    /// callers of that issuer; the crate reads no extension (no
+    /// specification governs this: our own design).
+    #[must_use]
+    pub fn with_extension<T: Clone + Send + Sync + 'static>(mut self, value: T) -> Self {
+        self.extensions.insert(value);
+        self
     }
 
     /// Returns this resource server reading a clinical scope's resource type
@@ -481,6 +536,139 @@ impl Verifier for ResourceServer {
     }
 }
 
+/// A resource server whose metadata and key set are read when the first
+/// token needs them ([`ResourceServer::lazy`]).
+pub struct LazyResourceServer {
+    /// What the deployment configured.
+    settings: Settings,
+    /// The resource types a clinical scope may name, when the product holds
+    /// a table.
+    resource_types: Option<ResourceTypes>,
+    /// The product's values copied onto every caller this server admits.
+    extensions: Extensions,
+    /// The resource server, once a read succeeded.
+    server: tokio::sync::OnceCell<Arc<ResourceServer>>,
+    /// When the last read failed and why, so the next is not made inside
+    /// the refresh interval.
+    failed: Mutex<Option<(Instant, Arc<ResourceError>)>>,
+}
+
+impl std::fmt::Debug for LazyResourceServer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LazyResourceServer")
+            .field("settings", &self.settings)
+            .field("server", &self.server.get())
+            .finish_non_exhaustive()
+    }
+}
+
+impl LazyResourceServer {
+    /// Returns this server reading a clinical scope's resource type against
+    /// `known`, as [`ResourceServer::with_resource_types`] does.
+    #[must_use]
+    pub fn with_resource_types(
+        mut self,
+        known: impl Fn(&str) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.resource_types = Some(Arc::new(known));
+        self
+    }
+
+    /// Returns this server copying `value` onto every caller it admits, as
+    /// [`ResourceServer::with_extension`] does.
+    #[must_use]
+    pub fn with_extension<T: Clone + Send + Sync + 'static>(mut self, value: T) -> Self {
+        self.extensions.insert(value);
+        self
+    }
+
+    /// Returns what the deployment configured.
+    #[must_use]
+    pub const fn settings(&self) -> &Settings {
+        &self.settings
+    }
+
+    /// Returns the resource server, when a read has succeeded.
+    #[must_use]
+    pub fn get(&self) -> Option<&Arc<ResourceServer>> {
+        self.server.get()
+    }
+
+    /// Returns the resource server, reading the issuer's metadata and key
+    /// set when no read has succeeded yet.
+    ///
+    /// Concurrent first tokens share one read.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Rejection::Unavailable`] when the read fails, or failed
+    /// within the refresh interval.
+    pub async fn server(&self) -> Result<&Arc<ResourceServer>, Rejection> {
+        if let Some(server) = self.server.get() {
+            return Ok(server);
+        }
+        let interval = self.settings.jwks_refresh_interval;
+        let recent = self
+            .failed
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .as_ref()
+            .filter(|(at, _)| at.elapsed() < interval)
+            .map(|(_, source)| Arc::clone(source));
+        if let Some(source) = recent {
+            return Err(Rejection::Unavailable { source });
+        }
+        self.server
+            .get_or_try_init(|| async {
+                let mut server = ResourceServer::discover(self.settings.clone()).await?;
+                server.resource_types.clone_from(&self.resource_types);
+                server.extensions = self.extensions.clone();
+                Ok(Arc::new(server))
+            })
+            .await
+            .map_err(|source: ResourceError| {
+                let source = Arc::new(source);
+                tracing::warn!(
+                    issuer = %self.settings.issuer,
+                    error = %source,
+                    "the issuer's metadata or key set could not be read; its tokens answer 503"
+                );
+                *self.failed.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some((Instant::now(), Arc::clone(&source)));
+                Rejection::Unavailable { source }
+            })
+    }
+
+    /// Returns the caller `token` authenticates, reading the issuer first
+    /// when no read has succeeded yet.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`Rejection`] of [`ResourceServer::authenticate`], and
+    /// [`Rejection::Unavailable`] when the issuer cannot be read.
+    pub async fn authenticate(&self, token: &str) -> Result<Caller, Rejection> {
+        self.server().await?.authenticate(token).await
+    }
+}
+
+impl Verifier for LazyResourceServer {
+    fn verify<'a>(
+        &'a self,
+        token: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
+        Box::pin(self.authenticate(token))
+    }
+}
+
+/// One issuer of an [`IssuerSet`].
+#[derive(Debug)]
+enum Trusted {
+    /// A resource server that read its issuer at boot.
+    Ready(Arc<ResourceServer>),
+    /// A resource server that reads its issuer on the first token.
+    Lazy(Arc<LazyResourceServer>),
+}
+
 /// The resource servers of several trusted issuers, each token routed to
 /// the one its `iss` names.
 ///
@@ -490,7 +678,7 @@ impl Verifier for ResourceServer {
 #[derive(Debug, Default)]
 pub struct IssuerSet {
     /// The servers, by issuer identifier.
-    servers: BTreeMap<String, Arc<ResourceServer>>,
+    servers: BTreeMap<String, Trusted>,
 }
 
 impl IssuerSet {
@@ -504,14 +692,27 @@ impl IssuerSet {
     #[must_use]
     pub fn with(mut self, server: Arc<ResourceServer>) -> Self {
         self.servers
-            .insert(server.settings().issuer.clone(), server);
+            .insert(server.settings().issuer.clone(), Trusted::Ready(server));
         self
     }
 
-    /// Returns the server of `issuer`, when the set trusts it.
+    /// Returns this set trusting the issuer of `server`, read on its first
+    /// token.
+    #[must_use]
+    pub fn with_lazy(mut self, server: Arc<LazyResourceServer>) -> Self {
+        self.servers
+            .insert(server.settings().issuer.clone(), Trusted::Lazy(server));
+        self
+    }
+
+    /// Returns the server of `issuer`, when the set trusts it and its
+    /// metadata and key set have been read.
     #[must_use]
     pub fn server(&self, issuer: &str) -> Option<&Arc<ResourceServer>> {
-        self.servers.get(issuer)
+        match self.servers.get(issuer)? {
+            Trusted::Ready(server) => Some(server),
+            Trusted::Lazy(lazy) => lazy.get(),
+        }
     }
 
     /// Returns how many issuers the set trusts.
@@ -539,7 +740,10 @@ impl Verifier for IssuerSet {
             let server = self.servers.get(&issuer).ok_or(Rejection::Invalid {
                 reason: Reason::UntrustedIssuer,
             })?;
-            server.authenticate(token).await
+            match server {
+                Trusted::Ready(server) => server.authenticate(token).await,
+                Trusted::Lazy(lazy) => lazy.authenticate(token).await,
+            }
         })
     }
 }
@@ -577,6 +781,33 @@ pub enum Rejection {
         #[source]
         source: Arc<ResourceError>,
     },
+    /// An upstream a product's own [`Verifier`] calls (an RFC 7662
+    /// introspection endpoint) could not be reached or read, so the token
+    /// was not checked. It answers `503`, as [`Rejection::Unavailable`]
+    /// does.
+    #[error("the {upstream} could not be reached to check the access token")]
+    Upstream {
+        /// What could not be reached, for the log.
+        upstream: &'static str,
+        /// What failed, the product's own error.
+        #[source]
+        source: Arc<dyn std::error::Error + Send + Sync + 'static>,
+    },
+}
+
+impl Rejection {
+    /// Returns the rejection of a token a product's own verifier could not
+    /// check, because `upstream` failed with `source`.
+    #[must_use]
+    pub fn upstream(
+        upstream: &'static str,
+        source: impl std::error::Error + Send + Sync + 'static,
+    ) -> Self {
+        Self::Upstream {
+            upstream,
+            source: Arc::new(source),
+        }
+    }
 }
 
 /// What a product honours for a caller beyond a `user/` grant under the
@@ -617,7 +848,9 @@ impl Via {
 }
 
 /// The identity one valid credential carries.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Two callers are equal when everything but their extensions is.
+#[derive(Debug, Clone)]
 pub struct Caller {
     /// The token's `sub`, or the Basic user-id.
     subject: String,
@@ -638,7 +871,30 @@ pub struct Caller {
     issuer: Option<String>,
     /// Every claim of the token, for the product's own reading.
     claims: serde_json::Map<String, serde_json::Value>,
+    /// Whether a Basic credential was admitted from the verified-credential
+    /// cache, without the key derivation.
+    cached: bool,
+    /// The product's own values, attached by its resource server or its
+    /// verifier.
+    extensions: Extensions,
 }
+
+impl PartialEq for Caller {
+    fn eq(&self, other: &Self) -> bool {
+        self.subject == other.subject
+            && self.client_id == other.client_id
+            && self.scope == other.scope
+            && self.scopes == other.scopes
+            && self.patient == other.patient
+            && self.scopeless == other.scopeless
+            && self.via == other.via
+            && self.issuer == other.issuer
+            && self.claims == other.claims
+            && self.cached == other.cached
+    }
+}
+
+impl Eq for Caller {}
 
 /// Which resources one permission reaches.
 #[derive(Debug, Clone, PartialEq, Eq)]

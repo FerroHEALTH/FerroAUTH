@@ -50,6 +50,13 @@ wiremock = "0.6.5"
 http-body-util = "0.1.5"
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "display", "serde"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "json"] }
+# Test-only: the mutual-TLS token endpoint of the RFC 8705 cases, a
+# rustls server on the lines reqwest already links, with a certificate
+# authority, a server and a client certificate generated when the case runs.
+# Verified against crates.io on 2026-10-20.
+rustls = { version = "0.23.46", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
+tokio-rustls = { version = "0.26.6", default-features = false }
+rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
 
 # The reliability bar (no specification governs it: our own design), the
 # FerroHEALTH family's lint set as FerroBRIDGE, FerroFED and FerroUI carry it.
