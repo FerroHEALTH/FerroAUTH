@@ -11,6 +11,71 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `Serialize` on `config::AuthSection`, `IssuerKey`, `IssuerEntry`,
+  `BasicSection`, `BasicUser`, `CredentialsSection` and `OauthSection`, so
+  a product renders its running configuration. `password_hash`, `password`
+  and `client_secret` are written as `[redacted]`, never their value; a
+  `_file` path is written as configured (#42).
+- A Basic-only surface: an enabled `[auth]` section with
+  `[[auth.basic.users]]` and an empty flat `issuer` resolves to no issuer
+  and the Basic store, so a product needs no `enabled = false` workaround
+  (#43).
+- `ResourceServer::with_metadata`: operator-supplied `ServerMetadata` for a
+  `jwks_file` issuer, held to the configured issuer (RFC 8414 §3.3) and the
+  `https` rule (RFC 8414 §2), so its SMART discovery document names a
+  `token_endpoint`. `resource::configuration::document` is public (#44).
+- `Caller::scopeless()`, whether the subject is on `[auth]
+  scopeless_subjects` (#45).
+- `[auth.basic] cache_ttl_seconds` and `PasswordStore::with_cache`: a
+  verified Basic credential is kept for the TTL under an HMAC of the
+  credential, so a repeat request skips the key derivation; 0 (the
+  default) keeps none (#47).
+- `refusal::Reason` and `refusal::Denied`: the check that refused a
+  credential, for the product's own log. The wire answer stays the bare
+  `invalid_token` of RFC 6750 §3 (#47).
+- `openehr::smart_scopes`, the SMART on openEHR grammar module of
+  `openehr-sdt` re-exported, so a product names `SmartScope`,
+  `ResourceFamily` and `Permission` through the crate and links one copy of
+  the parser (#48).
+
+### Changed
+
+- **Breaking:** `guard::Gate::authenticate` returns `Result<Access,
+  Denied>`. `Denied::refusal()` is the refusal it returned before and
+  `Denied::reason()` names the failed check; `Refusal::from(denied)` and
+  `denied.into_refusal()` give the refusal alone (#47).
+- **Breaking:** `resource::Rejection::Invalid { reason }` carries a
+  `refusal::Reason` in place of a `&'static str`. A product's own
+  `Verifier` names its reason as `Reason::Other("…")` (#47).
+- **Breaking:** `guard::Requirement::Client` is a struct variant,
+  `Client { client_ids, basic_users }`: a listed bearer `client_id` or a
+  listed Basic user-id meets it, each list matched only against its own
+  scheme. `Client(ids)` becomes `Client { client_ids: ids, basic_users:
+  vec![] }` (#46).
+- **Breaking:** `Requirement::OpenEhr` admits a caller on `[auth]
+  scopeless_subjects` whose token carries no resource scope of either
+  grammar. With the `openehr` feature a SMART on openEHR resource scope
+  counts as a scope on a FHIR route too, so an allowlisted subject whose
+  token carries only `system/composition-*.r` no longer reaches every FHIR
+  resource (#45).
+- A bearer value outside the RFC 6750 §2.1 `b64token` syntax is refused as
+  `invalid_token` before the verifier reads it (#47).
+- `openehr-sdt` stays at 0.0.89, the newest version on crates.io (#48).
+
+### Fixed
+
+- A token whose `sub` is empty or whitespace only is refused with the
+  generic `invalid_token` (RFC 9068 §2.2, RFC 7519 §4.1.2), by the token
+  check and by the gate over any `Verifier` (#41).
+- An enabled `[auth]` section that admits no credential at all, such as
+  `issuer = []` without Basic users, is refused at load with
+  `ConfigError::Missing { key: "auth.issuer" }`; it resolved before and
+  left the product an open gate (#43).
+- `guard::Requirement::met_by` lints clean in the `axum` build without
+  `openehr`, which CI now lints too.
+
 ## [0.2.0] - 2026-10-20
 
 The gaps FerroTERM's migration found, closed in the crate: the SMART

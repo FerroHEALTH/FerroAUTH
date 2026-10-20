@@ -249,7 +249,11 @@ The checks, in order, each a refusal when it fails:
 8. **Required claims.** Under `rfc9068`: `iss`, `exp`, `aud`, `sub`,
    `client_id`, `iat` and `jti` are present (`rfc9068 §2.2`). Under `jwt`:
    `iss`, `exp`, `aud` and `sub`. A claim required by the profile but absent
-   is a refusal, and a refusal names no claim on the wire (3.7).
+   is a refusal, and a refusal names no claim on the wire (3.7). A `sub`
+   that is empty or whitespace only is refused too: `rfc9068 §2.2` requires
+   the claim, and `rfc7519 §4.1.2` has it identify a principal "locally
+   unique in the context of the issuer", which a blank value does not. The
+   gate holds the same rule over a caller any `Verifier` returns.
 
 What the library then reads from a valid token: `sub`, `client_id`, `scope`
 (the space-delimited string of `rfc6749 §3.3`, which `rfc9068 §2.2.3` carries
@@ -341,9 +345,10 @@ such a scope ("use any string starting with `__`" or a full URI), and
 section 9 asks the owner whether the two products' existing names move to one
 of those forms.
 
-**The scopeless-subject allowlist.** A token that carries no FHIR scope at
-all is admitted system-wide when its `sub` is on the deployment's allowlist,
-and nowhere otherwise. No specification governs this: our own design, the
+**The scopeless-subject allowlist.** A token that carries no resource scope
+of either grammar (this section's or the SMART on openEHR grammar of 3.9) is
+admitted system-wide when its `sub` is on the deployment's allowlist, and
+nowhere otherwise; `Caller::scopeless` reads the flag. No specification governs this: our own design, the
 one FerroBRIDGE runs for an authorization server that cannot mint SMART
 scopes for a service account. The allowlist is a list of exact subjects, and
 a subject on it that does carry scopes gets only its scopes.
@@ -374,6 +379,14 @@ verified against a decoy hash of the same parameters, so the time a refusal
 takes does not say whether the user exists (FerroEHR's enumeration defence,
 carried over). Verification runs on a blocking thread, never on the async
 runtime.
+
+A verified credential may be kept for `[auth.basic] cache_ttl_seconds`
+(default 0, none), so a repeat request skips the key derivation. The entry
+is named by an HMAC-SHA-256 of `user-id:password` under a key drawn when the
+store is built, never the password itself; only a credential that verified
+is kept, so a wrong password always pays the derivation; the cache holds at
+most 4096 entries. No specification governs the cache: our own design,
+FerroEHR's, moved into the crate.
 
 **Basic, sending.** The outbound `[<lane>.credentials]` with `user` and
 `password` renders the same header (`rfc7617 §2`), UTF-8 then base64, and
@@ -503,8 +516,11 @@ the format the request negotiates (the `Accept` header, a FHIR `_format`). The s
 - **A credential that does not hold:** one `401` for every cause, with
   `error="invalid_token"` for a bearer token, which `rfc9068 §4` makes a
   MUST "in case of any failure in the validation checks", and with no
-  `error_description`. The reason (which check failed) reaches the debug log
-  and nothing else: a refusal that names the failed claim teaches a forger
+  `error_description`. A bearer value outside the `b64token` syntax of
+  `rfc6750 §2.1` is one such token, "malformed" in the words of `rfc6750
+  §3.1`. The reason (which check failed) reaches the product as the typed
+  `Reason` of the `Denied` that `Gate::authenticate` returns, for its own
+  log, and nothing else: a refusal that names the failed claim teaches a forger
   which claim to fix next. No specification requires the omission: our own
   design. FerroTERM's `error_description` with the reason and FerroEHR's
   per-cause variants collapse into this one answer. A Basic credential that
@@ -572,6 +588,14 @@ mounts it. The rules the builder keeps:
   SMART App Launch", and other capabilities are "represented with full
   URIs" (`smart conformance`, Capabilities).
 
+A resource server whose key set comes from a `jwks_file` reads no metadata,
+so the operator supplies it (`ResourceServer::with_metadata`): it must name
+the configured issuer, as `rfc8414 §3.3` holds a fetched document to, every
+location it names follows the `https` rule of 3.1, and metadata read from the
+issuer is never replaced. The builder is public
+(`resource::configuration::document`) for a product that holds its metadata
+elsewhere.
+
 The route stays public: a client reads it before it holds a token. For an
 openEHR surface the builder adds the `services` map and the openEHR
 capabilities of 3.9, from the product's declaration of its base URLs.
@@ -614,7 +638,9 @@ feature and models nothing of the grammar itself: a second copy of a
 published parser would fork the grammar between the products, which is the
 drift one crate exists to close. What the crate adds is the enforcement: a `Requirement::OpenEhr {
 family, permission, resource }` the product's classifier names per route,
-checked against the token's parsed scopes.
+checked against the token's parsed scopes. The crate re-exports the parser's
+module as `ferrohealth_smart::openehr::smart_scopes`, so a product names the
+grammar types through the crate and links one copy of the parser.
 
 **Where the draft is silent, these rules are ours**, carried over from
 FerroFED's `auth/permission/grant.rs`, which moves into the crate with
@@ -632,7 +658,8 @@ FerroFED's migration:
   the operation's permission over every template, because they are the EHR's
   data and the draft names no other family for them. The DEMOGRAPHIC API has
   no family either and no scope covers it: only a client the product lists
-  by `client_id` reaches it.
+  by `client_id`, or a Basic principal it lists by user-id, reaches it
+  (`Requirement::Client`, each list matched only against its own scheme).
 - Where the product cannot see which resource a request addresses (an ad hoc
   AQL query, a composition whose template only the node knows, an upload
   whose template is in its body), only a pattern covering every resource,
@@ -653,6 +680,11 @@ FerroFED's migration:
   whole claim and keeps its own grants, and a token may carry both
   `system/Observation.rs` and `system/composition-*.rs`. A scope string that
   parses in neither grammar grants nothing in either.
+- The scopeless-subject allowlist of 3.4 holds here too: a subject on it
+  whose token carries no resource scope of either grammar meets every
+  `Requirement::OpenEhr`, and one whose token carries a resource scope of
+  either grammar gets only its scopes, on this grammar's routes and on the
+  FHIR grammar's alike.
 
 **Which grammar applies to which route is the product's declaration**, not
 the listener's: the classifier of section 5 names a `Requirement` per route, and the
@@ -691,7 +723,7 @@ specification governs this: our own design.
 ```toml
 [auth]
 enabled = true                       # a product may refuse `false`
-issuer = "https://as.example.org/realms/ferro"
+issuer = "https://as.example.org/realms/ferro"   # empty with Basic users: a Basic-only surface
 audience = ["https://bridge.example.org/fhir"]   # at least one; `aud` must contain one
 algorithms = ["RS256", "RS384", "PS256", "PS384", "ES256", "ES384"]
 token_profile = "rfc9068"            # or "jwt"
@@ -705,6 +737,9 @@ scopeless_subjects = []              # exact `sub` values granted system-wide ac
 capabilities = []                    # SMART capabilities the discovery document adds
 scopes_supported = []                # the scopes the product honours, listed in the discovery document
 product_scope = ""                   # the product's own scope: `__name` or a full URI
+
+[auth.basic]
+cache_ttl_seconds = 0                # how long a verified credential is kept; 0 keeps none
 
 [[auth.basic.users]]                 # absent: no Basic on this surface
 user = "etl"
@@ -745,8 +780,9 @@ its own refuses an `oauth` table at load (FerroBRIDGE's `NoGrant` shape). The
 `resource` key is the `rfc8707 §2` resource indicator and `audience` the
 parameter without a specification, both sent only when set (3.5).
 
-Validation at load, refusing the start: the issuer URL rule of 3.1, at least
-one audience, at least one algorithm and none symmetric, the skew bound, every
+Validation at load, refusing the start: an enabled section that admits no
+credential (no issuer and no Basic user), the issuer URL rule of 3.1, at
+least one audience, at least one algorithm and none symmetric, the skew bound, every
 Basic user with a parseable Argon2id PHC string and a non-empty user-id
 without a colon, every scope token inside the `rfc6749 §3.3` character set
 (`scope::is_scope_token`, public so a product checks its own scopes with
@@ -951,6 +987,12 @@ four agree on and settles each difference:
 | The crate parses (through `openehr-sdt`) and enforces the SMART on openEHR grammar beside the FHIR grammar; the product's route table declares which applies per route | owner decision 2026-10-19; `soe master07`, `master08`; the rules the draft leaves open are listed in 3.9 as our own design | none |
 | SMART on openEHR is DEVELOPMENT: pinned by commit, its status checked on every vendor run, upstream read weekly, and every upstream change re-vendored and recorded here as a decision naming what changed | the draft's `manifest_vars.adoc`; no release stabilises it | none yet: the draft last changed on 2026-07-19 (amendment record 1.1.0) |
 | The `ehrId` of the launch context is read from an `ehrId` claim when the issuer carries it in the token | our own design, as `patient` in 3.3; the draft places it in the token response (`soe master07`, Context Selection) | none |
+| An enabled `[auth]` with Basic users and no issuer is a Basic-only surface; an enabled section that admits no credential is refused at load | our own design, fail closed; asked by the FerroEHR migration (#43) | none |
+| A blank `sub` is refused, by the token check and by the gate over every verifier | `rfc9068 §2.2`; `rfc7519 §4.1.2` (#41) | none |
+| A bearer value outside `b64token` is `invalid_token`; the reason of every refusal reaches the product as a typed `Reason`, never the wire | `rfc6750 §2.1`, `§3.1`; the omission is our own design (#47) | none |
+| Verified Basic credentials may be cached for a configured TTL under an HMAC of the credential | our own design, FerroEHR's (#47) | none |
+| `[auth]` and `[[auth.basic.users]]` take no product extension fields; a product keeps its own policy in its own section, as FerroEHR's `[authz]` does | `deny_unknown_fields` refuses a mistyped or retired key (4); product policy stays in the product (6) (#49, not planned) | none |
+| A plain-`http` issuer on a host that is no loopback stays refused, with no development switch; a development authorization server gets TLS | `rfc8414 §2`; `discovery §3` (orchestrator decision 2026-10-20 on the FerroEHR migration) | none |
 
 ## 10. Verification
 

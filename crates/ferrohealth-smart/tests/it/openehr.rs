@@ -10,14 +10,14 @@ use std::sync::Arc;
 
 use ferrohealth_smart::openehr::granted;
 use ferrohealth_smart::openehr::patient_grant;
+use ferrohealth_smart::openehr::smart_scopes::Permission;
+use ferrohealth_smart::openehr::smart_scopes::ResourceFamily;
+use ferrohealth_smart::openehr::smart_scopes::SmartScope;
 use ferrohealth_smart::resource::Compartment;
 use ferrohealth_smart::resource::Honoured;
 use ferrohealth_smart::resource::configuration::SmartOptions;
 use ferrohealth_smart::scope::Permission as FhirPermission;
 use jsonwebtoken::Algorithm;
-use openehr_sdt::smart_scopes::Permission;
-use openehr_sdt::smart_scopes::ResourceFamily;
-use openehr_sdt::smart_scopes::SmartScope;
 
 use crate::support::Issuer;
 use crate::support::ec_key;

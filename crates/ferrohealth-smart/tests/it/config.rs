@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use ferrohealth_smart::basic::PasswordStore;
 use ferrohealth_smart::client::ClientAuth;
 use ferrohealth_smart::client::Endpoint;
 use ferrohealth_smart::config::AuthSection;
@@ -284,5 +285,120 @@ fn the_grant_checks_its_issuer_and_resource_at_load() {
             })
         ),
         "RFC 8707 §2: the URI MUST NOT include a fragment component"
+    );
+}
+
+/// A synthetic Argon2id PHC string, which verifies no password.
+const PHC: &str = "$argon2id$v=19$m=19456,t=2,p=1$c3ludGhldGljLXNhbHQtMTY$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+#[test]
+fn an_enabled_section_with_basic_users_and_no_issuer_is_basic_only() {
+    let section: AuthSection = toml::from_str(&format!(
+        r#"
+        enabled = true
+        [basic]
+        cache_ttl_seconds = 30
+        [[basic.users]]
+        user = "etl"
+        password_hash = "{PHC}"
+        scopes = ["system/*.rs"]
+        "#
+    ))
+    .expect("the section parses");
+    let resolved = section.resolve().expect("a Basic-only section resolves");
+    assert!(resolved.enabled);
+    assert!(resolved.issuers.is_empty(), "no issuer");
+    assert_eq!(1, resolved.basic.as_ref().map_or(0, PasswordStore::len));
+}
+
+#[test]
+fn an_enabled_section_that_admits_no_credential_fails_closed() {
+    for text in [
+        "enabled = true",
+        "enabled = true\n[basic]\nusers = []",
+        "enabled = true\nissuer = []",
+        "enabled = true\nissuer = []\n[basic]\nusers = []",
+    ] {
+        let section: AuthSection = toml::from_str(text).expect("parses");
+        assert!(
+            matches!(
+                section.resolve(),
+                Err(ConfigError::Missing { key: "auth.issuer" })
+            ),
+            "{text}"
+        );
+    }
+}
+
+#[test]
+fn a_rendered_section_carries_every_key_and_no_secret() {
+    let auth: AuthSection = toml::from_str(&format!(
+        r#"
+        issuer = "https://as.example.org"
+        audience = ["https://fhir.example.org"]
+        scopeless_subjects = ["svc"]
+        [[basic.users]]
+        user = "etl"
+        password_hash = "{PHC}"
+        [[basic.users]]
+        user = "ops"
+        password_hash_file = "/run/secrets/ops.phc"
+        "#
+    ))
+    .expect("parses");
+    let credentials: CredentialsSection = toml::from_str(
+        r#"
+        user = "bridge"
+        password = "synthetic-basic-password"
+        "#,
+    )
+    .expect("parses");
+    let oauth: CredentialsSection = toml::from_str(
+        r#"
+        [oauth]
+        token_endpoint = "https://as.example.org/token"
+        client_id = "ferro"
+        client_secret = "synthetic-client-secret"
+        "#,
+    )
+    .expect("parses");
+    let rendered = [
+        serde_json::to_string(&auth).expect("serializes"),
+        serde_json::to_string(&credentials).expect("serializes"),
+        serde_json::to_string(&oauth).expect("serializes"),
+        toml::to_string(&auth).expect("renders as TOML"),
+        toml::to_string(&oauth).expect("renders as TOML"),
+    ];
+    for text in &rendered {
+        for secret in [PHC, "synthetic-basic-password", "synthetic-client-secret"] {
+            assert!(!text.contains(secret), "a secret is rendered: {text}");
+        }
+    }
+    let auth_json = serde_json::to_value(&auth).expect("serializes");
+    assert_eq!(
+        serde_json::json!("[redacted]"),
+        auth_json["basic"]["users"][0]["password_hash"]
+    );
+    assert_eq!(
+        serde_json::json!("/run/secrets/ops.phc"),
+        auth_json["basic"]["users"][1]["password_hash_file"],
+        "a path is no secret"
+    );
+    assert!(
+        auth_json["basic"]["users"][1]
+            .get("password_hash")
+            .is_none()
+    );
+    assert_eq!(serde_json::json!(["svc"]), auth_json["scopeless_subjects"]);
+    let oauth_json = serde_json::to_value(&oauth).expect("serializes");
+    assert_eq!(
+        serde_json::json!("[redacted]"),
+        oauth_json["oauth"]["client_secret"]
+    );
+    assert_eq!(serde_json::json!("ferro"), oauth_json["oauth"]["client_id"]);
+    let read_back: AuthSection =
+        toml::from_str(&rendered[3]).expect("the rendering reads back as a section");
+    assert!(
+        matches!(read_back.issuer, IssuerKey::Flat(ref issuer) if issuer == "https://as.example.org")
     );
 }

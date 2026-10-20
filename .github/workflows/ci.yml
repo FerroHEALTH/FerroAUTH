@@ -194,10 +194,12 @@ jobs:
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       # The core compiles without a framework, and the layer and the
       # extractor behind the `axum` feature, so both are linted; so is the
-      # build without the `fetch` feature, which links no HTTP client.
+      # build without the `fetch` feature, which links no HTTP client, and
+      # the `axum` build without `openehr` the FHIR products link.
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo clippy --workspace --all-targets --no-default-features --features axum,openehr --locked -- -D warnings
+      - run: cargo clippy --workspace --all-targets --features axum --locked -- -D warnings
 
   test:
     name: nextest (core and axum)

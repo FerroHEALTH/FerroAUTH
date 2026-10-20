@@ -232,7 +232,8 @@ impl SmartOptions {
 /// method SHALL NOT be included" (SMART App Launch 2.2.0, Conformance,
 /// §Metadata). The client types and the standalone launch are derived from
 /// what the issuer supports.
-pub(super) fn document(metadata: &ServerMetadata, options: &SmartOptions) -> Value {
+#[must_use]
+pub fn document(metadata: &ServerMetadata, options: &SmartOptions) -> Value {
     let mut document = Map::new();
     let mut put = |name: &str, value: Option<Value>| {
         if let Some(value) = value {

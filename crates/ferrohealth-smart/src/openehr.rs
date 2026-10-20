@@ -22,6 +22,19 @@
 //! data; the FHIR v1 suffixes are not applied; and both grammars coexist in
 //! one `scope` claim.
 
+/// The SMART on openEHR scope grammar `openehr-sdt` parses, so a product
+/// names the types [`crate::guard`]'s `Requirement::OpenEhr` takes through
+/// this crate and links one copy of the parser.
+#[expect(
+    clippy::useless_attribute,
+    reason = "clippy reads a lint attribute on a use item as useless, and this one scopes pub_use to the one re-export"
+)]
+#[expect(
+    clippy::pub_use,
+    reason = "the grammar is openehr-sdt's, and a product reaches it through this crate so the two never disagree on a version"
+)]
+pub use openehr_sdt::smart_scopes;
+
 use openehr_sdt::smart_scopes::Compartment;
 use openehr_sdt::smart_scopes::Permission;
 use openehr_sdt::smart_scopes::ResourceFamily;

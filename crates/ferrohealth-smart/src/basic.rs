@@ -14,10 +14,15 @@
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
+use std::sync::Mutex;
+use std::time::Duration;
+use std::time::Instant;
 
 use argon2::Argon2;
 use argon2::PasswordHash;
 use argon2::PasswordVerifier;
+use aws_lc_rs::hmac;
+use aws_lc_rs::rand::SystemRandom;
 use base64::Engine as _;
 use base64::alphabet;
 use base64::engine::DecodePaddingMode;
@@ -27,6 +32,7 @@ use http::HeaderValue;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
 
+use crate::refusal::Reason;
 use crate::scope::is_scope_token;
 
 /// The RFC 4648 §4 decoder of the RFC 7617 §2 credential, padded only:
@@ -94,6 +100,10 @@ pub enum StoreError {
         /// The scope token.
         scope: String,
     },
+    /// The key of the verified-credential cache could not be drawn from
+    /// the system's random source.
+    #[error("the key of the verified-credential cache could not be drawn")]
+    CacheKey,
 }
 
 /// A credential that does not hold.
@@ -130,6 +140,81 @@ struct Entry {
 pub struct PasswordStore {
     /// Each user, by user-id.
     users: BTreeMap<String, Entry>,
+    /// The credentials verified within their lifetime, when the store keeps
+    /// them.
+    cache: Option<VerifiedCache>,
+}
+
+/// The most credentials a [`VerifiedCache`] holds; a full cache admits no
+/// new entry until one expires (no specification governs the bound: our own
+/// design).
+const MAX_CACHED: usize = 4096;
+
+/// The credentials that verified, each kept for the cache's lifetime under
+/// a keyed hash of `user-id:password`, so the password itself is never
+/// held.
+struct VerifiedCache {
+    /// How long a verified credential is kept.
+    ttl: Duration,
+    /// The HMAC key the entries are named with, drawn when the cache is
+    /// built.
+    key: hmac::Key,
+    /// Each entry's expiry and user, by the keyed hash of its credential.
+    entries: Mutex<BTreeMap<Vec<u8>, (Instant, Verified)>>,
+}
+
+impl std::fmt::Debug for VerifiedCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VerifiedCache")
+            .field("ttl", &self.ttl)
+            .finish_non_exhaustive()
+    }
+}
+
+impl VerifiedCache {
+    /// Returns an empty cache keeping a credential for `ttl`.
+    fn new(ttl: Duration) -> Result<Self, StoreError> {
+        let key = hmac::Key::generate(hmac::HMAC_SHA256, &SystemRandom::new())
+            .map_err(|_unspecified| StoreError::CacheKey)?;
+        Ok(Self {
+            ttl,
+            key,
+            entries: Mutex::new(BTreeMap::new()),
+        })
+    }
+
+    /// Returns the name of the credential `user_pass` in the cache.
+    fn name(&self, user_pass: &str) -> Vec<u8> {
+        hmac::sign(&self.key, user_pass.as_bytes())
+            .as_ref()
+            .to_vec()
+    }
+
+    /// Returns the user of `user_pass` when the cache holds it unexpired.
+    fn get(&self, user_pass: &str) -> Option<Verified> {
+        let name = self.name(user_pass);
+        // NOTE: no specification governs the cache: our own design, and a
+        // poisoned lock is a miss, which only costs the key derivation.
+        let entries = self.entries.lock().ok()?;
+        let (expires, verified) = entries.get(&name)?;
+        (Instant::now() < *expires).then(|| verified.clone())
+    }
+
+    /// Keeps `verified` as the user of `user_pass` for the cache's lifetime,
+    /// dropping the expired entries first.
+    fn put(&self, user_pass: &str, verified: &Verified) {
+        let now = Instant::now();
+        let Some(expires) = now.checked_add(self.ttl) else {
+            return;
+        };
+        let name = self.name(user_pass);
+        if let Ok(mut entries) = self.entries.lock() {
+            entries.retain(|_name, (expiry, _verified)| *expiry > now);
+            if entries.len() < MAX_CACHED {
+                entries.insert(name, (expires, verified.clone()));
+            }
+        }
+    }
 }
 
 impl PasswordStore {
@@ -137,6 +222,27 @@ impl PasswordStore {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Returns this store keeping a credential that verified for `ttl`, so a
+    /// repeat request within it skips the key derivation; a zero `ttl`
+    /// keeps none.
+    ///
+    /// Only a credential that verified is kept, named by an HMAC-SHA-256 of
+    /// `user-id:password` under a key drawn here, never the password
+    /// itself, so a wrong password always pays the derivation. No
+    /// specification governs the cache: our own design.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::CacheKey`] when the key cannot be drawn.
+    pub fn with_cache(mut self, ttl: Duration) -> Result<Self, StoreError> {
+        self.cache = if ttl.is_zero() {
+            None
+        } else {
+            Some(VerifiedCache::new(ttl)?)
+        };
+        Ok(self)
     }
 
     /// Returns this store admitting `username` with the password `hash`
@@ -207,17 +313,35 @@ impl PasswordStore {
     /// Returns [`InvalidCredential`] for a malformed header, an unknown user,
     /// or a password that does not match.
     pub fn verify(&self, header: &HeaderValue) -> Result<Verified, InvalidCredential> {
-        let raw = header.to_str().map_err(|_opaque| InvalidCredential)?;
-        let (scheme, encoded) = raw.split_once(' ').ok_or(InvalidCredential)?;
+        self.check(header).map_err(|_reason| InvalidCredential)
+    }
+
+    /// Returns the user a `Basic <credentials>` header value authenticates,
+    /// or which check refused it, for the gate's log.
+    ///
+    /// A credential the cache holds within its lifetime is admitted without
+    /// the key derivation; one that verifies is added to it.
+    pub(crate) fn check(&self, header: &HeaderValue) -> Result<Verified, Reason> {
+        let raw = header.to_str().map_err(|_opaque| Reason::BasicMalformed)?;
+        let (scheme, encoded) = raw.split_once(' ').ok_or(Reason::BasicMalformed)?;
         if !scheme.eq_ignore_ascii_case("Basic") {
-            return Err(InvalidCredential);
+            return Err(Reason::BasicMalformed);
         }
         let decoded = BASIC_B64
             .decode(encoded.trim())
-            .map_err(|_malformed| InvalidCredential)?;
-        let decoded = String::from_utf8(decoded).map_err(|_opaque| InvalidCredential)?;
-        let (username, password) = decoded.split_once(':').ok_or(InvalidCredential)?;
-        self.verify_password(username, password)
+            .map_err(|_malformed| Reason::BasicMalformed)?;
+        let decoded = String::from_utf8(decoded).map_err(|_opaque| Reason::BasicMalformed)?;
+        let (username, password) = decoded.split_once(':').ok_or(Reason::BasicMalformed)?;
+        if let Some(verified) = self.cache.as_ref().and_then(|cache| cache.get(&decoded)) {
+            return Ok(verified);
+        }
+        let verified = self
+            .verify_password(username, password)
+            .map_err(|_invalid| Reason::BasicRejected)?;
+        if let Some(cache) = &self.cache {
+            cache.put(&decoded, &verified);
+        }
+        Ok(verified)
     }
 
     /// Returns `username` when `password` is the one its hash names.
@@ -328,11 +452,13 @@ impl Credential {
 #[cfg(test)]
 mod tests {
     use super::{Credential, ENUMERATION_DEFENCE_PHC, InvalidCredential, PasswordStore, Verified};
+    use crate::refusal::Reason;
     use argon2::password_hash::PasswordHasher;
     use argon2::{Argon2, PasswordHash};
     use base64::Engine as _;
     use http::HeaderValue;
     use secrecy::{ExposeSecret, SecretString};
+    use std::time::Duration;
 
     fn hash(password: &str) -> SecretString {
         // A fixed salt keeps the test hermetic without a random source.
@@ -373,6 +499,46 @@ mod tests {
             Ok(verified),
             store().verify(&header("basic", "alice", "s3cret"))
         );
+    }
+
+    #[test]
+    fn a_verified_credential_is_cached_for_its_lifetime_and_a_wrong_one_never() {
+        let store = store()
+            .with_cache(Duration::from_secs(60))
+            .expect("the cache key is drawn");
+        let cache = store.cache.as_ref().expect("a cache");
+        assert_eq!(None, cache.get("alice:s3cret"));
+        assert!(store.verify(&header("Basic", "alice", "s3cret")).is_ok());
+        assert_eq!(
+            Some(String::from("alice")),
+            cache.get("alice:s3cret").map(|verified| verified.username),
+            "a repeat request skips the key derivation"
+        );
+        assert_eq!(
+            Err(Reason::BasicRejected),
+            store.check(&header("Basic", "alice", "nope"))
+        );
+        assert_eq!(
+            None,
+            cache.get("alice:nope"),
+            "a wrong password is never kept"
+        );
+        assert_eq!(Err(Reason::BasicMalformed), store.check(&raw("QQ===")));
+    }
+
+    #[test]
+    fn a_cached_credential_expires_and_a_zero_lifetime_keeps_none() {
+        let store = store()
+            .with_cache(Duration::from_millis(1))
+            .expect("the cache key is drawn");
+        assert!(store.verify(&header("Basic", "alice", "s3cret")).is_ok());
+        std::thread::sleep(Duration::from_millis(5));
+        let cache = store.cache.as_ref().expect("a cache");
+        assert_eq!(None, cache.get("alice:s3cret"), "expired");
+        let none = PasswordStore::new()
+            .with_cache(Duration::ZERO)
+            .expect("no key needed");
+        assert!(none.cache.is_none());
     }
 
     #[test]

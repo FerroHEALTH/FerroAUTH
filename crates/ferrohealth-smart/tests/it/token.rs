@@ -3,7 +3,7 @@
 
 //! The token check: a valid token names its caller, and every token that
 //! does not hold is the same [`Rejection::Invalid`], whose reason reaches
-//! the debug log and never the caller.
+//! the log and never the caller.
 
 use std::collections::BTreeSet;
 use std::error::Error as StdError;
@@ -12,6 +12,8 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use ferrohealth_smart::metadata::DiscoveryError;
+use ferrohealth_smart::metadata::ServerMetadata;
+use ferrohealth_smart::refusal::Reason;
 use ferrohealth_smart::refusal::Refusal;
 use ferrohealth_smart::resource::Caller;
 use ferrohealth_smart::resource::Compartment;
@@ -48,11 +50,11 @@ use crate::support::temp_file;
 fn assert_invalid(outcome: &Result<Caller, Rejection>, case: &str) {
     match outcome {
         Err(Rejection::Invalid { reason }) => {
-            let text = Refusal::from(&Rejection::Invalid { reason }).reason();
+            let text = Refusal::from(&Rejection::Invalid { reason: *reason }).reason();
             assert_eq!("invalid_token", text, "{case}");
             for value in [AUDIENCE, "synthetic-client-sub", "synthetic-client"] {
                 assert!(
-                    !reason.contains(value),
+                    !reason.as_str().contains(value),
                     "{case}: the reason carries {value}"
                 );
             }
@@ -836,5 +838,52 @@ async fn the_smart_configuration_republishes_the_issuer() -> Result<(), Box<dyn 
             "{undeclared} is claimed only when the product declares it"
         );
     }
+    Ok(())
+}
+
+// NOTE: RFC 9068 §2.2 requires `sub`, and RFC 7519 §4.1.2 has it identify a
+// principal, which an empty or whitespace-only value does not.
+#[tokio::test]
+async fn a_blank_sub_is_refused_under_both_profiles() -> Result<(), Box<dyn StdError>> {
+    let key = ec_key("k1", Algorithm::ES256);
+    let issuer = Issuer::start(&[&key]).await;
+    for profile in [TokenProfile::Rfc9068, TokenProfile::Jwt] {
+        let mut settings = issuer.settings();
+        settings.profile = profile;
+        let server = server(settings).await;
+        for blank in ["", " ", "\t \n"] {
+            let mut claims = issuer.claims("system/Condition.r");
+            claims["sub"] = serde_json::json!(blank);
+            let outcome = server.authenticate(&mint(&key, &claims)).await;
+            let case = format!("{profile:?} with sub {blank:?}");
+            assert_invalid(&outcome, &case);
+            assert!(
+                matches!(
+                    outcome,
+                    Err(Rejection::Invalid {
+                        reason: Reason::BlankSubject
+                    })
+                ),
+                "{case}"
+            );
+        }
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn metadata_read_from_the_issuer_is_never_replaced() -> Result<(), Box<dyn StdError>> {
+    let key = ec_key("k1", Algorithm::ES256);
+    let issuer = Issuer::start(&[&key]).await;
+    let fetched = ResourceServer::discover(issuer.settings()).await?;
+    let supplied = ServerMetadata {
+        issuer: issuer.uri(),
+        token_endpoint: Some(String::from("https://elsewhere.example.org/token")),
+        ..ServerMetadata::default()
+    };
+    assert!(matches!(
+        fetched.with_metadata(supplied),
+        Err(ResourceError::MetadataFetched)
+    ));
     Ok(())
 }
