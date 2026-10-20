@@ -11,6 +11,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-20
+
+`openehr-sdt` 0.0.90, the version FerroEHR publishes. No public API changes;
+products pin `=0.3.1`.
+
 ### Changed
 
 - `openehr-sdt` 0.0.90, the version FerroEHR publishes, so a product and
@@ -278,7 +283,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.0...v0.1.1
