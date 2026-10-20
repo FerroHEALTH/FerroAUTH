@@ -1046,9 +1046,9 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "openehr-sdt"
-version = "0.0.89"
+version = "0.0.90"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e07cae457af09d08cb9362c5d0ce8e81201c7fcde855e56823d6c5bb3715bad"
+checksum = "f23bd61aa0044486803da37083b265559a5ed63c82436f4c9bc2060cde8af234"
 
 [[package]]
 name = "openssl-probe"

@@ -11,6 +11,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `openehr-sdt` 0.0.90, the version FerroEHR publishes, so a product and
+  the crate resolve one copy of the SMART on openEHR parser behind the
+  `openehr::smart_scopes` re-export (#52).
+
 ## [0.3.0] - 2026-10-20
 
 The gaps FerroEHR's migration found, closed in the crate: a blank `sub` is
