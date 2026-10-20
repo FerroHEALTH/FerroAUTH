@@ -31,6 +31,7 @@ use http::Method;
 use http::Request;
 use http::Uri;
 use http::header;
+use http::request::Parts;
 use tower::Layer;
 use tower::Service;
 
@@ -219,17 +220,21 @@ where
 
 /// How a product answers a refusal: the body is its own, the status and the
 /// `WWW-Authenticate` challenge are [`Refusal`]'s.
+///
+/// The renderer reads the refused request's parts, so a product negotiates
+/// the body's format from them (the `Accept` header, a FHIR `_format`
+/// parameter in the query) the way its handlers do.
 pub trait Render: Send + Sync + 'static {
-    /// Returns the response of `refusal`.
-    fn render(&self, refusal: &Refusal) -> Response;
+    /// Returns the response of `refusal` to the request `parts` head.
+    fn render(&self, refusal: &Refusal, parts: &Parts) -> Response;
 }
 
 impl<F> Render for F
 where
-    F: Fn(&Refusal) -> Response + Send + Sync + 'static,
+    F: Fn(&Refusal, &Parts) -> Response + Send + Sync + 'static,
 {
-    fn render(&self, refusal: &Refusal) -> Response {
-        self(refusal)
+    fn render(&self, refusal: &Refusal, parts: &Parts) -> Response {
+        self(refusal, parts)
     }
 }
 
@@ -551,7 +556,7 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, mut request: Request<Body>) -> Self::Future {
+    fn call(&mut self, request: Request<Body>) -> Self::Future {
         // NOTE: tower's readiness contract, the service polled ready is the
         // one that takes the call, so the clone keeps the ready one.
         let clone = self.inner.clone();
@@ -574,10 +579,12 @@ where
                 .get(&request_id)
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_owned);
-            let (access, response) = match admit(&gate, &target, request.headers()).await {
-                Err((access, refusal)) => (access, render.render(&refusal)),
+            let (mut parts, body) = request.into_parts();
+            let (access, response) = match admit(&gate, &target, &parts.headers).await {
+                Err((access, refusal)) => (access, render.render(&refusal, &parts)),
                 Ok(access) => {
-                    request.extensions_mut().insert(access.clone());
+                    parts.extensions.insert(access.clone());
+                    let request = Request::from_parts(parts, body);
                     (Some(access), inner.call(request).await?)
                 }
             };

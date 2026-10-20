@@ -230,8 +230,8 @@ fn the_listed_scopes_reach_the_discovery_options() {
     );
     assert_eq!(vec![String::from("launch-ehr")], options.capabilities);
     assert!(
-        !options.granular,
-        "the product says whether it evaluates granular scopes"
+        options.permissions.is_empty(),
+        "the product declares the permission capabilities its routes enforce"
     );
     let bad = AuthSection {
         scopes_supported: vec![String::from("two words")],

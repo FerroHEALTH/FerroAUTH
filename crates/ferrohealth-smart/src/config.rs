@@ -289,9 +289,11 @@ impl Resolved {
     /// Returns the discovery document options the section names: its
     /// scopes and its capabilities.
     ///
-    /// A product sets what the section cannot know on the result: whether
-    /// it evaluates granular scopes, and the openEHR services of
-    /// [`SmartOptions::with_openehr`].
+    /// A product sets what the section cannot know on the result: the
+    /// permission capabilities its route table enforces
+    /// ([`SmartOptions::permissions`]), whether it advertises `OpenID` Connect
+    /// sign-in ([`SmartOptions::openid_connect`]), and the openEHR services
+    /// of [`SmartOptions::with_openehr`].
     #[must_use]
     pub fn smart_options(&self) -> SmartOptions {
         SmartOptions {

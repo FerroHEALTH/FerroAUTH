@@ -5,6 +5,7 @@
 //! does not hold is the same [`Rejection::Invalid`], whose reason reaches
 //! the debug log and never the caller.
 
+use std::collections::BTreeSet;
 use std::error::Error as StdError;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,6 +23,7 @@ use ferrohealth_smart::resource::Settings;
 use ferrohealth_smart::resource::TokenProfile;
 use ferrohealth_smart::resource::Verifier;
 use ferrohealth_smart::resource::Via;
+use ferrohealth_smart::resource::configuration::PermissionCapability;
 use ferrohealth_smart::resource::configuration::SmartOptions;
 use ferrohealth_smart::scope::Permission;
 use jsonwebtoken::Algorithm;
@@ -785,7 +787,7 @@ async fn the_smart_configuration_republishes_the_issuer() -> Result<(), Box<dyn 
     let options = SmartOptions {
         scopes_supported: vec![String::from("system/Condition.rs")],
         capabilities: vec![String::from("launch-ehr")],
-        granular: false,
+        permissions: BTreeSet::from([PermissionCapability::V1, PermissionCapability::User]),
         ..SmartOptions::default()
     };
     let document = server.smart_configuration(&options);
@@ -816,18 +818,23 @@ async fn the_smart_configuration_republishes_the_issuer() -> Result<(), Box<dyn 
         .ok_or("capabilities are a list")?;
     for expected in [
         "permission-v1",
-        "permission-patient",
         "permission-user",
         "client-confidential-symmetric",
         "client-confidential-asymmetric",
         "launch-standalone",
         "launch-ehr",
+        "sso-openid-connect",
     ] {
         assert!(
             capabilities.contains(&serde_json::json!(expected)),
             "{expected}"
         );
     }
-    assert!(!capabilities.contains(&serde_json::json!("permission-v2")));
+    for undeclared in ["permission-patient", "permission-v2"] {
+        assert!(
+            !capabilities.contains(&serde_json::json!(undeclared)),
+            "{undeclared} is claimed only when the product declares it"
+        );
+    }
     Ok(())
 }

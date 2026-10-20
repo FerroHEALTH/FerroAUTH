@@ -41,10 +41,21 @@ ferrohealth-smart = { version = "=0.1.1", features = ["axum", "openehr"] }
   `ferrohealth_smart::audit`, with a fixed field set and never the token;
   what a request addressed is the `addressed` field, so a JSON log that
   flattens the fields keeps the `tracing` target beside it.
+- **`resource::configuration`**: the SMART discovery document. The product
+  declares the permission capabilities its route table enforces in
+  `SmartOptions::permissions` (none is claimed by default), and
+  `sso-openid-connect` with `issuer` is written only for an OpenID Connect
+  issuer or on the product's declaration (`SmartOptions::openid_connect`).
 - **`refusal`**: the status and `WWW-Authenticate` challenge of every
-  refusal; the body is the product's.
+  refusal; the body is the product's, rendered from the refused request's
+  head so it can follow the request's `Accept` or `_format`.
 - **`config`**: the `[auth]` and `[<lane>.credentials]` sections a product
   embeds in its own configuration.
+
+The HTTP fetchers (the issuer's metadata, the key set over its `jwks_uri`
+and `client::cache::TokenSource`) sit behind the default `fetch` feature.
+A product built with `default-features = false` links no HTTP client and
+reads its key set from a `jwks_file`.
 
 With the `axum` feature, **`guard::AuthLayer`** runs the credential check,
 the type-level scope check and the audit line in front of every route the

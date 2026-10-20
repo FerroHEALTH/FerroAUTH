@@ -38,6 +38,7 @@ use serde::Serialize;
 use url::Url;
 
 use crate::metadata::DiscoveryError;
+#[cfg(feature = "fetch")]
 use crate::metadata::Http;
 use crate::metadata::ServerMetadata;
 use crate::resource::jwks::KeySet;
@@ -236,6 +237,10 @@ pub enum ResourceError {
         #[source]
         error: serde_json::Error,
     },
+    /// The settings name no `jwks_file`, and the crate is built without the
+    /// `fetch` feature that reads the issuer's metadata and its `jwks_uri`.
+    #[error("the settings name no jwks_file, and this build reads no key set over HTTP")]
+    KeySetFileRequired,
     /// The key set was not read again, because a read failed within the
     /// refresh interval.
     #[error("the key set at {origin} failed to read within the refresh interval")]
@@ -280,15 +285,18 @@ impl ResourceServer {
     ///
     /// Both are read once here, so an authorization server that cannot be
     /// reached refuses the start rather than the first request. With a
-    /// `jwks_file`, the file is read and the metadata is not.
+    /// `jwks_file`, the file is read and the metadata is not; without the
+    /// `fetch` feature, a `jwks_file` is the one key source.
     ///
     /// # Errors
     ///
     /// Returns every [`ResourceError`]: the settings break a rule, the
-    /// metadata or the key set could not be read, or the metadata names
-    /// another issuer, no `jwks_uri` or an insecure one.
+    /// metadata or the key set could not be read, the metadata names
+    /// another issuer, no `jwks_uri` or an insecure one, or, without the
+    /// `fetch` feature, the settings name no `jwks_file`.
     pub async fn discover(settings: Settings) -> Result<Self, ResourceError> {
         settings.validate()?;
+        #[cfg(feature = "fetch")]
         let http = Http::new(settings.timeout)?;
         let (metadata, source) = if let Some(path) = &settings.jwks_file {
             let metadata = ServerMetadata {
@@ -297,17 +305,23 @@ impl ResourceServer {
             };
             (metadata, KeySource::File(path.clone()))
         } else {
-            let metadata = http.discover(&settings.issuer).await?;
-            let jwks_uri = metadata
-                .jwks_uri
-                .as_deref()
-                .ok_or(ResourceError::MissingMember { member: "jwks_uri" })?
-                .parse::<Url>()
-                .map_err(|source| ResourceError::JwksUrl { source })?;
-            crate::metadata::secure(&jwks_uri, "the jwks_uri")?;
-            (metadata, KeySource::Uri(jwks_uri))
+            #[cfg(feature = "fetch")]
+            {
+                let metadata = http.discover(&settings.issuer).await?;
+                let jwks_uri = metadata
+                    .jwks_uri
+                    .as_deref()
+                    .ok_or(ResourceError::MissingMember { member: "jwks_uri" })?
+                    .parse::<Url>()
+                    .map_err(|source| ResourceError::JwksUrl { source })?;
+                crate::metadata::secure(&jwks_uri, "the jwks_uri")?;
+                (metadata, KeySource::Uri(jwks_uri))
+            }
+            #[cfg(not(feature = "fetch"))]
+            return Err(ResourceError::KeySetFileRequired);
         };
         let keys = KeySet::load(
+            #[cfg(feature = "fetch")]
             http,
             source,
             settings.jwks_max_age,

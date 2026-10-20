@@ -80,7 +80,7 @@ impl HeaderOnly {
 }
 
 impl Render for HeaderOnly {
-    fn render(&self, refusal: &Refusal) -> Response {
+    fn render(&self, refusal: &Refusal, _parts: &Parts) -> Response {
         self.respond(refusal, Body::empty())
     }
 }

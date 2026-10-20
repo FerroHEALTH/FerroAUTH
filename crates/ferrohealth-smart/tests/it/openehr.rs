@@ -384,13 +384,16 @@ async fn the_discovery_document_of_a_platform_names_its_services() -> Result<(),
         "context-openehr-ehr",
         "openehr-permission-v1",
         "launch-base64-json",
-        "permission-patient",
     ] {
         assert!(
             capabilities.contains(&serde_json::json!(expected)),
             "{expected}"
         );
     }
+    assert!(
+        !capabilities.contains(&serde_json::json!("permission-patient")),
+        "a permission capability is the product's declaration"
+    );
     let fhir_only = server.smart_configuration(&SmartOptions::default());
     assert!(
         fhir_only.get("services").is_none(),

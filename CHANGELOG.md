@@ -11,6 +11,42 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The `fetch` feature, on by default, carries the HTTP fetchers: the
+  issuer's metadata, the key set over its `jwks_uri` and
+  `client::cache::TokenSource`. A product built with
+  `default-features = false` links no `reqwest` and reads its key set from a
+  `jwks_file`; `ResourceServer::discover` then refuses settings without one
+  with `ResourceError::KeySetFileRequired` (#38).
+- `resource::configuration::PermissionCapability` and
+  `SmartOptions::permissions`: the product declares the permission
+  capabilities its route table enforces (#36).
+- `resource::configuration::OpenIdConnect` and
+  `SmartOptions::openid_connect`: whether the discovery document advertises
+  `sso-openid-connect`, derived from an `openid` scope in the issuer's
+  `scopes_supported` by default, declared, or withheld (#35).
+
+### Changed
+
+- **Breaking:** the SMART discovery document claims no permission
+  capability unless the product declares it. `permission-v1`,
+  `permission-patient` and `permission-user` were always written, and
+  `SmartOptions::granular` is replaced by `PermissionCapability::V2` in
+  `SmartOptions::permissions`. A product lists the capabilities its routes
+  enforce (SMART App Launch 2.2.0, Conformance, Capabilities) (#36).
+- **Breaking:** `issuer` is written only with `sso-openid-connect`, which
+  SMART App Launch 2.2.0 (Conformance, Metadata) requires and which it
+  otherwise omits. `sso-openid-connect` is written only when the issuer's
+  metadata names a `jwks_uri`, which the capability also requires (#35).
+- **Breaking:** `guard::Render::render` receives the refused request's head
+  (`http::request::Parts`) beside the refusal, so a product answers in the
+  format the request's `Accept` or `_format` negotiates. A renderer closure
+  takes `(&Refusal, &Parts)`; `extract::HeaderOnly` ignores the head (#37).
+- Without the `fetch` feature, `metadata::Http` and the
+  `DiscoveryError::Build` and `DiscoveryError::Transport` variants are
+  absent (#38).
+
 ## [0.1.1] - 2026-10-20
 
 The gaps FerroBRIDGE's migration to 0.1.0 found, closed in the crate so no

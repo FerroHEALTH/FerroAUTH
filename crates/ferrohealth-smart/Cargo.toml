@@ -17,7 +17,12 @@ categories = ["authentication", "web-programming"]
 include = ["src/**", "tests/**", "README.md"]
 
 [features]
-default = []
+default = ["fetch"]
+# The HTTP fetchers: the issuer's metadata (RFC 8414 §3), its key set over
+# its `jwks_uri`, and the client credentials token client. Without it the
+# crate links no HTTP client, and a resource server reads its key set from
+# a `jwks_file`.
+fetch = ["dep:reqwest"]
 # The tower Layer that guards an axum router (the credential check, the
 # scope check and the audit line in front of every route), the extractor of
 # the caller it admitted, and the default renderer of a refusal.
@@ -34,7 +39,7 @@ base64.workspace = true
 http.workspace = true
 jiff.workspace = true
 jsonwebtoken.workspace = true
-reqwest.workspace = true
+reqwest = { workspace = true, optional = true }
 secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true

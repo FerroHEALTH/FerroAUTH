@@ -16,7 +16,9 @@
 //! token when the upstream refuses the held one with `401`.
 
 pub mod assertion;
+#[cfg(feature = "fetch")]
 pub mod cache;
+#[cfg(feature = "fetch")]
 mod endpoint;
 
 use std::sync::Arc;

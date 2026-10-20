@@ -18,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
+#[cfg(feature = "fetch")]
 use http::StatusCode;
 use jsonwebtoken::Algorithm;
 use jsonwebtoken::AlgorithmFamily;
@@ -27,15 +28,19 @@ use jsonwebtoken::jwk::Jwk;
 use jsonwebtoken::jwk::KeyOperations;
 use jsonwebtoken::jwk::PublicKeyUse;
 use serde::Deserialize;
+#[cfg(feature = "fetch")]
 use url::Url;
 
+#[cfg(feature = "fetch")]
 use crate::metadata::Http;
 use crate::resource::ResourceError;
 
 /// Where a key set is read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeySource {
-    /// The `jwks_uri` the issuer's metadata names.
+    /// The `jwks_uri` the issuer's metadata names, read behind the `fetch`
+    /// feature.
+    #[cfg(feature = "fetch")]
     Uri(Url),
     /// A JWK Set file handed over out of band (`jwks_file`), re-read on the
     /// same schedule and never combined with a fetched set.
@@ -45,6 +50,7 @@ pub enum KeySource {
 impl std::fmt::Display for KeySource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            #[cfg(feature = "fetch")]
             Self::Uri(url) => write!(f, "{url}"),
             Self::File(path) => write!(f, "{}", path.display()),
         }
@@ -95,6 +101,7 @@ struct Cached {
 #[derive(Debug)]
 pub(super) struct KeySet {
     /// The engine a fetched set is read with.
+    #[cfg(feature = "fetch")]
     http: Http,
     /// Where the set comes from.
     source: KeySource,
@@ -111,14 +118,20 @@ pub(super) struct KeySet {
 impl KeySet {
     /// Reads the set at `source`.
     pub(super) async fn load(
-        http: Http,
+        #[cfg(feature = "fetch")] http: Http,
         source: KeySource,
         max_age: Duration,
         interval: Duration,
     ) -> Result<Self, ResourceError> {
-        let keys = fetch(&http, &source).await?;
+        let keys = fetch(
+            #[cfg(feature = "fetch")]
+            &http,
+            &source,
+        )
+        .await?;
         let now = Instant::now();
         Ok(Self {
+            #[cfg(feature = "fetch")]
             http,
             source,
             max_age,
@@ -188,7 +201,13 @@ impl KeySet {
             });
         }
         cached.tried_at = Instant::now();
-        match fetch(&self.http, &self.source).await {
+        match fetch(
+            #[cfg(feature = "fetch")]
+            &self.http,
+            &self.source,
+        )
+        .await
+        {
             Ok(keys) => {
                 cached.keys = Arc::from(keys);
                 cached.read_at = cached.tried_at;
@@ -222,9 +241,13 @@ fn select(keys: &[Key], kid: Option<&str>, alg: Algorithm) -> Option<DecodingKey
 }
 
 /// Reads the set at `source` and keeps its usable signing keys.
-async fn fetch(http: &Http, source: &KeySource) -> Result<Vec<Key>, ResourceError> {
+async fn fetch(
+    #[cfg(feature = "fetch")] http: &Http,
+    source: &KeySource,
+) -> Result<Vec<Key>, ResourceError> {
     let body =
         match source {
+            #[cfg(feature = "fetch")]
             KeySource::Uri(url) => {
                 let (url, status, body) = http.get(url.clone()).await?;
                 if status != StatusCode::OK {
