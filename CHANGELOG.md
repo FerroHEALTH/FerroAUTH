@@ -11,6 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-20
+
+The gaps FerroFED's migration and FerroEHR's move to 0.3.1 found, closed in
+the crate: a lazy resource server and a `Send` discovery future, a named
+credential header for an edge proxy, a typed upstream failure for a product
+verifier, mutual TLS and a product HTTP client for the token client, a
+configurable assertion audience, the RFC 9470 step-up challenge, a typed
+extension on the caller, a Basic user list helper, and the cache-hit signal
+of a Basic check. Products pin `=0.4.0`; the breaking changes below name
+what a product changes.
+
 ### Added
 
 - `ResourceServer::lazy` and `LazyResourceServer`: the settings are checked
@@ -57,6 +68,12 @@ and this project adheres to
 - `basic::Verified::cached` and `Caller::cached`: whether a Basic credential
   was admitted from the verified-credential cache, so a product records one
   fresh authentication per cache lifetime (#63).
+
+### Security
+
+- `rustls-webpki` 0.103.16 and `webpki-root-certs` 1.0.10 in the lock, past
+  RUSTSEC-2026-0382 and RUSTSEC-2026-0383 (certificate paths through the
+  distrusted emSign intermediates) (#66).
 
 ### Changed
 
