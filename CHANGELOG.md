@@ -11,6 +11,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
+The gaps FerroEHR's migration found, closed in the crate: a blank `sub` is
+refused, the configuration sections render with every secret redacted, a
+Basic-only `[auth]` resolves, a `jwks_file` issuer takes operator-supplied
+metadata, the SMART on openEHR requirement honours `scopeless_subjects`,
+`Requirement::Client` admits named Basic principals, verified Basic
+credentials are cached, a bearer value outside `b64token` is refused, the
+product reads the reason of every refusal, and the SMART on openEHR grammar
+is re-exported. Products pin `=0.3.0`; the breaking changes below name what
+a product changes.
+
 ### Added
 
 - `Serialize` on `config::AuthSection`, `IssuerKey`, `IssuerEntry`,
@@ -46,6 +58,9 @@ and this project adheres to
   Denied>`. `Denied::refusal()` is the refusal it returned before and
   `Denied::reason()` names the failed check; `Refusal::from(denied)` and
   `denied.into_refusal()` give the refusal alone (#47).
+- **Breaking:** `config::BasicSection` gains the public field
+  `cache_ttl_seconds`, so a struct literal adds it or ends with
+  `..BasicSection::default()` (#47).
 - **Breaking:** `resource::Rejection::Invalid { reason }` carries a
   `refusal::Reason` in place of a `&'static str`. A product's own
   `Verifier` names its reason as `Reason::Other("…")` (#47).
@@ -257,7 +272,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/FerroHEALTH/FerroSMART/releases/tag/v0.1.0
