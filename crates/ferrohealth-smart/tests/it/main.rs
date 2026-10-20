@@ -39,4 +39,6 @@ mod openehr;
 )]
 mod support;
 #[cfg(feature = "fetch")]
+mod tls;
+#[cfg(feature = "fetch")]
 mod token;

@@ -9,8 +9,10 @@
 //! names the resource server it is for (RFC 9068 §4). The token endpoint is
 //! configured outright or discovered from the issuer's metadata
 //! ([`crate::metadata`]). The client authenticates with `client_secret_basic`
-//! or `client_secret_post` (RFC 6749 §2.3.1) or with a `private_key_jwt`
-//! assertion (RFC 7523 §2.2, [`assertion`]). [`cache::TokenSource`] fetches
+//! or `client_secret_post` (RFC 6749 §2.3.1), with a `private_key_jwt`
+//! assertion (RFC 7523 §2.2, [`assertion`]), or with a client certificate
+//! over mutual TLS (RFC 8705 §2). Extra trust roots and the client
+//! certificate travel in [`Tls`]. [`cache::TokenSource`] fetches
 //! on first use, shares one fetch among concurrent callers, hands out the
 //! bearer credential per attempt, and sends a call once more with a new
 //! token when the upstream refuses the held one with `401`.
@@ -25,6 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use http::StatusCode;
+use secrecy::SecretSlice;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde::Serialize;
@@ -46,6 +49,10 @@ pub enum Endpoint {
 
 /// How the client authenticates to the token endpoint, configured and
 /// never guessed from the server's metadata.
+#[expect(
+    clippy::enum_variant_names,
+    reason = "the variants mirror the RFC 8705 §2 method names tls_client_auth and self_signed_tls_client_auth"
+)]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClientAuth {
@@ -60,6 +67,51 @@ pub enum ClientAuth {
     /// A signed client assertion in the request body (RFC 7523 §2.2), the
     /// form RFC 9700 §2.5 recommends and SMART Backend Services requires.
     PrivateKeyJwt,
+    /// A client certificate the authorization server checks against its
+    /// PKI and the client's registered subject (RFC 8705 §2.1), with
+    /// `client_id` in the request body.
+    TlsClientAuth,
+    /// A self-signed client certificate the authorization server checks
+    /// against the client's registered keys (RFC 8705 §2.2), with
+    /// `client_id` in the request body.
+    SelfSignedTlsClientAuth,
+}
+
+impl ClientAuth {
+    /// Returns whether the method authenticates with a client certificate
+    /// over mutual TLS (RFC 8705 §2).
+    #[must_use]
+    pub const fn is_mutual_tls(self) -> bool {
+        matches!(self, Self::TlsClientAuth | Self::SelfSignedTlsClientAuth)
+    }
+}
+
+/// The `aud` a `private_key_jwt` assertion names.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AssertionAudience {
+    /// The token endpoint URL the assertion is posted to, the value SMART
+    /// App Launch 2.2.0, Client Authentication: Asymmetric, fixes.
+    #[default]
+    TokenEndpoint,
+    /// The configured issuer identifier, a value RFC 7523 §3 item 3 also
+    /// admits as identifying the authorization server, for an authorization
+    /// server outside the SMART profile that asks for it.
+    Issuer,
+}
+
+/// The TLS material of the token endpoint connection: trust roots added to
+/// the built-in ones, and the client certificate of RFC 8705 mutual TLS.
+///
+/// The private key redacts itself in every `Debug` rendering.
+#[derive(Debug, Clone, Default)]
+pub struct Tls {
+    /// PEM certificates trusted beside the built-in roots, for a token
+    /// endpoint behind a private certificate authority.
+    pub root_certificates: Option<Vec<u8>>,
+    /// The client certificate chain and its private key, in PEM, presented
+    /// in the TLS handshake (RFC 8705 §2).
+    pub identity: Option<Arc<SecretSlice<u8>>>,
 }
 
 /// Everything a product needs to obtain its upstream token.
@@ -94,6 +146,11 @@ pub struct ClientCredentials {
     pub refresh_margin: Duration,
     /// How long one call to the authorization server may take.
     pub timeout: Duration,
+    /// The `aud` of a `private_key_jwt` assertion.
+    pub assertion_audience: AssertionAudience,
+    /// The trust roots and the client certificate of the token endpoint
+    /// connection.
+    pub tls: Tls,
 }
 
 impl ClientCredentials {
@@ -115,6 +172,8 @@ impl ClientCredentials {
             resource: None,
             refresh_margin: Duration::from_secs(30),
             timeout: Duration::from_secs(10),
+            assertion_audience: AssertionAudience::default(),
+            tls: Tls::default(),
         }
     }
 
@@ -133,6 +192,42 @@ impl ClientCredentials {
             resource: None,
             refresh_margin: Duration::from_secs(30),
             timeout: Duration::from_secs(10),
+            assertion_audience: AssertionAudience::default(),
+            tls: Tls::default(),
+        }
+    }
+
+    /// Returns a grant for `client_id` at `endpoint` authenticating with
+    /// the client certificate `identity` (PEM chain and key) over mutual
+    /// TLS (RFC 8705 §2): [`ClientAuth::SelfSignedTlsClientAuth`] when
+    /// `self_signed`, [`ClientAuth::TlsClientAuth`] otherwise.
+    #[must_use]
+    pub fn with_mutual_tls(
+        endpoint: Endpoint,
+        client_id: String,
+        identity: Arc<SecretSlice<u8>>,
+        self_signed: bool,
+    ) -> Self {
+        Self {
+            endpoint,
+            client_id,
+            client_auth: if self_signed {
+                ClientAuth::SelfSignedTlsClientAuth
+            } else {
+                ClientAuth::TlsClientAuth
+            },
+            client_secret: None,
+            assertion_key: None,
+            scope: None,
+            audience: None,
+            resource: None,
+            refresh_margin: Duration::from_secs(30),
+            timeout: Duration::from_secs(10),
+            assertion_audience: AssertionAudience::default(),
+            tls: Tls {
+                root_certificates: None,
+                identity: Some(identity),
+            },
         }
     }
 
@@ -140,8 +235,18 @@ impl ClientCredentials {
     ///
     /// # Errors
     ///
-    /// Returns [`TokenError::Credential`] naming what is missing.
+    /// Returns [`TokenError::Credential`] naming what is missing: a secret,
+    /// an assertion key, a client certificate under a mutual-TLS method, or
+    /// the issuer an issuer assertion audience names.
     pub fn validate(&self) -> Result<(), TokenError> {
+        if self.client_auth == ClientAuth::PrivateKeyJwt
+            && self.assertion_audience == AssertionAudience::Issuer
+            && !matches!(self.endpoint, Endpoint::Issuer(_))
+        {
+            return Err(TokenError::Credential {
+                what: "issuer for the assertion audience",
+            });
+        }
         match self.client_auth {
             ClientAuth::ClientSecretBasic | ClientAuth::ClientSecretPost
                 if self.client_secret.is_none() =>
@@ -153,6 +258,13 @@ impl ClientCredentials {
             ClientAuth::PrivateKeyJwt if self.assertion_key.is_none() => {
                 Err(TokenError::Credential {
                     what: "an assertion key",
+                })
+            }
+            ClientAuth::TlsClientAuth | ClientAuth::SelfSignedTlsClientAuth
+                if self.tls.identity.is_none() =>
+            {
+                Err(TokenError::Credential {
+                    what: "client certificate",
                 })
             }
             _ => Ok(()),
@@ -361,5 +473,53 @@ mod tests {
             })
         ));
         assert!(!format!("{grant:?}").contains("synthetic-pw"));
+        grant.client_auth = ClientAuth::TlsClientAuth;
+        assert!(matches!(
+            grant.validate(),
+            Err(TokenError::Credential {
+                what: "client certificate"
+            })
+        ));
+    }
+
+    #[test]
+    fn an_issuer_assertion_audience_needs_an_issuer() {
+        let key = super::assertion::AssertionKey::from_pem(
+            &aws_lc_rs::signature::EcdsaKeyPair::generate(
+                &aws_lc_rs::signature::ECDSA_P384_SHA384_ASN1_SIGNING,
+            )
+            .and_then(|pair| pair.to_pkcs8v1())
+            .map(|der| pem(der.as_ref()))
+            .expect("a generated key"),
+            None,
+            None,
+        )
+        .expect("a P-384 key");
+        let mut grant = ClientCredentials::with_private_key_jwt(
+            Endpoint::Token("https://as.example.org/token".parse().expect("a URL")),
+            String::from("client"),
+            key,
+        );
+        grant.assertion_audience = super::AssertionAudience::Issuer;
+        assert!(matches!(
+            grant.validate(),
+            Err(TokenError::Credential {
+                what: "issuer for the assertion audience"
+            })
+        ));
+        grant.endpoint = Endpoint::Issuer(String::from("https://as.example.org"));
+        assert!(grant.validate().is_ok());
+    }
+
+    fn pem(der: &[u8]) -> Vec<u8> {
+        use base64::Engine as _;
+        let body = base64::engine::general_purpose::STANDARD.encode(der);
+        let mut out = String::from("-----BEGIN PRIVATE KEY-----\n");
+        for line in body.as_bytes().chunks(64) {
+            out.push_str(std::str::from_utf8(line).expect("base64 is ASCII"));
+            out.push('\n');
+        }
+        out.push_str("-----END PRIVATE KEY-----\n");
+        out.into_bytes()
     }
 }

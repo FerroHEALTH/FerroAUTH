@@ -53,12 +53,15 @@ openehr-sdt = { workspace = true, optional = true }
 
 [dev-dependencies]
 http-body-util.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "io-util"] }
 toml.workspace = true
 tracing-subscriber.workspace = true
 tower = { workspace = true, features = ["util"] }
 axum = { workspace = true, features = ["http1", "json", "matched-path", "tokio"] }
 wiremock.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
+rcgen.workspace = true
 
 [lints]
 workspace = true

@@ -9,8 +9,10 @@ use secrecy::ExposeSecret;
 use serde::Deserialize;
 use url::Url;
 
+use crate::client::AssertionAudience;
 use crate::client::ClientAuth;
 use crate::client::ClientCredentials;
+use crate::client::Endpoint;
 use crate::client::OAuthError;
 use crate::client::TokenError;
 use crate::client::assertion::ASSERTION_TYPE;
@@ -38,12 +40,23 @@ impl std::fmt::Debug for TokenResponse {
     }
 }
 
-/// Returns the token endpoint the metadata of `issuer` names.
-pub(super) async fn discover(http: &Http, issuer: &str) -> Result<Url, TokenError> {
+/// Returns the token endpoint the metadata of `issuer` names, its mutual-TLS
+/// alias in preference when the client presents a certificate.
+pub(super) async fn discover(
+    http: &Http,
+    issuer: &str,
+    mutual_tls: bool,
+) -> Result<Url, TokenError> {
     let metadata = http.discover(issuer).await?;
-    metadata
-        .token_endpoint
-        .as_deref()
+    // NOTE: RFC 8705 §5, a client intending to do mutual TLS "MUST use the alias
+    // URL of the endpoint within the `mtls_endpoint_aliases`, when present".
+    let alias = metadata
+        .mtls_endpoint_aliases
+        .as_ref()
+        .and_then(|aliases| aliases.token_endpoint.as_deref())
+        .filter(|_alias| mutual_tls);
+    alias
+        .or(metadata.token_endpoint.as_deref())
         .ok_or(TokenError::NoTokenEndpoint)?
         .parse()
         .map_err(|source| TokenError::TokenEndpointUrl { source })
@@ -130,12 +143,23 @@ fn token_request_body(config: &ClientCredentials, endpoint: &Url) -> Result<Stri
         }
         ClientAuth::PrivateKeyJwt => {
             if let Some(key) = &config.assertion_key {
+                let audience = match (config.assertion_audience, &config.endpoint) {
+                    (AssertionAudience::Issuer, Endpoint::Issuer(issuer)) => issuer.as_str(),
+                    (AssertionAudience::TokenEndpoint | AssertionAudience::Issuer, _) => {
+                        endpoint.as_str()
+                    }
+                };
                 let assertion = key
-                    .assertion(&config.client_id, endpoint.as_str())
+                    .assertion(&config.client_id, audience)
                     .map_err(|source| TokenError::Assertion { source })?;
                 form.append_pair("client_assertion_type", ASSERTION_TYPE);
                 form.append_pair("client_assertion", &assertion);
             }
+        }
+        // NOTE: RFC 8705 §2, "the client MUST include the `client_id`
+        // parameter" with mutual-TLS client authentication.
+        ClientAuth::TlsClientAuth | ClientAuth::SelfSignedTlsClientAuth => {
+            form.append_pair("client_id", &config.client_id);
         }
         ClientAuth::ClientSecretBasic => {}
     }

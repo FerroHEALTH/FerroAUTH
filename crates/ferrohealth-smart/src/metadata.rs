@@ -73,6 +73,20 @@ pub struct ServerMetadata {
     /// The PKCE challenge methods the server supports (RFC 7636).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_challenge_methods_supported: Option<Vec<String>>,
+    /// The endpoints a client doing mutual TLS uses in place of the
+    /// conventional ones (RFC 8705 §5).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mtls_endpoint_aliases: Option<MtlsEndpointAliases>,
+}
+
+/// The `mtls_endpoint_aliases` member (RFC 8705 §5): the endpoints a
+/// client doing mutual TLS uses in preference to the conventional ones.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct MtlsEndpointAliases {
+    /// The token endpoint alias.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_endpoint: Option<String>,
 }
 
 impl ServerMetadata {
@@ -108,6 +122,21 @@ pub enum DiscoveryError {
         #[source]
         source: reqwest::Error,
     },
+    /// The trust roots or the client certificate are not PEM `reqwest`
+    /// reads.
+    #[cfg(feature = "fetch")]
+    #[error("{what} could not be read as PEM")]
+    Tls {
+        /// What was refused: the trust roots or the client certificate.
+        what: &'static str,
+        /// What `reqwest` reported.
+        #[source]
+        source: reqwest::Error,
+    },
+    /// A PEM file of trust roots carries no certificate.
+    #[cfg(feature = "fetch")]
+    #[error("the trust roots carry no PEM certificate")]
+    NoRootCertificate,
     /// The configured issuer is not a URL.
     #[error("the configured issuer is not a URL")]
     IssuerUrl {
@@ -254,12 +283,59 @@ impl Http {
     ///
     /// Returns [`DiscoveryError::Build`] when the engine cannot be built.
     pub fn new(timeout: Duration) -> Result<Self, DiscoveryError> {
-        let client = reqwest::Client::builder()
+        Self::with_tls(timeout, &crate::client::Tls::default())
+    }
+
+    /// Returns an engine whose calls each take at most `timeout`, trusting
+    /// the roots of `tls` beside the built-in ones and presenting its
+    /// client certificate (RFC 8705 §2) when the server asks for one.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiscoveryError::Tls`] for roots or a client certificate
+    /// that are no PEM `reqwest` reads, [`DiscoveryError::NoRootCertificate`]
+    /// for roots that hold no certificate, and [`DiscoveryError::Build`] when
+    /// the engine cannot be built.
+    pub fn with_tls(timeout: Duration, tls: &crate::client::Tls) -> Result<Self, DiscoveryError> {
+        use secrecy::ExposeSecret as _;
+        let mut builder = reqwest::Client::builder()
             .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none())
+            .redirect(reqwest::redirect::Policy::none());
+        if let Some(pem) = &tls.root_certificates {
+            let roots = reqwest::Certificate::from_pem_bundle(pem).map_err(|source| {
+                DiscoveryError::Tls {
+                    what: "the trust roots",
+                    source,
+                }
+            })?;
+            if roots.is_empty() {
+                return Err(DiscoveryError::NoRootCertificate);
+            }
+            builder = builder.tls_certs_merge(roots);
+        }
+        if let Some(identity) = &tls.identity {
+            let identity =
+                reqwest::Identity::from_pem(identity.expose_secret()).map_err(|source| {
+                    DiscoveryError::Tls {
+                        what: "the client certificate",
+                        source,
+                    }
+                })?;
+            builder = builder.identity(identity);
+        }
+        let client = builder
             .build()
             .map_err(|source| DiscoveryError::Build { source })?;
         Ok(Self { client })
+    }
+
+    /// Returns an engine over `client`, a product's own, used as built.
+    ///
+    /// The crate's engines follow no redirect; this one keeps whatever
+    /// redirect policy, timeout and TLS material the product gave it.
+    #[must_use]
+    pub const fn from_client(client: reqwest::Client) -> Self {
+        Self { client }
     }
 
     /// Returns the underlying engine, for the token request.

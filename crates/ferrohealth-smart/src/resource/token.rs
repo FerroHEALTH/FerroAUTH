@@ -103,7 +103,8 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
     Ok(Caller::new(subject, client_id, &scope, patient, scopeless)
         .with_scopes(scopes)
         .with_issuer(settings.issuer.clone())
-        .with_claims(claims))
+        .with_claims(claims)
+        .with_extensions(server.extensions.clone()))
 }
 
 /// Returns the string claim `name` of `claims`.

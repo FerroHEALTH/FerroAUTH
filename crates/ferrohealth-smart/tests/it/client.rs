@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 //! The upstream credential a product obtains with the OAuth 2.0 client
-//! credentials grant: discovery, the token request in the three client
-//! authentication forms, the cache, the renewal after a refused token, and
+//! credentials grant: discovery, the token request in each client
+//! authentication form, mutual TLS (RFC 8705), the cache, the renewal after a refused token, and
 //! every refusal of the authorization server as a typed error.
 
 use std::error::Error as StdError;
@@ -12,10 +12,12 @@ use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 
+use ferrohealth_smart::client::AssertionAudience;
 use ferrohealth_smart::client::CallError;
 use ferrohealth_smart::client::ClientAuth;
 use ferrohealth_smart::client::ClientCredentials;
 use ferrohealth_smart::client::Endpoint;
+use ferrohealth_smart::client::Tls;
 use ferrohealth_smart::client::TokenError;
 use ferrohealth_smart::client::assertion::ASSERTION_TYPE;
 use ferrohealth_smart::client::assertion::AssertionKey;
@@ -24,7 +26,10 @@ use ferrohealth_smart::client::assertion::thumbprint;
 use ferrohealth_smart::client::cache::Clock;
 use ferrohealth_smart::client::cache::Token;
 use ferrohealth_smart::client::cache::TokenSource;
+use ferrohealth_smart::config::ConfigError;
+use ferrohealth_smart::config::OauthSection;
 use ferrohealth_smart::metadata::DiscoveryError;
+use ferrohealth_smart::metadata::Http;
 use http::StatusCode;
 use jsonwebtoken::Algorithm;
 use jsonwebtoken::DecodingKey;
@@ -42,6 +47,7 @@ use wiremock::matchers::path;
 
 use crate::support::ec_key;
 use crate::support::rsa_key;
+use crate::support::temp_file;
 
 /// The token endpoint path every stub serves.
 const TOKEN_PATH: &str = "/oauth/token";
@@ -846,5 +852,296 @@ async fn a_failed_call_is_the_calls_own_error() -> Result<(), Box<dyn StdError>>
         ),
         "{error:?}"
     );
+    Ok(())
+}
+
+/// Returns `pem` as the shared identity of a mutual-TLS grant.
+fn identity(pem: Vec<u8>) -> Arc<secrecy::SecretSlice<u8>> {
+    Arc::new(secrecy::SecretSlice::from(pem))
+}
+
+// NOTE: RFC 8705 §2, the TLS connection carries the client certificate and
+// "the client MUST include the `client_id` parameter".
+#[tokio::test]
+async fn mutual_tls_presents_the_certificate_and_sends_the_client_id()
+-> Result<(), Box<dyn StdError>> {
+    let endpoint = crate::tls::start("synthetic-mtls-token").await;
+    let mut config = ClientCredentials::with_mutual_tls(
+        Endpoint::Token(endpoint.url.parse()?),
+        String::from("ferrofed"),
+        identity(endpoint.identity()),
+        false,
+    );
+    assert_eq!(ClientAuth::TlsClientAuth, config.client_auth);
+    config.tls.root_certificates = Some(endpoint.ca_pem.clone().into_bytes());
+    config.timeout = Duration::from_secs(5);
+    assert!(
+        !format!("{config:?}").contains("PRIVATE KEY"),
+        "the key redacts"
+    );
+    let source = TokenSource::new(config)?;
+    let token = source.token().await.map_err(|error| error.to_string())?;
+    assert_eq!("Bearer synthetic-mtls-token", header_of(&token)?);
+    let seen = endpoint.seen();
+    assert_eq!(1, seen.len());
+    let request = seen.first().ok_or("a request")?;
+    assert!(request.certificate, "the handshake carried the certificate");
+    let form: Vec<(String, String)> = url::form_urlencoded::parse(request.body.as_bytes())
+        .into_owned()
+        .collect();
+    assert_eq!(Some(String::from("ferrofed")), param(&form, "client_id"));
+    assert_eq!(
+        Some(String::from("client_credentials")),
+        param(&form, "grant_type")
+    );
+    assert_eq!(None, param(&form, "client_secret"));
+    assert_eq!(None, param(&form, "client_assertion"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_mutual_tls_endpoint_refuses_a_client_without_a_certificate_or_roots()
+-> Result<(), Box<dyn StdError>> {
+    let endpoint = crate::tls::start("synthetic-mtls-token").await;
+    let mut without_certificate = ClientCredentials::new(
+        Endpoint::Token(endpoint.url.parse()?),
+        String::from("ferrofed"),
+        SecretString::from("synthetic-secret"),
+    );
+    without_certificate.tls.root_certificates = Some(endpoint.ca_pem.clone().into_bytes());
+    without_certificate.timeout = Duration::from_secs(5);
+    let refused = TokenSource::new(without_certificate)?
+        .token()
+        .await
+        .expect_err("no client certificate");
+    assert!(
+        matches!(
+            &*refused,
+            TokenError::Discovery(DiscoveryError::Transport { .. })
+        ),
+        "{refused:?}"
+    );
+    let mut without_roots = ClientCredentials::with_mutual_tls(
+        Endpoint::Token(endpoint.url.parse()?),
+        String::from("ferrofed"),
+        identity(endpoint.identity()),
+        true,
+    );
+    without_roots.timeout = Duration::from_secs(5);
+    let refused = TokenSource::new(without_roots)?
+        .token()
+        .await
+        .expect_err("the private authority is not trusted");
+    assert!(
+        matches!(
+            &*refused,
+            TokenError::Discovery(DiscoveryError::Transport { .. })
+        ),
+        "{refused:?}"
+    );
+    assert!(endpoint.seen().is_empty(), "no request completed");
+    let garbage = Tls {
+        root_certificates: Some(b"not a certificate".to_vec()),
+        identity: None,
+    };
+    assert!(matches!(
+        Http::with_tls(Duration::from_secs(5), &garbage),
+        Err(DiscoveryError::NoRootCertificate)
+    ));
+    let garbage = Tls {
+        root_certificates: None,
+        identity: Some(identity(b"not a key".to_vec())),
+    };
+    assert!(matches!(
+        Http::with_tls(Duration::from_secs(5), &garbage),
+        Err(DiscoveryError::Tls { .. })
+    ));
+    Ok(())
+}
+
+// NOTE: RFC 8705 §5, a client doing mutual TLS "MUST use the alias URL of the
+// endpoint within the `mtls_endpoint_aliases`, when present".
+#[tokio::test]
+async fn a_client_with_a_certificate_uses_the_mutual_tls_alias() -> Result<(), Box<dyn StdError>> {
+    let endpoint = crate::tls::start("unused").await;
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/.well-known/oauth-authorization-server"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "issuer": server.uri(),
+            "token_endpoint": format!("{}{TOKEN_PATH}", server.uri()),
+            "mtls_endpoint_aliases": {
+                "token_endpoint": format!("{}/mtls/token", server.uri())
+            }
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/mtls/token"))
+        .respond_with(issued("synthetic-alias-token", 300))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(TOKEN_PATH))
+        .respond_with(issued("synthetic-plain-token", 300))
+        .mount(&server)
+        .await;
+    let mutual = ClientCredentials::with_mutual_tls(
+        Endpoint::Issuer(server.uri()),
+        String::from("ferrofed"),
+        identity(endpoint.identity()),
+        false,
+    );
+    let token = TokenSource::new(mutual)?
+        .token()
+        .await
+        .map_err(|error| error.to_string())?;
+    assert_eq!("Bearer synthetic-alias-token", header_of(&token)?);
+    let plain = ClientCredentials::new(
+        Endpoint::Issuer(server.uri()),
+        String::from("bridge"),
+        SecretString::from("synthetic-secret"),
+    );
+    let token = TokenSource::new(plain)?
+        .token()
+        .await
+        .map_err(|error| error.to_string())?;
+    assert_eq!(
+        "Bearer synthetic-plain-token",
+        header_of(&token)?,
+        "a client without a certificate keeps the conventional endpoint"
+    );
+    Ok(())
+}
+
+// NOTE: RFC 7523 §3 item 3 admits any value identifying the authorization
+// server; SMART App Launch 2.2.0 fixes the token URL, which stays the default.
+#[tokio::test]
+async fn the_assertion_names_the_issuer_when_configured() -> Result<(), Box<dyn StdError>> {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/.well-known/oauth-authorization-server"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "issuer": server.uri(),
+            "token_endpoint": format!("{}{TOKEN_PATH}", server.uri()),
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(TOKEN_PATH))
+        .respond_with(issued("synthetic-token", 300))
+        .mount(&server)
+        .await;
+    let key = ec_key("unused", Algorithm::ES384);
+    let assertion_key = AssertionKey::from_pem(&key.pem, None, None)?;
+    let public: Jwk = serde_json::from_value(assertion_key.public_jwk())?;
+    let mut config = ClientCredentials::with_private_key_jwt(
+        Endpoint::Issuer(server.uri()),
+        String::from("ferrofed"),
+        assertion_key,
+    );
+    config.assertion_audience = AssertionAudience::Issuer;
+    TokenSource::new(config)?
+        .token()
+        .await
+        .map_err(|error| error.to_string())?;
+    let form = token_request_form(&server, 0).await?;
+    let assertion = param(&form, "client_assertion").ok_or("the assertion")?;
+    let mut validation = Validation::new(Algorithm::ES384);
+    validation.set_audience(&[server.uri().as_str()]);
+    validation.set_issuer(&["ferrofed"]);
+    let claims = jsonwebtoken::decode::<serde_json::Map<String, serde_json::Value>>(
+        &assertion,
+        &DecodingKey::from_jwk(&public)?,
+        &validation,
+    )?
+    .claims;
+    assert_eq!(Some(&serde_json::json!(server.uri())), claims.get("aud"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_product_http_client_reaches_the_token_endpoint() -> Result<(), Box<dyn StdError>> {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(TOKEN_PATH))
+        .respond_with(issued("synthetic-token", 300))
+        .mount(&server)
+        .await;
+    let http = Http::from_client(reqwest::Client::new());
+    let source = TokenSource::with_http(grant(&server)?, http);
+    let token = source.token().await.map_err(|error| error.to_string())?;
+    assert_eq!("Bearer synthetic-token", header_of(&token)?);
+    Ok(())
+}
+
+#[test]
+fn the_oauth_table_reads_its_tls_material_at_load() -> Result<(), Box<dyn StdError>> {
+    let runtime = tokio::runtime::Runtime::new()?;
+    let endpoint = runtime.block_on(crate::tls::start("unused"));
+    let certificate = temp_file("client.crt", endpoint.client_certificate_pem.as_bytes());
+    let key = temp_file("client.key", endpoint.client_key_pem.as_bytes());
+    let ca = temp_file("ca.crt", endpoint.ca_pem.as_bytes());
+    let garbage = temp_file("garbage.pem", b"not a certificate");
+    let table = |toml: &str| -> Result<OauthSection, Box<dyn StdError>> {
+        Ok(toml::from_str(&format!(
+            "token_endpoint = \"https://as.example.org/token\"\nclient_id = \"ferrofed\"\n{toml}"
+        ))?)
+    };
+    let paths = format!(
+        "client_certificate_file = {certificate:?}
+client_key_file = {key:?}
+ca_file = {ca:?}
+"
+    );
+    let grant = table(&format!("client_auth = \"tls_client_auth\"\n{paths}"))?.resolve()?;
+    assert_eq!(ClientAuth::TlsClientAuth, grant.client_auth);
+    assert!(grant.tls.identity.is_some());
+    assert!(grant.tls.root_certificates.is_some());
+    let grant = table(&format!(
+        "client_auth = \"self_signed_tls_client_auth\"\n{paths}"
+    ))?
+    .resolve()?;
+    assert_eq!(ClientAuth::SelfSignedTlsClientAuth, grant.client_auth);
+    assert!(matches!(
+        table("client_auth = \"tls_client_auth\"")?.resolve(),
+        Err(ConfigError::Missing {
+            key: "credentials.oauth.client_certificate_file"
+        })
+    ));
+    assert!(matches!(
+        table(&format!(
+            "client_auth = \"tls_client_auth\"\nclient_certificate_file = {certificate:?}"
+        ))?
+        .resolve(),
+        Err(ConfigError::Missing {
+            key: "credentials.oauth.client_key_file"
+        })
+    ));
+    assert!(matches!(
+        table(&format!(
+            "client_secret = \"synthetic-secret\"\nca_file = {garbage:?}"
+        ))?
+        .resolve(),
+        Err(ConfigError::Tls { .. })
+    ));
+    let pem = temp_file("assertion.pem", &ec_key("unused", Algorithm::ES384).pem);
+    assert!(matches!(
+        table(&format!(
+            "client_auth = \"private_key_jwt\"\nprivate_key_file = {pem:?}\nassertion_audience = \"issuer\""
+        ))?
+        .resolve(),
+        Err(ConfigError::Missing { .. })
+    ));
+    let issuer: OauthSection = toml::from_str(&format!(
+        "issuer = \"https://as.example.org\"\nclient_id = \"ferrofed\"\nclient_auth = \"private_key_jwt\"\nprivate_key_file = {pem:?}\nassertion_audience = \"issuer\""
+    ))?;
+    assert_eq!(
+        AssertionAudience::Issuer,
+        issuer.resolve()?.assertion_audience
+    );
+    for file in [certificate, key, ca, garbage, pem] {
+        std::fs::remove_file(file)?;
+    }
     Ok(())
 }

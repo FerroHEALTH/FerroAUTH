@@ -29,6 +29,7 @@ use ferrohealth_smart::extract::HeaderOnly;
 use ferrohealth_smart::guard::AnsweredAs;
 use ferrohealth_smart::guard::AuthLayer;
 use ferrohealth_smart::guard::Classify;
+use ferrohealth_smart::guard::CredentialHeader;
 use ferrohealth_smart::guard::Gate;
 use ferrohealth_smart::guard::Requirement;
 use ferrohealth_smart::guard::Target;
@@ -41,6 +42,7 @@ use ferrohealth_smart::resource::Verifier;
 use ferrohealth_smart::scope::Permission;
 use http::Extensions;
 use http::HeaderMap;
+use http::HeaderName;
 use http::HeaderValue;
 use http::Method;
 use http::Request;
@@ -1017,5 +1019,243 @@ async fn a_cached_basic_credential_is_admitted_again_and_a_wrong_one_refused()
             .is_err(),
         "a wrong password is never admitted from the cache"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_gate_says_when_a_basic_credential_came_from_the_cache() -> Result<(), Box<dyn StdError>>
+{
+    let good = Credential::new("alice", SecretString::from("synthetic-pw"))?;
+    let headers = authorized(good.header_value().to_str()?)?;
+    let cached = Gate::open().with_basic(Arc::new(
+        alice("")?.with_cache(std::time::Duration::from_secs(60))?,
+    ));
+    let first = cached
+        .authenticate(&headers)
+        .await
+        .map_err(|denied| format!("{denied:?}"))?;
+    assert_eq!(
+        Some(false),
+        first.caller().map(Caller::cached),
+        "a fresh authentication"
+    );
+    let repeat = cached
+        .authenticate(&headers)
+        .await
+        .map_err(|denied| format!("{denied:?}"))?;
+    assert_eq!(
+        Some(true),
+        repeat.caller().map(Caller::cached),
+        "admitted from the cache"
+    );
+    let uncached = Gate::open().with_basic(Arc::new(alice("")?));
+    for round in ["first", "second"] {
+        let access = uncached
+            .authenticate(&headers)
+            .await
+            .map_err(|denied| format!("{denied:?}"))?;
+        assert_eq!(
+            Some(false),
+            access.caller().map(Caller::cached),
+            "{round}: no cache"
+        );
+    }
+    let case = Case::bearer().await;
+    let token = case.token("system/Condition.r");
+    let access = case
+        .gate
+        .authenticate(&authorized(&format!("Bearer {token}"))?)
+        .await
+        .map_err(|denied| format!("{denied:?}"))?;
+    assert_eq!(
+        Some(false),
+        access.caller().map(Caller::cached),
+        "a bearer caller"
+    );
+    Ok(())
+}
+
+// NOTE: RFC 9700 §4.13 has the proxy sanitize the header; the gate keeps the
+// rules of `Authorization` (RFC 6750 §2.1, §3.1) in whichever header it reads.
+#[tokio::test]
+async fn a_named_bare_header_carries_the_token_under_the_same_rules()
+-> Result<(), Box<dyn StdError>> {
+    let case = Case::bearer().await;
+    let name = HeaderName::from_static("x-edge-assertion");
+    let gate = case
+        .gate
+        .clone()
+        .with_credential_header(CredentialHeader::bare(name.clone()));
+    assert!(gate.credential_header().is_bare());
+    let token = case.token("system/Condition.r");
+    let mut headers = HeaderMap::new();
+    headers.insert(name.clone(), HeaderValue::from_str(&token)?);
+    let access = gate
+        .authenticate(&headers)
+        .await
+        .map_err(|denied| format!("{denied:?}"))?;
+    assert_eq!(
+        Some("synthetic-client-sub"),
+        access.caller().map(Caller::subject)
+    );
+    assert_eq!(Some(token.as_str()), gate.credential(&headers));
+
+    let in_authorization = authorized(&format!("Bearer {token}"))?;
+    let denied = gate
+        .authenticate(&in_authorization)
+        .await
+        .expect_err("Authorization is not read once another header is named");
+    assert!(matches!(denied.refusal(), Refusal::Missing(_)));
+    assert_eq!(None, gate.credential(&in_authorization));
+
+    let mut two = HeaderMap::new();
+    two.append(name.clone(), HeaderValue::from_str(&token)?);
+    two.append(name.clone(), HeaderValue::from_str(&token)?);
+    let denied = gate.authenticate(&two).await.expect_err("two fields");
+    assert_eq!(&Refusal::InvalidRequest, denied.refusal());
+    assert_eq!(Some(Reason::TwoCredentials), denied.reason());
+    assert_eq!(None, gate.credential(&two));
+
+    let mut empty = HeaderMap::new();
+    empty.insert(name.clone(), HeaderValue::from_static(""));
+    let denied = gate.authenticate(&empty).await.expect_err("an empty field");
+    assert_eq!(&Refusal::InvalidRequest, denied.refusal());
+
+    let mut outside = HeaderMap::new();
+    outside.insert(name, HeaderValue::from_static("a,b"));
+    let denied = gate
+        .authenticate(&outside)
+        .await
+        .expect_err("not a b64token");
+    assert_eq!(&Refusal::InvalidToken, denied.refusal());
+    assert_eq!(Some(Reason::NotB64Token), denied.reason());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_named_schemed_header_reads_a_scheme_and_a_credential() -> Result<(), Box<dyn StdError>> {
+    let case = Case::bearer().await;
+    let name = HeaderName::from_static("x-forwarded-authorization");
+    let gate = case
+        .gate
+        .clone()
+        .with_basic(Arc::new(alice("")?))
+        .with_credential_header(CredentialHeader::schemed(name.clone()));
+    let token = case.token("system/Condition.r");
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        name.clone(),
+        HeaderValue::from_str(&format!("Bearer {token}"))?,
+    );
+    assert!(gate.authenticate(&headers).await.is_ok());
+    assert_eq!(Some(token.as_str()), gate.credential(&headers));
+    let good = Credential::new("alice", SecretString::from("synthetic-pw"))?;
+    let mut basic = HeaderMap::new();
+    basic.insert(name.clone(), good.header_value());
+    let access = gate
+        .authenticate(&basic)
+        .await
+        .map_err(|denied| format!("{denied:?}"))?;
+    assert_eq!(Some("alice"), access.basic_user_in(&["alice"]));
+    let mut bare = HeaderMap::new();
+    bare.insert(name, HeaderValue::from_str(&token)?);
+    let denied = gate.authenticate(&bare).await.expect_err("no scheme");
+    assert_eq!(&Refusal::InvalidRequest, denied.refusal());
+    assert_eq!(
+        CredentialHeader::authorization(),
+        Gate::open().credential_header().clone(),
+        "the default stays Authorization"
+    );
+    Ok(())
+}
+
+/// A product verifier whose own upstream is down.
+struct UpstreamDown;
+
+impl Verifier for UpstreamDown {
+    fn verify<'a>(
+        &'a self,
+        _token: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
+        Box::pin(async {
+            Err(Rejection::upstream(
+                "introspection endpoint",
+                std::io::Error::other("connection refused"),
+            ))
+        })
+    }
+}
+
+#[tokio::test]
+async fn a_product_verifier_reports_its_upstream_failure_as_503() -> Result<(), Box<dyn StdError>> {
+    let gate = Gate::open()
+        .with_bearer(Arc::new(UpstreamDown))
+        .with_realm("ferro");
+    let denied = gate
+        .authenticate(&authorized("Bearer opaque-token")?)
+        .await
+        .expect_err("the upstream is down");
+    assert_eq!(&Refusal::Unavailable, denied.refusal());
+    assert_eq!(Some(Reason::UpstreamUnavailable), denied.reason());
+    let app = app(AuthLayer::new(gate, classify).with_render(render));
+    let response = app
+        .oneshot(
+            Request::builder()
+                .uri("/fhir/Condition/c-1")
+                .header(header::AUTHORIZATION, "Bearer opaque-token")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(StatusCode::SERVICE_UNAVAILABLE, response.status());
+    assert_eq!(
+        None,
+        response.headers().get(header::WWW_AUTHENTICATE),
+        "503 carries no challenge"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_basic_users_requirement_admits_its_users_alone() -> Result<(), Box<dyn StdError>> {
+    let gate = Gate::open().with_basic(Arc::new(alice("")?));
+    let good = Credential::new("alice", SecretString::from("synthetic-pw"))?;
+    let access = gate
+        .authenticate(&authorized(good.header_value().to_str()?)?)
+        .await
+        .map_err(|denied| format!("{denied:?}"))?;
+    let none = ferrohealth_smart::resource::Honoured::default();
+    assert!(Requirement::basic_users(["alice"]).met_by(&access, none));
+    assert!(!Requirement::basic_users(["scrape"]).met_by(&access, none));
+    let case = Case::bearer().await;
+    let token = case.token("");
+    let bearer = case
+        .gate
+        .authenticate(&authorized(&format!("Bearer {token}"))?)
+        .await
+        .map_err(|denied| format!("{denied:?}"))?;
+    assert!(
+        !Requirement::basic_users(["synthetic-client-sub"]).met_by(&bearer, none),
+        "a bearer subject never passes for a Basic user-id"
+    );
+    assert_eq!(None, bearer.basic_user_in(&["synthetic-client-sub"]));
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_issuers_extension_reaches_the_handlers_access() -> Result<(), Box<dyn StdError>> {
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    struct Trust(&'static str);
+    let key = ec_key("k1", Algorithm::ES256);
+    let issuer = Issuer::start(&[&key]).await;
+    let server = ferrohealth_smart::resource::ResourceServer::discover(issuer.settings())
+        .await?
+        .with_extension(Trust("member-a"));
+    let gate = Gate::open().with_bearer(Arc::new(server));
+    let token = mint(&key, &issuer.claims("system/Condition.r"));
+    let access = gate
+        .authenticate(&authorized(&format!("Bearer {token}"))?)
+        .await
+        .map_err(|denied| format!("{denied:?}"))?;
+    assert_eq!(Some(&Trust("member-a")), access.extension::<Trust>());
     Ok(())
 }

@@ -11,6 +11,69 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `ResourceServer::lazy` and `LazyResourceServer`: the settings are checked
+  at once and the issuer's metadata and key set are read when the first
+  token needs them; a read that fails answers `503` and is not repeated
+  inside `jwks_refresh_interval_seconds`. `IssuerSet::with_lazy` routes to
+  one (#55).
+- `guard::CredentialHeader` and `Gate::with_credential_header`: a product
+  behind an edge proxy names the header the credential travels in, schemed
+  like `Authorization` or bare, under the same rules; the default stays
+  `Authorization`. `Gate::credential` returns the credential text the gate
+  read (#56).
+- `resource::Rejection::Upstream` and `Rejection::upstream`: a product
+  verifier reports an upstream failure (an RFC 7662 introspection
+  endpoint) with its own error as the source; it answers `503` with
+  `Reason::UpstreamUnavailable` (#57).
+- Mutual TLS for the token client (RFC 8705): `ClientAuth::TlsClientAuth`
+  and `ClientAuth::SelfSignedTlsClientAuth` (`tls_client_auth`,
+  `self_signed_tls_client_auth`), `ClientCredentials::with_mutual_tls`,
+  `client::Tls` with extra trust roots and the client certificate,
+  `metadata::Http::with_tls` and `Http::from_client`,
+  `TokenSource::with_http` for a product's own `reqwest::Client`, the
+  `mtls_endpoint_aliases.token_endpoint` of RFC 8705 §5 used when a
+  certificate is configured, and the `[<lane>.credentials.oauth]` keys
+  `ca_file`, `client_certificate_file` and `client_key_file`, read and
+  parsed at load (#58).
+- `client::AssertionAudience` and `[<lane>.credentials.oauth]
+  assertion_audience`: the `private_key_jwt` assertion names the token
+  endpoint (the default, SMART's rule) or the issuer identifier (RFC 7523
+  §3) (#59).
+- The RFC 9470 step-up challenge: `refusal::StepUp` with `acr_values` and
+  `max_age`, `Refusal::StepUp` answering `401` with
+  `error="insufficient_user_authentication"`, `StepUp::satisfied_by`, and
+  `Caller::acr` and `Caller::auth_time`. RFC 9470 joins the vendored set
+  (#60).
+- A typed extension on the caller: `ResourceServer::with_extension`,
+  `LazyResourceServer::with_extension` and `Caller::with_extension` attach a
+  product value, `Caller::extension` and `Access::extension` read it, so a
+  product's per-issuer policy travels with the verified caller. Equality on
+  `Caller` ignores extensions (#61).
+- `Caller::basic_user_in`, `Access::basic_user_in` and
+  `Requirement::basic_users`: whether a Basic caller is one of a list of
+  user-ids; a bearer subject never matches (#62).
+- `basic::Verified::cached` and `Caller::cached`: whether a Basic credential
+  was admitted from the verified-credential cache, so a product records one
+  fresh authentication per cache lifetime (#63).
+
+### Changed
+
+- `ResourceServer::discover` returns a `Send` future, so a product calls
+  it from a request without a blocking thread (#55).
+- **Breaking:** `client::ClientCredentials` gains the public fields
+  `assertion_audience` and `tls`, and `config::OauthSection` gains
+  `assertion_audience`, `ca_file`, `client_certificate_file` and
+  `client_key_file`; a struct literal adds them or uses a constructor or
+  `..Default::default()` (#58, #59).
+- **Breaking:** `client::ClientAuth` gains two variants, so an exhaustive
+  `match` adds `TlsClientAuth` and `SelfSignedTlsClientAuth` (#58).
+- **Breaking:** `metadata::ServerMetadata` gains
+  `mtls_endpoint_aliases`; a struct literal adds it or ends with
+  `..ServerMetadata::default()` (#58).
+- **Breaking:** `basic::Verified` gains the public field `cached` (#63).
+
 ## [0.3.1] - 2026-10-20
 
 `openehr-sdt` 0.0.90, the version FerroEHR publishes. No public API changes;

@@ -141,7 +141,8 @@ impl TokenSource {
     /// # Errors
     ///
     /// Returns [`TokenError::Discovery`] when the HTTP engine cannot be
-    /// built.
+    /// built, the trust roots or the client certificate of `config.tls`
+    /// included.
     pub fn new(config: ClientCredentials) -> Result<Self, TokenError> {
         Self::with_clock(config, Arc::new(SystemClock))
     }
@@ -157,8 +158,24 @@ impl TokenSource {
         config: ClientCredentials,
         clock: Arc<dyn Clock>,
     ) -> Result<Self, TokenError> {
-        let http = Http::new(config.timeout)?;
-        Ok(Self {
+        let http = Http::with_tls(config.timeout, &config.tls)?;
+        Ok(Self::assemble(config, http, clock))
+    }
+
+    /// Returns a source for `config` that calls the authorization server
+    /// through `http`, a product's own engine ([`Http::from_client`]).
+    ///
+    /// The engine is used as built: `config.timeout` and `config.tls` are
+    /// not applied to it, and its redirect policy is the product's.
+    #[must_use]
+    pub fn with_http(config: ClientCredentials, http: Http) -> Self {
+        Self::assemble(config, http, Arc::new(SystemClock))
+    }
+
+    /// Returns the source of `config` over `http`, reading expiry against
+    /// `clock`.
+    fn assemble(config: ClientCredentials, http: Http, clock: Arc<dyn Clock>) -> Self {
+        Self {
             inner: Arc::new(Inner {
                 config,
                 http,
@@ -166,7 +183,7 @@ impl TokenSource {
                 token_endpoint: OnceLock::new(),
                 slot: Mutex::new(Slot::Empty),
             }),
-        })
+        }
     }
 
     /// Returns the current token, fetching one when none is held or the held
@@ -274,7 +291,8 @@ impl Inner {
         let endpoint = match (self.token_endpoint.get(), &self.config.endpoint) {
             (Some(url), _) | (None, Endpoint::Token(url)) => url.clone(),
             (None, Endpoint::Issuer(issuer)) => {
-                let url = endpoint::discover(&self.http, issuer).await?;
+                let mutual_tls = self.config.tls.identity.is_some();
+                let url = endpoint::discover(&self.http, issuer, mutual_tls).await?;
                 self.token_endpoint.get_or_init(|| url).clone()
             }
         };

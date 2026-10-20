@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! How a [`Gate`] reads who calls: the `Authorization` header alone, a
+//! How a [`Gate`] reads who calls: the `Authorization` header, or the one
+//! header the product names in its place, a
 //! bearer token held to the `b64token` syntax and checked by the verifier,
 //! a Basic credential checked against the password store, and every refusal
 //! a [`Denied`] whose reason the product logs and the wire never carries.
@@ -10,7 +11,6 @@ use std::sync::Arc;
 
 use http::HeaderMap;
 use http::HeaderValue;
-use http::header;
 
 use crate::basic::PasswordStore;
 use crate::guard::Gate;
@@ -25,7 +25,8 @@ use crate::resource::Verifier;
 impl Gate {
     /// Returns who calls with `headers`, or the denial.
     ///
-    /// The token is read from the `Authorization` header alone, never from
+    /// The token is read from the `Authorization` header, or the header
+    /// [`Gate::with_credential_header`] names, never from
     /// a query or a form body (RFC 9700 §4.3.2), and the scheme is compared
     /// case-insensitively (RFC 9110 §11.1); a scheme the gate does not admit
     /// is a missing credential. A bearer token outside the `b64token` syntax
@@ -46,7 +47,7 @@ impl Gate {
         }
         let missing = || Denied::from(Refusal::Missing(self.schemes()));
         let malformed = |reason| Denied::new(Refusal::InvalidRequest, Some(reason));
-        let mut values = headers.get_all(header::AUTHORIZATION).iter();
+        let mut values = headers.get_all(self.credential.name()).iter();
         let value = match (values.next(), values.next()) {
             (None, _) => return Err(missing()),
             (Some(_), Some(_)) => return Err(malformed(Reason::TwoCredentials)),
@@ -55,6 +56,15 @@ impl Gate {
         let text = value
             .to_str()
             .map_err(|_opaque| malformed(Reason::MalformedHeader))?;
+        if self.credential.is_bare() {
+            let token = text.trim();
+            if token.is_empty() {
+                return Err(malformed(Reason::MalformedHeader));
+            }
+            let verifier = self.bearer.as_ref().ok_or_else(missing)?;
+            let caller = bearer(verifier.as_ref(), token).await?;
+            return Ok(Access::Caller(Arc::new(caller)));
+        }
         let (scheme, credential) = text
             .split_once(' ')
             .ok_or_else(|| malformed(Reason::MalformedHeader))?;
@@ -72,6 +82,29 @@ impl Gate {
             return Err(missing());
         };
         Ok(Access::Caller(Arc::new(caller)))
+    }
+
+    /// Returns the credential text of `headers`: the one field of the
+    /// credential header, after its scheme unless the header is bare, or
+    /// `None` when there is no single non-empty field.
+    ///
+    /// A product that hands the verified credential on (an RFC 8693 token
+    /// exchange) reads it here, under the rules [`Gate::authenticate`]
+    /// applied.
+    #[must_use]
+    pub fn credential<'h>(&self, headers: &'h HeaderMap) -> Option<&'h str> {
+        let mut values = headers.get_all(self.credential.name()).iter();
+        let (Some(value), None) = (values.next(), values.next()) else {
+            return None;
+        };
+        let text = value.to_str().ok()?;
+        let credential = if self.credential.is_bare() {
+            text
+        } else {
+            text.split_once(' ')?.1
+        }
+        .trim();
+        (!credential.is_empty()).then_some(credential)
     }
 }
 
@@ -99,6 +132,13 @@ async fn bearer(verifier: &dyn Verifier, token: &str) -> Result<Caller, Denied> 
                         "the authorization server's key set could not be read"
                     );
                 }
+                Rejection::Upstream { upstream, source } => {
+                    tracing::error!(
+                        upstream = *upstream,
+                        error = %source,
+                        "an upstream of the token verifier could not be read"
+                    );
+                }
                 Rejection::Missing => {}
             }
             Err(Denied::from(&rejection))
@@ -118,7 +158,9 @@ async fn basic(store: Arc<PasswordStore>, value: HeaderValue) -> Result<Caller, 
             )
         })?;
     match checked {
-        Ok(verified) => Ok(Caller::basic(verified.username, &verified.scope)),
+        Ok(verified) => {
+            Ok(Caller::basic(verified.username, &verified.scope).with_cached(verified.cached))
+        }
         Err(reason) => {
             tracing::debug!(reason = %reason, "a Basic credential was refused");
             Err(Denied::new(Refusal::InvalidBasic, Some(reason)))

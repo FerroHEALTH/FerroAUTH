@@ -18,6 +18,7 @@ use ferrohealth_smart::refusal::Refusal;
 use ferrohealth_smart::resource::Caller;
 use ferrohealth_smart::resource::Compartment;
 use ferrohealth_smart::resource::IssuerSet;
+use ferrohealth_smart::resource::LazyResourceServer;
 use ferrohealth_smart::resource::Rejection;
 use ferrohealth_smart::resource::ResourceError;
 use ferrohealth_smart::resource::ResourceServer;
@@ -885,5 +886,161 @@ async fn metadata_read_from_the_issuer_is_never_replaced() -> Result<(), Box<dyn
         fetched.with_metadata(supplied),
         Err(ResourceError::MetadataFetched)
     ));
+    Ok(())
+}
+
+/// Holds `_future` to the `Send` bound a request future needs.
+fn assert_send<T: Send>(_future: &T) {}
+
+#[tokio::test]
+async fn discovery_and_a_lazy_check_are_send_futures() -> Result<(), Box<dyn StdError>> {
+    let key = ec_key("k1", Algorithm::ES256);
+    let issuer = Issuer::start(&[&key]).await;
+    let discover = ResourceServer::discover(issuer.settings());
+    assert_send(&discover);
+    let server = discover.await?;
+    let lazy = ResourceServer::lazy(issuer.settings())?;
+    let token = mint(&key, &issuer.claims("system/Condition.rs"));
+    let check = lazy.authenticate(&token);
+    assert_send(&check);
+    assert!(check.await.is_ok());
+    assert_send(&server.authenticate(&token));
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_lazy_server_reads_the_issuer_on_its_first_token() -> Result<(), Box<dyn StdError>> {
+    let key = ec_key("k1", Algorithm::ES256);
+    let issuer = Issuer::start(&[&key]).await;
+    let lazy = ResourceServer::lazy(issuer.settings())?;
+    assert_eq!(
+        0,
+        issuer
+            .reads("/.well-known/oauth-authorization-server")
+            .await
+    );
+    assert!(lazy.get().is_none(), "nothing is read at construction");
+    let token = mint(&key, &issuer.claims("system/Condition.rs"));
+    let caller = lazy.authenticate(&token).await?;
+    assert_eq!("synthetic-client-sub", caller.subject());
+    assert!(lazy.get().is_some());
+    lazy.authenticate(&token).await?;
+    assert_eq!(
+        1,
+        issuer
+            .reads("/.well-known/oauth-authorization-server")
+            .await,
+        "the metadata is read once"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_unreachable_issuer_answers_503_and_is_not_asked_again_inside_the_interval()
+-> Result<(), Box<dyn StdError>> {
+    let key = ec_key("k1", Algorithm::ES256);
+    let issuer = Issuer::bare().await;
+    let mut settings = issuer.settings();
+    settings.jwks_refresh_interval = Duration::from_secs(60);
+    let lazy = ResourceServer::lazy(settings)?;
+    let token = mint(&key, &issuer.claims("system/Condition.rs"));
+    for attempt in ["first", "second"] {
+        match lazy.authenticate(&token).await {
+            Err(rejection @ Rejection::Unavailable { .. }) => {
+                assert_eq!(
+                    Refusal::Unavailable,
+                    Refusal::from(&rejection),
+                    "{attempt}: 503, never 401"
+                );
+            }
+            other => panic!("{attempt}: expected the unavailable rejection, got {other:?}"),
+        }
+    }
+    assert_eq!(
+        1,
+        issuer
+            .reads("/.well-known/oauth-authorization-server")
+            .await,
+        "a failed read is not repeated inside the interval"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_lazy_server_recovers_once_the_issuer_answers() -> Result<(), Box<dyn StdError>> {
+    let key = ec_key("k1", Algorithm::ES256);
+    let issuer = Issuer::bare().await;
+    let lazy = ResourceServer::lazy(issuer.settings())?;
+    let token = mint(&key, &issuer.claims("system/Condition.rs"));
+    assert!(matches!(
+        lazy.authenticate(&token).await,
+        Err(Rejection::Unavailable { .. })
+    ));
+    issuer
+        .mount_metadata("/.well-known/oauth-authorization-server")
+        .await;
+    issuer.mount_keys(&[&key], None).await;
+    let caller = lazy.authenticate(&token).await?;
+    assert_eq!("synthetic-client-sub", caller.subject());
+    Ok(())
+}
+
+#[test]
+fn a_lazy_server_checks_its_settings_at_once() {
+    let mut settings = Settings::new("http://as.example.org", AUDIENCE);
+    assert!(matches!(
+        ResourceServer::lazy(settings.clone()),
+        Err(ResourceError::Discovery(DiscoveryError::Insecure { .. }))
+    ));
+    settings.issuer = String::from("https://as.example.org");
+    settings.algorithms = vec![Algorithm::HS256];
+    assert!(matches!(
+        ResourceServer::lazy(settings),
+        Err(ResourceError::SymmetricAlgorithm { .. })
+    ));
+}
+
+/// A product's per-issuer policy, attached to the issuer's server.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Policy {
+    /// What the product calls the issuer.
+    name: &'static str,
+}
+
+#[tokio::test]
+async fn an_issuer_set_routes_to_a_lazy_server_and_carries_its_extension()
+-> Result<(), Box<dyn StdError>> {
+    let ready_key = ec_key("ready", Algorithm::ES256);
+    let ready_issuer = Issuer::start(&[&ready_key]).await;
+    let lazy_key = ec_key("lazy", Algorithm::ES256);
+    let lazy_issuer = Issuer::start(&[&lazy_key]).await;
+    let ready = ResourceServer::discover(ready_issuer.settings())
+        .await?
+        .with_extension(Policy { name: "ready" });
+    let lazy: LazyResourceServer =
+        ResourceServer::lazy(lazy_issuer.settings())?.with_extension(Policy { name: "lazy" });
+    let set = IssuerSet::new()
+        .with(Arc::new(ready))
+        .with_lazy(Arc::new(lazy));
+    assert_eq!(2, set.len());
+    assert!(set.server(&lazy_issuer.uri()).is_none(), "not read yet");
+    let caller = set
+        .verify(&mint(&lazy_key, &lazy_issuer.claims("system/Condition.rs")))
+        .await?;
+    assert_eq!(Some(&Policy { name: "lazy" }), caller.extension::<Policy>());
+    assert!(
+        set.server(&lazy_issuer.uri()).is_some(),
+        "read on its token"
+    );
+    let caller = set
+        .verify(&mint(
+            &ready_key,
+            &ready_issuer.claims("system/Condition.rs"),
+        ))
+        .await?;
+    assert_eq!(
+        Some(&Policy { name: "ready" }),
+        caller.extension::<Policy>()
+    );
     Ok(())
 }
