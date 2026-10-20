@@ -14,6 +14,7 @@
 //! issuer.
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use serde_json::Map;
 use serde_json::Value;
@@ -23,10 +24,74 @@ use crate::metadata::ServerMetadata;
 /// The path of the SMART discovery document under a FHIR base.
 pub const SMART_CONFIGURATION: &str = "/.well-known/smart-configuration";
 
-/// The capabilities this resource server enforces whatever the deployment
-/// adds: v1 scope syntax, and `patient/` and `user/` scopes (SMART App
-/// Launch 2.2.0, Conformance, §Capability Sets).
-const ENFORCED: [&str; 3] = ["permission-v1", "permission-patient", "permission-user"];
+/// The capability of SMART's `OpenID` Connect profile (SMART App Launch
+/// 2.2.0, Conformance, §Single Sign-on).
+const SSO_OPENID_CONNECT: &str = "sso-openid-connect";
+
+/// The scope an `OpenID` Connect issuer lists in `scopes_supported`
+/// (`OpenID` Connect Discovery 1.0 §3: "The server MUST support the `openid`
+/// scope value").
+const OPENID_SCOPE: &str = "openid";
+
+/// A permission capability (SMART App Launch 2.2.0, Conformance,
+/// §Permissions).
+///
+/// The product declares the ones its route table enforces in
+/// [`SmartOptions::permissions`]; the document claims none by default,
+/// because a capability is one "that the server supports" (§Metadata).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+pub enum PermissionCapability {
+    /// `permission-offline`: "offline" refresh tokens.
+    Offline,
+    /// `permission-online`: "online" refresh tokens requested during an EHR
+    /// launch, which the page deems experimental.
+    Online,
+    /// `permission-patient`: patient-level scopes (`patient/Observation.rs`).
+    Patient,
+    /// `permission-user`: user-level scopes (`user/Appointment.rs`).
+    User,
+    /// `permission-v1`: the SMART v1 scope syntax (`patient/Observation.read`).
+    V1,
+    /// `permission-v2`: the SMART v2 granular scope syntax, which a product
+    /// declares only when it supplies an evaluator of granular constraints.
+    V2,
+}
+
+impl PermissionCapability {
+    /// Returns the capability string the document lists.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Offline => "permission-offline",
+            Self::Online => "permission-online",
+            Self::Patient => "permission-patient",
+            Self::User => "permission-user",
+            Self::V1 => "permission-v1",
+            Self::V2 => "permission-v2",
+        }
+    }
+}
+
+/// Whether the document advertises `sso-openid-connect`, with the `issuer`
+/// that capability requires.
+///
+/// "`issuer`: CONDITIONAL, … Required if the server's capabilities include
+/// `sso-openid-connect`; otherwise, omitted" (SMART App Launch 2.2.0,
+/// Conformance, §Metadata).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum OpenIdConnect {
+    /// Advertised when the issuer's metadata lists the `openid` scope in
+    /// `scopes_supported`, or the product lists `sso-openid-connect` in
+    /// [`SmartOptions::capabilities`].
+    #[default]
+    FromIssuer,
+    /// Advertised, the product's declaration.
+    Advertised,
+    /// Never advertised, whatever the issuer supports.
+    Withheld,
+}
 
 /// The grant types the document may name (SMART App Launch 2.2.0,
 /// Conformance, §Metadata).
@@ -117,12 +182,15 @@ pub struct SmartOptions {
     /// [`crate::config::Resolved::smart_options`] fills it from `[auth]
     /// scopes_supported`.
     pub scopes_supported: Vec<String>,
-    /// The capabilities the product adds to the enforced ones (`launch-ehr`,
-    /// `context-ehr-patient`, `sso-openid-connect`).
+    /// The capabilities the product adds to the derived ones (`launch-ehr`,
+    /// `context-ehr-patient`).
     pub capabilities: Vec<String>,
-    /// Whether the product supplies an evaluator for granular scopes, which
-    /// is what `permission-v2` promises.
-    pub granular: bool,
+    /// The permission capabilities the product's route table enforces;
+    /// none by default.
+    pub permissions: BTreeSet<PermissionCapability>,
+    /// Whether the document advertises `sso-openid-connect` and writes
+    /// `issuer`.
+    pub openid_connect: OpenIdConnect,
     /// The `services` map of a SMART on openEHR platform, each key a
     /// reverse domain name and each value the service's metadata with its
     /// `baseUrl` (`master04 §Services`); omitted when empty.
@@ -182,7 +250,10 @@ pub(super) fn document(metadata: &ServerMetadata, options: &SmartOptions) -> Val
     };
     let grant_types = keep(&metadata.grant_types(), &GRANT_TYPES);
     let auth_methods = keep(&metadata.token_endpoint_auth_methods(), &AUTH_METHODS);
-    put("issuer", Some(Value::String(metadata.issuer.clone())));
+    let sso = openid_connect(metadata, options);
+    if sso {
+        put("issuer", Some(Value::String(metadata.issuer.clone())));
+    }
     put("jwks_uri", text(&metadata.jwks_uri));
     put(
         "authorization_endpoint",
@@ -239,23 +310,52 @@ pub(super) fn document(metadata: &ServerMetadata, options: &SmartOptions) -> Val
             options,
             &grant_types,
             &auth_methods,
+            sso,
         ))),
     );
     Value::Object(document)
 }
 
-/// Returns the capabilities of the document: the enforced ones, the client
-/// types and the standalone launch the issuer supports, and the product's.
+/// Returns whether the document advertises `sso-openid-connect` under
+/// `options`.
+///
+/// The capability also makes `jwks_uri` required (SMART App Launch 2.2.0,
+/// Conformance, §Metadata), so it is advertised only when the issuer's
+/// metadata names one, which a key set read from a file leaves unknown.
+fn openid_connect(metadata: &ServerMetadata, options: &SmartOptions) -> bool {
+    let wanted = match options.openid_connect {
+        OpenIdConnect::Withheld => false,
+        OpenIdConnect::Advertised => true,
+        OpenIdConnect::FromIssuer => {
+            options
+                .capabilities
+                .iter()
+                .any(|capability| capability == SSO_OPENID_CONNECT)
+                || metadata
+                    .scopes_supported
+                    .iter()
+                    .flatten()
+                    .any(|scope| scope == OPENID_SCOPE)
+        }
+    };
+    wanted && metadata.jwks_uri.is_some()
+}
+
+/// Returns the capabilities of the document: the product's permissions, the
+/// client types and the standalone launch the issuer supports, single
+/// sign-on when advertised, and the product's own.
 fn capabilities<'a>(
     metadata: &'a ServerMetadata,
     options: &'a SmartOptions,
     grant_types: &[String],
     auth_methods: &[String],
+    sso: bool,
 ) -> Vec<&'a str> {
-    let mut capabilities: Vec<&str> = ENFORCED.to_vec();
-    if options.granular {
-        capabilities.push("permission-v2");
-    }
+    let mut capabilities: Vec<&str> = options
+        .permissions
+        .iter()
+        .map(|permission| permission.as_str())
+        .collect();
     let symmetric = auth_methods
         .iter()
         .any(|method| method == "client_secret_basic" || method == "client_secret_post");
@@ -281,8 +381,13 @@ fn capabilities<'a>(
     {
         capabilities.push("launch-standalone");
     }
+    if sso {
+        capabilities.push(SSO_OPENID_CONNECT);
+    }
     for added in &options.capabilities {
-        if !capabilities.contains(&added.as_str()) {
+        // NOTE: SMART App Launch 2.2.0, Conformance, §Metadata, `issuer` is
+        // written only with `sso-openid-connect`, so the two never part.
+        if added != SSO_OPENID_CONNECT && !capabilities.contains(&added.as_str()) {
             capabilities.push(added);
         }
     }
@@ -291,8 +396,9 @@ fn capabilities<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{SmartOptions, document, is_capability};
+    use super::{OpenIdConnect, PermissionCapability, SmartOptions, document, is_capability};
     use crate::metadata::ServerMetadata;
+    use std::collections::BTreeSet;
 
     #[test]
     fn the_document_keeps_only_the_defined_options_and_adds_the_products() {
@@ -315,7 +421,11 @@ mod tests {
         let options = SmartOptions {
             scopes_supported: vec![String::from("system/Condition.rs")],
             capabilities: vec![String::from("launch-ehr"), String::from("permission-v1")],
-            granular: true,
+            permissions: BTreeSet::from([
+                PermissionCapability::V1,
+                PermissionCapability::V2,
+                PermissionCapability::User,
+            ]),
             ..SmartOptions::default()
         };
         let document = document(&metadata, &options);
@@ -337,9 +447,8 @@ mod tests {
         );
         assert_eq!(
             serde_json::json!([
-                "permission-v1",
-                "permission-patient",
                 "permission-user",
+                "permission-v1",
                 "permission-v2",
                 "client-confidential-asymmetric",
                 "launch-standalone",
@@ -348,6 +457,10 @@ mod tests {
             document["capabilities"]
         );
         assert!(document.get("jwks_uri").is_none());
+        assert!(
+            document.get("issuer").is_none(),
+            "SMART App Launch 2.2.0, Conformance, Metadata: issuer is omitted without sso-openid-connect"
+        );
     }
 
     #[test]
@@ -366,16 +479,94 @@ mod tests {
             document["token_endpoint_auth_methods_supported"]
         );
         assert_eq!(
-            serde_json::json!([
-                "permission-v1",
-                "permission-patient",
-                "permission-user",
-                "client-confidential-symmetric",
-                "launch-standalone"
-            ]),
-            document["capabilities"]
+            serde_json::json!(["client-confidential-symmetric", "launch-standalone"]),
+            document["capabilities"],
+            "no permission capability is claimed unless the product declares it"
         );
         assert!(document.get("scopes_supported").is_none());
+        assert!(document.get("issuer").is_none());
+    }
+
+    /// The metadata of an `OpenID` Connect issuer: the `openid` scope and a
+    /// key set URL.
+    fn openid_issuer() -> ServerMetadata {
+        ServerMetadata {
+            issuer: String::from("https://as.example.org"),
+            jwks_uri: Some(String::from("https://as.example.org/jwks")),
+            scopes_supported: Some(vec![String::from("openid"), String::from("profile")]),
+            ..ServerMetadata::default()
+        }
+    }
+
+    // NOTE: SMART App Launch 2.2.0, Conformance, Metadata, `issuer` is
+    // "Required if the server's capabilities include `sso-openid-connect`;
+    // otherwise, omitted".
+    #[test]
+    fn the_issuer_is_written_only_with_sso_openid_connect() {
+        let sso = |document: &serde_json::Value| {
+            document["capabilities"]
+                .as_array()
+                .is_some_and(|all| all.iter().any(|value| value == "sso-openid-connect"))
+        };
+        let derived = document(&openid_issuer(), &SmartOptions::default());
+        assert!(sso(&derived), "derived from the issuer's openid scope");
+        assert_eq!(
+            serde_json::json!("https://as.example.org"),
+            derived["issuer"]
+        );
+        assert_eq!(
+            serde_json::json!("https://as.example.org/jwks"),
+            derived["jwks_uri"]
+        );
+        let withheld = document(
+            &openid_issuer(),
+            &SmartOptions {
+                openid_connect: OpenIdConnect::Withheld,
+                capabilities: vec![String::from("sso-openid-connect")],
+                ..SmartOptions::default()
+            },
+        );
+        assert!(!sso(&withheld), "the product withholds it");
+        assert!(withheld.get("issuer").is_none());
+        let plain_oauth = ServerMetadata {
+            scopes_supported: Some(vec![String::from("system/*.rs")]),
+            ..openid_issuer()
+        };
+        let without = document(&plain_oauth, &SmartOptions::default());
+        assert!(!sso(&without), "an issuer without the openid scope");
+        assert!(without.get("issuer").is_none());
+        for declared in [
+            SmartOptions {
+                openid_connect: OpenIdConnect::Advertised,
+                ..SmartOptions::default()
+            },
+            SmartOptions {
+                capabilities: vec![String::from("sso-openid-connect")],
+                ..SmartOptions::default()
+            },
+        ] {
+            let document = document(&plain_oauth, &declared);
+            assert!(sso(&document), "the product declares it");
+            assert_eq!(
+                serde_json::json!("https://as.example.org"),
+                document["issuer"]
+            );
+        }
+        let no_key_set = ServerMetadata {
+            jwks_uri: None,
+            ..openid_issuer()
+        };
+        let unbacked = document(
+            &no_key_set,
+            &SmartOptions {
+                openid_connect: OpenIdConnect::Advertised,
+                ..SmartOptions::default()
+            },
+        );
+        assert!(
+            !sso(&unbacked) && unbacked.get("issuer").is_none(),
+            "sso-openid-connect requires a jwks_uri the document can carry"
+        );
     }
 
     #[test]

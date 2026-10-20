@@ -193,9 +193,11 @@ jobs:
           components: clippy
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       # The core compiles without a framework, and the layer and the
-      # extractor behind the `axum` feature, so both are linted.
+      # extractor behind the `axum` feature, so both are linted; so is the
+      # build without the `fetch` feature, which links no HTTP client.
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - run: cargo clippy --workspace --all-targets --no-default-features --features axum,openehr --locked -- -D warnings
 
   test:
     name: nextest (core and axum)
@@ -217,6 +219,7 @@ jobs:
           tool: cargo-nextest
       - run: cargo nextest run --workspace --locked
       - run: cargo nextest run --workspace --all-features --locked
+      - run: cargo nextest run --workspace --no-default-features --features axum,openehr --locked
       - run: cargo test --doc --workspace --all-features --locked
 
   doc:

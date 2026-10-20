@@ -39,7 +39,10 @@
 //! product embeds. The `axum` feature adds [`guard`], the `tower::Layer` that
 //! runs the credential check, the scope check and the audit line in front of
 //! every route, and [`extract`], the extractor of the caller the layer
-//! admitted. The core stays framework-neutral.
+//! admitted. The core stays framework-neutral. The HTTP fetchers (the
+//! issuer's metadata, the key set over its `jwks_uri`, and the client
+//! credentials token client) sit behind the default `fetch` feature; without
+//! it the crate links no HTTP client and reads a key set from a file.
 
 #![doc(test(attr(deny(warnings))))]
 

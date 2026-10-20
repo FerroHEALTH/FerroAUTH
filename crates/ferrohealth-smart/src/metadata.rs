@@ -10,6 +10,7 @@
 //! discovery document republishes; the token client reads it for
 //! `token_endpoint`.
 
+#[cfg(feature = "fetch")]
 use std::time::Duration;
 
 use http::StatusCode;
@@ -100,6 +101,7 @@ impl ServerMetadata {
 #[non_exhaustive]
 pub enum DiscoveryError {
     /// The HTTP engine could not be built.
+    #[cfg(feature = "fetch")]
     #[error("the HTTP engine of the authorization server client could not be built")]
     Build {
         /// What `reqwest` reported.
@@ -125,6 +127,7 @@ pub enum DiscoveryError {
     },
     /// A request to the authorization server never completed, its timeout
     /// included.
+    #[cfg(feature = "fetch")]
     #[error("the request to {url} could not be completed")]
     Transport {
         /// The URL that was called.
@@ -229,18 +232,21 @@ pub fn locations(issuer: &Url) -> [Url; 2] {
     [oauth, openid]
 }
 
-/// The HTTP engine the authorization server is called through.
+/// The HTTP engine the authorization server is called through, behind the
+/// `fetch` feature.
 ///
 /// It follows no redirect: a metadata document, a key set or a token request
 /// answered with a redirect is refused as the status it is, so a credential
 /// never travels to a host the configuration did not name (no specification
 /// governs this: our own design).
+#[cfg(feature = "fetch")]
 #[derive(Debug, Clone)]
 pub struct Http {
     /// The engine.
     client: reqwest::Client,
 }
 
+#[cfg(feature = "fetch")]
 impl Http {
     /// Returns an engine whose calls each take at most `timeout`.
     ///

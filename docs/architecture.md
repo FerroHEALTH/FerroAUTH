@@ -489,7 +489,9 @@ HMAC references) keeps it beside this line.
 
 The library returns a typed `Refusal`, and the product renders the body:
 an `OperationOutcome` on a FHIR surface, the ITS-REST error body on an openEHR
-surface, a JSON document on an admin listener. The status and the
+surface, a JSON document on an admin listener. The renderer reads the
+refused request's head (`http::request::Parts`), so a product answers in
+the format the request negotiates (the `Accept` header, a FHIR `_format`). The status and the
 `WWW-Authenticate` challenge are the library's and never differ by product.
 
 - **No credential:** `401` with `WWW-Authenticate: Bearer realm="<realm>"`,
@@ -535,8 +537,16 @@ mounts it. The rules the builder keeps:
 
 - `token_endpoint`, `grant_types_supported`, `capabilities` and
   `code_challenge_methods_supported` are required; `issuer` and `jwks_uri`
-  are required only with `sso-openid-connect`; the rest is copied from the
-  metadata when present (`smart conformance`, Metadata).
+  are required only with `sso-openid-connect`, and `issuer` is "otherwise,
+  omitted"; the rest is copied from the metadata when present (`smart
+  conformance`, Metadata).
+- `sso-openid-connect`, and with it `issuer`, is written when the issuer's
+  metadata lists the `openid` scope in `scopes_supported` (an OpenID
+  Connect issuer "MUST support the `openid` scope value", OpenID Connect
+  Discovery 1.0 §3) or the product declares it, and never when the product
+  withholds it (`SmartOptions::openid_connect`). It is written only when the
+  metadata names a `jwks_uri`, which the capability also requires, so a key
+  set read from a file never advertises it.
 - `code_challenge_methods_supported` carries `S256` and never `plain`: "The
   `S256` method SHALL be included in this list, and the `plain` method SHALL
   NOT be included".
@@ -551,11 +561,12 @@ mounts it. The rules the builder keeps:
   it from `[auth] scopes_supported` (`Resolved::smart_options`), and the
   builder never copies the issuer's own list, which names scopes the
   issuer grants and the resource server may not enforce.
-- `capabilities` holds what the library enforces for every product
-  (`permission-v1`, `permission-patient`, `permission-user`; `permission-v2`
-  only when the product supplies a constraint evaluator), the client types
-  and launch modes the issuer's metadata supports, and what the product adds
-  by configuration. A configured capability is one the page lists, one the
+- `capabilities` holds the permission capabilities the product declares
+  for its route table (`SmartOptions::permissions`, none by default, because
+  a capability is one "that the server supports"; `permission-v2` only with
+  a constraint evaluator), the client types and launch modes the issuer's
+  metadata supports, `sso-openid-connect` as above, and what the product
+  adds by configuration. A configured capability is one the page lists, one the
   SMART on openEHR draft lists (`soe master04`, Capabilities), or a full
   URI: "Simple, non-URI capability strings are reserved for definition in
   SMART App Launch", and other capabilities are "represented with full
@@ -776,7 +787,10 @@ The library offers three seams, and nothing in it names a product.
 The crate is `axum`-independent at its core (the verifier, the scopes, the
 credentials, the audit record) and carries the `Layer` and the extractor
 behind an `axum` feature, so a product that fronts a different server keeps
-the core.
+the core. The HTTP fetchers (the issuer's metadata, the key set over its
+`jwks_uri`, the client credentials token client) sit behind the default
+`fetch` feature; a product built without it links no HTTP client and reads
+its key set from a `jwks_file`.
 
 ### 5.1 What each product keeps
 

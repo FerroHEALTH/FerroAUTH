@@ -40,6 +40,7 @@ use http::Request;
 use http::StatusCode;
 use http::Uri;
 use http::header;
+use http::request::Parts;
 use http_body_util::BodyExt as _;
 use jsonwebtoken::Algorithm;
 use secrecy::SecretString;
@@ -98,11 +99,38 @@ fn fhir(permission: Permission, resource_type: Option<String>) -> Requirement {
 
 /// Renders a refusal over a text body naming its reason, as a product's own
 /// body would, with the status and challenge of [`HeaderOnly`].
-fn render(refusal: &Refusal) -> Response {
+fn refused(refusal: &Refusal) -> Response {
     HeaderOnly::with_realm("ferro").respond(
         refusal,
         Body::from(format!("refused: {}", refusal.reason())),
     )
+}
+
+/// Renders a refusal in the format the request negotiates, as a FHIR server
+/// does: XML when `_format` or `Accept` asks for it, the text body
+/// otherwise.
+fn render(refusal: &Refusal, parts: &Parts) -> Response {
+    let format_xml = parts
+        .uri
+        .query()
+        .is_some_and(|query| query.split('&').any(|pair| pair == "_format=xml"));
+    let accept_xml = parts
+        .headers
+        .get(header::ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|accept| accept.contains("application/fhir+xml"));
+    if format_xml || accept_xml {
+        let mut response = HeaderOnly::with_realm("ferro").respond(
+            refusal,
+            Body::from(format!("<refused reason=\"{}\"/>", refusal.reason())),
+        );
+        response.headers_mut().insert(
+            header::CONTENT_TYPE,
+            header::HeaderValue::from_static("application/fhir+xml"),
+        );
+        return response;
+    }
+    refused(refusal)
 }
 
 /// The handler every guarded route runs: it answers the subject the guard
@@ -118,7 +146,7 @@ async fn handler(access: Access, request: Request<Body>) -> Response {
             .reach(Permission::Read, "Condition")
             .is_some_and(|compartment| compartment.admits(Some("p-2")));
         if !admitted {
-            return render(&Refusal::Forbidden);
+            return refused(&Refusal::Forbidden);
         }
     }
     let mut response = Response::new(Body::from(format!("hello {subject}")));
@@ -757,5 +785,49 @@ async fn the_default_renderer_sends_the_challenge_with_no_body() -> Result<(), B
     );
     let body = response.into_body().collect().await?.to_bytes();
     assert!(body.is_empty(), "the header-only renderer sends no body");
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_renderer_negotiates_the_body_from_the_refused_request() -> Result<(), Box<dyn StdError>>
+{
+    let case = Case::bearer().await;
+    let by_accept = case
+        .send(
+            Request::get("/fhir/Condition/c-1")
+                .header(header::ACCEPT, "application/fhir+xml")
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(StatusCode::UNAUTHORIZED, by_accept.status());
+    assert_eq!(
+        Some("application/fhir+xml"),
+        by_accept
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        "the Accept header reaches the renderer"
+    );
+    let body = by_accept.into_body().collect().await?.to_bytes();
+    assert_eq!(&b"<refused reason=\"missing\"/>"[..], &*body);
+    let token = case.token("system/Patient.r");
+    let by_format = case
+        .send(
+            Request::get("/fhir/Condition/c-1?_format=xml")
+                .header(header::AUTHORIZATION, format!("Bearer {token}"))
+                .body(Body::empty())?,
+        )
+        .await?;
+    assert_eq!(StatusCode::FORBIDDEN, by_format.status());
+    assert_eq!(
+        Some("Bearer realm=\"ferro\", error=\"insufficient_scope\""),
+        by_format
+            .headers()
+            .get(header::WWW_AUTHENTICATE)
+            .and_then(|value| value.to_str().ok()),
+        "the challenge stays the refusal's"
+    );
+    let body = by_format.into_body().collect().await?.to_bytes();
+    assert_eq!(&b"<refused reason=\"insufficient_scope\"/>"[..], &*body);
     Ok(())
 }
