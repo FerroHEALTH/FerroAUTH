@@ -69,6 +69,12 @@ what a product changes.
   was admitted from the verified-credential cache, so a product records one
   fresh authentication per cache lifetime (#63).
 
+### Security
+
+- `rustls-webpki` 0.103.16 and `webpki-root-certs` 1.0.10 in the lock, past
+  RUSTSEC-2026-0382 and RUSTSEC-2026-0383 (certificate paths through the
+  distrusted emSign intermediates) (#66).
+
 ### Changed
 
 - `ResourceServer::discover` returns a `Send` future, so a product calls
