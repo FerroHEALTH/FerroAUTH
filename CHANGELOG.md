@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-20
+
+The gaps FerroTERM's migration found, closed in the crate: the SMART
+discovery document claims only the permission capabilities a product
+declares and writes `issuer` only with `sso-openid-connect`, a refusal's
+renderer reads the request head so a product negotiates JSON or XML, and
+the HTTP fetchers sit behind the default `fetch` feature. Products pin
+`=0.2.0`; the breaking changes below name what a product changes.
+
 ### Added
 
 - The `fetch` feature, on by default, carries the HTTP fetchers: the
@@ -183,6 +192,7 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/FerroHEALTH/FerroSMART/releases/tag/v0.1.0
