@@ -91,7 +91,7 @@ Discovery specification.
 | Rust toolchain | 1.98.1, profile `minimal`, components `rustfmt` and `clippy` | `rust-toolchain.toml` |
 | Rust edition | 2024 | `Cargo.toml` `[workspace.package] edition`, `rustfmt.toml` |
 | MSRV | 1.97 | `Cargo.toml` `[workspace.package] rust-version` |
-| `ferrohealth-smart` | 0.2.0, the workspace version, the release tag `v0.2.0` and the `CHANGELOG.md` section | `Cargo.toml` `[workspace.package] version`, `Cargo.lock`, `CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
+| `ferrohealth-smart` | 0.3.0, the workspace version, the release tag `v0.3.0` and the `CHANGELOG.md` section | `Cargo.toml` `[workspace.package] version`, `Cargo.lock`, `CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
 | Third-party crates | the `[workspace.dependencies]` table, each version checked against crates.io on 2026-10-19 | `Cargo.toml`, `Cargo.lock` |
 
 ## The CI tools
