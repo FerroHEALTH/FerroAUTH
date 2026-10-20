@@ -11,6 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-20
+
+The gaps FerroFED's migration and FerroEHR's move to 0.3.1 found, closed in
+the crate: a lazy resource server and a `Send` discovery future, a named
+credential header for an edge proxy, a typed upstream failure for a product
+verifier, mutual TLS and a product HTTP client for the token client, a
+configurable assertion audience, the RFC 9470 step-up challenge, a typed
+extension on the caller, a Basic user list helper, and the cache-hit signal
+of a Basic check. Products pin `=0.4.0`; the breaking changes below name
+what a product changes.
+
 ### Added
 
 - `ResourceServer::lazy` and `LazyResourceServer`: the settings are checked
