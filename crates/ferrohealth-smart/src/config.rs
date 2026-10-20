@@ -21,6 +21,8 @@ use jsonwebtoken::Algorithm;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
 use serde::Deserialize;
+use serde::Serialize;
+use serde::Serializer;
 use url::Url;
 
 use crate::basic::Credential;
@@ -134,7 +136,7 @@ pub enum ConfigError {
 
 /// The `[auth]` section: the surface's issuer or issuers, the audiences,
 /// the token rules and the Basic users.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthSection {
     /// Whether inbound authentication is on; a product may refuse `false`.
@@ -211,7 +213,7 @@ impl Default for AuthSection {
 
 /// The `issuer` key: the flat issuer identifier, or the `[[auth.issuer]]`
 /// list.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum IssuerKey {
     /// One issuer, the rest of its fields on the section.
@@ -223,7 +225,7 @@ pub enum IssuerKey {
 
 /// One `[[auth.issuer]]` entry: the fields of the flat form, each optional,
 /// the section's value standing in for one left out.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IssuerEntry {
     /// The issuer identifier.
@@ -245,20 +247,24 @@ pub struct IssuerEntry {
 }
 
 /// The `[auth.basic]` table.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BasicSection {
     /// The users.
     pub users: Vec<BasicUser>,
+    /// How long a credential that verified is kept, so a repeat request
+    /// skips the key derivation; 0 keeps none.
+    pub cache_ttl_seconds: u64,
 }
 
 /// One `[[auth.basic.users]]` entry.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BasicUser {
     /// The user-id.
     pub user: String,
-    /// The Argon2id PHC string of the password.
+    /// The Argon2id PHC string of the password, rendered redacted.
+    #[serde(serialize_with = "redact", skip_serializing_if = "Option::is_none")]
     pub password_hash: Option<SecretString>,
     /// The file holding that PHC string.
     pub password_hash_file: Option<PathBuf>,
@@ -320,14 +326,20 @@ impl AuthSection {
 
     /// Resolves the section: every rule checked, every secret read.
     ///
+    /// An enabled section with Basic users and an empty flat `issuer`
+    /// resolves to no issuer and the Basic store, a Basic-only surface; an
+    /// enabled section that admits neither a token nor a Basic user is
+    /// refused.
+    ///
     /// # Errors
     ///
-    /// Returns [`ConfigError`] naming the first rule broken: no issuer or
-    /// audience, an issuer outside the URL rule, a symmetric algorithm, a
-    /// skew over the bound, a Basic user with a bad hash, user-id or scope,
-    /// a secret set twice or not at all, a capability SMART does not
-    /// define, a listed scope outside RFC 6749 §3.3, or a product scope in
-    /// no extension form.
+    /// Returns [`ConfigError`] naming the first rule broken: no issuer and
+    /// no Basic user, no audience, an issuer outside the URL rule, a
+    /// symmetric algorithm, a skew over the bound, a Basic user with a bad
+    /// hash, user-id or scope, a secret set twice or not at all, a
+    /// capability SMART does not define, a listed scope outside RFC 6749
+    /// §3.3, a product scope in no extension form, or a cache key the
+    /// random source cannot draw.
     pub fn resolve(&self) -> Result<Resolved, ConfigError> {
         if let Some(bad) = self
             .capabilities
@@ -350,8 +362,14 @@ impl AuthSection {
                 scope: self.product_scope.clone(),
             });
         }
+        let basic_users = self
+            .basic
+            .as_ref()
+            .is_some_and(|section| !section.users.is_empty());
+        let basic_only =
+            basic_users && matches!(&self.issuer, IssuerKey::Flat(issuer) if issuer.is_empty());
         let mut issuers = Vec::new();
-        if self.enabled {
+        if self.enabled && !basic_only {
             for entry in self.issuers() {
                 if entry.issuer.is_empty() {
                     return Err(ConfigError::Missing { key: "auth.issuer" });
@@ -363,6 +381,11 @@ impl AuthSection {
                 })?;
                 issuers.push(settings);
             }
+        }
+        // NOTE: no specification governs the configuration model: our own
+        // design, and a surface that admits no credential at all fails closed.
+        if self.enabled && issuers.is_empty() && !basic_users {
+            return Err(ConfigError::Missing { key: "auth.issuer" });
         }
         let basic = match &self.basic {
             None => None,
@@ -378,6 +401,9 @@ impl AuthSection {
                         .with_user(user.user.clone(), hash, user.scopes.join(" "))
                         .map_err(|source| ConfigError::Basic { source })?;
                 }
+                store = store
+                    .with_cache(Duration::from_secs(section.cache_ttl_seconds))
+                    .map_err(|source| ConfigError::Basic { source })?;
                 Some(store)
             }
         };
@@ -437,12 +463,13 @@ impl AuthSection {
 /// The `[<lane>.credentials]` table: HTTP Basic with `user` and `password`,
 /// or the client credentials grant under `oauth`; the two exclude each
 /// other.
-#[derive(Debug, Clone, Default, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CredentialsSection {
     /// The Basic user-id.
     pub user: String,
-    /// The Basic password.
+    /// The Basic password, rendered redacted.
+    #[serde(serialize_with = "redact", skip_serializing_if = "Option::is_none")]
     pub password: Option<SecretString>,
     /// The file holding the Basic password.
     pub password_file: Option<PathBuf>,
@@ -451,7 +478,7 @@ pub struct CredentialsSection {
 }
 
 /// The `[<lane>.credentials.oauth]` table.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OauthSection {
     /// The issuer whose metadata names the token endpoint; exclusive with
@@ -463,7 +490,8 @@ pub struct OauthSection {
     pub client_id: String,
     /// How the client authenticates.
     pub client_auth: ClientAuth,
-    /// The client secret.
+    /// The client secret, rendered redacted.
+    #[serde(serialize_with = "redact", skip_serializing_if = "Option::is_none")]
     pub client_secret: Option<SecretString>,
     /// The file holding the client secret.
     pub client_secret_file: Option<PathBuf>,
@@ -673,4 +701,21 @@ fn secret(
 fn parse_url(text: &str, key: &'static str) -> Result<Url, ConfigError> {
     text.parse()
         .map_err(|_malformed| ConfigError::Missing { key })
+}
+
+/// The text a set secret is rendered as.
+const REDACTED: &str = "[redacted]";
+
+/// Writes a set secret as [`REDACTED`], never its value, so a product can
+/// render its running configuration (no specification governs the
+/// rendering: our own design).
+#[expect(
+    clippy::ref_option,
+    reason = "serde's serialize_with hands the field over by reference"
+)]
+fn redact<S: Serializer>(secret: &Option<SecretString>, serializer: S) -> Result<S::Ok, S::Error> {
+    match secret {
+        Some(_) => serializer.serialize_str(REDACTED),
+        None => serializer.serialize_none(),
+    }
 }

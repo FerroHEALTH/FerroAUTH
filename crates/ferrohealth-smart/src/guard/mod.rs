@@ -15,6 +15,8 @@
 //! a type (the patient compartment, the launch context's EHR) is checked by
 //! the handler, which reads the [`Access`] the layer leaves on the request.
 
+mod gate;
+
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -30,7 +32,6 @@ use http::HeaderName;
 use http::Method;
 use http::Request;
 use http::Uri;
-use http::header;
 use http::request::Parts;
 use tower::Layer;
 use tower::Service;
@@ -44,8 +45,8 @@ use crate::refusal::Schemes;
 use crate::resource::Access;
 use crate::resource::Caller;
 use crate::resource::Honoured;
-use crate::resource::Rejection;
 use crate::resource::Verifier;
+use crate::resource::Via;
 use crate::scope::Permission;
 
 /// What a route requires of the caller.
@@ -82,10 +83,17 @@ pub enum Requirement {
     /// A valid credential whose `scope` claim names this scope verbatim (a
     /// product's own operator or admin scope).
     Scope(String),
-    /// A valid credential of a client the product lists by `client_id`,
-    /// which is how a surface no scope covers (the DEMOGRAPHIC API) is
-    /// reached (no specification governs this: our own design).
-    Client(Vec<String>),
+    /// A valid credential of a client the product lists: a bearer token's
+    /// `client_id` in `client_ids`, or a Basic user-id in `basic_users`,
+    /// each list matched only against its own scheme. This is how a surface
+    /// no scope covers (the DEMOGRAPHIC API) is reached (no specification
+    /// governs this: our own design).
+    Client {
+        /// The `client_id` values of the bearer clients admitted.
+        client_ids: Vec<String>,
+        /// The user-ids of the Basic principals admitted.
+        basic_users: Vec<String>,
+    },
     /// Either requirement.
     Either(Box<Requirement>, Box<Requirement>),
     /// No caller is admitted: a route the product mounted without a
@@ -97,6 +105,13 @@ impl Requirement {
     /// Returns whether `access` meets this requirement, `honoured` saying
     /// what the product honours for the caller beyond a `user/` grant.
     #[must_use]
+    #[cfg_attr(
+        not(feature = "openehr"),
+        expect(
+            clippy::only_used_in_recursion,
+            reason = "`honoured` is read by the SMART on openEHR requirement alone"
+        )
+    )]
     pub fn met_by(&self, access: &Access, honoured: Honoured) -> bool {
         match self {
             Self::Public | Self::Caller => true,
@@ -111,20 +126,26 @@ impl Requirement {
                 resource,
             } => {
                 access.caller().is_some_and(|caller| {
-                    crate::openehr::granted(
-                        &caller.openehr_scopes(),
-                        *family,
-                        *permission,
-                        resource.as_deref(),
-                        honoured,
-                    )
+                    caller.admitted_without_scope()
+                        || crate::openehr::granted(
+                            &caller.openehr_scopes(),
+                            *family,
+                            *permission,
+                            resource.as_deref(),
+                            honoured,
+                        )
                 }) || matches!(access, Access::Open)
             }
             Self::Scope(scope) => access.has_scope(scope),
-            Self::Client(clients) => access
-                .caller()
-                .and_then(Caller::client_id)
-                .is_some_and(|client| clients.iter().any(|listed| listed == client)),
+            Self::Client {
+                client_ids,
+                basic_users,
+            } => access.caller().is_some_and(|caller| match caller.via() {
+                Via::Bearer => caller
+                    .client_id()
+                    .is_some_and(|client| client_ids.iter().any(|listed| listed == client)),
+                Via::Basic => basic_users.iter().any(|listed| listed == caller.subject()),
+            }),
             Self::Either(left, right) => {
                 left.met_by(access, honoured) || right.met_by(access, honoured)
             }
@@ -351,78 +372,6 @@ impl Gate {
             .caller()
             .map_or_else(Honoured::default, |caller| (self.honours)(caller))
     }
-
-    /// Returns who calls with `headers`, or the refusal.
-    ///
-    /// The token is read from the `Authorization` header alone, never from
-    /// a query or a form body (RFC 9700 §4.3.2), and the scheme is compared
-    /// case-insensitively (RFC 9110 §11.1); a scheme the gate does not admit
-    /// is a missing credential.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Refusal::Missing`] for no admitted credential,
-    /// [`Refusal::InvalidRequest`] for two credentials or a value that is
-    /// no credential, [`Refusal::InvalidToken`] or [`Refusal::InvalidBasic`]
-    /// for one that does not hold, and [`Refusal::Unavailable`] when a token
-    /// could not be checked.
-    pub async fn authenticate(&self, headers: &HeaderMap) -> Result<Access, Refusal> {
-        if self.is_open() {
-            return Ok(Access::Open);
-        }
-        let missing = Refusal::Missing(self.schemes());
-        let mut values = headers.get_all(header::AUTHORIZATION).iter();
-        let value = match (values.next(), values.next()) {
-            (None, _) => return Err(missing),
-            (Some(_), Some(_)) => return Err(Refusal::InvalidRequest),
-            (Some(value), None) => value,
-        };
-        let text = value.to_str().map_err(|_opaque| Refusal::InvalidRequest)?;
-        let (scheme, credential) = text.split_once(' ').ok_or(Refusal::InvalidRequest)?;
-        let credential = credential.trim();
-        if credential.is_empty() {
-            return Err(Refusal::InvalidRequest);
-        }
-        let caller = match (
-            scheme.eq_ignore_ascii_case("Bearer"),
-            scheme.eq_ignore_ascii_case("Basic"),
-        ) {
-            (true, _) => {
-                let verifier = self.bearer.as_ref().ok_or(missing)?;
-                match verifier.verify(credential).await {
-                    Ok(caller) => caller,
-                    Err(rejection) => {
-                        match &rejection {
-                            Rejection::Invalid { reason } => {
-                                tracing::debug!(reason, "an access token was refused");
-                            }
-                            Rejection::Unavailable { source } => {
-                                tracing::error!(
-                                    error = %source,
-                                    "the authorization server's key set could not be read"
-                                );
-                            }
-                            Rejection::Missing => {}
-                        }
-                        return Err(Refusal::from(&rejection));
-                    }
-                }
-            }
-            (_, true) => {
-                let store = Arc::clone(self.basic.as_ref().ok_or(missing)?);
-                let value = value.clone();
-                let verified = tokio::task::spawn_blocking(move || store.verify(&value))
-                    .await
-                    .map_err(|_cancelled| Refusal::InvalidBasic)?;
-                match verified {
-                    Ok(verified) => Caller::basic(verified.username, &verified.scope),
-                    Err(_invalid) => return Err(Refusal::InvalidBasic),
-                }
-            }
-            _ => return Err(missing),
-        };
-        Ok(Access::Caller(Arc::new(caller)))
-    }
 }
 
 /// The layer that guards a router with a [`Gate`], classifying each request
@@ -622,7 +571,7 @@ async fn admit(
     let access = gate
         .authenticate(headers)
         .await
-        .map_err(|refusal| (None, refusal))?;
+        .map_err(|denied| (None, denied.into_refusal()))?;
     let honoured = gate.honoured(&access);
     if gate.is_open() || target.requirement().met_by(&access, honoured) {
         Ok(access)
@@ -668,15 +617,82 @@ mod tests {
         assert!(either.met_by(&access("__operator"), none));
         assert!(either.met_by(&access("system/Condition.r"), none));
         assert!(!either.met_by(&access("system/Condition.c"), none));
-        let client = Requirement::Client(vec![String::from("client-1")]);
+        let client = clients(&["client-1"], &[]);
         assert!(client.met_by(&access(""), none));
-        assert!(!Requirement::Client(vec![String::from("other")]).met_by(&access(""), none));
+        assert!(!clients(&["other"], &[]).met_by(&access(""), none));
         assert!(
             !client.met_by(&Access::Open, none),
             "an open surface names no client"
         );
         assert!(!Requirement::Refused.met_by(&Access::Open, none));
         assert!(Requirement::Caller.met_by(&access(""), none));
+    }
+
+    fn clients(client_ids: &[&str], basic_users: &[&str]) -> Requirement {
+        Requirement::Client {
+            client_ids: client_ids.iter().map(|id| (*id).to_owned()).collect(),
+            basic_users: basic_users.iter().map(|user| (*user).to_owned()).collect(),
+        }
+    }
+
+    fn basic(user: &str) -> Access {
+        Access::Caller(Arc::new(Caller::basic(String::from(user), "")))
+    }
+
+    #[test]
+    fn a_client_requirement_matches_each_list_against_its_own_scheme() {
+        let none = Honoured::default();
+        let demographic = clients(&["client-1"], &["etl"]);
+        assert!(
+            demographic.met_by(&basic("etl"), none),
+            "a listed Basic user"
+        );
+        assert!(demographic.met_by(&access(""), none), "a listed client");
+        assert!(
+            !demographic.met_by(&basic("mallory"), none),
+            "an unlisted Basic user"
+        );
+        assert!(
+            !demographic.met_by(&basic("client-1"), none),
+            "a Basic user-id never passes for a client id"
+        );
+        let by_basic_name = clients(&[], &["sub"]);
+        assert!(
+            !by_basic_name.met_by(&access(""), none),
+            "a bearer subject never passes for a Basic user-id"
+        );
+    }
+
+    #[cfg(feature = "openehr")]
+    #[test]
+    fn an_openehr_requirement_admits_an_allowlisted_caller_with_no_resource_scope() {
+        use openehr_sdt::smart_scopes::{Permission, ResourceFamily};
+        let none = Honoured::default();
+        let read = Requirement::OpenEhr {
+            family: ResourceFamily::Composition,
+            permission: Permission::Read,
+            resource: None,
+        };
+        let caller = |scope: &str, scopeless: bool| {
+            Access::Caller(Arc::new(Caller::new(
+                String::from("svc"),
+                None,
+                scope,
+                None,
+                scopeless,
+            )))
+        };
+        assert!(read.met_by(&caller("openid", true), none), "allowlisted");
+        assert!(!read.met_by(&caller("openid", false), none), "not listed");
+        assert!(
+            !read.met_by(&caller("system/template-*.r", true), none),
+            "an openEHR scope: only its scopes"
+        );
+        assert!(
+            !read.met_by(&caller("system/Observation.r", true), none),
+            "a FHIR scope: only its scopes"
+        );
+        assert!(read.met_by(&caller("system/composition-*.r", false), none));
     }
 
     #[test]

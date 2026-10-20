@@ -8,7 +8,7 @@
 //! is the configured issuer and `aud` contains a configured audience
 //! (RFC 9068 §4); `exp`, `nbf` and `iat` hold within the clock skew
 //! (RFC 7519 §4.1.4, §4.1.5, §4.1.6). Every failure is the same
-//! [`Rejection::Invalid`] on the wire; its reason reaches only the debug log.
+//! [`Rejection::Invalid`] on the wire; its [`Reason`] reaches only the log.
 
 use std::sync::Arc;
 
@@ -17,6 +17,7 @@ use jsonwebtoken::errors::ErrorKind;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::refusal::Reason;
 use crate::resource::Caller;
 use crate::resource::Rejection;
 use crate::resource::ResourceServer;
@@ -28,9 +29,10 @@ const ACCESS_TOKEN_TYPES: [&str; 2] = ["at+jwt", "application/at+jwt"];
 /// Returns the caller `token` authenticates under `server`.
 pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Caller, Rejection> {
     let settings = server.settings();
-    let header = jsonwebtoken::decode_header(token).map_err(|_malformed| invalid("malformed"))?;
+    let header =
+        jsonwebtoken::decode_header(token).map_err(|_malformed| invalid(Reason::Malformed))?;
     if !settings.algorithms.contains(&header.alg) {
-        return Err(invalid("algorithm not accepted"));
+        return Err(invalid(Reason::Algorithm));
     }
     let access_token_type = header.typ.as_deref().is_some_and(|typ| {
         ACCESS_TOKEN_TYPES
@@ -39,7 +41,7 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
     });
     match settings.profile {
         TokenProfile::Rfc9068 if !access_token_type => {
-            return Err(invalid("typ is not at+jwt"));
+            return Err(invalid(Reason::Type));
         }
         // NOTE: no specification governs the `jwt` profile: our own design,
         // `typ` absent or `JWT` (RFC 7519 §5.1) or the access token type, and
@@ -51,7 +53,7 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
                     .as_deref()
                     .is_none_or(|typ| typ.eq_ignore_ascii_case("JWT")) =>
         {
-            return Err(invalid("typ names another kind"));
+            return Err(invalid(Reason::Type));
         }
         TokenProfile::Rfc9068 | TokenProfile::Jwt => {}
     }
@@ -62,7 +64,7 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
         .map_err(|source| Rejection::Unavailable {
             source: Arc::new(source),
         })?
-        .ok_or_else(|| invalid("no key of the set"))?;
+        .ok_or_else(|| invalid(Reason::UnknownKey))?;
     let mut validation = Validation::new(header.alg);
     validation.set_issuer(&[settings.issuer.as_str()]);
     validation.set_audience(&settings.audience);
@@ -77,7 +79,7 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
             .as_second()
             .saturating_add(i64::try_from(settings.clock_skew.as_secs()).unwrap_or(i64::MAX));
         if issued > latest {
-            return Err(invalid("iat is in the future"));
+            return Err(invalid(Reason::IssuedInFuture));
         }
     }
     if settings.profile == TokenProfile::Rfc9068
@@ -85,9 +87,14 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
             .iter()
             .any(|name| !claims.contains_key(*name))
     {
-        return Err(invalid("an RFC 9068 claim is missing"));
+        return Err(invalid(Reason::MissingClaim));
     }
-    let subject = text(&claims, "sub").ok_or_else(|| invalid("sub is not a string"))?;
+    let subject = text(&claims, "sub").ok_or_else(|| invalid(Reason::Subject))?;
+    // NOTE: RFC 9068 §2.2 requires `sub`, and RFC 7519 §4.1.2 has it identify a
+    // principal, which a blank value does not.
+    if subject.trim().is_empty() {
+        return Err(invalid(Reason::BlankSubject));
+    }
     let client_id = text(&claims, "client_id");
     let patient = text(&claims, "patient");
     let scope = scope_of(&claims, settings.profile);
@@ -132,21 +139,21 @@ fn scope_of(claims: &Map<String, Value>, profile: TokenProfile) -> String {
 }
 
 /// Returns the rejection of a token that does not hold for `reason`.
-const fn invalid(reason: &'static str) -> Rejection {
+const fn invalid(reason: Reason) -> Rejection {
     Rejection::Invalid { reason }
 }
 
 /// Returns the debug-log reason of a failed decode.
-const fn reason(kind: &ErrorKind) -> &'static str {
+const fn reason(kind: &ErrorKind) -> Reason {
     match kind {
-        ErrorKind::InvalidSignature => "signature",
-        ErrorKind::ExpiredSignature => "expired",
-        ErrorKind::ImmatureSignature => "not yet valid",
-        ErrorKind::InvalidIssuer => "issuer",
-        ErrorKind::InvalidAudience => "audience",
-        ErrorKind::MissingRequiredClaim(_) => "a required claim is missing",
-        ErrorKind::InvalidAlgorithm => "algorithm",
-        _ => "malformed",
+        ErrorKind::InvalidSignature => Reason::Signature,
+        ErrorKind::ExpiredSignature => Reason::Expired,
+        ErrorKind::ImmatureSignature => Reason::NotYetValid,
+        ErrorKind::InvalidIssuer => Reason::Issuer,
+        ErrorKind::InvalidAudience => Reason::Audience,
+        ErrorKind::MissingRequiredClaim(_) => Reason::MissingClaim,
+        ErrorKind::InvalidAlgorithm => Reason::Algorithm,
+        _ => Reason::Malformed,
     }
 }
 

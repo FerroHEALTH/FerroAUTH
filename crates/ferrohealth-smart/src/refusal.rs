@@ -130,6 +130,160 @@ impl Refusal {
     }
 }
 
+/// Which check refused a credential, for the product's own log.
+///
+/// A reason never reaches the wire: every invalid credential is the one
+/// `401` of RFC 6750 §3 with no `error_description`, because a refusal
+/// that names the failed check teaches a forger which claim to fix next (no
+/// specification requires the omission: our own design). A reason names a
+/// check and never carries a claim value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Reason {
+    /// Two `Authorization` header fields arrived (RFC 6750 §3.1).
+    TwoCredentials,
+    /// The `Authorization` value is not a scheme and a credential.
+    MalformedHeader,
+    /// The bearer token is outside the `b64token` syntax of RFC 6750 §2.1.
+    NotB64Token,
+    /// The token does not parse as a JWS in compact serialization.
+    Malformed,
+    /// The header names an algorithm outside the configured set.
+    Algorithm,
+    /// The `typ` header names another kind of token (RFC 9068 §4).
+    Type,
+    /// No key of the issuer's set verifies the token.
+    UnknownKey,
+    /// The signature does not verify.
+    Signature,
+    /// The token has expired.
+    Expired,
+    /// The token is not yet valid (`nbf`).
+    NotYetValid,
+    /// The token was issued in the future beyond the clock skew.
+    IssuedInFuture,
+    /// The `iss` claim is not the configured issuer.
+    Issuer,
+    /// The `iss` claim names no issuer the product trusts.
+    UntrustedIssuer,
+    /// The `aud` claim names no configured audience.
+    Audience,
+    /// A claim the token profile requires is absent.
+    MissingClaim,
+    /// The `sub` claim is not a string.
+    Subject,
+    /// The `sub` claim is empty or whitespace only, which identifies no
+    /// principal (RFC 9068 §2.2, RFC 7519 §4.1.2).
+    BlankSubject,
+    /// The key set could not be read to check the token.
+    KeySetUnavailable,
+    /// The Basic credential is not the RFC 7617 §2 form.
+    BasicMalformed,
+    /// The Basic user is unknown or the password does not match.
+    BasicRejected,
+    /// A reason a product's own [`crate::resource::Verifier`] names.
+    Other(&'static str),
+}
+
+impl Reason {
+    /// Returns the reason as the log names it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::TwoCredentials => "two credentials",
+            Self::MalformedHeader => "malformed authorization header",
+            Self::NotB64Token => "not a b64token",
+            Self::Malformed => "malformed",
+            Self::Algorithm => "algorithm not accepted",
+            Self::Type => "typ names another kind",
+            Self::UnknownKey => "no key of the set",
+            Self::Signature => "signature",
+            Self::Expired => "expired",
+            Self::NotYetValid => "not yet valid",
+            Self::IssuedInFuture => "iat is in the future",
+            Self::Issuer => "issuer",
+            Self::UntrustedIssuer => "issuer not trusted",
+            Self::Audience => "audience",
+            Self::MissingClaim => "a required claim is missing",
+            Self::Subject => "sub is not a string",
+            Self::BlankSubject => "sub is blank",
+            Self::KeySetUnavailable => "key set unavailable",
+            Self::BasicMalformed => "malformed basic credential",
+            Self::BasicRejected => "basic credential rejected",
+            Self::Other(reason) => reason,
+        }
+    }
+}
+
+impl std::fmt::Display for Reason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A refusal at the gate with the reason behind it.
+///
+/// The product answers [`Denied::refusal`], whose status and challenge are
+/// the library's, and logs [`Denied::reason`]; the reason never reaches
+/// the wire.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Denied {
+    /// What the request is answered with.
+    refusal: Refusal,
+    /// Which check refused it, when one did.
+    reason: Option<Reason>,
+}
+
+impl Denied {
+    /// Returns the denial answered with `refusal`, refused by `reason`.
+    #[must_use]
+    pub const fn new(refusal: Refusal, reason: Option<Reason>) -> Self {
+        Self { refusal, reason }
+    }
+
+    /// Returns what the request is answered with.
+    #[must_use]
+    pub const fn refusal(&self) -> &Refusal {
+        &self.refusal
+    }
+
+    /// Returns which check refused the credential, or `None` when no
+    /// credential was examined (none arrived).
+    #[must_use]
+    pub const fn reason(&self) -> Option<Reason> {
+        self.reason
+    }
+
+    /// Returns the refusal, dropping the reason.
+    #[must_use]
+    pub fn into_refusal(self) -> Refusal {
+        self.refusal
+    }
+}
+
+impl From<Refusal> for Denied {
+    fn from(refusal: Refusal) -> Self {
+        Self::new(refusal, None)
+    }
+}
+
+impl From<Denied> for Refusal {
+    fn from(denied: Denied) -> Self {
+        denied.refusal
+    }
+}
+
+impl From<&Rejection> for Denied {
+    fn from(rejection: &Rejection) -> Self {
+        let reason = match rejection {
+            Rejection::Missing => None,
+            Rejection::Invalid { reason } => Some(*reason),
+            Rejection::Unavailable { .. } => Some(Reason::KeySetUnavailable),
+        };
+        Self::new(Refusal::from(rejection), reason)
+    }
+}
+
 impl From<&Rejection> for Refusal {
     fn from(rejection: &Rejection) -> Self {
         match rejection {
@@ -159,8 +313,29 @@ fn quote(realm: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Refusal, Schemes};
+    use super::{Denied, Reason, Refusal, Schemes};
+    use crate::resource::Rejection;
     use http::StatusCode;
+
+    #[test]
+    fn a_denial_carries_its_reason_and_the_challenge_names_none() {
+        let denied = Denied::from(&Rejection::Invalid {
+            reason: Reason::Expired,
+        });
+        assert_eq!(&Refusal::InvalidToken, denied.refusal());
+        assert_eq!(Some(Reason::Expired), denied.reason());
+        assert_eq!("expired", Reason::Expired.to_string());
+        assert_eq!(
+            Some(String::from("Bearer error=\"invalid_token\"")),
+            denied.refusal().challenge(None),
+            "RFC 6750 §3.1: the reason stays off the wire"
+        );
+        assert_eq!(None, Denied::from(&Rejection::Missing).reason());
+        assert_eq!(
+            Refusal::InvalidToken,
+            Refusal::from(Denied::new(Refusal::InvalidToken, None))
+        );
+    }
 
     #[test]
     fn a_missing_credential_lists_every_admitted_scheme() {

@@ -39,15 +39,16 @@ openehr-sdt = { version = "0.0.89", default-features = false }
 # The framework integrations, each behind its feature.
 tower = { version = "0.5.3", default-features = false }
 axum = { version = "0.8.9", default-features = false }
-# The SHA-256 of the RFC 7638 thumbprint and the random `jti` of a client
-# assertion, the crypto provider jsonwebtoken already links.
+# The SHA-256 of the RFC 7638 thumbprint, the random `jti` of a client
+# assertion and the HMAC that names a cached Basic credential, from the
+# crypto provider jsonwebtoken already links.
 aws-lc-rs = { version = "1.18.2", default-features = false, features = ["aws-lc-sys"] }
 # Test-only: the stub authorization server, the body reader of the
-# framework tests, the TOML reader of the configuration cases, and the JSON
-# formatter the audit line is read back through.
+# framework tests, the TOML reader and writer of the configuration cases,
+# and the JSON formatter the audit line is read back through.
 wiremock = "0.6.5"
 http-body-util = "0.1.5"
-toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
+toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "display", "serde"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "json"] }
 
 # The reliability bar (no specification governs it: our own design), the

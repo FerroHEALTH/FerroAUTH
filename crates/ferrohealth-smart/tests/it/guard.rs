@@ -9,6 +9,8 @@
 
 use std::collections::BTreeMap;
 use std::error::Error as StdError;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -30,11 +32,16 @@ use ferrohealth_smart::guard::Classify;
 use ferrohealth_smart::guard::Gate;
 use ferrohealth_smart::guard::Requirement;
 use ferrohealth_smart::guard::Target;
+use ferrohealth_smart::refusal::Reason;
 use ferrohealth_smart::refusal::Refusal;
 use ferrohealth_smart::resource::Access;
+use ferrohealth_smart::resource::Caller;
+use ferrohealth_smart::resource::Rejection;
 use ferrohealth_smart::resource::Verifier;
 use ferrohealth_smart::scope::Permission;
 use http::Extensions;
+use http::HeaderMap;
+use http::HeaderValue;
 use http::Method;
 use http::Request;
 use http::StatusCode;
@@ -126,7 +133,7 @@ fn render(refusal: &Refusal, parts: &Parts) -> Response {
         );
         response.headers_mut().insert(
             header::CONTENT_TYPE,
-            header::HeaderValue::from_static("application/fhir+xml"),
+            HeaderValue::from_static("application/fhir+xml"),
         );
         return response;
     }
@@ -829,5 +836,186 @@ async fn the_renderer_negotiates_the_body_from_the_refused_request() -> Result<(
     );
     let body = by_format.into_body().collect().await?.to_bytes();
     assert_eq!(&b"<refused reason=\"insufficient_scope\"/>"[..], &*body);
+    Ok(())
+}
+
+/// Returns the headers of a request carrying `authorization`.
+fn authorized(authorization: &str) -> Result<HeaderMap, Box<dyn StdError>> {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::AUTHORIZATION, HeaderValue::from_str(authorization)?);
+    Ok(headers)
+}
+
+/// Returns a store admitting `alice` with the password `synthetic-pw`.
+fn alice(scope: &str) -> Result<PasswordStore, Box<dyn StdError>> {
+    let hash = Argon2::default()
+        .hash_password_with_salt(b"synthetic-pw", b"synthetic-salt-16")?
+        .to_string();
+    Ok(PasswordStore::new().with_user("alice", SecretString::from(hash), scope)?)
+}
+
+// NOTE: RFC 6750 §2.1 fixes the `b64token` syntax, and §3.1 answers a token
+// that is "malformed" with `invalid_token`, naming nothing more.
+#[tokio::test]
+async fn a_bearer_value_outside_b64token_is_the_one_generic_401() -> Result<(), Box<dyn StdError>> {
+    let case = Case::bearer().await;
+    for value in ["a,b", "a=b", "a\"b", "=abc", "a;b"] {
+        let (status, challenge, body) = case
+            .call(
+                Method::GET,
+                "/fhir/Condition/c-1",
+                Some(&format!("Bearer {value}")),
+            )
+            .await?;
+        assert_eq!(StatusCode::UNAUTHORIZED, status, "{value}");
+        assert_eq!(
+            Some("Bearer realm=\"ferro\", error=\"invalid_token\""),
+            challenge.as_deref(),
+            "{value}: no error_description"
+        );
+        assert_eq!("refused: invalid_token", body, "{value}");
+        let denied = case
+            .gate
+            .authenticate(&authorized(&format!("Bearer {value}"))?)
+            .await
+            .expect_err("refused");
+        assert_eq!(Some(Reason::NotB64Token), denied.reason(), "{value}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn the_gate_hands_the_product_the_reason_and_the_wire_none() -> Result<(), Box<dyn StdError>>
+{
+    let case = Case::bearer().await;
+    let mut expired = case.issuer.claims("system/Condition.r");
+    expired["exp"] = serde_json::json!(crate::support::now() - 3600);
+    let token = mint(&case.key, &expired);
+    let denied = case
+        .gate
+        .authenticate(&authorized(&format!("Bearer {token}"))?)
+        .await
+        .expect_err("an expired token");
+    assert_eq!(&Refusal::InvalidToken, denied.refusal());
+    assert_eq!(Some(Reason::Expired), denied.reason());
+    assert_eq!(
+        Some(String::from(
+            "Bearer realm=\"ferro\", error=\"invalid_token\""
+        )),
+        denied.refusal().challenge(Some("ferro")),
+        "RFC 6750 §3: the reason stays off the wire"
+    );
+    let missing = case
+        .gate
+        .authenticate(&HeaderMap::new())
+        .await
+        .expect_err("no credential");
+    assert_eq!(None, missing.reason(), "no credential was examined");
+    let mut two = authorized("Bearer a")?;
+    two.append(header::AUTHORIZATION, HeaderValue::from_static("Bearer b"));
+    let denied = case.gate.authenticate(&two).await.expect_err("two");
+    assert_eq!(&Refusal::InvalidRequest, denied.refusal());
+    assert_eq!(Some(Reason::TwoCredentials), denied.reason());
+
+    let basic = Gate::open().with_basic(Arc::new(alice("")?));
+    let wrong = Credential::new("alice", SecretString::from("wrong"))?;
+    let denied = basic
+        .authenticate(&authorized(wrong.header_value().to_str()?)?)
+        .await
+        .expect_err("a wrong password");
+    assert_eq!(&Refusal::InvalidBasic, denied.refusal());
+    assert_eq!(Some(Reason::BasicRejected), denied.reason());
+    Ok(())
+}
+
+/// A product verifier that hands the gate a blank subject.
+struct BlankSubject;
+
+impl Verifier for BlankSubject {
+    fn verify<'a>(
+        &'a self,
+        _token: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
+        Box::pin(async { Ok(Caller::new(String::from("  "), None, "", None, false)) })
+    }
+}
+
+// NOTE: RFC 9068 §2.2 requires `sub`; the gate holds it over every verifier.
+#[tokio::test]
+async fn the_gate_refuses_a_blank_subject_from_any_verifier() -> Result<(), Box<dyn StdError>> {
+    let gate = Gate::open().with_bearer(Arc::new(BlankSubject));
+    let denied = gate
+        .authenticate(&authorized("Bearer opaque-token")?)
+        .await
+        .expect_err("a blank subject");
+    assert_eq!(&Refusal::InvalidToken, denied.refusal());
+    assert_eq!(Some(Reason::BlankSubject), denied.reason());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_basic_only_gate_admits_basic_and_challenges_a_token_with_basic_alone()
+-> Result<(), Box<dyn StdError>> {
+    let key = ec_key("k1", Algorithm::ES256);
+    let issuer = Issuer::start(&[&key]).await;
+    let case = Case {
+        gate: Gate::open()
+            .with_basic(Arc::new(alice("system/Condition.c")?))
+            .with_realm("ferro"),
+        issuer,
+        key,
+        audit: Arc::new(Capture::default()),
+    };
+    let good = Credential::new("alice", SecretString::from("synthetic-pw"))?;
+    let (status, _, body) = case
+        .call(
+            Method::POST,
+            "/fhir/Condition",
+            Some(good.header_value().to_str()?),
+        )
+        .await?;
+    assert_eq!(StatusCode::OK, status);
+    assert_eq!("hello alice", body);
+    let token = case.token("system/Condition.c");
+    let (status, challenge, _) = case
+        .call(
+            Method::POST,
+            "/fhir/Condition",
+            Some(&format!("Bearer {token}")),
+        )
+        .await?;
+    assert_eq!(StatusCode::UNAUTHORIZED, status, "no bearer is admitted");
+    assert_eq!(
+        Some("Basic realm=\"ferro\", charset=\"UTF-8\""),
+        challenge.as_deref(),
+        "RFC 6750 §3.1: no error code for a scheme the surface does not admit"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_cached_basic_credential_is_admitted_again_and_a_wrong_one_refused()
+-> Result<(), Box<dyn StdError>> {
+    let store = alice("system/Condition.c")?.with_cache(std::time::Duration::from_secs(60))?;
+    let gate = Gate::open().with_basic(Arc::new(store));
+    let good = Credential::new("alice", SecretString::from("synthetic-pw"))?;
+    for round in ["first", "cached"] {
+        let access = gate
+            .authenticate(&authorized(good.header_value().to_str()?)?)
+            .await
+            .map_err(|denied| format!("{round}: {:?}", denied.reason()))?;
+        assert_eq!(
+            Some("alice"),
+            access.caller().map(Caller::subject),
+            "{round}"
+        );
+    }
+    let wrong = Credential::new("alice", SecretString::from("wrong"))?;
+    assert!(
+        gate.authenticate(&authorized(wrong.header_value().to_str()?)?)
+            .await
+            .is_err(),
+        "a wrong password is never admitted from the cache"
+    );
     Ok(())
 }
