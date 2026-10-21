@@ -11,6 +11,19 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-21
+
+A patch release with no API change: a product pins `=0.4.1` in place of
+`=0.4.0` and changes nothing else.
+
+### Changed
+
+- The crate declares `rust-version = "1.98"` in place of 1.97, and the
+  repository builds with Rust 1.99.1 in place of 1.98.1: the FerroHEALTH
+  family builds with the latest stable toolchain and declares the release
+  before it as its MSRV. A product on a toolchain older than 1.98 can no
+  longer take the crate.
+
 ## [0.4.0] - 2026-10-20
 
 The gaps FerroFED's migration and FerroEHR's move to 0.3.1 found, closed in
@@ -363,7 +376,9 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.1...v0.2.0

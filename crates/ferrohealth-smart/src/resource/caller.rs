@@ -412,7 +412,7 @@ mod tests {
         assert!(!allowed.has_scope("open"));
         let other = Caller::new(String::from("svc"), None, "", None, false);
         assert_eq!(None, other.reach(Permission::Read, "Condition"));
-        assert!(other.scope().is_empty());
+        assert_eq!(other.scope(), Vec::<String>::new());
     }
 
     #[test]
