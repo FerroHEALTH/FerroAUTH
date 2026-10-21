@@ -14,6 +14,7 @@ use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::CredentialsSection;
 use ferrohealth_smart::config::IssuerKey;
 use ferrohealth_smart::config::Outbound;
+use ferrohealth_smart::resource::Settings;
 use ferrohealth_smart::resource::TokenProfile;
 
 #[test]
@@ -100,7 +101,10 @@ fn a_section_that_breaks_a_rule_refuses_the_start() {
     .expect("parses");
     assert!(matches!(hmac.resolve(), Err(ConfigError::Issuer { .. })));
     let off: AuthSection = toml::from_str("enabled = false").expect("parses");
-    assert!(off.resolve().expect("resolves").issuers.is_empty());
+    assert_eq!(
+        off.resolve().expect("resolves").issuers,
+        Vec::<Settings>::new()
+    );
     let both: AuthSection = toml::from_str(
         r#"
         issuer = "https://as.example.org"
