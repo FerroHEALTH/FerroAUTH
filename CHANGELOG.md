@@ -11,6 +11,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The release checks the family's Security changelog rules: every
+  `### Security` entry names a GHSA advisory or an OpenVEX statement under
+  `security/vex/`, and a Security section beside other changes opens with
+  "Shipped with functional changes because:" and its reason (Regulation (EU)
+  2024/2847 Annex I Part II(2), (4), (8)). CI checks `[Unreleased]`, and the
+  release `plan` job the section it cuts, through `scripts/release/plan.sh`,
+  which `scripts/release/preflight.sh` replays before the tag
+  (`docs/release.md`). The release notes state the month the five years of
+  security fixes end (Art 13(19)). CI fails an advisory exception in
+  `deny.toml` that no longer names a finding. `SECURITY.md` names the
+  `info@cadasto.com` reporting route and the advisory each fixed
+  vulnerability is published as (#72).
+
 ## [0.4.1] - 2026-10-21
 
 A patch release with no API change: a product pins `=0.4.1` in place of
