@@ -8,9 +8,11 @@
 # The release is created as a draft, the attested .crate is attached, and it
 # is published only once the asset set is complete; then the crates leg
 # uploads the crate through Trusted Publishing behind the `crates-io`
-# environment's required reviewer. plan refuses a tag whose milestone (titled
-# exactly as the tag) is missing or still holds an open item, and milestone
-# closes it once every leg succeeded (scripts/release/milestone.sh).
+# environment's required reviewer. plan runs every release fact of
+# scripts/release/plan.sh at the tagged commit: it refuses a tag whose
+# milestone (titled exactly as the tag) is missing or still holds an open
+# item, and a section whose Security entries name no advisory; milestone
+# closes the milestone once every leg succeeded (scripts/release/milestone.sh).
 name: Release
 
 on:
@@ -76,53 +78,20 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
-      # A release is cut only when its milestone is empty (no specification
-      # governs this: our own design), so this refuses the tag before anything
-      # is created and names every open item.
-      - name: The milestone titled as the tag holds no open item
+      # Every release fact, as ONE list: the milestone titled as the tag, the
+      # workspace version, the changelog's structure and Security rules for
+      # this section, and the release notes with the support period. The list
+      # is scripts/release/plan.sh; scripts/release/preflight.sh runs the same
+      # list before the tag is pushed, so the two cannot drift (no
+      # specification governs the list: our own design). It names every
+      # refused check, and writes release-notes.md for github-release. A
+      # missing or empty changelog section fails the release rather than
+      # falling back to notes generated from the commit range.
+      - name: Every release fact holds at the tagged commit
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
-        run: bash scripts/release/milestone.sh check "$TAG"
-
-      - name: The tag matches the workspace version
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-          VERSION: ${{ steps.tag.outputs.version }}
-        run: |
-          set -euo pipefail
-          manifest="$(awk '
-            /^[[:space:]]*\[/ { h = $0; gsub(/[[:space:]]/, "", h); f = (h == "[workspace.package]"); next }
-            f && $0 ~ /^[[:space:]]*version[[:space:]]*=/ {
-              if (match($0, /"[^"]*"/)) { print substr($0, RSTART + 1, RLENGTH - 2); exit }
-            }
-          ' Cargo.toml)"
-          if [ "$manifest" != "$VERSION" ]; then
-            echo "::error::tag $TAG declares version $VERSION, but Cargo.toml says ${manifest:-nothing}." >&2
-            exit 1
-          fi
-          echo "OK: Cargo.toml declares $VERSION"
-
-      - name: Extract the changelog section as the release notes
-        env:
-          VERSION: ${{ steps.tag.outputs.version }}
-        run: |
-          set -euo pipefail
-          if ! grep -q "^## \[$VERSION\]" CHANGELOG.md; then
-            echo "::error::CHANGELOG.md has no '## [$VERSION]' section." >&2
-            exit 1
-          fi
-          awk -v ver="$VERSION" '
-            $0 ~ "^## \\[" ver "\\]" { found = 1; next }
-            found && /^## \[/ { exit }
-            found && /^\[[^]]+\]:/ { exit }
-            found { print }
-          ' CHANGELOG.md > release-notes.md
-          if ! grep -q '[^[:space:]]' release-notes.md; then
-            echo "::error::the [$VERSION] changelog section is empty." >&2
-            exit 1
-          fi
-          cat release-notes.md
+        run: bash scripts/release/plan.sh checks "$TAG" --notes release-notes.md
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
