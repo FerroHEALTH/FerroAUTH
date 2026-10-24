@@ -25,6 +25,12 @@ and this project adheres to
   `deny.toml` that no longer names a finding. `SECURITY.md` names the
   `info@cadasto.com` reporting route and the advisory each fixed
   vulnerability is published as (#72).
+- `SECURITY.md` states the response times every product of the Ferro family
+  states: an acknowledgement within about 5 business days in place of seven
+  days, an initial assessment within about 10 business days, both best
+  effort, and a fixed release published within 7 days of the confirmed
+  assessment for a Critical vulnerability, 30 days for High, 90 days for
+  Medium and with the next release for Low.
 
 ## [0.4.1] - 2026-10-21
 

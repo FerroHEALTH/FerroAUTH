@@ -55,9 +55,27 @@ privately, through either route:
   by email and say that more is available; a channel for the rest is agreed
   with you.
 
-Both routes reach the same people and the same procedure. You will get an
-acknowledgement within seven days. If that window passes with no response,
-public disclosure to protect other users is your call.
+Both routes reach the same people and the same procedure.
+
+## Response times
+
+FerroSMART is solo-maintained, so these are best effort rather than a
+contractual service-level agreement. They are the times every product of the
+Ferro family states: an acknowledgement within about 5 business days, and
+an initial assessment (is it valid, how severe) within about 10 business days
+of the report. A confirmed vulnerability is fixed in a new patch version,
+published within the target for its severity, counted from the confirmed
+assessment:
+
+| Severity | Fixed release published within |
+|---|---|
+| Critical | 7 days |
+| High | 30 days |
+| Medium | 90 days |
+| Low | the next release |
+
+If the acknowledgement does not come in time, public disclosure to protect
+other users is your call.
 
 ## Security advisories
 
