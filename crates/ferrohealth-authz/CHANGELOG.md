@@ -14,6 +14,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-25
+
+The first release: the policy decision of the FerroHEALTH products, the
+NIST SP 800-162 request over the subject `ferrohealth-smart` 0.7.0
+authenticates, with the Cedar engine behind `cedar` and the remote decision
+point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
+`=0.7.0`.
+
 ### Added
 
 - The policy decision of the FerroHEALTH products, moved out of FerroEHR and
@@ -36,4 +44,5 @@ and this project adheres to
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/commits/main/crates/ferrohealth-authz
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.0...HEAD
+[0.1.0]: https://github.com/FerroHEALTH/FerroAUTH/releases/tag/ferrohealth-authz-v0.1.0
