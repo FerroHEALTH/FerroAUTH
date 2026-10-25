@@ -1,118 +1,120 @@
 <!-- SPDX-FileCopyrightText: Cadasto B.V. -->
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
-# <img src="assets/brand/ferroauth-icon.svg" alt="" width="40" height="40" align="top"> FerroAUTH
+<div align="center">
 
-[![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
+<img src="assets/brand/ferroauth-lockup-auto.svg" alt="FerroAUTH" width="290">
 
-Authentication and authorization for the FerroHEALTH products, in pure Rust.
-The repository holds two crates:
+**Sign-in and access control for the FerroHEALTH products, as Rust libraries.**
 
-- **Authentication, `ferrohealth-smart`:** SMART for the openEHR ecosystem,
-  FHIR included, the shared SMART App Launch and OAuth 2.0 resource-server
-  crate.
-- **The policy decision, `ferrohealth-authz`:** the attribute-based request
-  a product's enforcement point puts about the subject `ferrohealth-smart`
-  authenticated (NIST SP 800-162), with an embedded Cedar engine and a
-  remote decision point, each behind its feature. It keeps its own version
-  line; see [its README](crates/ferrohealth-authz/README.md).
+[Documentation](https://docs.rs/ferrohealth-smart) ·
+[Quick start](#quick-start) ·
+[What ships today](#what-ships-today) ·
+[Licensing](https://ferrohealth.eu/docs/licensing.html)
 
-The rest of this page describes `ferrohealth-smart`.
+**Project**<br>
+[![Release](https://img.shields.io/github/v/release/FerroHEALTH/FerroAUTH?sort=semver&logo=github&label=release)](https://github.com/FerroHEALTH/FerroAUTH/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/FerroHEALTH/FerroAUTH/ci.yml?branch=main&logo=githubactions&logoColor=white&label=CI)](https://github.com/FerroHEALTH/FerroAUTH/actions/workflows/ci.yml)
+[![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue)](LICENSE)
+[![Docs](https://img.shields.io/docsrs/ferrohealth-smart?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-smart)
 
-`ferrohealth-smart` is a library, never an authorization server. It issues no
-token and holds no key that signs one; each deployment points it at its own
-standards-compliant authorization server (Keycloak, Entra ID, Cadasto's
-smart-auth). What it does for every product:
+**Quality and security**<br>
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/FerroHEALTH/FerroAUTH/badge)](https://scorecard.dev/viewer/?uri=github.com/FerroHEALTH/FerroAUTH)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/FerroHEALTH/FerroAUTH/codeql.yml?branch=main&logo=github&label=CodeQL)](https://github.com/FerroHEALTH/FerroAUTH/actions/workflows/codeql.yml)
+[![Signed releases](https://img.shields.io/badge/releases-signed-brightgreen?logo=github)](docs/release.md)
+[![SLSA Build L3](https://slsa.dev/images/gh-badge-level3.svg)](docs/release.md)
 
-- **The resource server.** The issuer's metadata is read at the RFC 8414
-  location, with OpenID Connect Discovery 1.0 as the fallback, its key set is
-  fetched and cached with rotation, and every JWT access token is validated
-  under RFC 9068: the signature with an asymmetric algorithm only, `iss`,
-  `aud`, `exp` and `nbf` within a clock skew. A refused token is one generic
-  `401` that names no claim. An issuer whose tokens are opaque is checked by
-  RFC 7662 token introspection instead (`[auth] mode = "introspection"`),
-  with a cache bounded by each response's `exp`.
-- **SMART on openEHR scopes**, through the `openehr` feature: the
-  `template-`, `composition-` and `aql-` families with their `::` patterns
-  under `patient/`, `user/` and `system/`, parsed by `openehr-sdt` (the one
-  parser every product reads the grammar with) and enforced here: a
-  `system/aql-*` grant only for a listed backend client, a `patient/` grant
-  only for a bound issuer and only on the EHR of the launch context's
-  `ehrId`, and the `services` map and openEHR capabilities of a platform's
-  discovery document.
-- **SMART on FHIR scopes**, beside them: `patient/`, `user/` and `system/`
-  with the `cruds` permissions, the patient compartment from the token's
-  launch context, and a `403` that names no scope. A product's route table
-  declares which grammar each route is checked against, and both grammars
-  coexist in one `scope` claim.
-- **Machine authentication, in exactly two modes.** HTTP Basic, verified
-  against Argon2id hashes and sent outgoing, and the OAuth 2.0 client
-  credentials grant, a token client with a cache and one renewal on a `401`,
-  authenticating with a client secret or a `private_key_jwt` assertion.
-- **One audit line per request**, with a fixed field set and never the token
-  or any content.
+</div>
 
-The `axum` feature adds a tower layer that runs the checks in front of every
-route and an extractor of the caller it admitted; the core stays
-framework-neutral.
+## What FerroAUTH does
 
-FerroAUTH is one of the [FerroHEALTH](https://ferrohealth.eu/) family. The
-family page shows where it sits among the products and what calls what, and
-this repository is where the design and the build happen; the tracker is the
-record of both.
+Every health application has to answer two questions on every request: who
+is asking, and may they do this? Getting either wrong exposes patient data.
+FerroAUTH answers both once, for every FerroHEALTH product, so each server
+checks sign-in and permissions the same tested way.
 
-## Use it
+It does not run a login page or issue passwords. A hospital keeps the
+sign-in system it already has (such as Keycloak or Microsoft Entra ID), and
+FerroAUTH checks the access tokens that system hands out: is the token
+genuine, still valid, meant for this server, and does it grant this action
+on this patient's record? It speaks SMART, the standard health apps use to
+ask for access to openEHR and FHIR data.
 
-```toml
-[dependencies]
-ferrohealth-smart = { version = "=0.6.0", features = ["axum", "openehr"] }
+### Who it is for
+
+- **Hospital IT and security teams**, who can connect every FerroHEALTH
+  product to their own identity provider and see one audit line per
+  request.
+- **Developers of health software in Rust**, who need SMART access checks
+  and machine-to-machine sign-in without writing them again.
+
+### Why you can trust what it claims
+
+Every release is signed and carries SLSA build provenance, so you can check
+that the crate you use is the one built here. The source is public, and
+every function is in this repository: there is no paid edition with extra
+features. The OAuth 2.0, SMART and OpenID Connect specifications the crates
+implement are vendored in the repository at the versions
+[`docs/VERSIONS.md`](docs/VERSIONS.md) pins, so you can check each check
+against its standard.
+
+## Part of FerroHEALTH
+
+FerroHEALTH is five servers, each its own product, that reach each other
+only over published standards: FerroEHR stores the record, FerroBRIDGE
+translates it to FHIR and the OMOP research model, FerroFED connects records
+across organisations and borders, FerroPIX matches patient identities, and
+FerroTERM serves the code systems (the shared lists of medical terms). Work
+that every server needs lives in three shared libraries: FerroAUTH for
+sign-in and access control, FerroAUDIT for the audit trail, and FerroUI for
+the web consoles. Every FerroHEALTH server checks its callers with
+FerroAUTH.
+
+## Quick start
+
+Add the crate to a Rust project, with the web framework layer and the
+openEHR scopes:
+
+```sh
+cargo add ferrohealth-smart@=0.6.0 --features axum,openehr
 ```
 
-The crate documentation on docs.rs is the integration guide; the design, the
-configuration model and the migration path of each product are in
-[`docs/architecture.md`](docs/architecture.md). The specifications the crate
-implements, SMART App Launch 2.2.0, the SMART on openEHR draft, the OAuth
-2.0 and JOSE RFCs and OpenID Connect Discovery 1.0, are vendored under
-[`docs/specs/`](docs/specs/) at the versions
-[`docs/VERSIONS.md`](docs/VERSIONS.md) pins.
+Pin the version exactly. The
+[crate documentation](https://docs.rs/ferrohealth-smart) is the
+integration guide, and
+[`docs/architecture.md`](docs/architecture.md) has the configuration model.
 
-## Build and test
+## What ships today
 
-```
-cargo fmt --all --check
-cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-cargo nextest run --workspace --all-features --locked
-```
+- [Token checks](crates/ferrohealth-smart/README.md#what-it-does): the authorization server's keys read and rotated, every access token validated, and opaque tokens checked by introspection
+- [SMART on openEHR scopes](crates/ferrohealth-smart/README.md#what-it-does) for templates, compositions and AQL queries, with the patient's EHR from the launch context
+- [SMART on FHIR scopes](crates/ferrohealth-smart/README.md#what-it-does) with the patient compartment, beside the openEHR scopes in one token
+- [Roles and assurance levels](crates/ferrohealth-smart/README.md#what-it-does) read from the token, for a product's route table
+- [Machine sign-in](crates/ferrohealth-smart/README.md#what-it-does): HTTP Basic against Argon2id hashes, and the OAuth 2.0 client credentials grant
+- [One audit line per request](crates/ferrohealth-smart/README.md#what-it-does), never with the token or any content
+- [The SMART discovery document](crates/ferrohealth-smart/README.md#what-it-does) a product publishes for its clients
+- [The policy decision](crates/ferrohealth-authz/README.md), `ferrohealth-authz`: attribute-based access with an embedded Cedar engine or a remote decision point
 
-Every upstream in the tests is a `wiremock` stub and every signing key is
-generated when the case runs: no key, real or synthetic, is committed.
+<details>
+<summary><b>Published crates</b> (2)</summary>
 
-## Contributing
+| Crate | What it does | Version | Docs | Downloads |
+|---|---|---|---|---|
+| [`ferrohealth-smart`](https://crates.io/crates/ferrohealth-smart) | SMART App Launch and OAuth 2.0 resource server: token checks, SMART on openEHR and FHIR scopes, machine sign-in and the audit line | [![crates.io](https://img.shields.io/crates/v/ferrohealth-smart?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-smart) | [![docs.rs](https://img.shields.io/docsrs/ferrohealth-smart?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-smart) | [![downloads](https://img.shields.io/crates/d/ferrohealth-smart?logo=rust&label=downloads)](https://crates.io/crates/ferrohealth-smart) |
+| [`ferrohealth-authz`](https://crates.io/crates/ferrohealth-authz) | The policy decision: attribute-based access over the authenticated caller, with an embedded Cedar engine or a remote decision point | [![crates.io](https://img.shields.io/crates/v/ferrohealth-authz?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-authz) | [![docs.rs](https://img.shields.io/docsrs/ferrohealth-authz?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-authz) | [![downloads](https://img.shields.io/crates/d/ferrohealth-authz?logo=rust&label=downloads)](https://crates.io/crates/ferrohealth-authz) |
 
-See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) and
-[SUPPORT.md](SUPPORT.md).
+</details>
+
+## Learn more
+
+- [`ferrohealth-smart` on docs.rs](https://docs.rs/ferrohealth-smart) and the [FerroHEALTH book](https://ferrohealth.eu/docs/)
+- [Architecture](docs/architecture.md) and the [pinned specifications](docs/VERSIONS.md)
+- [Changelog](CHANGELOG.md) and [milestones](https://github.com/FerroHEALTH/FerroAUTH/milestones)
+- [Security policy](SECURITY.md)
+- [Contributing](CONTRIBUTING.md), [code of conduct](CODE_OF_CONDUCT.md), [support](SUPPORT.md), [governance](GOVERNANCE.md) and [maintainers](MAINTAINERS.md)
 
 ## Licence
 
-FerroAUTH is source-available under the Business Source License 1.1. The
-parameters that apply, the Licensor, the Licensed Work, the Additional Use
-Grant and the Change Date, are in [LICENSE](LICENSE): free for non-commercial
-production use, a commercial licence for any other production use, and Apache
-2.0 four years after each version is published. Both crates,
-`ferrohealth-smart` and `ferrohealth-authz`, are hand-written code that
-implements the specifications they cite, which is why they are under the
-family's own licence and not the Apache-2.0 of the family's generated crates.
-
-A commercial licence is arranged with [Cadasto B.V.](https://www.cadasto.com),
-the Licensor, which handles the business side of FerroAUTH: write to
-[info@cadasto.com](mailto:info@cadasto.com) or use
-[cadasto.com/contact](https://www.cadasto.com/contact/). Technical questions go
-to the maintainer named in [MAINTAINERS.md](MAINTAINERS.md).
-
-The brand assets under `assets/brand/` are part of the Licensed Work. The
-vendored specifications under `docs/specs/` keep their upstream terms,
-recorded in the `PROVENANCE.md` beside each.
-
-Contributions carry the terms in
-[CONTRIBUTING.md](CONTRIBUTING.md#licensing-of-contributions): you keep your
-copyright, and you grant the Licensor the relicensing right that keeps the work
-one work under one licensor. There is no separate agreement to sign.
+Business Source License 1.1 ([LICENSE](LICENSE)), with Apache License 2.0 as
+the Change License four years after each version; the
+[licensing page](https://ferrohealth.eu/docs/licensing.html) says when you
+need a commercial licence from Cadasto B.V.
