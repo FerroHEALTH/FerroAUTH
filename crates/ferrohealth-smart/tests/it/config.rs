@@ -406,3 +406,71 @@ fn a_rendered_section_carries_every_key_and_no_secret() {
         matches!(read_back.issuer, IssuerKey::Flat(ref issuer) if issuer == "https://as.example.org")
     );
 }
+
+/// The userinfo of a token endpoint or an issuer never reaches a rendering
+/// of the section, serialized or `Debug`.
+#[test]
+fn the_grant_masks_the_userinfo_of_its_urls() {
+    let oauth = ferrohealth_smart::config::OauthSection {
+        token_endpoint: String::from("https://u:URL_PW_SENTINEL@idp.example.org/token"),
+        client_id: String::from("svc"),
+        ..ferrohealth_smart::config::OauthSection::default()
+    };
+    let rendered = toml::to_string(&oauth).expect("renders");
+    let debug = format!("{oauth:?}");
+    for shown in [&rendered, &debug] {
+        assert!(!shown.contains("URL_PW_SENTINEL"), "{shown}");
+        assert!(shown.contains("idp.example.org/token"), "{shown}");
+    }
+    let issuer = ferrohealth_smart::config::OauthSection {
+        issuer: String::from("https://a:ISSUER_PW_SENTINEL@as.example.org"),
+        ..ferrohealth_smart::config::OauthSection::default()
+    };
+    assert!(
+        !toml::to_string(&issuer)
+            .expect("renders")
+            .contains("ISSUER_PW_SENTINEL")
+    );
+}
+
+/// Every problem of a grant is named under the product's own table, at once.
+#[test]
+fn the_grant_names_every_problem_under_the_products_table() {
+    let empty = ferrohealth_smart::config::OauthSection::default();
+    let problems = empty.problems("terminology.server.oauth");
+    let joined = problems.join("\n");
+    for key in [
+        "terminology.server.oauth: set issuer or token_endpoint",
+        "terminology.server.oauth.client_id",
+        "terminology.server.oauth requires client_secret or client_secret_file",
+    ] {
+        assert!(joined.contains(key), "{key} unnamed in {joined}");
+    }
+    assert!(!joined.contains("credentials.oauth"), "{joined}");
+    let both = ferrohealth_smart::config::OauthSection {
+        issuer: String::from("https://as.example.org"),
+        token_endpoint: String::from("https://as.example.org/token"),
+        client_id: String::from("svc"),
+        client_secret: Some(secrecy::SecretString::from("s")),
+        client_secret_file: Some(std::path::PathBuf::from("/run/secret")),
+        resource: String::from("https://rs.example.org/#frag"),
+        client_key_file: Some(std::path::PathBuf::from("/run/key")),
+        ..ferrohealth_smart::config::OauthSection::default()
+    };
+    let problems = both.problems("audit.fhir_feed.oauth").join("\n");
+    for key in [
+        "set one of issuer and token_endpoint",
+        "set one of client_secret and client_secret_file",
+        "audit.fhir_feed.oauth.resource carries a fragment",
+        "audit.fhir_feed.oauth.client_certificate_file is required beside client_key_file",
+    ] {
+        assert!(problems.contains(key), "{key} unnamed in {problems}");
+    }
+    let sound = ferrohealth_smart::config::OauthSection {
+        token_endpoint: String::from("https://as.example.org/token"),
+        client_id: String::from("svc"),
+        client_secret: Some(secrecy::SecretString::from("s")),
+        ..ferrohealth_smart::config::OauthSection::default()
+    };
+    assert_eq!(sound.problems("x"), Vec::<String>::new());
+}

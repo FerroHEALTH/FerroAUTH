@@ -30,6 +30,9 @@
 //!   a token client with a cache and one renewal on a `401`, authenticating
 //!   with a secret or a `private_key_jwt` assertion). A static bearer token
 //!   or an API key is not a mode.
+//! - [`assurance`]: the assurance level of the authentication behind a
+//!   token, with the RFC 9470 step-up refusal below a minimum, and the
+//!   natural person the token names or the client acts for.
 //! - [`roles`]: the roles a caller holds, read from the claims RFC 9068
 //!   §2.2.3.1 names or granted to a Basic user, which a route requirement
 //!   checks beside its scopes.
@@ -49,6 +52,7 @@
 
 #![doc(test(attr(deny(warnings))))]
 
+pub mod assurance;
 pub mod audit;
 pub mod basic;
 pub mod client;

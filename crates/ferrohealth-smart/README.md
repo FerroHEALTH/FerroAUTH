@@ -41,6 +41,10 @@ ferrohealth-smart = { version = "=0.6.0", features = ["axum", "openehr"] }
   paths `[auth] role_claims` names, or granted to a Basic user; the route
   table checks them with `Requirement::Role`, `AnyRole`, `WithoutRole` and
   `All`.
+- **`assurance`**: the assurance level behind a token (`AssuranceSection`,
+  its claim mapped to low, substantial or high, a minimum and the RFC 9470
+  step-up refusal) and the natural person it names or the client acts for
+  (`ProfessionalSection`).
 - **`basic`** and **`client`**: HTTP Basic against Argon2id hashes and sent
   outgoing, and the client credentials grant (`TokenSource`) with a cache,
   `client_secret_basic`, `client_secret_post` or `private_key_jwt`, and

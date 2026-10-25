@@ -871,6 +871,24 @@ specification governs role semantics, our own design. RFC 9396 (rich
 authorization requests) is vendored as the reference for the
 `authorization_details` claim a later release may read; this one does not.
 
+### 3.12 Assurance and the natural person
+
+RFC 9470 §3 lets a resource server refuse a token whose authentication does
+not meet its requirement, with `401`, `insufficient_user_authentication` and
+the accepted `acr_values`, and leaves the logic that decides it out of scope.
+`assurance::AssuranceSection` holds that logic for every product: the claim
+the class is read from (`acr` by default, OpenID Connect Core 1.0 §2), the
+level each value stands for (low, substantial, high), and the minimum;
+`step_up` builds the `Refusal::StepUp` naming the values that meet it.
+`assurance::ProfessionalSection` reads the claim that names the natural person
+behind a token and tells a client token apart: RFC 9068 §2.2 has `sub` name
+the client application when no resource owner is involved, so a token whose
+`sub` is its `client_id` or `azp` is a client's under `sub_is_client`, and the
+client may name the professional it acts for in a configured claim. Which
+routes a product holds to them, and what it records of the result, stay the
+product's. The level mapping is the deployment's: no specification governs it,
+our own design.
+
 ## 4. The configuration model
 
 Every product embeds the same `[auth]` section, deserialized with

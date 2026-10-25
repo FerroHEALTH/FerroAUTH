@@ -25,8 +25,22 @@ and this project adheres to
   `Requirement::AnyRole`, `Requirement::WithoutRole` (a restriction that
   overrides a grant) and `Requirement::All`.
 - RFC 7643 and RFC 9396 are vendored and pinned.
+- `assurance` (#102): `AssuranceSection` maps the values of a token's
+  authentication context class claim (`acr` by default) to the levels low,
+  substantial and high, `assess` reads them, `meets` holds a caller to a
+  minimum, and `step_up` gives the RFC 9470 §3 refusal naming the accepted
+  `acr_values`. `ProfessionalSection` reads the natural person behind a
+  token, telling a client token apart (`sub_is_client` by RFC 9068 §2.2, or
+  `claim_absent`) and reading whom a client acts for. A Basic caller carries
+  neither. Both sections validate at boot.
+- `OauthSection::problems(table)` (#105): every problem of a grant without
+  reading a file, each naming its key under the product's table, so a product
+  reports a table it embeds at `terminology.server.oauth` in its own keys.
 
 ### Changed
+
+- An `OauthSection` renders `issuer` and `token_endpoint` with any userinfo
+  masked, serialized and in `Debug` (#105); its `Debug` is written by hand.
 
 - **Breaking:** `resource::Settings`, `resource::introspection::IntrospectionSettings`,
   `config::AuthSection`, `config::BasicUser` and `basic::Verified` gain a
