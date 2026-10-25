@@ -21,7 +21,7 @@ pub mod assertion;
 #[cfg(feature = "fetch")]
 pub mod cache;
 #[cfg(feature = "fetch")]
-mod endpoint;
+pub(crate) mod endpoint;
 
 use std::sync::Arc;
 use std::time::Duration;

@@ -308,6 +308,9 @@ pub enum Reason {
     /// The `sub` claim is empty or whitespace only, which identifies no
     /// principal (RFC 9068 §2.2, RFC 7519 §4.1.2).
     BlankSubject,
+    /// The introspection endpoint answered that the token is not active
+    /// (RFC 7662 §2.2).
+    Inactive,
     /// The key set could not be read to check the token.
     KeySetUnavailable,
     /// An upstream a product's verifier calls could not be read to check
@@ -343,6 +346,7 @@ impl Reason {
             Self::MissingClaim => "a required claim is missing",
             Self::Subject => "sub is not a string",
             Self::BlankSubject => "sub is blank",
+            Self::Inactive => "token not active",
             Self::KeySetUnavailable => "key set unavailable",
             Self::UpstreamUnavailable => "upstream unavailable",
             Self::BasicMalformed => "malformed basic credential",

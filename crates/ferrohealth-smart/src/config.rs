@@ -134,6 +134,18 @@ pub enum ConfigError {
         #[source]
         source: AssertionError,
     },
+    /// `mode = "introspection"` in a build without the `fetch` feature,
+    /// which links no HTTP client to call the endpoint with.
+    #[error("auth.mode = \"introspection\" needs the fetch feature")]
+    IntrospectionUnavailable,
+    /// The introspection settings break a rule.
+    #[cfg(feature = "fetch")]
+    #[error("the auth.introspection settings are refused")]
+    Introspection {
+        /// The rule.
+        #[source]
+        source: Box<crate::resource::introspection::IntrospectionError>,
+    },
     /// The trust roots or the client certificate of the token endpoint
     /// connection are refused.
     #[error("the TLS material of credentials.oauth is refused")]
@@ -189,6 +201,60 @@ pub struct AuthSection {
     pub product_scope: String,
     /// The Basic users of the surface; absent for no Basic.
     pub basic: Option<BasicSection>,
+    /// How a bearer token is checked: as a JWT against the issuer's key
+    /// set, or by the issuer's introspection endpoint.
+    pub mode: AuthMode,
+    /// The introspection check, under `mode = "introspection"`.
+    pub introspection: Option<IntrospectionSection>,
+}
+
+/// How a bearer token is checked.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AuthMode {
+    /// The token is a JWT, checked against the issuer's key set (RFC 9068).
+    #[default]
+    Jwt,
+    /// The token is posted to the issuer's introspection endpoint
+    /// (RFC 7662), for a token the resource server cannot read itself.
+    Introspection,
+}
+
+/// The `[auth.introspection]` table.
+///
+/// The product authenticates its call with exactly one of `client` (the
+/// client authentication of the token endpoint, RFC 7662 §2.1) and `bearer`
+/// (a token from the client credentials grant, SMART App Launch 2.2.0,
+/// Token Introspection). Each takes the fields of
+/// `[<lane>.credentials.oauth]`, and a refusal names those keys; `client`
+/// stands in the section's issuer when it names neither `issuer` nor
+/// `token_endpoint`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct IntrospectionSection {
+    /// The introspection endpoint; empty for the one the issuer's metadata
+    /// names.
+    pub endpoint: String,
+    /// The longest an active response is used; 0 caches nothing.
+    pub cache_max_age_seconds: u64,
+    /// The most responses held at once.
+    pub cache_capacity: usize,
+    /// The client authentication of the introspection call.
+    pub client: Option<OauthSection>,
+    /// The client credentials grant whose token authorizes the call.
+    pub bearer: Option<OauthSection>,
+}
+
+impl Default for IntrospectionSection {
+    fn default() -> Self {
+        Self {
+            endpoint: String::new(),
+            cache_max_age_seconds: 60,
+            cache_capacity: 10_000,
+            client: None,
+            bearer: None,
+        }
+    }
 }
 
 impl Default for AuthSection {
@@ -217,6 +283,8 @@ impl Default for AuthSection {
             scopes_supported: Vec::new(),
             product_scope: String::new(),
             basic: None,
+            mode: AuthMode::Jwt,
+            introspection: None,
         }
     }
 }
@@ -299,6 +367,10 @@ pub struct Resolved {
     pub scopes_supported: Vec<String>,
     /// The product's own scope, when one is set.
     pub product_scope: Option<String>,
+    /// The introspection check, under `mode = "introspection"`, in place of
+    /// the issuers.
+    #[cfg(feature = "fetch")]
+    pub introspection: Option<crate::resource::introspection::IntrospectionSettings>,
 }
 
 impl Resolved {
@@ -378,8 +450,23 @@ impl AuthSection {
             .is_some_and(|section| !section.users.is_empty());
         let basic_only =
             basic_users && matches!(&self.issuer, IssuerKey::Flat(issuer) if issuer.is_empty());
+        if self.introspection.is_some() && self.mode == AuthMode::Jwt {
+            return Err(ConfigError::Exclusive {
+                left: "auth.introspection",
+                right: "auth.mode = \"jwt\"",
+            });
+        }
         let mut issuers = Vec::new();
-        if self.enabled && !basic_only {
+        #[cfg(feature = "fetch")]
+        let mut introspection = None;
+        if self.enabled && !basic_only && self.mode == AuthMode::Introspection {
+            #[cfg(feature = "fetch")]
+            {
+                introspection = Some(self.introspection_settings()?);
+            }
+            #[cfg(not(feature = "fetch"))]
+            return Err(ConfigError::IntrospectionUnavailable);
+        } else if self.enabled && !basic_only {
             for entry in self.issuers() {
                 if entry.issuer.is_empty() {
                     return Err(ConfigError::Missing { key: "auth.issuer" });
@@ -394,7 +481,11 @@ impl AuthSection {
         }
         // NOTE: no specification governs the configuration model: our own
         // design, and a surface that admits no credential at all fails closed.
-        if self.enabled && issuers.is_empty() && !basic_users {
+        #[cfg(feature = "fetch")]
+        let introspects = introspection.is_some();
+        #[cfg(not(feature = "fetch"))]
+        let introspects = false;
+        if self.enabled && issuers.is_empty() && !introspects && !basic_users {
             return Err(ConfigError::Missing { key: "auth.issuer" });
         }
         let basic = match &self.basic {
@@ -425,7 +516,86 @@ impl AuthSection {
             capabilities: self.capabilities.clone(),
             scopes_supported: self.scopes_supported.clone(),
             product_scope: (!self.product_scope.is_empty()).then(|| self.product_scope.clone()),
+            #[cfg(feature = "fetch")]
+            introspection,
         })
+    }
+
+    /// Returns the introspection settings of `mode = "introspection"`: the
+    /// flat issuer, the section's audiences, skew, timeout and scopeless
+    /// subjects, and the `[auth.introspection]` table.
+    #[cfg(feature = "fetch")]
+    fn introspection_settings(
+        &self,
+    ) -> Result<crate::resource::introspection::IntrospectionSettings, ConfigError> {
+        use crate::resource::introspection::IntrospectionAuth;
+        use crate::resource::introspection::IntrospectionSettings;
+        let IssuerKey::Flat(issuer) = &self.issuer else {
+            return Err(ConfigError::Exclusive {
+                left: "auth.mode = \"introspection\"",
+                right: "[[auth.issuer]]",
+            });
+        };
+        if issuer.is_empty() {
+            return Err(ConfigError::Missing { key: "auth.issuer" });
+        }
+        if !self.jwks_file.is_empty() {
+            return Err(ConfigError::Exclusive {
+                left: "auth.mode = \"introspection\"",
+                right: "auth.jwks_file",
+            });
+        }
+        let section = self.introspection.as_ref().ok_or(ConfigError::Missing {
+            key: "auth.introspection",
+        })?;
+        let auth = match (&section.client, &section.bearer) {
+            (Some(_), Some(_)) => {
+                return Err(ConfigError::Exclusive {
+                    left: "auth.introspection.client",
+                    right: "auth.introspection.bearer",
+                });
+            }
+            (None, None) => {
+                return Err(ConfigError::Missing {
+                    key: "auth.introspection.client or auth.introspection.bearer",
+                });
+            }
+            (Some(client), None) => {
+                let mut client = client.clone();
+                if client.issuer.is_empty() && client.token_endpoint.is_empty() {
+                    client.issuer.clone_from(issuer);
+                }
+                IntrospectionAuth::Client(Box::new(client.resolve()?))
+            }
+            (None, Some(bearer)) => {
+                let source = crate::client::cache::TokenSource::new(bearer.resolve()?).map_err(
+                    |source| ConfigError::Introspection {
+                        source: Box::new(
+                            crate::resource::introspection::IntrospectionError::Credential {
+                                source: std::sync::Arc::new(source),
+                            },
+                        ),
+                    },
+                )?;
+                IntrospectionAuth::Bearer(source)
+            }
+        };
+        let mut settings = IntrospectionSettings::new(issuer.clone(), String::new(), auth);
+        settings.audience.clone_from(&self.audience);
+        if !section.endpoint.is_empty() {
+            settings.endpoint = Some(parse_url(&section.endpoint, "auth.introspection.endpoint")?);
+        }
+        settings.clock_skew = Duration::from_secs(self.clock_skew_seconds);
+        settings.cache_max_age = Duration::from_secs(section.cache_max_age_seconds);
+        settings.cache_capacity = section.cache_capacity;
+        settings.timeout = Duration::from_millis(self.timeout_ms);
+        settings.scopeless_subjects = self.scopeless_subjects.iter().cloned().collect();
+        settings
+            .validate()
+            .map_err(|source| ConfigError::Introspection {
+                source: Box::new(source),
+            })?;
+        Ok(settings)
     }
 
     /// Returns the settings of `entry`, the section standing in for a field

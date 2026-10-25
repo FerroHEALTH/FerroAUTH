@@ -24,6 +24,9 @@ ferrohealth-smart = { version = "=0.5.1", features = ["axum", "openehr"] }
   The `Caller` it returns carries the subject, the client, the scopes, the
   `patient` launch context and the raw claims. `IssuerSet` routes tokens of
   several issuers; `Verifier` is the seam for another kind of check.
+  `introspection::Introspector` checks an opaque token by RFC 7662 token
+  introspection, under the product's client authentication or a bearer
+  token, with a cache bounded by each response's `exp`.
 - **`openehr`** (feature `openehr`): the SMART on openEHR scopes, parsed by
   `openehr-sdt` and enforced with `openehr::granted` over the `template-`,
   `composition-` and `aql-` families, the product's `Honoured` flags per

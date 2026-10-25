@@ -10,8 +10,11 @@
 //! (RFC 7519 §4.1.4, §4.1.5, §4.1.6). Every failure is the same
 //! [`Rejection::Invalid`] on the wire; its [`Reason`] reaches only the log.
 
+use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
 
+use http::Extensions;
 use jsonwebtoken::Validation;
 use jsonwebtoken::errors::ErrorKind;
 use serde_json::Map;
@@ -21,7 +24,9 @@ use crate::refusal::Reason;
 use crate::resource::Caller;
 use crate::resource::Rejection;
 use crate::resource::ResourceServer;
+use crate::resource::ResourceTypes;
 use crate::resource::TokenProfile;
+use crate::scope::Scopes;
 
 /// The `typ` values RFC 9068 §4 accepts.
 const ACCESS_TOKEN_TYPES: [&str; 2] = ["at+jwt", "application/at+jwt"];
@@ -74,14 +79,6 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
     let data = jsonwebtoken::decode::<Map<String, Value>>(token, &key, &validation)
         .map_err(|error| invalid(reason(error.kind())))?;
     let claims = data.claims;
-    if let Some(issued) = claims.get("iat").and_then(Value::as_i64) {
-        let latest = jiff::Timestamp::now()
-            .as_second()
-            .saturating_add(i64::try_from(settings.clock_skew.as_secs()).unwrap_or(i64::MAX));
-        if issued > latest {
-            return Err(invalid(Reason::IssuedInFuture));
-        }
-    }
     if settings.profile == TokenProfile::Rfc9068
         && ["iat", "jti", "client_id"]
             .iter()
@@ -90,6 +87,55 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
         return Err(invalid(Reason::MissingClaim));
     }
     let subject = text(&claims, "sub").ok_or_else(|| invalid(Reason::Subject))?;
+    admit(
+        claims,
+        subject,
+        &Admission {
+            issuer: &settings.issuer,
+            profile: settings.profile,
+            clock_skew: settings.clock_skew,
+            scopeless_subjects: &settings.scopeless_subjects,
+            resource_types: server.resource_types.as_ref(),
+            extensions: &server.extensions,
+        },
+    )
+}
+
+/// What a verified token's claims are read under: the issuer that vouched
+/// for them and the deployment's rules.
+pub(super) struct Admission<'a> {
+    /// The issuer the caller is attributed to.
+    pub(super) issuer: &'a str,
+    /// The profile the scope is read under.
+    pub(super) profile: TokenProfile,
+    /// The clock skew `iat` is checked with.
+    pub(super) clock_skew: Duration,
+    /// The subjects granted system-wide access without a clinical scope.
+    pub(super) scopeless_subjects: &'a BTreeSet<String>,
+    /// The resource types a clinical scope may name, when the product holds
+    /// a table.
+    pub(super) resource_types: Option<&'a ResourceTypes>,
+    /// The product's values copied onto the caller.
+    pub(super) extensions: &'a Extensions,
+}
+
+/// Returns the caller the verified `claims` of `subject` describe, the step
+/// the JWT check and the introspection check share: `iat` within the clock
+/// skew, a subject that is not blank, and the scope, the client and the
+/// `patient` launch context read the same way.
+pub(super) fn admit(
+    claims: Map<String, Value>,
+    subject: String,
+    admission: &Admission<'_>,
+) -> Result<Caller, Rejection> {
+    if let Some(issued) = claims.get("iat").and_then(Value::as_i64) {
+        let latest = jiff::Timestamp::now()
+            .as_second()
+            .saturating_add(i64::try_from(admission.clock_skew.as_secs()).unwrap_or(i64::MAX));
+        if issued > latest {
+            return Err(invalid(Reason::IssuedInFuture));
+        }
+    }
     // NOTE: RFC 9068 §2.2 requires `sub`, and RFC 7519 §4.1.2 has it identify a
     // principal, which a blank value does not.
     if subject.trim().is_empty() {
@@ -97,18 +143,21 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
     }
     let client_id = text(&claims, "client_id");
     let patient = text(&claims, "patient");
-    let scope = scope_of(&claims, settings.profile);
-    let scopeless = settings.scopeless_subjects.contains(&subject);
-    let scopes = server.scopes(&scope);
+    let scope = scope_of(&claims, admission.profile);
+    let scopeless = admission.scopeless_subjects.contains(&subject);
+    let scopes = match admission.resource_types {
+        Some(known) => Scopes::parse_known(&scope, |name| known(name)),
+        None => Scopes::parse(&scope),
+    };
     Ok(Caller::new(subject, client_id, &scope, patient, scopeless)
         .with_scopes(scopes)
-        .with_issuer(settings.issuer.clone())
+        .with_issuer(admission.issuer.to_owned())
         .with_claims(claims)
-        .with_extensions(server.extensions.clone()))
+        .with_extensions(admission.extensions.clone()))
 }
 
 /// Returns the string claim `name` of `claims`.
-fn text(claims: &Map<String, Value>, name: &str) -> Option<String> {
+pub(super) fn text(claims: &Map<String, Value>, name: &str) -> Option<String> {
     claims.get(name).and_then(Value::as_str).map(str::to_owned)
 }
 
@@ -140,7 +189,7 @@ fn scope_of(claims: &Map<String, Value>, profile: TokenProfile) -> String {
 }
 
 /// Returns the rejection of a token that does not hold for `reason`.
-const fn invalid(reason: Reason) -> Rejection {
+pub(super) const fn invalid(reason: Reason) -> Rejection {
     Rejection::Invalid { reason }
 }
 

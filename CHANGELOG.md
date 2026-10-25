@@ -11,6 +11,35 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `resource::introspection`, behind the `fetch` feature: `Introspector`, a
+  `Verifier` that checks a bearer token by OAuth 2.0 Token Introspection
+  (RFC 7662) for an authorization server whose tokens the resource server
+  cannot read itself, with `IntrospectionSettings`, `IntrospectionAuth` and
+  `IntrospectionError`. The call authenticates with the client
+  authentication of the token endpoint or with a bearer token from the
+  client credentials grant (SMART App Launch 2.2.0, Token Introspection).
+  `active` other than `true` refuses the token with the new
+  `Reason::Inactive`; `scope`, `client_id` and `exp` are required; `iss`
+  and `aud` are checked when present; the claims are read by the step the
+  JWT check uses. An active response is held until its `exp` and at most
+  `cache_max_age`, in a bounded cache keyed by the token's SHA-256. An
+  endpoint that fails answers `503` (FerroBRIDGE #533).
+- `[auth] mode = "introspection"` with the `[auth.introspection]` table
+  (`endpoint`, `cache_max_age_seconds`, `cache_capacity`, and one of
+  `client` and `bearer`), resolved into `Resolved::introspection`;
+  `config::AuthMode`, `config::IntrospectionSection`, and the
+  `ConfigError` variants `Introspection` and `IntrospectionUnavailable`.
+
+### Changed
+
+- **Breaking:** `config::AuthSection` gains `mode` and `introspection`, and
+  `config::Resolved` gains `introspection` (with the `fetch` feature); a
+  struct literal adds them or ends with `..Default::default()`.
+- `Caller::cached` is also `true` for a bearer caller admitted from a held
+  introspection response.
+
 ## [0.5.1] - 2026-10-25
 
 A patch release with no breaking API change: the repeated-name refusal of
