@@ -445,7 +445,9 @@ impl ResourceServer {
     /// issuer can name the `token_endpoint` SMART App Launch 2.2.0
     /// (Conformance, Metadata) requires. The metadata must name the
     /// configured issuer, as RFC 8414 §3.3 holds a fetched document to, and
-    /// every location it names is held to the `https` rule of RFC 8414 §2.
+    /// every location it names, each member of [`ServerMetadata::endpoints`]
+    /// with the mutual-TLS token alias, is held to the `https` rule of
+    /// RFC 8414 §2.
     ///
     /// # Errors
     ///
@@ -463,20 +465,11 @@ impl ResourceServer {
                 found: metadata.issuer,
             });
         }
-        for (member, location) in [
-            ("jwks_uri", &metadata.jwks_uri),
-            ("authorization_endpoint", &metadata.authorization_endpoint),
-            ("token_endpoint", &metadata.token_endpoint),
-            ("registration_endpoint", &metadata.registration_endpoint),
-            ("introspection_endpoint", &metadata.introspection_endpoint),
-            ("revocation_endpoint", &metadata.revocation_endpoint),
-        ] {
-            if let Some(location) = location {
-                let url = location
-                    .parse::<Url>()
-                    .map_err(|source| ResourceError::MetadataUrl { member, source })?;
-                crate::metadata::secure(&url, member)?;
-            }
+        for (member, location) in metadata.endpoints() {
+            let url = location
+                .parse::<Url>()
+                .map_err(|source| ResourceError::MetadataUrl { member, source })?;
+            crate::metadata::secure(&url, member)?;
         }
         self.metadata = metadata;
         Ok(self)
