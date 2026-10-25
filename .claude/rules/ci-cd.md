@@ -49,7 +49,9 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
   names the leg. Both call `scripts/release/milestone.sh`.
 - `.github/workflows/publish-crates.yml`: the manual crates.io lane, a dry
   run unless `publish` is set, sharing `scripts/release/publish-crates.sh`
-  with the release lane.
+  with the release lane. A real publish runs only at the tag of the
+  manifest version that has a published GitHub release: its `guard` job
+  refuses any other ref before the approval (`docs/release.md`).
 
 ## Workflow security (every workflow, no exceptions)
 

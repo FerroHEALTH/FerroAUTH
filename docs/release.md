@@ -102,6 +102,19 @@ each crate, publishes the release, and its `crates` leg waits on the
 pushed tag is never moved or deleted; a bad cut ships forward as a new
 patch version.
 
+## The manual publish
+
+`.github/workflows/publish-crates.yml` is a dry run unless it is dispatched
+with `publish = true`. Publishing through it is the recovery path for a
+release that already exists, when the `crates` leg of `release.yml` failed:
+dispatch it at the release's tag `vX.Y.Z`, never at a branch. Its `guard`
+job (`scripts/release/publish-crates.sh guard`) refuses, before the
+`crates-io` approval is asked for, unless the run is at a tag, that tag is
+`v` followed by the manifest version, and a published GitHub release exists
+for it, and it names what is missing. A version reaches crates.io only
+through a tag and its release, so the manual lane can never publish a
+version the changelog and the tag do not carry.
+
 ## A security fix
 
 A reported vulnerability gets a private draft GitHub security advisory the

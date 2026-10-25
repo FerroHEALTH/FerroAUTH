@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: BUSL-1.1
 
 # The manual crates.io lane: a dry run by default, and the recovery path when
-# a release's crates leg fails ("already exists" counts as done). Trusted
+# a release's crates leg fails ("already exists" counts as done), dispatched
+# at that release's tag only. Trusted
 # Publishing (OIDC) through rust-lang/crates-io-auth-action; the crate carries
 # one publisher entry naming this file and one naming release.yml, both under
 # the `crates-io` environment (.claude/rules/crates-publishing.md).
@@ -36,8 +37,31 @@ jobs:
           cache: "false"
       - run: cargo publish -p ferrohealth-smart --dry-run --locked
 
+  # Refuses before the crates-io approval is asked for, unless the run is at
+  # the tag v<manifest version> and that tag has a published GitHub release:
+  # this lane recovers a release, it never makes one.
+  guard:
+    name: release tag and release
+    if: ${{ inputs.publish }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache: "false"
+      - name: The run is at the release tag, which has a published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/release/publish-crates.sh guard
+
   publish:
     name: publish
+    needs: guard
     if: ${{ inputs.publish }}
     runs-on: ubuntu-latest
     timeout-minutes: 30

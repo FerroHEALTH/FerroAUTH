@@ -18,8 +18,16 @@
 #   publish-crates.sh publish          # upload each crate in order
 #   publish-crates.sh verify           # read the registry back, with retries
 #   publish-crates.sh version [CRATE]  # print one crate's version
+#   publish-crates.sh guard            # refuse unless run at the release tag
+#   publish-crates.sh --self-test      # prove `guard` against a stub gh
 #
-# Requires cargo, curl, and jq; `publish` also needs CARGO_REGISTRY_TOKEN.
+# `guard` is the manual lane's precondition: the run's ref is the tag
+# v<manifest version> (GITHUB_REF_TYPE, GITHUB_REF_NAME) and a published
+# GitHub release exists for it, read with gh in GITHUB_REPOSITORY, so the
+# manual lane recovers a release and never makes one.
+#
+# Requires cargo, curl, and jq; `publish` also needs CARGO_REGISTRY_TOKEN, and
+# `guard` needs gh with GH_TOKEN.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -99,12 +107,78 @@ do_verify() {
   echo "publish-crates: confirmed on crates.io, all ${#CRATES[@]} crates at their versions"
 }
 
+# do_guard REF_TYPE REF_NAME VERSION: refuses, naming what is missing, unless
+# the ref is the tag vVERSION and a published release exists for that tag.
+do_guard() {
+  local ref_type="$1" ref_name="$2" version="$3" tag draft
+  tag="v$version"
+  if [[ "$ref_type" != "tag" ]]; then
+    echo "::error::publish-crates: the run is at the $ref_type '$ref_name', not the tag $tag; dispatch it at the tag" >&2
+    return 1
+  fi
+  if [[ "$ref_name" != "$tag" ]]; then
+    echo "::error::publish-crates: the run is at the tag '$ref_name', but the manifest names $version, whose tag is $tag" >&2
+    return 1
+  fi
+  if ! draft="$(gh release view "$tag" --repo "${GITHUB_REPOSITORY:?}" --json isDraft --jq .isDraft 2> /dev/null)"; then
+    echo "::error::publish-crates: no GitHub release exists for the tag $tag" >&2
+    return 1
+  fi
+  if [[ "$draft" != "false" ]]; then
+    echo "::error::publish-crates: the GitHub release of the tag $tag is a draft, not published" >&2
+    return 1
+  fi
+  echo "publish-crates: the run is at the tag $tag, which has a published release"
+}
+
+self_test() {
+  local fails=0 out rc
+  export GITHUB_REPOSITORY=o/r
+  # The stub answers the one call `guard` makes: v1.0.0 is released, v1.1.0
+  # is a draft, and every other tag has no release.
+  # shellcheck disable=SC2329 # do_guard calls it in place of gh
+  gh() {
+    case "$*" in
+      "release view v1.0.0 --repo o/r --json isDraft --jq .isDraft") echo false ;;
+      "release view v1.1.0 --repo o/r --json isDraft --jq .isDraft") echo true ;;
+      "release view "*) return 1 ;;
+      *)
+        echo "stub gh: unexpected call: $*" >&2
+        return 1
+        ;;
+    esac
+  }
+  # expect NAME WANT_RC WANT_TEXT -- ARGS...
+  expect() {
+    local name="$1" want_rc="$2" want_text="$3"
+    shift 4
+    if out="$(do_guard "$@" 2>&1)"; then rc=0; else rc=$?; fi
+    if [[ "$rc" != "$want_rc" || "$out" != *"$want_text"* ]]; then
+      echo "FAIL: $name (exit $rc): $out" >&2
+      fails=$((fails + 1))
+    fi
+  }
+  expect "the released tag passes" 0 "has a published release" -- tag v1.0.0 1.0.0
+  expect "a branch is refused" 1 "not the tag v1.0.0" -- branch main 1.0.0
+  expect "another tag is refused" 1 "whose tag is v1.0.0" -- tag v0.9.0 1.0.0
+  expect "a tag without a release is refused" 1 "no GitHub release" -- tag v1.2.0 1.2.0
+  expect "a draft release is refused" 1 "is a draft" -- tag v1.1.0 1.1.0
+  unset -f gh
+  if [[ "$fails" -ne 0 ]]; then
+    echo "publish-crates: self-test FAILED ($fails)" >&2
+    return 1
+  fi
+  echo "publish-crates: self-test OK."
+}
+
 case "${1:-}" in
   publish) do_publish ;;
   verify) do_verify ;;
   version) manifest_version "${2:-ferrohealth-smart}" ;;
+  guard) do_guard "${GITHUB_REF_TYPE:?}" "${GITHUB_REF_NAME:?}" "$(manifest_version ferrohealth-smart)" ;;
+  --self-test) self_test ;;
   *)
-    echo "publish-crates: expected 'publish', 'verify', or 'version', got '${1:-<none>}'" >&2
+    echo "publish-crates: expected 'publish', 'verify', 'version', 'guard', or '--self-test', got '${1:-<none>}'" >&2
     exit 2
     ;;
 esac
