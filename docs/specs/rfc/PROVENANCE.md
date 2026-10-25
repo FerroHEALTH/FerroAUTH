@@ -7,10 +7,10 @@ Vendored verbatim by `scripts/vendor/rfcs.sh` from the RFC Editor
 (<https://www.rfc-editor.org/rfc/>), the text form of each, as published. Never edit a file here:
 change the pin in docs/VERSIONS.md and re-run the script.
 
-- Fetched: 2026-10-20
-- Files: 17
+- Fetched: 2026-10-25
+- Files: 19
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `c51a535f8c17c8d48544a8786c1663a3850430cc387b8622d3be6e6046b428e2`
+  `PROVENANCE.md` excluded): `37624c98b2f3f0c50aef0e07889c442de7e4e3c99f5b1b27de33d607d151cb49`
 - Upstream licence: each RFC is "Copyright (c) <year> IETF Trust and the
   persons identified as the document authors. All rights reserved." and is
   "subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF
@@ -21,8 +21,9 @@ change the pin in docs/VERSIONS.md and re-run the script.
   all copyrights and rights of authors: i. to copy, publish, display and
   distribute IETF Contributions and IETF Documents in full and without
   modification" (TLP 5.0, effective 2015-03-25,
-  <https://trustee.ietf.org/documents/trust-legal-provisions/tlp-5/>; RFC 6749
-  and RFC 6750, published in 2012, fall under TLP 4.0, effective
+  <https://trustee.ietf.org/documents/trust-legal-provisions/tlp-5/>; RFC 6454,
+  published in 2011, and RFC 6749 and RFC 6750, published in 2012, fall under
+  TLP 4.0, effective
   2009-12-28, <https://trustee.ietf.org/license-info/IETF-TLP-4.htm>, whose
   section 3.c grants the same in the same words). Each file here is the
   whole document, unmodified, with
@@ -48,6 +49,8 @@ change the pin in docs/VERSIONS.md and re-run the script.
 | RFC 9449 | OAuth 2.0 Demonstrating Proof of Possession (DPoP) | September 2023 | PROPOSED STANDARD | none | `3842c58e1f6043389416023b9bb8d765048266024982fbbd90640e05943f4e13` |
 | RFC 8705 | OAuth 2.0 Mutual-TLS Client Authentication and Certificate-Bound Access Tokens | February 2020 | PROPOSED STANDARD | none | `6e45a1ee94c6a6a177a4cb077fe67d74bd70c1218c9362f2db2f153239612414` |
 | RFC 9470 | OAuth 2.0 Step Up Authentication Challenge Protocol | September 2023 | PROPOSED STANDARD | none | `02d742f49cc0a03fb09197563c436b6f38928a71b0d8e41cde9cfe0362363e56` |
+| RFC 8259 | The JavaScript Object Notation (JSON) Data Interchange Format | December 2017 | INTERNET STANDARD | none | `61a5378f4255c720beb2a4b4a63b29540147c140f36988bf086291989b4cd2d7` |
+| RFC 6454 | The Web Origin Concept | December 2011 | PROPOSED STANDARD | none | `6a42d01bf407e87255e3bd8d870fda0f473e09f3272592ba438b57c983bc5399` |
 
 An "Updated by" entry names an RFC that changes the document without
 replacing it; the design reads each update that bears on the resource

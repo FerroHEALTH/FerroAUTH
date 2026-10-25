@@ -86,8 +86,9 @@ change the pin in docs/VERSIONS.md and re-run the script.
   all copyrights and rights of authors: i. to copy, publish, display and
   distribute IETF Contributions and IETF Documents in full and without
   modification" (TLP 5.0, effective 2015-03-25,
-  <https://trustee.ietf.org/documents/trust-legal-provisions/tlp-5/>; RFC 6749
-  and RFC 6750, published in 2012, fall under TLP 4.0, effective
+  <https://trustee.ietf.org/documents/trust-legal-provisions/tlp-5/>; RFC 6454,
+  published in 2011, and RFC 6749 and RFC 6750, published in 2012, fall under
+  TLP 4.0, effective
   2009-12-28, <https://trustee.ietf.org/license-info/IETF-TLP-4.htm>, whose
   section 3.c grants the same in the same words). Each file here is the
   whole document, unmodified, with

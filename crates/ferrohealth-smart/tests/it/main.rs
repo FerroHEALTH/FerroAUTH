@@ -28,6 +28,8 @@ mod config;
 #[cfg(all(feature = "axum", feature = "fetch"))]
 mod guard;
 mod key_file;
+#[cfg(feature = "fetch")]
+mod metadata;
 #[cfg(all(feature = "openehr", feature = "fetch"))]
 mod openehr;
 #[cfg_attr(

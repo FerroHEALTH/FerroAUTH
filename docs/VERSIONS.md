@@ -19,7 +19,7 @@ records why the value is what it is.
 | Item | Pin | Repeated in |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | `docs/architecture.md` §2, `docs/specs/smart-app-launch/PROVENANCE.md` |
-| OAuth 2.0 and JOSE | the seventeen RFCs of the table below | `docs/architecture.md` §2, `docs/specs/rfc/PROVENANCE.md` |
+| OAuth 2.0 and JOSE | the nineteen RFCs of the table below | `docs/architecture.md` §2, `docs/specs/rfc/PROVENANCE.md` |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | `docs/architecture.md` §2, `docs/specs/openid-connect-discovery/PROVENANCE.md` |
 | SMART on openEHR | DEVELOPMENT (the ITS-REST draft at its amendment record 1.1.0, 2025-05-20, pinned by commit below; never a release) | `docs/architecture.md` §2 and §3.9, `docs/specs/smart-on-openehr/PROVENANCE.md` |
 
@@ -64,6 +64,8 @@ RFC Editor reports obsoleted, and records what updates it.
 | RFC 9449 | OAuth 2.0 Demonstrating Proof of Possession (DPoP), for reference, sha256 `3842c58e1f6043389416023b9bb8d765048266024982fbbd90640e05943f4e13` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 8705 | OAuth 2.0 Mutual-TLS Client Authentication and Certificate-Bound Access Tokens, sha256 `6e45a1ee94c6a6a177a4cb077fe67d74bd70c1218c9362f2db2f153239612414` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 9470 | OAuth 2.0 Step Up Authentication Challenge Protocol, sha256 `02d742f49cc0a03fb09197563c436b6f38928a71b0d8e41cde9cfe0362363e56` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 8259 | The JavaScript Object Notation (JSON) Data Interchange Format, sha256 `61a5378f4255c720beb2a4b4a63b29540147c140f36988bf086291989b4cd2d7` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 6454 | The Web Origin Concept, sha256 `6a42d01bf407e87255e3bd8d870fda0f473e09f3272592ba438b57c983bc5399` | `docs/specs/rfc/PROVENANCE.md` |
 
 ## Licence
 
