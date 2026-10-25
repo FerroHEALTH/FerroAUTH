@@ -36,6 +36,7 @@ values from `tokens.css` here verbatim.
 |---|---|
 | `ferroauth-icon.svg` | primary icon, full colour, transparent background, 64-unit viewBox at a 512 intrinsic size |
 | `tokens.css` | the palette as CSS custom properties |
+| `ferroauth-lockup-auto.svg` | the mark and the wordmark side by side for the README: the shield in bronze and the keyhole in bronze-light on a light ground, the shield in bronze-light and the keyhole in mist on a dark ground, switched on `prefers-color-scheme` |
 
-The lockups, the favicon set and the social card follow when the product has a
-site to carry them.
+The favicon set and the social card follow when the product has a site to
+carry them.
