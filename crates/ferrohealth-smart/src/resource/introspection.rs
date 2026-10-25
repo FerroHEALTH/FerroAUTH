@@ -96,6 +96,9 @@ pub struct IntrospectionSettings {
     pub timeout: Duration,
     /// The subjects granted system-wide access without a clinical scope.
     pub scopeless_subjects: BTreeSet<String>,
+    /// The members of a response the caller's roles are read from, each a
+    /// dotted path (RFC 9068 §2.2.3.1; [`crate::roles`]).
+    pub role_claims: Vec<String>,
 }
 
 impl IntrospectionSettings {
@@ -122,6 +125,7 @@ impl IntrospectionSettings {
             cache_capacity: 10_000,
             timeout: Duration::from_secs(10),
             scopeless_subjects: BTreeSet::new(),
+            role_claims: crate::roles::default_claims(),
         }
     }
 
@@ -551,6 +555,7 @@ impl Introspector {
                 profile: TokenProfile::Rfc9068,
                 clock_skew: self.settings.clock_skew,
                 scopeless_subjects: &self.settings.scopeless_subjects,
+                role_claims: &self.settings.role_claims,
                 resource_types: self.resource_types.as_ref(),
                 extensions: &self.extensions,
             },

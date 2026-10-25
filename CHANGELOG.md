@@ -11,7 +11,28 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The roles a caller holds (#101). `Caller::roles()` carries what the
+  `roles`, `groups` and `entitlements` claims of RFC 9068 §2.2.3.1 hold, or
+  the dotted paths `[auth] role_claims` names, from a JWT and from an
+  introspection answer alike: each string array element, each SCIM complex
+  element's `value` (RFC 7643 §2.4) and each word of a string, trimmed and
+  once. A Basic user holds `[[auth.basic.users]] roles`
+  (`PasswordStore::with_roles`). `Caller::has_role` matches without regard to
+  ASCII case and `Caller::claim_text` reads a string at a dotted claim path.
+- Role requirements in the route table: `Requirement::Role`,
+  `Requirement::AnyRole`, `Requirement::WithoutRole` (a restriction that
+  overrides a grant) and `Requirement::All`.
+- RFC 7643 and RFC 9396 are vendored and pinned.
+
 ### Changed
+
+- **Breaking:** `resource::Settings`, `resource::introspection::IntrospectionSettings`,
+  `config::AuthSection`, `config::BasicUser` and `basic::Verified` gain a
+  field (`role_claims` or `roles`); a struct literal adds it or ends with
+  `..Default::default()` where the type has a default. `basic::StoreError`
+  gains `Role` and `UnknownUser`.
 
 - The repository is FerroAUTH, renamed from FerroSMART on 2026-10-25, at
   <https://github.com/FerroHEALTH/FerroAUTH>; the old address redirects. It

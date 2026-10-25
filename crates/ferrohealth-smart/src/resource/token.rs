@@ -95,6 +95,7 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
             profile: settings.profile,
             clock_skew: settings.clock_skew,
             scopeless_subjects: &settings.scopeless_subjects,
+            role_claims: &settings.role_claims,
             resource_types: server.resource_types.as_ref(),
             extensions: &server.extensions,
         },
@@ -112,6 +113,8 @@ pub(super) struct Admission<'a> {
     pub(super) clock_skew: Duration,
     /// The subjects granted system-wide access without a clinical scope.
     pub(super) scopeless_subjects: &'a BTreeSet<String>,
+    /// The claims the roles are read from.
+    pub(super) role_claims: &'a [String],
     /// The resource types a clinical scope may name, when the product holds
     /// a table.
     pub(super) resource_types: Option<&'a ResourceTypes>,
@@ -149,8 +152,10 @@ pub(super) fn admit(
         Some(known) => Scopes::parse_known(&scope, |name| known(name)),
         None => Scopes::parse(&scope),
     };
+    let roles = crate::roles::from_claims(&claims, admission.role_claims);
     Ok(Caller::new(subject, client_id, &scope, patient, scopeless)
         .with_scopes(scopes)
+        .with_roles(roles)
         .with_issuer(admission.issuer.to_owned())
         .with_claims(claims)
         .with_extensions(admission.extensions.clone()))

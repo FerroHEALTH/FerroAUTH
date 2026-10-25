@@ -41,6 +41,7 @@ impl Caller {
             via: Via::Bearer,
             issuer: None,
             claims: serde_json::Map::new(),
+            roles: Vec::new(),
             cached: false,
             extensions: http::Extensions::new(),
         }
@@ -77,6 +78,34 @@ impl Caller {
     pub fn with_claims(mut self, claims: serde_json::Map<String, serde_json::Value>) -> Self {
         self.claims = claims;
         self
+    }
+
+    /// Returns this caller holding `roles`.
+    #[must_use]
+    pub fn with_roles(mut self, roles: Vec<String>) -> Self {
+        self.roles = roles;
+        self
+    }
+
+    /// Returns the roles the caller holds, as the token's claims or the Basic
+    /// user's configuration spell them ([`crate::roles`]).
+    #[must_use]
+    pub fn roles(&self) -> &[String] {
+        &self.roles
+    }
+
+    /// Returns whether the caller holds `role`, ignoring ASCII case.
+    #[must_use]
+    pub fn has_role(&self, role: &str) -> bool {
+        crate::roles::holds(&self.roles, role)
+    }
+
+    /// Returns the string at the dotted claim `path` of the token, trimmed,
+    /// or `None` when it is absent, not a string, or blank; a Basic caller
+    /// carries no claim.
+    #[must_use]
+    pub fn claim_text(&self, path: &str) -> Option<&str> {
+        crate::roles::claim_text(&self.claims, path)
     }
 
     /// Returns this caller carrying `value`, which a handler reads with
@@ -357,6 +386,12 @@ impl Access {
     #[must_use]
     pub fn basic_user_in<S: AsRef<str>>(&self, users: &[S]) -> Option<&str> {
         self.caller().and_then(|caller| caller.basic_user_in(users))
+    }
+
+    /// Returns the caller's roles; none on an open surface.
+    #[must_use]
+    pub fn roles(&self) -> &[String] {
+        self.caller().map_or(&[], Caller::roles)
     }
 
     /// Returns the caller's claims, or `None` on an open surface.

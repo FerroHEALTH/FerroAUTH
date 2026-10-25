@@ -35,6 +35,7 @@ fn the_sent_credential_verifies_against_the_store() -> Result<(), Box<dyn StdErr
         Ok(Verified {
             username: String::from("ferro-bridge"),
             scope: String::from("system/*.rs"),
+            roles: Vec::new(),
             cached: false,
         }),
         store.verify(&sent.header_value())
@@ -47,6 +48,24 @@ fn the_sent_credential_verifies_against_the_store() -> Result<(), Box<dyn StdErr
         store.verify(&unknown.header_value())
     );
     assert_eq!(2, store.len());
+    Ok(())
+}
+
+#[test]
+fn a_verified_user_carries_its_configured_roles() -> Result<(), Box<dyn StdError>> {
+    let store = PasswordStore::new()
+        .with_user("ferro-bridge", hash("synthetic-pw"), "")?
+        .with_roles(
+            "ferro-bridge",
+            vec![String::from("etl"), String::from("reader")],
+        )?;
+    let sent = Credential::new("ferro-bridge", SecretString::from("synthetic-pw"))?;
+    let verified = store.verify(&sent.header_value())?;
+    assert_eq!(verified.roles, ["etl", "reader"]);
+    assert!(matches!(
+        PasswordStore::new().with_roles("nobody", vec![String::from("etl")]),
+        Err(ferrohealth_smart::basic::StoreError::UnknownUser { .. })
+    ));
     Ok(())
 }
 

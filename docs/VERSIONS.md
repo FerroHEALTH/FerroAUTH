@@ -66,6 +66,8 @@ RFC Editor reports obsoleted, and records what updates it.
 | RFC 9470 | OAuth 2.0 Step Up Authentication Challenge Protocol, sha256 `02d742f49cc0a03fb09197563c436b6f38928a71b0d8e41cde9cfe0362363e56` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 8259 | The JavaScript Object Notation (JSON) Data Interchange Format, sha256 `61a5378f4255c720beb2a4b4a63b29540147c140f36988bf086291989b4cd2d7` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 6454 | The Web Origin Concept, sha256 `6a42d01bf407e87255e3bd8d870fda0f473e09f3272592ba438b57c983bc5399` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 7643 | System for Cross-domain Identity Management: Core Schema, sha256 `df799c112a3fa5be3c0fe054c08b1f4eb5d07590c4c8343a014c4537bf638ae3` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 9396 | OAuth 2.0 Rich Authorization Requests, sha256 `d6a8f032d8a585daae1c33a8c7b6e539d199f886ec8cc1c7898436f7f2eed29c` | `docs/specs/rfc/PROVENANCE.md` |
 
 ## Licence
 

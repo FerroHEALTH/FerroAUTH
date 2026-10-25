@@ -188,6 +188,9 @@ pub struct AuthSection {
     pub realm: String,
     /// The exact `sub` values granted system-wide access without a scope.
     pub scopeless_subjects: Vec<String>,
+    /// The claims a token's roles are read from, each a dotted path; by
+    /// default `roles`, `groups` and `entitlements` (RFC 9068 §2.2.3.1).
+    pub role_claims: Vec<String>,
     /// The SMART capabilities the discovery document adds, each a
     /// capability SMART App Launch 2.2.0 or the SMART on openEHR draft
     /// defines, or a full URI.
@@ -279,6 +282,7 @@ impl Default for AuthSection {
             timeout_ms: 10_000,
             realm: String::new(),
             scopeless_subjects: Vec::new(),
+            role_claims: crate::roles::default_claims(),
             capabilities: Vec::new(),
             scopes_supported: Vec::new(),
             product_scope: String::new(),
@@ -348,6 +352,8 @@ pub struct BasicUser {
     pub password_hash_file: Option<PathBuf>,
     /// The scopes the user is granted.
     pub scopes: Vec<String>,
+    /// The roles the user is granted ([`crate::roles`]).
+    pub roles: Vec<String>,
 }
 
 /// What the `[auth]` section resolves to.
@@ -444,6 +450,7 @@ impl AuthSection {
                 scope: self.product_scope.clone(),
             });
         }
+        self.check_role_claims()?;
         let basic_users = self
             .basic
             .as_ref()
@@ -500,6 +507,7 @@ impl AuthSection {
                     )?;
                     store = store
                         .with_user(user.user.clone(), hash, user.scopes.join(" "))
+                        .and_then(|store| store.with_roles(&user.user, user.roles.clone()))
                         .map_err(|source| ConfigError::Basic { source })?;
                 }
                 store = store
@@ -519,6 +527,20 @@ impl AuthSection {
             #[cfg(feature = "fetch")]
             introspection,
         })
+    }
+
+    /// Refuses a role claim path that is empty, has an empty step, or
+    /// carries whitespace.
+    fn check_role_claims(&self) -> Result<(), ConfigError> {
+        let malformed = |path: &String| {
+            path.split('.').any(str::is_empty) || path.contains(char::is_whitespace)
+        };
+        if self.role_claims.iter().any(malformed) {
+            return Err(ConfigError::Missing {
+                key: "auth.role_claims",
+            });
+        }
+        Ok(())
     }
 
     /// Returns the introspection settings of `mode = "introspection"`: the
@@ -590,6 +612,7 @@ impl AuthSection {
         settings.cache_capacity = section.cache_capacity;
         settings.timeout = Duration::from_millis(self.timeout_ms);
         settings.scopeless_subjects = self.scopeless_subjects.iter().cloned().collect();
+        settings.role_claims.clone_from(&self.role_claims);
         settings
             .validate()
             .map_err(|source| ConfigError::Introspection {
@@ -636,6 +659,7 @@ impl AuthSection {
                 .iter()
                 .cloned()
                 .collect::<BTreeSet<_>>(),
+            role_claims: self.role_claims.clone(),
         }
     }
 }
