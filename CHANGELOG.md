@@ -31,6 +31,11 @@ and this project adheres to
   effort, and a fixed release published within 7 days of the confirmed
   assessment for a Critical vulnerability, 30 days for High, 90 days for
   Medium and with the next release for Low.
+- **Breaking:** `openehr-sdt` 0.0.98 in place of 0.0.90, the version
+  FerroEHR v5.4.1 publishes, so FerroEHR builds one copy of the SMART on
+  openEHR parser in place of two. The `openehr::smart_scopes` re-export
+  names the 0.0.98 types, so a product with the `openehr` feature that
+  depends on `openehr-sdt` itself moves to 0.0.98 with it (#83).
 
 ## [0.4.1] - 2026-10-21
 
