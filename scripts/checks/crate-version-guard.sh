@@ -4,7 +4,7 @@
 # The crate version rule (.claude/rules/crates-publishing.md): the workspace
 # version is ferrohealth-smart's version and the `v` release tag, so it never
 # moves backwards, Cargo.lock carries it for ferrohealth-smart, and
-# CHANGELOG.md has a section for it. ferrohealth-authz keeps its own version
+# crates/ferrohealth-smart/CHANGELOG.md has a section for it. ferrohealth-authz keeps its own version
 # line in its own manifest, released by the `ferrohealth-authz-v` tag: it never
 # moves backwards, Cargo.lock carries it, and once it moves past the 0.0.0 name
 # holder crates/ferrohealth-authz/CHANGELOG.md has a section for it. A change
@@ -60,8 +60,9 @@ if [[ "$locked" != "$want" ]]; then
   failed=1
 fi
 
-if ! git show "$head:CHANGELOG.md" | grep -qF "## [$want]"; then
-  echo "crate-version-guard: CHANGELOG.md has no section for $want" >&2
+smart_changelog="crates/ferrohealth-smart/CHANGELOG.md"
+if ! git show "$head:$smart_changelog" | grep -qF "## [$want]"; then
+  echo "crate-version-guard: $smart_changelog has no section for $want" >&2
   failed=1
 fi
 

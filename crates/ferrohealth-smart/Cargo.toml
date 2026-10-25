@@ -14,7 +14,7 @@ publish = true
 readme = "README.md"
 keywords = ["smart-on-fhir", "openehr", "oauth2", "jwt", "resource-server"]
 categories = ["authentication", "web-programming"]
-include = ["src/**", "tests/**", "README.md"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md"]
 
 [features]
 default = ["fetch"]

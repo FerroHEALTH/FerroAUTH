@@ -11,6 +11,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The changelog moves from the repository root to
+  `crates/ferrohealth-smart/CHANGELOG.md`, beside `ferrohealth-authz`'s, and
+  the published crate carries it.
+
 ## [0.7.0] - 2026-10-25
 
 The granted subject: a caller's roles from the RFC 9068 claims or the Basic

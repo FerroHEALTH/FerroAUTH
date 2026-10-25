@@ -54,7 +54,8 @@ records, and it does not decide the work is done on your behalf.
    `.claude/rules/ci-cd.md` for every crate the change touched. Report the
    results you saw, never a green you assumed.
 7. **Changelog check:** a change with user-visible effect has an entry under
-   `[Unreleased]` in `CHANGELOG.md`. Add it if it is missing.
+   `[Unreleased]` in the changelog of the crate it ships in
+   (`crates/<crate>/CHANGELOG.md`). Add it if it is missing.
 8. **Write the close narrative into the PR description:** what shipped, the key
    decisions with their citations, the gate results, and what was deliberately
    left out (with follow-up issue numbers). The PR description plus the issue

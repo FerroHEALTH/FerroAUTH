@@ -36,7 +36,7 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
   OpenSSF API and to code scanning.
 - `.github/workflows/release.yml`: dormant until a `v*` tag is pushed. It
   validates the tag against the workspace version, takes the notes from the
-  matching `CHANGELOG.md` section, creates the release as a draft, calls
+  matching section of the tagged crate's `crates/<crate>/CHANGELOG.md`, creates the release as a draft, calls
   `release-crate.yml` (a reusable workflow, so the signing identity stays out
   of reach of caller steps) to package the `.crate`, attest it and attach it,
   publishes the release, and then its `crates` leg uploads the crate through
