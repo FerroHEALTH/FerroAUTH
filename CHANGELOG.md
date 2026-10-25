@@ -11,6 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-25
+
+The granted subject: a caller's roles from the RFC 9068 claims or the Basic
+user's configuration, with role requirements in the route table; the
+assurance level and the natural person behind a token, with the RFC 9470
+step-up; `OauthSection` checks named in the product's own keys and URLs
+rendered without userinfo. The repository releases `ferrohealth-authz`
+beside this crate, and each crate is now tagged with its name; this release
+is `ferrohealth-smart-v0.7.0`. Products pin `=0.7.0`; the breaking change
+below names what a product changes.
+
 ### Added
 
 - The roles a caller holds (#101). `Caller::roles()` carries what the
@@ -565,7 +576,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.0...HEAD
+[0.7.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.6.0...ferrohealth-smart-v0.7.0
 [0.6.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.4.1...v0.5.0
