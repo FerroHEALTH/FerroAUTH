@@ -53,13 +53,15 @@ fn the_sent_credential_verifies_against_the_store() -> Result<(), Box<dyn StdErr
 
 #[test]
 fn a_verified_user_carries_its_configured_roles() -> Result<(), Box<dyn StdError>> {
+    // A password made when the case runs, so no credential is written down.
+    let password = format!("pw-{}", std::process::id());
     let store = PasswordStore::new()
-        .with_user("ferro-bridge", hash("synthetic-pw"), "")?
+        .with_user("ferro-bridge", hash(&password), "")?
         .with_roles(
             "ferro-bridge",
             vec![String::from("etl"), String::from("reader")],
         )?;
-    let sent = Credential::new("ferro-bridge", SecretString::from("synthetic-pw"))?;
+    let sent = Credential::new("ferro-bridge", SecretString::from(password))?;
     let verified = store.verify(&sent.header_value())?;
     assert_eq!(verified.roles, ["etl", "reader"]);
     assert!(matches!(
