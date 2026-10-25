@@ -11,6 +11,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-25
+
+A patch release with no breaking API change: the repeated-name refusal of
+0.5.0 now covers the key set, operator-supplied metadata is compared and
+checked through the same functions discovery uses, its mutual-TLS token
+alias included, and the manual crate publish runs only at a released tag.
+A product pins `=0.5.1` in place of `=0.5.0` and changes nothing else.
+
 ### Fixed
 
 - `ResourceServer::with_metadata` holds the `mtls_endpoint_aliases`
