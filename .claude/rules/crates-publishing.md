@@ -13,7 +13,7 @@ Published versions are immutable, so version hygiene is a hard rule.
 The workspace `version` in the root `Cargo.toml` is `ferrohealth-smart`'s
 version and its release tag `ferrohealth-smart-vX.Y.Z` (0.1.0 to 0.6.0 were
 tagged `vX.Y.Z`; those tags stay); it inherits it (`version.workspace =
-true`), and its changelog is `CHANGELOG.md`. `ferrohealth-authz` keeps its own
+true`), and its changelog is `crates/ferrohealth-smart/CHANGELOG.md`. `ferrohealth-authz` keeps its own
 `[package] version`, released by the tag `ferrohealth-authz-vX.Y.Z`, with its
 own `crates/ferrohealth-authz/CHANGELOG.md`. For each, the tag, the crate and
 the changelog section always agree (`scripts/checks/crate-version-guard.sh`,

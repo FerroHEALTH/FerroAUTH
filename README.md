@@ -108,7 +108,7 @@ integration guide, and
 
 - [`ferrohealth-smart` on docs.rs](https://docs.rs/ferrohealth-smart) and the [FerroHEALTH book](https://ferrohealth.eu/docs/)
 - [Architecture](docs/architecture.md) and the [pinned specifications](docs/VERSIONS.md)
-- [Changelog](CHANGELOG.md) and [milestones](https://github.com/FerroHEALTH/FerroAUTH/milestones)
+- Changelogs of [`ferrohealth-smart`](crates/ferrohealth-smart/CHANGELOG.md) and [`ferrohealth-authz`](crates/ferrohealth-authz/CHANGELOG.md), and [milestones](https://github.com/FerroHEALTH/FerroAUTH/milestones)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md), [code of conduct](CODE_OF_CONDUCT.md), [support](SUPPORT.md), [governance](GOVERNANCE.md) and [maintainers](MAINTAINERS.md)
 

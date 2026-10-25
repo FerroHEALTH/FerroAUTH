@@ -85,7 +85,9 @@ until the fix ships. Every fixed vulnerability is published as that
 advisory, in the same hour as the release that fixes it: one in FerroAUTH's
 own code, and one for a dependency fix that changes what a published crate
 builds into. The `### Security` entry for the fix in
-[`CHANGELOG.md`](CHANGELOG.md) carries the advisory's `GHSA-` identifier,
+the affected crate's changelog
+([`ferrohealth-smart`](crates/ferrohealth-smart/CHANGELOG.md),
+[`ferrohealth-authz`](crates/ferrohealth-authz/CHANGELOG.md)) carries the advisory's `GHSA-` identifier,
 and the release notes repeat it (CRA Annex I Part II(4), (8)). CI and the
 release check both rules (`scripts/checks/changelog-security.sh`). The
 advisories are machine-readable through the GitHub REST API

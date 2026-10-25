@@ -102,8 +102,8 @@ jobs:
       - name: The manual crate publish refuses a run off its release tag
         run: bash scripts/release/publish-crates.sh --self-test
 
-  # Every section of each crate's changelog (CHANGELOG.md for
-  # ferrohealth-smart, crates/ferrohealth-authz/CHANGELOG.md) holds Keep a
+  # Every section of each crate's changelog (crates/<crate>/CHANGELOG.md)
+  # holds Keep a
   # Changelog types each once, and [Unreleased] keeps the Security rules the
   # release plan checks on the section it cuts (no specification governs the
   # wiring: our own design).
@@ -117,13 +117,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: bash scripts/checks/changelog-structure.sh
+      - run: bash scripts/checks/changelog-structure.sh crates/ferrohealth-smart/CHANGELOG.md
       - run: bash scripts/checks/changelog-structure.sh crates/ferrohealth-authz/CHANGELOG.md
       # Regulation (EU) 2024/2847 Annex I Part II(2), (4) and (8): every
       # Security entry names its GHSA advisory or VEX statement, and a
       # Security section beside other changes opens with its reason.
-      - run: bash scripts/checks/changelog-security.sh --section Unreleased
-      - run: bash scripts/checks/changelog-security.sh --section Unreleased crates/ferrohealth-authz/CHANGELOG.md
+      - run: VEX_ROOT=. bash scripts/checks/changelog-security.sh --section Unreleased crates/ferrohealth-smart/CHANGELOG.md
+      - run: VEX_ROOT=. bash scripts/checks/changelog-security.sh --section Unreleased crates/ferrohealth-authz/CHANGELOG.md
 
   comment-style:
     name: comment-style

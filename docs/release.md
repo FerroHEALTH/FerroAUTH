@@ -8,7 +8,7 @@ release from this workspace, each on its own version line:
 
 | Crate | Tag | Version | Changelog |
 |---|---|---|---|
-| `ferrohealth-smart` | `ferrohealth-smart-vX.Y.Z` | `[workspace.package]` of `Cargo.toml` | `CHANGELOG.md` |
+| `ferrohealth-smart` | `ferrohealth-smart-vX.Y.Z` | `[workspace.package]` of `Cargo.toml` | `crates/ferrohealth-smart/CHANGELOG.md` |
 | `ferrohealth-authz` | `ferrohealth-authz-vX.Y.Z` | `[package]` of `crates/ferrohealth-authz/Cargo.toml` | `crates/ferrohealth-authz/CHANGELOG.md` |
 
 A release is the signed tag on the merge commit of the release pull request

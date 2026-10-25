@@ -76,7 +76,7 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 
 ## Repo map
 
-- `crates/ferrohealth-smart`: the library. `src/` (`metadata`, `resource`
+- `crates/ferrohealth-smart`: the library, with its own `CHANGELOG.md`. `src/` (`metadata`, `resource`
   with `jwks`, `token`, `configuration` and `introspection`, `scope`, `basic`, `client` with
   `cache`, `endpoint` and `assertion`, `audit`, `refusal`, `config`, and
   `guard` and `extract` behind `axum`), `tests/it/` (one binary: the token
@@ -130,7 +130,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   code comment. A `PreToolUse` hook blocks a commit or PR command carrying
   one.
 - **Never weaken, skip, or delete a test** (`.claude/rules/testing.md`).
-- **Keep the changelog** (`CHANGELOG.md`, Keep a Changelog 1.1.0).
+- **Keep the changelog** (`crates/<crate>/CHANGELOG.md` of the crate a change
+  ships in, Keep a Changelog 1.1.0).
 
 ## Licence
 

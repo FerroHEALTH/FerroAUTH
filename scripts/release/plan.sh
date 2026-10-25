@@ -10,8 +10,8 @@
 #
 # Two crates release from this workspace, each on its own version line and
 # its own tag: `ferrohealth-smart-vX.Y.Z` releases ferrohealth-smart (the
-# [workspace.package] version, CHANGELOG.md), and `ferrohealth-authz-vX.Y.Z`
-# releases ferrohealth-authz (its own [package] version,
+# [workspace.package] version, crates/ferrohealth-smart/CHANGELOG.md), and
+# `ferrohealth-authz-vX.Y.Z` releases ferrohealth-authz (its own [package] version,
 # crates/ferrohealth-authz/CHANGELOG.md). The `vX.Y.Z` tags of
 # ferrohealth-smart 0.1.0 to 0.6.0 stay as they were and count as its earlier
 # releases.
@@ -80,7 +80,7 @@ crate_of() {
 changelog_of() {
   case "$1" in
   ferrohealth-authz-v*) echo "crates/ferrohealth-authz/CHANGELOG.md" ;;
-  *) echo "CHANGELOG.md" ;;
+  *) echo "crates/ferrohealth-smart/CHANGELOG.md" ;;
   esac
 }
 
@@ -250,7 +250,7 @@ check_changelog_links() {
 # every advisory.
 check_changelog_security() {
   bash scripts/checks/changelog-security.sh --self-test
-  bash scripts/checks/changelog-security.sh --section "$VERSION" "$CHANGELOG"
+  VEX_ROOT=. bash scripts/checks/changelog-security.sh --section "$VERSION" "$CHANGELOG"
 }
 
 check_notes() {
@@ -352,6 +352,8 @@ self_test() {
   expect "the crate of an authz tag" "$(crate_of ferrohealth-authz-v0.1.0)" "ferrohealth-authz"
   expect "the version of an authz tag" "$(version_of ferrohealth-authz-v0.1.0-rc.1)" "0.1.0-rc.1"
   expect "the changelog of an authz tag" "$(changelog_of ferrohealth-authz-v0.1.0)" "crates/ferrohealth-authz/CHANGELOG.md"
+  expect "the changelog of a smart tag" "$(changelog_of ferrohealth-smart-v0.8.0)" "crates/ferrohealth-smart/CHANGELOG.md"
+  expect "the changelog of a legacy v tag" "$(changelog_of v0.6.0)" "crates/ferrohealth-smart/CHANGELOG.md"
   expect "a plain date" "$(support_end 2026-10-23)" "October 2031"
   expect "a leap day into a common year" "$(support_end 2028-02-29)" "March 2033"
   expect "a leap day in a common year" "$(support_end 2027-02-29 || echo "$refused")" "$refused"

@@ -63,8 +63,8 @@ governs this: our own design".
 - Declare `Closes #N`, one keyword per issue.
 - Never weaken, skip, or delete a test to make a build pass; every refusal
   you add has an asserted negative test.
-- Add a `CHANGELOG.md` entry under `[Unreleased]` for any change a product
-  sees, and name what a product must change when an API breaks.
+- Add an entry under `[Unreleased]` in the changed crate's
+  `crates/<crate>/CHANGELOG.md` for any change a product sees, and name what a product must change when an API breaks.
 - Write prose to `.claude/rules/writing-style.md`.
 
 ## Using AI tools

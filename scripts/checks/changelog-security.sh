@@ -25,8 +25,10 @@
 #   scripts/checks/changelog-security.sh --self-test
 #
 # <file> defaults to CHANGELOG.md, --section to Unreleased. A VEX path is
-# resolved against the directory that holds <file>. VEX_DIR names the VEX
-# directory relative to it (default security/vex). CHANGELOG_RULE names the
+# resolved against VEX_ROOT, by default the directory that holds <file>, so a
+# crate changelog under crates/<name>/ names the repository's VEX statements
+# with VEX_ROOT=. ; VEX_DIR names the VEX directory relative to it (default
+# security/vex). CHANGELOG_RULE names the
 # document a refusal points at (default: the Security entries section of
 # docs/release.md).
 #
@@ -45,7 +47,7 @@ readonly REASON_PREFIX="Shipped with functional changes because: "
 check() {
   local file="$1" section="$2" vex_dir="${VEX_DIR:-security/vex}" root
   [[ -f "$file" ]] || { echo "error: $0: no changelog at $file" >&2; return 2; }
-  root="$(dirname "$file")"
+  root="${VEX_ROOT:-$(dirname "$file")}"
 
   # The scan prints three kinds of record, tab-separated, for the shell to act
   # on: `missing`, `finding <text>`, and `vex <line> <path> <item>` for every
@@ -257,6 +259,17 @@ self_test() {
   set -e
   [[ "$rc" == 0 ]] || {
     echo "self-test: VEX_DIR was not honoured: exit $rc, output: $out" >&2
+    fails=$((fails + 1))
+  }
+  # VEX_ROOT resolves a crate changelog's VEX path against the repository.
+  mkdir -p "$work/crates/c" "$work/security/vex" && echo '{}' >"$work/security/vex/y.json"
+  printf '## [2.0.0]\n\n### Security\n\n- dep (security/vex/y.json)\n' >"$work/crates/c/CHANGELOG.md"
+  set +e
+  out="$(VEX_ROOT="$work" check "$work/crates/c/CHANGELOG.md" 2.0.0 2>&1)"
+  rc=$?
+  set -e
+  [[ "$rc" == 0 ]] || {
+    echo "self-test: VEX_ROOT was not honoured: exit $rc, output: $out" >&2
     fails=$((fails + 1))
   }
 

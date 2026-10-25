@@ -30,7 +30,7 @@ lockstep, in one pull request per product.
 | What to build, and why    | the issue, with its acceptance criteria                         |
 | How a check behaves       | the pull request, citing the specification section              |
 | The design                | `docs/architecture.md`, with its decision register              |
-| A release's contents      | its `CHANGELOG.md` section and its milestone                    |
+| A release's contents      | its crate's `CHANGELOG.md` section and its milestone            |
 
 ## Becoming a maintainer
 
