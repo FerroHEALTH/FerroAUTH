@@ -11,6 +11,7 @@
 //! product into a load on the authorization server. A read that fails keeps
 //! the previous set in use for the keys it holds and is not repeated inside
 //! the interval (no specification governs the cache: our own design).
+//! A set in which any object repeats a member name is refused (RFC 8259 §4).
 
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -262,6 +263,20 @@ async fn fetch(
                 }
             })?,
         };
+    if let Err(error) = crate::metadata::repeats_no_name(body.as_bytes()) {
+        // NOTE: RFC 8259 §4, only the repeated-name refusal reads as a data
+        // error, so any other failure is a body that is no JSON at all.
+        if error.classify() == serde_json::error::Category::Data {
+            return Err(ResourceError::KeySetRepeatedName {
+                origin: source.clone(),
+                error,
+            });
+        }
+        return Err(ResourceError::KeySet {
+            origin: source.clone(),
+            error,
+        });
+    }
     let document: Document =
         serde_json::from_str(&body).map_err(|error| ResourceError::KeySet {
             origin: source.clone(),

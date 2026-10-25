@@ -11,6 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- A key set in which any object, at any depth, repeats a member name is
+  refused with the new `ResourceError::KeySetRepeatedName`, as the metadata
+  document is since 0.5.0, whether it is read over the `jwks_uri` or from a
+  `jwks_file` (RFC 8259 §4). A held set stays in use for the keys it holds
+  when a read is refused (#88).
+- `ResourceServer::with_metadata` compares the issuer of operator-supplied
+  metadata through `metadata::check_issuer`, the RFC 8414 §3.3 comparison
+  discovery uses; the refusal stays `ResourceError::MetadataIssuer` (#89).
+
 ## [0.5.0] - 2026-10-25
 
 `openehr-sdt` 0.0.98, the version FerroEHR v5.4.1 publishes, so FerroEHR

@@ -243,6 +243,16 @@ pub enum ResourceError {
         #[source]
         error: serde_json::Error,
     },
+    /// An object of the key set repeats a member name, whose meaning
+    /// RFC 8259 §4 leaves to each parser.
+    #[error("the key set at {origin} repeats a member name")]
+    KeySetRepeatedName {
+        /// Where it was read from.
+        origin: KeySource,
+        /// What the JSON reader reported, with the position.
+        #[source]
+        error: serde_json::Error,
+    },
     /// The settings name no `jwks_file`, and the crate is built without the
     /// `fetch` feature that reads the issuer's metadata and its `jwks_uri`.
     #[error("the settings name no jwks_file, and this build reads no key set over HTTP")]
@@ -448,7 +458,7 @@ impl ResourceServer {
         if self.settings.jwks_file.is_none() {
             return Err(ResourceError::MetadataFetched);
         }
-        if metadata.issuer != self.settings.issuer {
+        if crate::metadata::check_issuer(&self.settings.issuer, &metadata.issuer).is_err() {
             return Err(ResourceError::MetadataIssuer {
                 found: metadata.issuer,
             });
