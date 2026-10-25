@@ -9,9 +9,12 @@
 # pushed, so the two cannot check different things.
 #
 # Two crates release from this workspace, each on its own version line and
-# tag: `vX.Y.Z` releases ferrohealth-smart (the [workspace.package] version,
-# CHANGELOG.md), and `ferrohealth-authz-vX.Y.Z` releases ferrohealth-authz
-# (its own [package] version, crates/ferrohealth-authz/CHANGELOG.md).
+# its own tag: `ferrohealth-smart-vX.Y.Z` releases ferrohealth-smart (the
+# [workspace.package] version, CHANGELOG.md), and `ferrohealth-authz-vX.Y.Z`
+# releases ferrohealth-authz (its own [package] version,
+# crates/ferrohealth-authz/CHANGELOG.md). The `vX.Y.Z` tags of
+# ferrohealth-smart 0.1.0 to 0.6.0 stay as they were and count as its earlier
+# releases.
 #
 #   plan.sh checks <tag> [--notes <file>]
 #       Runs every check below at the working tree, in order, and writes the
@@ -39,7 +42,7 @@
 # logged-in gh locally). Exit 2 on a usage error.
 set -euo pipefail
 
-readonly TAG_RE='^(ferrohealth-authz-)?v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+readonly TAG_RE='^ferrohealth-(smart|authz)-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 # The support period in years from the release date: the minimum of
 # Regulation (EU) 2024/2847 Art 13(8), as SECURITY.md states it.
 readonly SUPPORT_YEARS=5
@@ -53,7 +56,7 @@ usage() {
 valid_tag() {
   local tag="$1"
   [[ "$tag" =~ $TAG_RE ]] || {
-    echo "::error::plan: '$tag' is not a vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" >&2
+    echo "::error::plan: '$tag' is not a ferrohealth-smart-vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" >&2
     exit 2
   }
 }
@@ -62,6 +65,7 @@ valid_tag() {
 tag_prefix() {
   case "$1" in
   ferrohealth-authz-v*) echo "ferrohealth-authz-" ;;
+  ferrohealth-smart-v*) echo "ferrohealth-smart-" ;;
   *) echo "" ;;
   esac
 }
@@ -90,23 +94,29 @@ version_of() {
 
 # order_prev TAG: reads tag names on stdin and prints the release tag of the
 # same crate directly below TAG's release (its pre-release suffix dropped) by
-# version order.
+# version order. A ferrohealth-smart release counts the legacy `vX.Y.Z` tags
+# as its own.
 order_prev() {
-  local prefix version base
+  local prefix version want
   prefix="$(tag_prefix "$1")"
   version="$(version_of "$1")"
-  base="${prefix}v${version%%-*}"
-  grep -E "^${prefix}v[0-9]+\.[0-9]+\.[0-9]+\$" | grep -vxF "$base" |
+  want="${version%%-*}"
+  awk -v prefix="$prefix" '
+    {
+      tag = $0; v = ""
+      if (index(tag, prefix "v") == 1) v = substr(tag, length(prefix) + 2)
+      else if (prefix == "ferrohealth-smart-" && tag ~ /^v/) v = substr(tag, 2)
+      if (v ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print v "\t" tag
+    }' | awk -F'\t' -v want="$want" '$1 != want' |
     {
       cat
-      echo "$base"
-    } | sed "s#^${prefix}v##" | sort -V | sed "s#^#${prefix}v#" |
-    awk -v t="$base" '$0==t{print p; exit} {p=$0}'
+      printf '%s\t%s\n' "$want" "@"
+    } | sort -V -k1,1 | awk -F'\t' '$2 == "@" { print p; exit } { p = $2 }'
 }
 
 prev_tag() {
   local tag="$1" prev
-  prev="$(git ls-remote --tags --refs origin "$(tag_prefix "$tag")v*" | sed 's#.*refs/tags/##' | order_prev "$tag")"
+  prev="$(git ls-remote --tags --refs origin | sed 's#.*refs/tags/##' | order_prev "$tag")"
   [[ -n "$prev" ]] || {
     echo "::error::plan: no release tag below $tag" >&2
     return 1
@@ -317,23 +327,28 @@ self_test() {
       fails=$((fails + 1))
     fi
   }
-  got="$(printf '%s\n' v0.0.9 v0.1.0 v0.0.10 v0.0.8 v0.0.11-rc.1 v0.0.11 | order_prev v0.0.11)"
-  expect "version order, not lexical" "$got" "v0.0.10"
-  got="$(printf '%s\n' v0.0.9 v0.0.10 v0.0.11 | order_prev v0.0.10)"
-  expect "the tag itself is skipped" "$got" "v0.0.9"
-  got="$(printf '%s\n' v0.0.10 v0.0.11 | order_prev v0.0.11-rc.1)"
-  expect "a pre-release compares as its release" "$got" "v0.0.10"
-  got="$(printf '%s\n' v0.0.10 v0.0.11 | order_prev v0.0.12)"
-  expect "an unpushed tag" "$got" "v0.0.11"
-  got="$(printf '%s\n' v0.9.0 v1.10.0 v1.9.0 | order_prev v1.10.0)"
-  expect "a minor above nine" "$got" "v1.9.0"
-  got="$(printf '%s\n' v0.0.11 | order_prev v0.0.1)"
+  local smart=ferrohealth-smart-v
+  got="$(printf '%s\n' ${smart}0.0.9 ${smart}0.1.0 ${smart}0.0.10 ${smart}0.0.8 ${smart}0.0.11-rc.1 ${smart}0.0.11 | order_prev ${smart}0.0.11)"
+  expect "version order, not lexical" "$got" "${smart}0.0.10"
+  got="$(printf '%s\n' ${smart}0.0.9 ${smart}0.0.10 ${smart}0.0.11 | order_prev ${smart}0.0.10)"
+  expect "the tag itself is skipped" "$got" "${smart}0.0.9"
+  got="$(printf '%s\n' ${smart}0.0.10 ${smart}0.0.11 | order_prev ${smart}0.0.11-rc.1)"
+  expect "a pre-release compares as its release" "$got" "${smart}0.0.10"
+  got="$(printf '%s\n' ${smart}0.0.10 ${smart}0.0.11 | order_prev ${smart}0.0.12)"
+  expect "an unpushed tag" "$got" "${smart}0.0.11"
+  got="$(printf '%s\n' ${smart}0.9.0 ${smart}1.10.0 ${smart}1.9.0 | order_prev ${smart}1.10.0)"
+  expect "a minor above nine" "$got" "${smart}1.9.0"
+  got="$(printf '%s\n' ${smart}0.0.11 | order_prev ${smart}0.0.1)"
   expect "no tag below" "$got" ""
+  got="$(printf '%s\n' v0.5.1 v0.6.0 ferrohealth-authz-v0.9.0 | order_prev ${smart}0.7.0)"
+  expect "the legacy v tags count as ferrohealth-smart's" "$got" "v0.6.0"
+  got="$(printf '%s\n' v0.6.0 ${smart}0.7.0 | order_prev ${smart}0.8.0)"
+  expect "a per-crate tag after the legacy ones" "$got" "${smart}0.7.0"
   got="$(printf '%s\n' v0.6.0 ferrohealth-authz-v0.1.0 ferrohealth-authz-v0.1.10 ferrohealth-authz-v0.1.9 | order_prev ferrohealth-authz-v0.1.10)"
   expect "a crate's tags order apart from the other crate's" "$got" "ferrohealth-authz-v0.1.9"
-  got="$(printf '%s\n' v0.5.0 v0.6.0 ferrohealth-authz-v0.9.0 | order_prev v0.7.0)"
-  expect "the other crate's tags are skipped" "$got" "v0.6.0"
-  expect "the crate of a smart tag" "$(crate_of v0.7.0)" "ferrohealth-smart"
+  got="$(printf '%s\n' v0.6.0 ferrohealth-authz-v0.1.0 | order_prev ferrohealth-authz-v0.2.0)"
+  expect "the legacy v tags are not ferrohealth-authz's" "$got" "ferrohealth-authz-v0.1.0"
+  expect "the crate of a smart tag" "$(crate_of ferrohealth-smart-v0.7.0)" "ferrohealth-smart"
   expect "the crate of an authz tag" "$(crate_of ferrohealth-authz-v0.1.0)" "ferrohealth-authz"
   expect "the version of an authz tag" "$(version_of ferrohealth-authz-v0.1.0-rc.1)" "0.1.0-rc.1"
   expect "the changelog of an authz tag" "$(changelog_of ferrohealth-authz-v0.1.0)" "crates/ferrohealth-authz/CHANGELOG.md"

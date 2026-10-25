@@ -42,10 +42,16 @@ and this project adheres to
 - The repository releases a second crate, `ferrohealth-authz`, on its own
   version line (#103): its tag is `ferrohealth-authz-vX.Y.Z`, its changelog
   `crates/ferrohealth-authz/CHANGELOG.md`, and the release and publish lanes
-  package, attest and publish the one crate a tag names; `v*` tags still
-  release `ferrohealth-smart`. The release plan refuses a cut whose
+  package, attest and publish the one crate a tag names. The release plan refuses a cut whose
   `[Unreleased]` link does not compare from the tag, and the link now
   compares from `v0.6.0`.
+
+- Each crate is tagged with its name from this release on (owner decision
+  of 2026-10-25): `ferrohealth-smart-vX.Y.Z` releases `ferrohealth-smart`,
+  beside `ferrohealth-authz-vX.Y.Z`. The release lane, the release plan, the
+  milestone check and the manual publish guard take the per-crate tags; the
+  `v0.1.0` to `v0.6.0` tags stay and count as `ferrohealth-smart`'s earlier
+  releases.
 
 - An `OauthSection` renders `issuer` and `token_endpoint` with any userinfo
   masked, serialized and in `Debug` (#105); its `Debug` is written by hand.
