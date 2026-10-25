@@ -3,11 +3,17 @@
 
 # Memory index
 
+- [Family architecture](family-architecture.md): the FerroHEALTH family
+  is five separate servers that reach each other only over published
+  protocols, plus shared crates for cross-cutting work; nothing is
+  hand-written that a shared crate or another product provides; owner
+  2026-10-25
 - [Memory lives in the repo](memory-lives-in-repo.md): every learning is a
   tracked file here, never a per-user note
-- [What FerroSMART is](ferrosmart.md): a library, never an authorization
-  server; the resource server, the scopes, two machine-auth modes and the
-  audit line every product shares; owner 2026-10-19
+- [What FerroSMART is](ferrosmart.md): two shared crates, never an
+  authorization server; `ferrohealth-smart` (the resource server, the
+  scopes, two machine-auth modes, the audit line) and `ferrohealth-authz`
+  (the policy decision); owner 2026-10-19 and 2026-10-25
 - [Crate name and licence](crate-name.md): the crate is `ferrohealth-smart`
   under BUSL-1.1, because hand-written code implementing a specification is
   BUSL in this family and only generator-emitted code is Apache; owner

@@ -5,10 +5,14 @@
 
 **FerroSMART** is SMART for the openEHR ecosystem, FHIR included: the
 shared SMART App Launch 2.x and OAuth 2.0 resource-server crate of the
-FerroHEALTH products, FerroBRIDGE, FerroFED, FerroEHR and FerroTERM. It is
-one Cargo workspace with the library crate `ferrohealth-smart` (Rust path
-`ferrohealth_smart`, published to crates.io), the way FerroUI is the
-family's shared UI crate.
+FerroHEALTH products, FerroBRIDGE, FerroEHR, FerroFED, FerroPIX and
+FerroTERM. It is one Cargo workspace with the library crate
+`ferrohealth-smart` (Rust path `ferrohealth_smart`, published to
+crates.io), the way FerroUI is the family's shared UI crate. The family's
+policy decision (ABAC, Cedar, a remote PDP) belongs to a second crate of
+this repository, `ferrohealth-authz`, which the owner assigned here on
+2026-10-25 and which is not yet in the workspace
+(`.claude/memory/family-architecture.md`).
 
 FerroSMART in prose, `ferrohealth-smart` in identifiers. The crate name and
 its licence are the owner's decision of 2026-10-19: `ferrohealth-smart`,
