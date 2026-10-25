@@ -682,13 +682,19 @@ pub struct CredentialsSection {
 }
 
 /// The `[<lane>.credentials.oauth]` table.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// Its rendering, serialized or `Debug`, shows `issuer` and
+/// `token_endpoint` with any userinfo masked and the secrets redacted, so a
+/// product can render its running configuration.
+#[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OauthSection {
     /// The issuer whose metadata names the token endpoint; exclusive with
     /// `token_endpoint`.
+    #[serde(serialize_with = "masked_url")]
     pub issuer: String,
     /// The token endpoint itself; exclusive with `issuer`.
+    #[serde(serialize_with = "masked_url")]
     pub token_endpoint: String,
     /// The client identifier.
     pub client_id: String,
@@ -751,6 +757,27 @@ impl Default for OauthSection {
             client_certificate_file: None,
             client_key_file: None,
         }
+    }
+}
+
+impl std::fmt::Debug for OauthSection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OauthSection")
+            .field("issuer", &mask_userinfo(&self.issuer))
+            .field("token_endpoint", &mask_userinfo(&self.token_endpoint))
+            .field("client_id", &self.client_id)
+            .field("client_auth", &self.client_auth)
+            .field(
+                "client_secret",
+                &self.client_secret.as_ref().map(|_set| REDACTED),
+            )
+            .field("client_secret_file", &self.client_secret_file)
+            .field("private_key_file", &self.private_key_file)
+            .field("kid", &self.kid)
+            .field("scope", &self.scope)
+            .field("resource", &self.resource)
+            .field("audience", &self.audience)
+            .finish_non_exhaustive()
     }
 }
 
@@ -918,6 +945,100 @@ impl OauthSection {
         Ok(grant)
     }
 
+    /// Returns every problem of the table without reading a file, each
+    /// naming its key under `table`, the key the product embeds the table at
+    /// (such as `terminology.server.oauth`): the issuer and the token
+    /// endpoint, exactly one set and well formed; the client id; the
+    /// credential its `client_auth` needs; the certificate and key files
+    /// set together; `assertion_audience = "issuer"` with an issuer; the
+    /// scope tokens; and a resource that is a URL without a fragment.
+    /// [`OauthSection::resolve`] still refuses what only the files show.
+    #[must_use]
+    pub fn problems(&self, table: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        match (self.issuer.is_empty(), self.token_endpoint.is_empty()) {
+            (false, false) => out.push(format!(
+                "{table}: set one of issuer and token_endpoint, not both"
+            )),
+            (true, true) => out.push(format!("{table}: set issuer or token_endpoint")),
+            (false, true) => {
+                if crate::metadata::issuer_url(&self.issuer).is_err() {
+                    out.push(format!(
+                        "{table}.issuer is not an https issuer identifier (RFC 8414 §2)"
+                    ));
+                }
+            }
+            (true, false) => {
+                if self.token_endpoint.parse::<Url>().is_err() {
+                    out.push(format!("{table}.token_endpoint is not a URL"));
+                }
+            }
+        }
+        if self.client_id.is_empty() {
+            out.push(format!("{table}.client_id must not be empty"));
+        }
+        match self.client_auth {
+            ClientAuth::ClientSecretBasic | ClientAuth::ClientSecretPost => {
+                match (&self.client_secret, &self.client_secret_file) {
+                    (Some(_), Some(_)) => out.push(format!(
+                        "{table}: set one of client_secret and client_secret_file, not both"
+                    )),
+                    (None, None) => out.push(format!(
+                        "{table} requires client_secret or client_secret_file"
+                    )),
+                    _ => {}
+                }
+            }
+            ClientAuth::PrivateKeyJwt => {
+                if self.private_key_file.is_none() {
+                    out.push(format!(
+                        "{table}.private_key_file is required by client_auth = \"private_key_jwt\""
+                    ));
+                }
+            }
+            ClientAuth::TlsClientAuth | ClientAuth::SelfSignedTlsClientAuth => {
+                if self.client_certificate_file.is_none() {
+                    out.push(format!(
+                        "{table}.client_certificate_file is required by a mutual-TLS client_auth"
+                    ));
+                }
+            }
+        }
+        match (&self.client_certificate_file, &self.client_key_file) {
+            (Some(_), None) => out.push(format!(
+                "{table}.client_key_file is required beside client_certificate_file"
+            )),
+            (None, Some(_)) => out.push(format!(
+                "{table}.client_certificate_file is required beside client_key_file"
+            )),
+            _ => {}
+        }
+        if self.assertion_audience == AssertionAudience::Issuer && self.issuer.is_empty() {
+            out.push(format!(
+                "{table}.issuer is required by assertion_audience = \"issuer\""
+            ));
+        }
+        if self
+            .scope
+            .split(' ')
+            .any(|token| !token.is_empty() && !is_scope_token(token))
+        {
+            out.push(format!(
+                "{table}.scope holds a token outside the RFC 6749 §3.3 character set"
+            ));
+        }
+        if !self.resource.is_empty() {
+            match self.resource.parse::<Url>() {
+                Err(_malformed) => out.push(format!("{table}.resource is not a URL")),
+                Ok(resource) if resource.fragment().is_some() => out.push(format!(
+                    "{table}.resource carries a fragment, which a resource indicator must not (RFC 8707 §2)"
+                )),
+                Ok(_) => {}
+            }
+        }
+        out
+    }
+
     /// Returns the TLS material the table names, each file read and, with
     /// the `fetch` feature, parsed, so a bad file refuses the start.
     fn tls(&self) -> Result<Tls, ConfigError> {
@@ -991,6 +1112,31 @@ fn parse_url(text: &str, key: &'static str) -> Result<Url, ConfigError> {
 
 /// The text a set secret is rendered as.
 const REDACTED: &str = "[redacted]";
+
+/// Returns `text` with the userinfo of the URL it is replaced by
+/// [`REDACTED`], or `text` itself when it is no URL or carries none.
+fn mask_userinfo(text: &str) -> String {
+    match text.parse::<Url>() {
+        Ok(mut url) if !url.username().is_empty() || url.password().is_some() => {
+            let masked = url.set_username(REDACTED).is_ok() && url.set_password(None).is_ok();
+            if masked {
+                url.to_string()
+            } else {
+                String::from(REDACTED)
+            }
+        }
+        _ => text.to_owned(),
+    }
+}
+
+/// Writes a URL with its userinfo masked ([`mask_userinfo`]).
+#[expect(
+    clippy::ptr_arg,
+    reason = "serde's serialize_with hands the field over as its own type"
+)]
+fn masked_url<S: Serializer>(text: &String, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_str(&mask_userinfo(text))
+}
 
 /// Writes a set secret as [`REDACTED`], never its value, so a product can
 /// render its running configuration (no specification governs the
