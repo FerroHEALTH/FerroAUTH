@@ -84,7 +84,7 @@ with the matrix.
 | Item | Pin | Ground |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | The registry's `latest` on 2026-10-19 and the current 2.x publication; the 2.x line is where the `cruds` scope grammar, the `.well-known/smart-configuration` document and the asymmetric client profile live. Vendored as the package `hl7.fhir.uv.smart-app-launch` 2.2.0 and the page sources at the release tag. |
-| OAuth 2.0 and JOSE | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5); its certificate-bound tokens stay product-specific (section 9). RFC 9470 is the step-up challenge of 3.7. Two are in the set for reference: RFC 7662, because section 6 says why introspection is not the default, and RFC 9449 (DPoP), the sender-constraining mechanism that stays product-specific (section 9). |
+| OAuth 2.0 and JOSE | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5); its certificate-bound tokens stay product-specific (section 9). RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. Two are in the set for reference: RFC 7662, because section 6 says why introspection is not the default, and RFC 9449 (DPoP), the sender-constraining mechanism that stays product-specific (section 9). |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 | SMART on openEHR | DEVELOPMENT (the ITS-REST draft, `openEHR/specifications-ITS-REST` at commit `9d25ea78…`, its tree last changed at `5183c1f9…`, amendment record 1.1.0 of 2025-05-20) | The one specification of openEHR scopes, which FerroEHR, FerroFED and FerroBRIDGE reach. It is a draft the ITS-REST release does not stabilise, so it is pinned by commit, its status is checked on every vendor run, and a weekly job fails when upstream moves (3.9). |
 
@@ -113,7 +113,29 @@ The document must name the configured issuer exactly: "The `issuer` value
 returned MUST be identical to the authorization server's issuer identifier
 value into which the well-known URI string was inserted" (`rfc8414 §3.3`;
 `discovery §4.3` has every operation that depends on failed validation
-aborted). A mismatch refuses the start.
+aborted). A mismatch refuses the start. The comparison is exact text, code
+point by code point once the JSON escaping is removed, with no
+normalization (`rfc8414 §4`), so a different case, a default port written
+out or a terminating `/` is another issuer (`metadata::check_issuer`). A
+product that also holds the configured issuer to the canonical form the URL
+parser writes, without userinfo, so the text compared and the URL fetched
+have one meaning, reads it with `metadata::canonical_issuer`; that form is
+no specification's: our own design, FerroPIX's (#67).
+
+A document in which any object repeats a member name is refused before it is
+read (`DiscoveryError::RepeatedName`): "The names within an object SHOULD be
+unique" (`rfc8259 §4`), and the meaning of a repeated one is each parser's,
+so a second `issuer` or `jwks_uri` could be the one another reader takes.
+The refusal is our own design (#69).
+
+A product that sends a credential only to its issuer's origin opts into
+`ServerMetadata::check_origin`, which refuses metadata naming an endpoint
+(`jwks_uri`, the authorization, token, registration, introspection and
+revocation endpoints, the mutual-TLS token alias) whose scheme, host and
+port differ from the issuer's (`rfc6454 §4`, `§5`). RFC 8414 places no
+endpoint, and an authorization server may publish its key set or an alias on
+another host, so the check is off unless the product calls it: our own
+design (#68).
 
 The issuer is an `https` URL with no query and no fragment (`rfc8414 §2`,
 `discovery §3` `issuer`), and the `jwks_uri` "MUST use the https scheme"
@@ -1062,6 +1084,9 @@ four agree on and settles each difference:
 | `Caller` carries a typed extension map a resource server or a product verifier fills; the configuration sections still take no product field (#49) | our own design: the verifier that routed the token already knows the issuer's policy, and the crate reads no extension (#61) | none |
 | `Caller::basic_user_in` and `Requirement::basic_users` answer whether a Basic caller is one of a list | our own design (#62) | none |
 | The outcome of a Basic check says whether the verified-credential cache admitted it | our own design (#63) | none |
+| The metadata `issuer` is compared as exact text; a product may also hold the configured issuer to its canonical URL form | `rfc8414 §3.3`, `§4`; the canonical form is our own design (#67) | none |
+| A metadata document whose objects repeat a member name is refused | `rfc8259 §4` leaves the meaning to each parser; the refusal is our own design (#69) | none |
+| A product may refuse metadata whose endpoints are off the issuer's origin; the check is opt-in | `rfc6454 §4`, `§5` define the origin; RFC 8414 places no endpoint, so the policy is our own design (#68) | none |
 
 ## 10. Verification
 

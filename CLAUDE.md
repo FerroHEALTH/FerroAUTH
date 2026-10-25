@@ -91,7 +91,7 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 - **The specifications are the authority**: SMART App Launch 2.2.0, the
   SMART on openEHR draft (DEVELOPMENT, pinned by commit and read weekly
   upstream), RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725,
-  9068, 9700, 8707, 7638, 8705, 9449 and 9470, and OpenID Connect
+  9068, 9700, 8707, 7638, 8705, 9449, 9470, 8259 and 6454, and OpenID Connect
   Discovery 1.0, as vendored under `docs/specs/`. Cite the section in every `// NOTE:`; never resolve a
   question from memory or from another implementation's behaviour. Where
   none governs a decision, say so: "no specification governs this: our own

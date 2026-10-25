@@ -11,8 +11,33 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `metadata::check_issuer`, the RFC 8414 §3.3 comparison of the issuer a
+  metadata document names with the one its location was built from, as
+  exact text with no normalization (RFC 8414 §4), and
+  `metadata::canonical_issuer`, which also holds a configured issuer to the
+  canonical form the URL parser writes, without userinfo, for a product that
+  wants the text compared and the URL fetched to have one meaning (#67).
+- `ServerMetadata::check_origin`, an opt-in check that every endpoint the
+  metadata names (`jwks_uri`, the authorization, token, registration,
+  introspection and revocation endpoints and the mutual-TLS token alias)
+  shares the issuer's scheme, host and port (RFC 6454 §4, §5), with
+  `metadata::same_origin` for one location and `ServerMetadata::endpoints`
+  listing them; `DiscoveryError` gains `EndpointUrl` and `OtherOrigin`
+  (#68).
+- `metadata::repeats_no_name` and `metadata::parse_metadata`, the reader of
+  a metadata body that refuses one whose objects repeat a member name
+  (RFC 8259 §4) (#69).
+
 ### Changed
 
+- Discovery refuses a metadata document in which any object, at any depth,
+  repeats a member name, with the new `DiscoveryError::RepeatedName`, so a
+  second `issuer` or `jwks_uri` another parser would take cannot hide in it
+  (RFC 8259 §4). A repeated member the crate reads was refused before as
+  `DiscoveryError::Metadata`; it is now `RepeatedName`, so a product that
+  matches on `Metadata` for that case matches the new variant (#69).
 - The release checks the family's Security changelog rules: every
   `### Security` entry names a GHSA advisory or an OpenVEX statement under
   `security/vex/`, and a Security section beside other changes opens with

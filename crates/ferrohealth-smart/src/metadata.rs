@@ -5,17 +5,27 @@
 //!
 //! The RFC 8414 §3 location is read first; a `404` there moves on to the
 //! `OpenID` Connect Discovery 1.0 §4 location, and any other answer is final.
-//! The document must name the configured issuer itself (RFC 8414 §3.3).
+//! The document must name the configured issuer itself, compared as exact
+//! text (RFC 8414 §3.3 and §4), and an object in it that repeats a member
+//! name refuses it (RFC 8259 §4). A product that sends only to its issuer's
+//! origin opts into [`ServerMetadata::check_origin`], and one that compares
+//! the issuer only in its canonical form reads it with [`canonical_issuer`].
 //! The resource server reads it for `jwks_uri` and the endpoints its SMART
 //! discovery document republishes; the token client reads it for
 //! `token_endpoint`.
 
+use std::collections::BTreeSet;
+use std::fmt;
 #[cfg(feature = "fetch")]
 use std::time::Duration;
 
 use http::StatusCode;
 use serde::Deserialize;
+use serde::Deserializer;
 use serde::Serialize;
+use serde::de::MapAccess;
+use serde::de::SeqAccess;
+use serde::de::Visitor;
 use url::Url;
 
 /// The RFC 8414 §3 well-known suffix.
@@ -108,6 +118,59 @@ impl ServerMetadata {
             .clone()
             .unwrap_or_else(|| vec![String::from("client_secret_basic")])
     }
+
+    /// Returns each endpoint member the document carries, by member name:
+    /// `jwks_uri`, the authorization, token, registration, introspection and
+    /// revocation endpoints, and the `mtls_endpoint_aliases` token endpoint.
+    #[must_use]
+    pub fn endpoints(&self) -> Vec<(&'static str, &str)> {
+        let alias = self
+            .mtls_endpoint_aliases
+            .as_ref()
+            .and_then(|aliases| aliases.token_endpoint.as_deref());
+        [
+            ("jwks_uri", self.jwks_uri.as_deref()),
+            (
+                "authorization_endpoint",
+                self.authorization_endpoint.as_deref(),
+            ),
+            ("token_endpoint", self.token_endpoint.as_deref()),
+            (
+                "registration_endpoint",
+                self.registration_endpoint.as_deref(),
+            ),
+            (
+                "introspection_endpoint",
+                self.introspection_endpoint.as_deref(),
+            ),
+            ("revocation_endpoint", self.revocation_endpoint.as_deref()),
+            ("mtls_endpoint_aliases.token_endpoint", alias),
+        ]
+        .into_iter()
+        .filter_map(|(member, location)| location.map(|location| (member, location)))
+        .collect()
+    }
+
+    /// Checks that every endpoint the document names sits on the origin of
+    /// `issuer`: the same scheme, host and port (RFC 6454 §4, §5).
+    ///
+    /// The check is a product's opt-in policy, for a product that sends a
+    /// credential only to its issuer's own origin: RFC 8414 §2 places no
+    /// endpoint, and an authorization server may publish its key set or a
+    /// mutual-TLS alias on another host (no specification governs this: our
+    /// own design). The member names are those of [`Self::endpoints`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DiscoveryError::EndpointUrl`] for an endpoint that is no
+    /// URL and [`DiscoveryError::OtherOrigin`] for one on another origin,
+    /// each naming the first member that breaks the rule.
+    pub fn check_origin(&self, issuer: &Url) -> Result<(), DiscoveryError> {
+        for (member, location) in self.endpoints() {
+            same_origin(issuer, member, location)?;
+        }
+        Ok(())
+    }
 }
 
 /// A failure to reach or read the authorization server's metadata.
@@ -191,6 +254,16 @@ pub enum DiscoveryError {
         #[source]
         source: serde_json::Error,
     },
+    /// An object of the metadata repeats a member name, whose meaning
+    /// RFC 8259 §4 leaves to each parser.
+    #[error("the authorization server metadata at {url} repeats a member name")]
+    RepeatedName {
+        /// The location that answered it.
+        url: Url,
+        /// What the JSON reader reported, with the position.
+        #[source]
+        source: serde_json::Error,
+    },
     /// The metadata names another issuer, which RFC 8414 §3.3 requires a
     /// client to refuse.
     #[error("the authorization server metadata names issuer {found:?}, not {expected:?}")]
@@ -200,6 +273,213 @@ pub enum DiscoveryError {
         /// The issuer the metadata named.
         found: String,
     },
+    /// The issuer is not written in the canonical form the URL parser
+    /// gives it, or carries userinfo.
+    #[error("the issuer {issuer:?} is not in its canonical form {canonical:?}")]
+    NonCanonicalIssuer {
+        /// The issuer as written.
+        issuer: String,
+        /// The form the URL parser writes it in.
+        canonical: String,
+    },
+    /// An endpoint of the metadata is not a URL.
+    #[error("the metadata member {member} is not a URL")]
+    EndpointUrl {
+        /// The member name.
+        member: &'static str,
+        /// What the URL parser reported.
+        #[source]
+        source: url::ParseError,
+    },
+    /// An endpoint of the metadata is not on the issuer's origin.
+    #[error("the metadata member {member} is not on the issuer's origin: {url}")]
+    OtherOrigin {
+        /// The member name.
+        member: &'static str,
+        /// The endpoint.
+        url: String,
+    },
+}
+
+/// Checks that `found`, the `issuer` a metadata document names, is
+/// `expected`, the issuer identifier its location was built from.
+///
+/// RFC 8414 §3.3 and `OpenID` Connect Discovery 1.0 §4.3 require the two to
+/// be identical, and RFC 8414 §4 compares them code point by code point
+/// after the JSON escaping is removed, with no normalization: a different
+/// case, a default port written out or a terminating `/` is another issuer.
+///
+/// # Errors
+///
+/// Returns [`DiscoveryError::IssuerMismatch`] when the two texts differ.
+pub fn check_issuer(expected: &str, found: &str) -> Result<(), DiscoveryError> {
+    if expected == found {
+        return Ok(());
+    }
+    Err(DiscoveryError::IssuerMismatch {
+        expected: expected.to_owned(),
+        found: found.to_owned(),
+    })
+}
+
+/// Returns `issuer` as [`issuer_url`] does, refusing a text that is not the
+/// canonical form the URL parser writes, or that carries userinfo.
+///
+/// An issuer is compared as text (RFC 8414 §3.3) and fetched as a URL, so a
+/// product that holds the text to one meaning for both takes only a text
+/// the parser leaves unchanged: a lower-case host, no default port, and the
+/// parser's serialization or that serialization less the `/` it gives an
+/// empty path (no specification governs this: our own design).
+///
+/// # Errors
+///
+/// Returns the errors of [`issuer_url`], and
+/// [`DiscoveryError::NonCanonicalIssuer`] for a text the parser writes
+/// otherwise or one with userinfo.
+pub fn canonical_issuer(issuer: &str) -> Result<Url, DiscoveryError> {
+    let url = issuer_url(issuer)?;
+    let canonical = issuer == url.as_str()
+        || (url.path() == "/" && url.as_str().strip_suffix('/') == Some(issuer));
+    if !canonical || !url.username().is_empty() || url.password().is_some() {
+        return Err(DiscoveryError::NonCanonicalIssuer {
+            issuer: issuer.to_owned(),
+            canonical: url.to_string(),
+        });
+    }
+    Ok(url)
+}
+
+/// Returns `location`, the endpoint the metadata member `member` names, when
+/// it sits on the origin of `issuer`: the same scheme, host and port
+/// (RFC 6454 §4, §5).
+///
+/// # Errors
+///
+/// Returns [`DiscoveryError::EndpointUrl`] for a location that is no URL and
+/// [`DiscoveryError::OtherOrigin`] for one on another origin.
+pub fn same_origin(
+    issuer: &Url,
+    member: &'static str,
+    location: &str,
+) -> Result<Url, DiscoveryError> {
+    let url =
+        Url::parse(location).map_err(|source| DiscoveryError::EndpointUrl { member, source })?;
+    if url.origin() != issuer.origin() {
+        return Err(DiscoveryError::OtherOrigin {
+            member,
+            url: url.to_string(),
+        });
+    }
+    Ok(url)
+}
+
+/// Proves that no object of the JSON text `body` repeats a member name, at
+/// any depth.
+///
+/// RFC 8259 §4 has the names within an object unique only as a SHOULD and
+/// leaves the meaning of a repeated one to each parser, so two readers of
+/// one document could take different values from it: an `issuer` or a
+/// `jwks_uri` one checks and another one uses. A document that repeats a
+/// name is refused instead (no specification governs the refusal: our own
+/// design).
+///
+/// # Errors
+///
+/// Returns the JSON reader's error for a text that is no JSON, and a data
+/// error ([`serde_json::error::Category::Data`]) naming the position of the
+/// first repeated name.
+pub fn repeats_no_name(body: &[u8]) -> Result<(), serde_json::Error> {
+    serde_json::from_slice::<Unique>(body).map(|Unique| ())
+}
+
+/// A JSON value read only to prove that no object in it repeats a name.
+struct Unique;
+
+impl<'de> Deserialize<'de> for Unique {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(UniqueVisitor)
+    }
+}
+
+/// The visitor of [`Unique`].
+struct UniqueVisitor;
+
+impl<'de> Visitor<'de> for UniqueVisitor {
+    type Value = Unique;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a JSON value whose objects repeat no name")
+    }
+
+    fn visit_bool<E: serde::de::Error>(self, _value: bool) -> Result<Unique, E> {
+        Ok(Unique)
+    }
+
+    fn visit_i64<E: serde::de::Error>(self, _value: i64) -> Result<Unique, E> {
+        Ok(Unique)
+    }
+
+    fn visit_u64<E: serde::de::Error>(self, _value: u64) -> Result<Unique, E> {
+        Ok(Unique)
+    }
+
+    fn visit_f64<E: serde::de::Error>(self, _value: f64) -> Result<Unique, E> {
+        Ok(Unique)
+    }
+
+    fn visit_str<E: serde::de::Error>(self, _value: &str) -> Result<Unique, E> {
+        Ok(Unique)
+    }
+
+    fn visit_unit<E: serde::de::Error>(self) -> Result<Unique, E> {
+        Ok(Unique)
+    }
+
+    fn visit_seq<A: SeqAccess<'de>>(self, mut seq: A) -> Result<Unique, A::Error> {
+        while seq.next_element::<Unique>()?.is_some() {}
+        Ok(Unique)
+    }
+
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Unique, A::Error> {
+        let mut names = BTreeSet::new();
+        while let Some(name) = map.next_key::<String>()? {
+            if !names.insert(name) {
+                return Err(serde::de::Error::custom("an object repeats a member name"));
+            }
+            map.next_value::<Unique>()?;
+        }
+        Ok(Unique)
+    }
+}
+
+/// Returns the metadata document `body`, which `url` answered, refusing one
+/// that repeats a member name (RFC 8259 §4) or is no metadata document
+/// (RFC 8414 §3.2).
+///
+/// # Errors
+///
+/// Returns [`DiscoveryError::RepeatedName`] for a document that repeats a
+/// name and [`DiscoveryError::Metadata`] for a body that is no metadata
+/// document.
+pub fn parse_metadata(url: &Url, body: &str) -> Result<ServerMetadata, DiscoveryError> {
+    if let Err(source) = repeats_no_name(body.as_bytes()) {
+        // NOTE: RFC 8259 §4, only the repeated-name refusal reads as a data
+        // error, so any other failure is a body that is no JSON at all.
+        if source.classify() == serde_json::error::Category::Data {
+            return Err(DiscoveryError::RepeatedName {
+                url: url.clone(),
+                source,
+            });
+        }
+        return Err(DiscoveryError::Metadata {
+            url: url.clone(),
+            source,
+        });
+    }
+    serde_json::from_str(body).map_err(|source| DiscoveryError::Metadata {
+        url: url.clone(),
+        source,
+    })
 }
 
 /// Returns `issuer` as the URL RFC 8414 §2 describes: `https`, no query, no
@@ -351,9 +631,10 @@ impl Http {
     /// for an issuer outside the URL rule, [`DiscoveryError::Transport`]
     /// when neither location answers, [`DiscoveryError::Status`] when the
     /// last location tried answers anything but `200`,
-    /// [`DiscoveryError::Metadata`] for a body that is no metadata document,
-    /// and [`DiscoveryError::IssuerMismatch`] when the document names another
-    /// issuer.
+    /// [`DiscoveryError::RepeatedName`] for a document that repeats a member
+    /// name, [`DiscoveryError::Metadata`] for a body that is no metadata
+    /// document, and [`DiscoveryError::IssuerMismatch`] when the document
+    /// names another issuer.
     pub async fn discover(&self, issuer: &str) -> Result<ServerMetadata, DiscoveryError> {
         let parsed = issuer_url(issuer)?;
         let [oauth, openid] = locations(&parsed);
@@ -367,14 +648,8 @@ impl Http {
         if status != StatusCode::OK {
             return Err(DiscoveryError::Status { url, status, body });
         }
-        let metadata: ServerMetadata = serde_json::from_str(&body)
-            .map_err(|source| DiscoveryError::Metadata { url, source })?;
-        if metadata.issuer != issuer {
-            return Err(DiscoveryError::IssuerMismatch {
-                expected: issuer.to_owned(),
-                found: metadata.issuer,
-            });
-        }
+        let metadata = parse_metadata(&url, &body)?;
+        check_issuer(issuer, &metadata.issuer)?;
         Ok(metadata)
     }
 
@@ -419,8 +694,213 @@ impl Http {
 
 #[cfg(test)]
 mod tests {
-    use super::{DiscoveryError, issuer_url, locations};
+    use super::{
+        DiscoveryError, MtlsEndpointAliases, ServerMetadata, canonical_issuer, check_issuer,
+        issuer_url, locations, parse_metadata, repeats_no_name, same_origin,
+    };
     use url::Url;
+
+    const ISSUER: &str = "https://as.example.org/oauth2/hospital";
+
+    /// Moves one endpoint member of a metadata document to a location.
+    type Move = fn(&mut ServerMetadata, String);
+
+    #[test]
+    fn an_issuer_is_identical_only_as_exact_text() {
+        assert!(check_issuer(ISSUER, ISSUER).is_ok());
+        for named in [
+            "https://as.example.org/oauth2/other",
+            "https://AS.example.org/oauth2/hospital",
+            "https://as.example.org:443/oauth2/hospital",
+            "https://as.example.org/oauth2/hospital/",
+            "https://as.example.org/oauth2/Hospital",
+            "",
+        ] {
+            assert!(
+                matches!(
+                    check_issuer(ISSUER, named),
+                    Err(DiscoveryError::IssuerMismatch { ref found, .. }) if found == named
+                ),
+                "{named}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_canonical_issuer_is_the_text_the_url_parser_writes() {
+        for text in [
+            ISSUER,
+            "https://as.example.org",
+            "https://as.example.org/",
+            "https://as.example.org/tenant/",
+            "http://127.0.0.1:8080/oauth2",
+        ] {
+            assert!(canonical_issuer(text).is_ok(), "{text}");
+        }
+        for text in [
+            "https://AS.example.org/tenant",
+            "https://as.example.org:443/tenant",
+            "https://user@as.example.org",
+            "https://user:pass@as.example.org/tenant",
+            "https://as.example.org/a/../tenant",
+        ] {
+            assert!(
+                matches!(
+                    canonical_issuer(text),
+                    Err(DiscoveryError::NonCanonicalIssuer { ref issuer, .. }) if issuer == text
+                ),
+                "{text}"
+            );
+        }
+        assert!(matches!(
+            canonical_issuer("http://as.example.org"),
+            Err(DiscoveryError::Insecure { .. })
+        ));
+        assert!(matches!(
+            canonical_issuer("not a url"),
+            Err(DiscoveryError::IssuerUrl { .. })
+        ));
+    }
+
+    #[test]
+    fn an_endpoint_is_on_the_issuers_origin_by_scheme_host_and_port() {
+        let issuer: Url = ISSUER.parse().expect("a valid URL");
+        let url = same_origin(&issuer, "token_endpoint", "https://as.example.org/token")
+            .expect("the same origin");
+        assert_eq!("https://as.example.org/token", url.as_str());
+        assert!(same_origin(&issuer, "token_endpoint", "https://as.example.org:443/t").is_ok());
+        for other in [
+            "http://as.example.org/token",
+            "https://elsewhere.example.org/token",
+            "https://as.example.org:8443/token",
+            "https://as.example.org.evil.example/token",
+            "https://sub.as.example.org/token",
+        ] {
+            assert!(
+                matches!(
+                    same_origin(&issuer, "token_endpoint", other),
+                    Err(DiscoveryError::OtherOrigin {
+                        member: "token_endpoint",
+                        ..
+                    })
+                ),
+                "{other}"
+            );
+        }
+        assert!(matches!(
+            same_origin(&issuer, "jwks_uri", "/jwks"),
+            Err(DiscoveryError::EndpointUrl {
+                member: "jwks_uri",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn the_origin_check_reads_every_endpoint_member() {
+        let issuer: Url = ISSUER.parse().expect("a valid URL");
+        let on = |path: &str| Some(format!("https://as.example.org{path}"));
+        let metadata = ServerMetadata {
+            issuer: ISSUER.to_owned(),
+            jwks_uri: on("/jwks"),
+            authorization_endpoint: on("/authorize"),
+            token_endpoint: on("/token"),
+            registration_endpoint: on("/register"),
+            introspection_endpoint: on("/introspect"),
+            revocation_endpoint: on("/revoke"),
+            mtls_endpoint_aliases: Some(MtlsEndpointAliases {
+                token_endpoint: on("/mtls/token"),
+            }),
+            ..ServerMetadata::default()
+        };
+        assert!(metadata.check_origin(&issuer).is_ok());
+        assert_eq!(7, metadata.endpoints().len());
+        let off = String::from("https://elsewhere.example.org/x");
+        let cases: [(&str, Move); 7] = [
+            ("jwks_uri", |m, v| m.jwks_uri = Some(v)),
+            ("authorization_endpoint", |m, v| {
+                m.authorization_endpoint = Some(v);
+            }),
+            ("token_endpoint", |m, v| m.token_endpoint = Some(v)),
+            ("registration_endpoint", |m, v| {
+                m.registration_endpoint = Some(v);
+            }),
+            ("introspection_endpoint", |m, v| {
+                m.introspection_endpoint = Some(v);
+            }),
+            ("revocation_endpoint", |m, v| {
+                m.revocation_endpoint = Some(v);
+            }),
+            ("mtls_endpoint_aliases.token_endpoint", |m, v| {
+                m.mtls_endpoint_aliases = Some(MtlsEndpointAliases {
+                    token_endpoint: Some(v),
+                });
+            }),
+        ];
+        for (name, set) in cases {
+            let mut moved = metadata.clone();
+            set(&mut moved, off.clone());
+            assert!(
+                matches!(
+                    moved.check_origin(&issuer),
+                    Err(DiscoveryError::OtherOrigin { member, .. }) if member == name
+                ),
+                "{name}"
+            );
+        }
+        let bare = ServerMetadata {
+            issuer: ISSUER.to_owned(),
+            ..ServerMetadata::default()
+        };
+        assert!(bare.check_origin(&issuer).is_ok());
+    }
+
+    #[test]
+    fn a_repeated_name_at_any_depth_is_refused() {
+        assert!(repeats_no_name(br#"{"a": 1, "b": {"c": [1, {"d": 2}]}, "e": null}"#).is_ok());
+        assert!(repeats_no_name(br#"{"a": {"c": 1}, "b": {"c": 1}}"#).is_ok());
+        for body in [
+            &br#"{"a": 1, "a": 2}"#[..],
+            br#"{"a": 1, "a": 1}"#,
+            br#"{"a": {"b": 1, "b": 1}}"#,
+            br#"[{"b": 1, "b": 1}]"#,
+            br#"{"a": 1, "a": 2}"#,
+        ] {
+            let error = repeats_no_name(body).expect_err("a repeated name");
+            assert_eq!(
+                serde_json::error::Category::Data,
+                error.classify(),
+                "{}",
+                String::from_utf8_lossy(body)
+            );
+        }
+    }
+
+    #[test]
+    fn a_metadata_body_is_refused_for_a_repeated_name_or_for_being_no_document() {
+        let url: Url = "https://as.example.org/.well-known/oauth-authorization-server"
+            .parse()
+            .expect("a valid URL");
+        let read = parse_metadata(&url, r#"{"issuer": "https://as.example.org"}"#)
+            .expect("a metadata document");
+        assert_eq!("https://as.example.org", read.issuer);
+        assert!(matches!(
+            parse_metadata(
+                &url,
+                r#"{"issuer": "https://as.example.org", "issuer": "https://attacker.invalid"}"#
+            ),
+            Err(DiscoveryError::RepeatedName { .. })
+        ));
+        for body in ["", "{", "[1, 2]", r#"{"issuer": 7}"#] {
+            assert!(
+                matches!(
+                    parse_metadata(&url, body),
+                    Err(DiscoveryError::Metadata { .. })
+                ),
+                "{body}"
+            );
+        }
+    }
 
     #[test]
     fn rfc_8414_inserts_the_suffix_and_openid_connect_appends_it() {
