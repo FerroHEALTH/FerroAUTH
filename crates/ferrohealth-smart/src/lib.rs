@@ -4,7 +4,7 @@
 //! The shared SMART App Launch 2.x and OAuth 2.0 resource-server crate of the
 //! FerroHEALTH products.
 //!
-//! FerroSMART is a library, never an authorization server: it issues no token
+//! This crate is a library, never an authorization server: it issues no token
 //! and holds no key that signs one. Each deployment points it at its own
 //! standards-compliant authorization server, and the crate does four things
 //! every product needs:

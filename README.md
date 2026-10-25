@@ -1,15 +1,22 @@
 <!-- SPDX-FileCopyrightText: Cadasto B.V. -->
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
-# <img src="assets/brand/ferrosmart-icon.svg" alt="" width="40" height="40" align="top"> FerroSMART
+# <img src="assets/brand/ferroauth-icon.svg" alt="" width="40" height="40" align="top"> FerroAUTH
 
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue.svg)](LICENSE)
 
-SMART for the openEHR ecosystem, FHIR included: the shared SMART App Launch
-and OAuth 2.0 resource-server crate of the FerroHEALTH products, in pure
-Rust, `ferrohealth-smart` on crates.io.
+Authentication and authorization for the FerroHEALTH products, in pure Rust.
+The repository holds two crates:
 
-FerroSMART is a library, never an authorization server. It issues no token
-and holds no key that signs one; each deployment points it at its own
+- **Authentication, `ferrohealth-smart`:** SMART for the openEHR ecosystem,
+  FHIR included, the shared SMART App Launch and OAuth 2.0 resource-server
+  crate.
+- **The policy decision, `ferrohealth-authz`:** reserved on crates.io at
+  `0.0.0`, with `0.1.0` in preparation.
+
+The rest of this page describes `ferrohealth-smart`.
+
+`ferrohealth-smart` is a library, never an authorization server. It issues no
+token and holds no key that signs one; each deployment points it at its own
 standards-compliant authorization server (Keycloak, Entra ID, Cadasto's
 smart-auth). What it does for every product:
 
@@ -45,7 +52,7 @@ The `axum` feature adds a tower layer that runs the checks in front of every
 route and an extractor of the caller it admitted; the core stays
 framework-neutral.
 
-FerroSMART is one of the [FerroHEALTH](https://ferrohealth.eu/) family. The
+FerroAUTH is one of the [FerroHEALTH](https://ferrohealth.eu/) family. The
 family page shows where it sits among the products and what calls what, and
 this repository is where the design and the build happen; the tracker is the
 record of both.
@@ -83,7 +90,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md) and
 
 ## Licence
 
-FerroSMART is source-available under the Business Source License 1.1. The
+FerroAUTH is source-available under the Business Source License 1.1. The
 parameters that apply, the Licensor, the Licensed Work, the Additional Use
 Grant and the Change Date, are in [LICENSE](LICENSE): free for non-commercial
 production use, a commercial licence for any other production use, and Apache
@@ -92,7 +99,7 @@ code that implements the specifications above, which is why it is under the
 family's own licence and not the Apache-2.0 of the family's generated crates.
 
 A commercial licence is arranged with [Cadasto B.V.](https://www.cadasto.com),
-the Licensor, which handles the business side of FerroSMART: write to
+the Licensor, which handles the business side of FerroAUTH: write to
 [info@cadasto.com](mailto:info@cadasto.com) or use
 [cadasto.com/contact](https://www.cadasto.com/contact/). Technical questions go
 to the maintainer named in [MAINTAINERS.md](MAINTAINERS.md).

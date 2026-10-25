@@ -34,7 +34,7 @@ readonly TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 # The support period in years from the release date: the minimum of
 # Regulation (EU) 2024/2847 Art 13(8), as SECURITY.md states it.
 readonly SUPPORT_YEARS=5
-readonly SECURITY_URL='https://github.com/FerroHEALTH/FerroSMART/blob/main/SECURITY.md#supported-versions'
+readonly SECURITY_URL='https://github.com/FerroHEALTH/FerroAUTH/blob/main/SECURITY.md#supported-versions'
 
 usage() {
   echo "usage: plan.sh checks <tag> [--notes <file>] | prev-tag <tag> | notes <tag> <file> | support-end <YYYY-MM-DD> | --self-test" >&2

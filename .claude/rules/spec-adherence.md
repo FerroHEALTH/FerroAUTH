@@ -3,7 +3,7 @@
 
 # Spec adherence (the published specifications are the oracle)
 
-FerroSMART answers to these sources, never to memory and never to how
+FerroAUTH answers to these sources, never to memory and never to how
 another implementation behaves. Each is vendored under `docs/specs/` at the
 version `docs/VERSIONS.md` pins, and the design of record,
 `docs/architecture.md`, cites them section by section:

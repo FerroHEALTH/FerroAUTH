@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: Cadasto B.V.
 # SPDX-License-Identifier: BUSL-1.1
-# scripts/gh/project.sh: FerroSMART has no roadmap board.
+# scripts/gh/project.sh: FerroAUTH has no roadmap board.
 #
 # The FerroHEALTH products each keep a public GitHub Project (v2) board; this
 # library repository keeps none, and this helper never creates one. The
@@ -28,6 +28,6 @@ usage() {
 case "${1:-}" in
   '' | -h | --help) usage ;;
   *)
-    echo "gh-project: FerroSMART has no roadmap board; nothing to do (.claude/rules/project-board.md)" >&2
+    echo "gh-project: FerroAUTH has no roadmap board; nothing to do (.claude/rules/project-board.md)" >&2
     ;;
 esac

@@ -39,7 +39,7 @@ build, and budget for maintaining it.
 ## Commercial licensing
 
 [Cadasto B.V.](https://www.cadasto.com) is the Licensor named in
-[LICENSE](LICENSE) and handles the business side of FerroSMART: the commercial
+[LICENSE](LICENSE) and handles the business side of FerroAUTH: the commercial
 licence and any other business or licensing question. Write to
 [info@cadasto.com](mailto:info@cadasto.com) or use
 [cadasto.com/contact](https://www.cadasto.com/contact/). Technical questions go

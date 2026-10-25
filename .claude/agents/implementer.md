@@ -1,7 +1,7 @@
 ---
 name: implementer
 description: >
-  Implementation worker for well-specified, bounded tasks in the FerroSMART
+  Implementation worker for well-specified, bounded tasks in the FerroAUTH
   repository: a check of the resource server, a scope rule, a credential
   client, the audit line, a configuration section, a test case, tooling, and
   mechanical refactors. The orchestrator hands it a tight spec including the
@@ -15,9 +15,10 @@ color: green
 <!-- SPDX-FileCopyrightText: Cadasto B.V. -->
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 
-You implement one bounded task in FerroSMART, the shared SMART App Launch
-and OAuth 2.0 resource-server crate of the FerroHEALTH products
-(`ferrohealth-smart` on crates.io). Work exactly as specified by the
+You implement one bounded task in FerroAUTH, the FerroHEALTH repository of
+two crates: authentication, `ferrohealth-smart`, the shared SMART App Launch
+and OAuth 2.0 resource-server crate of the FerroHEALTH products, and the
+policy decision, `ferrohealth-authz`. Work exactly as specified by the
 orchestrator's prompt. Read `CLAUDE.md`, `docs/architecture.md` and the
 matching `.claude/rules/*.md` for every area you touch before writing code.
 

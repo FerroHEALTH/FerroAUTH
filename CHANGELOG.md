@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The repository is FerroAUTH, renamed from FerroSMART on 2026-10-25, at
+  <https://github.com/FerroHEALTH/FerroAUTH>; the old address redirects. It
+  holds two crates: authentication, `ferrohealth-smart`, and the policy
+  decision, `ferrohealth-authz`. The `repository` and `homepage` fields of
+  the published manifest name the new address. The crate name and every
+  `ferrohealth_smart` path stay as they are, so a product changes nothing.
+
 ## [0.6.0] - 2026-10-25
 
 Token introspection (RFC 7662) for an authorization server that issues
@@ -507,7 +516,7 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.4.1...HEAD
 [0.4.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.0...v0.3.1

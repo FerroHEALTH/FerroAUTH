@@ -52,7 +52,7 @@ that is a separate step the caller takes after seeing the plan.
      the `spec-researcher` agent. Doing the work starts by reading those.
    - **What "done" looks like** for this task specifically: the issue's
      `## Acceptance criteria` checklist, plus what proves it.
-3. **There is no board move.** FerroSMART has no roadmap board
+3. **There is no board move.** FerroAUTH has no roadmap board
    (`.claude/rules/project-board.md`), so starting or parking the issue
    changes nothing on GitHub.
 4. **Do not edit the issue or commit:** recording progress happens after the

@@ -3,7 +3,7 @@
 
 # Rust style: idiomatic library code
 
-Applies to every hand-written `.rs` file in the repository. **FerroSMART is
+Applies to every hand-written `.rs` file in the repository. **FerroAUTH is
 modern idiomatic Rust of our own design**, held to the specifications it
 implements: SMART App Launch 2.2.0, the OAuth 2.0, JWT and Basic RFCs, and
 OpenID Connect Discovery 1.0 (`spec-adherence.md`). The four FerroHEALTH
