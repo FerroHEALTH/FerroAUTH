@@ -844,6 +844,33 @@ inactive response is never held, so a token activated later is not refused
 from the cache. A caller admitted from the cache reports `cached()`. The
 cache bounds are no specification's: our own design (FerroBRIDGE #533).
 
+### 3.11 Roles and role requirements
+
+RFC 9068 §2.2.3.1 has an authorization server that puts authorization
+attributes in a JWT access token use the `groups`, `roles` and
+`entitlements` attributes of the SCIM `User` resource (`rfc7643 §4.1.2`) as
+claim types. `Caller::roles()` holds what the configured claims carry
+(`[auth] role_claims`, by default those three; a dotted path such as
+`realm_access.roles` reaches into a JSON object for an issuer that nests
+them). A value is an array element that is a string, an element that is an
+object with a string `value` sub-attribute (a SCIM multi-valued attribute,
+`rfc7643 §2.4`), or each whitespace-separated word of a string. A role keeps
+the issuer's spelling, trimmed, and appears once. An introspection answer is
+read the same way (`rfc7662 §2.2` lets it carry further members). A Basic
+user's roles are `[[auth.basic.users]] roles`, each one word.
+`Caller::claim_text` reads a string at a dotted claim path for a product's
+own attribute.
+
+A route table states its role rules beside its scope rules:
+`Requirement::Role` (the caller holds the role), `Requirement::AnyRole`,
+`Requirement::WithoutRole` (a restriction, such as a read-only role on a
+write, that overrides every grant combined with it) and `Requirement::All`,
+beside the existing `Either`. Neither RFC gives roles a vocabulary or a
+comparison rule, so a role is matched without regard to ASCII case: no
+specification governs role semantics, our own design. RFC 9396 (rich
+authorization requests) is vendored as the reference for the
+`authorization_details` claim a later release may read; this one does not.
+
 ## 4. The configuration model
 
 Every product embeds the same `[auth]` section, deserialized with
@@ -871,6 +898,7 @@ scopeless_subjects = []              # exact `sub` values granted system-wide ac
 capabilities = []                    # SMART capabilities the discovery document adds
 scopes_supported = []                # the scopes the product honours, listed in the discovery document
 product_scope = ""                   # the product's own scope: `__name` or a full URI
+role_claims = ["roles", "groups", "entitlements"]   # dotted paths the roles are read from (3.11)
 
 mode = "jwt"                         # or "introspection" (3.10), with the table below
 
@@ -890,6 +918,7 @@ cache_ttl_seconds = 0                # how long a verified credential is kept; 0
 user = "etl"
 password_hash_file = "/run/secrets/etl.phc"   # or password_hash = "$argon2id$…"
 scopes = ["system/*.rs"]
+roles = ["etl"]                      # one word each (3.11)
 ```
 
 A product that trusts several issuers (FerroFED) writes `[[auth.issuer]]`
@@ -1148,6 +1177,7 @@ four agree on and settles each difference:
 | `jti` is read, not tracked; DPoP (`rfc9449`) and mutual TLS (`rfc8705`) stay product-specific, in FerroFED, for now | `rfc9700 §4.9.3` names sender-constraining as the countermeasure; both RFCs are vendored for reference (owner decision 2026-10-19) | none |
 | `resource` is the RFC 8707 resource indicator, sent when configured; `audience` has no specification and is sent only when configured | `rfc8707 §2`; FerroBRIDGE sends both today | none |
 | The `kid` of the product's own JWK is configured, or defaults to the RFC 7638 SHA-256 thumbprint | `rfc7638 §3`; the default is our own design | none |
+| A caller's roles are read from the RFC 9068 §2.2.3.1 claims, or the paths a deployment names, and a Basic user's from its configuration; a route table states role requirements beside scope requirements, matched without regard to ASCII case | `rfc9068 §2.2.3.1`, `rfc7643 §2.4`, `§4.1.2`; the matching and the requirement forms are our own design (owner decision 2026-10-25: authentication and the granted subject belong in this crate) | a product that read roles itself (FerroEHR's claim paths and Basic role table) moves them to `[auth] role_claims` and `[[auth.basic.users]] roles` |
 | The crate parses (through `openehr-sdt`) and enforces the SMART on openEHR grammar beside the FHIR grammar; the product's route table declares which applies per route | owner decision 2026-10-19; `soe master07`, `master08`; the rules the draft leaves open are listed in 3.9 as our own design | none |
 | SMART on openEHR is DEVELOPMENT: pinned by commit, its status checked on every vendor run, upstream read weekly, and every upstream change re-vendored and recorded here as a decision naming what changed | the draft's `manifest_vars.adoc`; no release stabilises it | none yet: the draft last changed on 2026-07-19 (amendment record 1.1.0) |
 | The `ehrId` of the launch context is read from an `ehrId` claim when the issuer carries it in the token | our own design, as `patient` in 3.3; the draft places it in the token response (`soe master07`, Context Selection) | none |

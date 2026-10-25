@@ -100,6 +100,21 @@ pub enum StoreError {
         /// The scope token.
         scope: String,
     },
+    /// A role of `username` is empty or carries whitespace or a control
+    /// character.
+    #[error("a role of user {username:?} is empty or carries whitespace or a control character")]
+    Role {
+        /// The user.
+        username: String,
+        /// The role.
+        role: String,
+    },
+    /// Roles are granted to a user the store does not admit.
+    #[error("roles are granted to the user {username:?}, whom the store does not admit")]
+    UnknownUser {
+        /// The user.
+        username: String,
+    },
     /// The key of the verified-credential cache could not be drawn from
     /// the system's random source.
     #[error("the key of the verified-credential cache could not be drawn")]
@@ -123,6 +138,8 @@ pub struct Verified {
     /// The space-delimited scope the user's configuration grants it
     /// (RFC 6749 §3.3).
     pub scope: String,
+    /// The roles the user's configuration grants it ([`crate::roles`]).
+    pub roles: Vec<String>,
     /// Whether the credential was admitted from the verified-credential
     /// cache, without the key derivation.
     pub cached: bool,
@@ -135,6 +152,8 @@ struct Entry {
     hash: SecretString,
     /// The scope the user is granted.
     scope: String,
+    /// The roles the user is granted.
+    roles: Vec<String>,
 }
 
 /// The users a surface admits with HTTP Basic, by name, each with the
@@ -288,7 +307,39 @@ impl PasswordStore {
                 username,
             });
         }
-        self.users.insert(username, Entry { hash, scope });
+        self.users.insert(
+            username,
+            Entry {
+                hash,
+                scope,
+                roles: Vec::new(),
+            },
+        );
+        Ok(self)
+    }
+
+    /// Returns this store granting `roles` to `username`, a user it already
+    /// admits.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::UnknownUser`] when the store admits no such
+    /// user, and [`StoreError::Role`] for a role that is empty or carries
+    /// whitespace or a control character ([`crate::roles::is_role`]).
+    pub fn with_roles(mut self, username: &str, roles: Vec<String>) -> Result<Self, StoreError> {
+        if let Some(bad) = roles.iter().find(|role| !crate::roles::is_role(role)) {
+            return Err(StoreError::Role {
+                username: username.to_owned(),
+                role: bad.clone(),
+            });
+        }
+        let entry = self
+            .users
+            .get_mut(username)
+            .ok_or_else(|| StoreError::UnknownUser {
+                username: username.to_owned(),
+            })?;
+        entry.roles = roles;
         Ok(self)
     }
 
@@ -378,6 +429,7 @@ impl PasswordStore {
         Ok(Verified {
             username: username.to_owned(),
             scope: entry.scope.clone(),
+            roles: entry.roles.clone(),
             cached: false,
         })
     }
@@ -497,6 +549,7 @@ mod tests {
         let verified = Verified {
             username: String::from("alice"),
             scope: String::from("system/*.rs"),
+            roles: Vec::new(),
             cached: false,
         };
         assert_eq!(

@@ -34,6 +34,8 @@ mod key_file;
 mod metadata;
 #[cfg(all(feature = "openehr", feature = "fetch"))]
 mod openehr;
+#[cfg(feature = "fetch")]
+mod roles;
 #[cfg_attr(
     not(feature = "fetch"),
     expect(

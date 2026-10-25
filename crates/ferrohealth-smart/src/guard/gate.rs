@@ -158,9 +158,9 @@ async fn basic(store: Arc<PasswordStore>, value: HeaderValue) -> Result<Caller, 
             )
         })?;
     match checked {
-        Ok(verified) => {
-            Ok(Caller::basic(verified.username, &verified.scope).with_cached(verified.cached))
-        }
+        Ok(verified) => Ok(Caller::basic(verified.username, &verified.scope)
+            .with_roles(verified.roles)
+            .with_cached(verified.cached)),
         Err(reason) => {
             tracing::debug!(reason = %reason, "a Basic credential was refused");
             Err(Denied::new(Refusal::InvalidBasic, Some(reason)))

@@ -94,8 +94,21 @@ pub enum Requirement {
         /// The user-ids of the Basic principals admitted.
         basic_users: Vec<String>,
     },
+    /// A valid credential whose caller holds this role, matched without
+    /// regard to ASCII case ([`crate::roles`]).
+    Role(String),
+    /// A valid credential whose caller holds at least one role.
+    AnyRole,
+    /// A valid credential whose caller does not hold this role, matched
+    /// without regard to ASCII case: a restriction, such as a read-only role
+    /// on a write, which overrides every grant combined with it in
+    /// [`Requirement::All`] (no specification governs role semantics: our
+    /// own design).
+    WithoutRole(String),
     /// Either requirement.
     Either(Box<Requirement>, Box<Requirement>),
+    /// Every requirement; an empty list asks only for a valid credential.
+    All(Vec<Requirement>),
     /// No caller is admitted: a route the product mounted without a
     /// classification fails closed.
     Refused,
@@ -161,8 +174,19 @@ impl Requirement {
                     .is_some_and(|client| client_ids.iter().any(|listed| listed == client)),
                 Via::Basic => basic_users.iter().any(|listed| listed == caller.subject()),
             }),
+            Self::Role(role) => access.caller().is_some_and(|caller| caller.has_role(role)),
+            Self::AnyRole => access
+                .caller()
+                .is_some_and(|caller| !caller.roles().is_empty()),
+            Self::WithoutRole(role) => access.caller().is_some_and(|caller| !caller.has_role(role)),
             Self::Either(left, right) => {
                 left.met_by(access, honoured) || right.met_by(access, honoured)
+            }
+            Self::All(requirements) => {
+                access.caller().is_some()
+                    && requirements
+                        .iter()
+                        .all(|requirement| requirement.met_by(access, honoured))
             }
             Self::Refused => false,
         }
@@ -718,6 +742,39 @@ mod tests {
         );
         assert!(!Requirement::Refused.met_by(&Access::Open, none));
         assert!(Requirement::Caller.met_by(&access(""), none));
+    }
+
+    fn holding(roles: &[&str]) -> Access {
+        Access::Caller(Arc::new(
+            Caller::new(String::from("sub"), None, "", None, false)
+                .with_roles(roles.iter().map(|role| (*role).to_owned()).collect()),
+        ))
+    }
+
+    #[test]
+    fn role_requirements_judge_the_roles_the_caller_holds() {
+        let none = Honoured::default();
+        let admin = Requirement::Role(String::from("ADMIN"));
+        assert!(admin.met_by(&holding(&["admin"]), none));
+        assert!(!admin.met_by(&holding(&["clinician"]), none));
+        assert!(
+            !admin.met_by(&Access::Open, none),
+            "an open surface holds no role"
+        );
+        assert!(Requirement::AnyRole.met_by(&holding(&["clinician"]), none));
+        assert!(!Requirement::AnyRole.met_by(&holding(&[]), none));
+        let write = Requirement::All(vec![
+            Requirement::AnyRole,
+            Requirement::WithoutRole(String::from("READONLY")),
+        ]);
+        assert!(write.met_by(&holding(&["clinician"]), none));
+        assert!(
+            !write.met_by(&holding(&["clinician", "readonly"]), none),
+            "a restriction overrides a grant"
+        );
+        assert!(!write.met_by(&holding(&[]), none));
+        assert!(Requirement::All(Vec::new()).met_by(&holding(&[]), none));
+        assert!(!Requirement::All(Vec::new()).met_by(&Access::Open, none));
     }
 
     fn clients(client_ids: &[&str], basic_users: &[&str]) -> Requirement {

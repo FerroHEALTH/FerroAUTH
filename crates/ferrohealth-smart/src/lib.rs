@@ -30,6 +30,9 @@
 //!   a token client with a cache and one renewal on a `401`, authenticating
 //!   with a secret or a `private_key_jwt` assertion). A static bearer token
 //!   or an API key is not a mode.
+//! - [`roles`]: the roles a caller holds, read from the claims RFC 9068
+//!   §2.2.3.1 names or granted to a Basic user, which a route requirement
+//!   checks beside its scopes.
 //! - [`audit`]: one audit line per request, which carries the principal, the
 //!   client, the scheme, the issuer, the method, the route, what was
 //!   addressed, the interaction, the status and the duration, and never the
@@ -59,4 +62,5 @@ pub mod metadata;
 pub mod openehr;
 pub mod refusal;
 pub mod resource;
+pub mod roles;
 pub mod scope;

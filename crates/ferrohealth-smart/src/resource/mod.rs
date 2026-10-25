@@ -106,6 +106,9 @@ pub struct Settings {
     /// access for (a product's allowlist; no specification governs it: our
     /// own design).
     pub scopeless_subjects: BTreeSet<String>,
+    /// The claims a token's roles are read from, each a dotted path
+    /// (RFC 9068 §2.2.3.1; [`crate::roles`]).
+    pub role_claims: Vec<String>,
 }
 
 impl Settings {
@@ -136,6 +139,7 @@ impl Settings {
             jwks_file: None,
             timeout: Duration::from_secs(10),
             scopeless_subjects: BTreeSet::new(),
+            role_claims: crate::roles::default_claims(),
         }
     }
 
@@ -867,6 +871,8 @@ pub struct Caller {
     issuer: Option<String>,
     /// Every claim of the token, for the product's own reading.
     claims: serde_json::Map<String, serde_json::Value>,
+    /// The roles the token's claims or the Basic user's configuration grant.
+    roles: Vec<String>,
     /// Whether a Basic credential was admitted from the verified-credential
     /// cache, without the key derivation.
     cached: bool,
@@ -886,6 +892,7 @@ impl PartialEq for Caller {
             && self.via == other.via
             && self.issuer == other.issuer
             && self.claims == other.claims
+            && self.roles == other.roles
             && self.cached == other.cached
     }
 }
