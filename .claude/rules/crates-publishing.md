@@ -27,12 +27,15 @@ true`), so the tag, the crate and the changelog section always agree.
 
 ## The publish lane is resumable and verified
 
-`scripts/release/publish-crates.sh` (`publish` / `verify` / `version`)
+`scripts/release/publish-crates.sh` (`publish` / `verify` / `version` /
+`guard`)
 uploads the crate, counts "already exists" as done, and reads the registry
 back before reporting success. Two lanes call it: the `crates` leg of
 `release.yml` on a `v*` tag (the primary path, paused by the `crates-io`
 environment's required reviewer) and `publish-crates.yml` on a manual
-dispatch (a dry run by default; `publish = true` is the recovery path). Both
+dispatch (a dry run by default; `publish = true` is the recovery path for
+an existing release, refused by its `guard` job unless the run is at the tag
+`v<manifest version>` and that tag has a published GitHub release). Both
 authenticate with crates.io Trusted Publishing (OIDC through
 `rust-lang/crates-io-auth-action`); no long-lived crates.io token exists in
 the repository. Neither lane restores a build cache (`ci-cd.md`).

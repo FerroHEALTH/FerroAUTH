@@ -21,6 +21,11 @@ and this project adheres to
 - `ResourceServer::with_metadata` compares the issuer of operator-supplied
   metadata through `metadata::check_issuer`, the RFC 8414 §3.3 comparison
   discovery uses; the refusal stays `ResourceError::MetadataIssuer` (#89).
+- The manual `Publish crates` workflow publishes only when it runs at the
+  tag `v<version>` of the manifest version and a published GitHub release
+  exists for that tag; any other run is refused before the `crates-io`
+  approval, naming what is missing. The dry run is unchanged. 0.4.1 reached
+  crates.io with no tag and no release that way (#91).
 
 ## [0.5.0] - 2026-10-25
 

@@ -99,6 +99,8 @@ jobs:
         run: bash scripts/release/plan.sh --self-test
       - name: The changelog Security check passes and refuses what it claims to
         run: bash scripts/checks/changelog-security.sh --self-test
+      - name: The manual crate publish refuses a run off its release tag
+        run: bash scripts/release/publish-crates.sh --self-test
 
   # Every section of CHANGELOG.md holds Keep a Changelog types each once, and
   # [Unreleased] keeps the Security rules the release plan checks on the
