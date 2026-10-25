@@ -6,7 +6,7 @@
 FerroAUTH holds two crates: authentication, `ferrohealth-smart`, and the
 policy decision, `ferrohealth-authz` (reserved on crates.io at `0.0.0`). This
 document designs `ferrohealth-smart`, the shared library with which every
-FerroHEALTH product (FerroBRIDGE, FerroEHR, FerroFED and FerroTERM) acts as an
+FerroHEALTH product (FerroBRIDGE, FerroEHR, FerroFED, FerroPIX and FerroTERM) acts as an
 OAuth 2.0 and SMART App Launch 2.x resource server, verifies and sends
 machine-to-machine credentials, and writes one audit line per request. It is
 the owner's decision of 2026-10-19, and this document is the design of
@@ -994,7 +994,7 @@ its key set from a `jwks_file`.
 |---|---|---|
 | FerroBRIDGE | `src/auth/{discovery,jwks,token,scope}.rs`, the token and scope halves of `guard.rs`, the audit line, `smart.rs` (the discovery document), `src/cdr/oauth/` whole | `compartment.rs` (the patient-to-EHR mapping), the route table `CLASSIFIED`, the `OperationOutcome` bodies, the operator scope and the operations it admits, the `[auth]` loader over the shared section |
 | FerroTERM | `src/smart/{discovery,jwks}.rs`, the token checks and the challenge rendering of `mod.rs`, the scope parser of `scopes.rs`, the discovery document | the write-route classification, the admin listener's requirement, the per-version audience list, the `CapabilityStatement` security block, the `OperationOutcome` bodies |
-| FerroEHR | `authn/jwt.rs` (the remote key source, the claim checks), `authn/basic.rs` (Argon2id and the enumeration defence), the challenge rendering, `service/terminology/oauth2.rs` (the client credentials client) | the RBAC and ABAC gate (`authz/`, Cedar), the assurance gate (`acr`, step-up challenge), the professional and acting-for claims, the ATNA audit, the committer identity |
+| FerroEHR | `authn/jwt.rs` (the remote key source, the claim checks), `authn/basic.rs` (Argon2id and the enumeration defence), the challenge rendering, `service/terminology/oauth2.rs` (the client credentials client) | the RBAC and ABAC gate (`authz/`, Cedar), which moves to `ferrohealth-authz` (owner decision 2026-10-25), the assurance gate (`acr`, step-up challenge), the professional and acting-for claims, the ATNA audit, the committer identity |
 | FerroFED | `auth/keys.rs`, `auth/fetch.rs`, the RFC 9068 checks of `auth/mod.rs`, the challenge rendering of `auth/refusal.rs`, the openEHR grant rules of `auth/permission/grant.rs` (3.9) | the trust list and per-issuer policy, RFC 7662 introspection for opaque tokens, the edge mode, the IUA and contact-point claims, purpose of use, the ITS-REST operation table (the classifier, `auth/permission/table.rs`) with its demographic and backend client lists, the FAPI 2.0, mTLS, DPoP and token-exchange onward grants, the HMAC references of the security log |
 
 FerroFED's edge-assertion verifier does not fit the library's verifiers and
@@ -1025,7 +1025,8 @@ green on its own gates before the next starts:
    becomes the loopback rule, `audiences` keeps its list shape, `basic.users`
    gains `scopes` and keeps `roles` for the RBAC gate. The RBAC and ABAC
    gate runs on the `Access` the layer leaves, reading the roles from the
-   claims as it does today.
+   claims as it does today, and then moves with its Cedar policy to
+   `ferrohealth-authz` (owner decision 2026-10-25).
 4. **FerroFED** last: its trust list wraps the library's issuer entries, its
    introspecting and edge verifiers implement the `Verifier` trait, its
    permission table stays, and its onward grants keep their own engine; the
@@ -1056,10 +1057,14 @@ by editing the test.
   cached key set are the default; introspection (3.10) is a deployment's
   opt-in, `mode = "introspection"`, for opaque tokens from an issuer that
   mints no JWS, with a bounded cache in front of the endpoint.
-- **Evaluate the product's own authorization policy.** Roles, attributes,
-  purpose of use and consent are "a lower-level responsibility in the access
-  control stack" the scopes do not model (`smart scopes-and-launch-context`,
-  SMART's scopes are used to delegate access), so they stay in the product.
+- **Evaluate an authorization policy.** Roles, attributes, purpose of use
+  and consent are "a lower-level responsibility in the access control
+  stack" the scopes do not model (`smart scopes-and-launch-context`, SMART's
+  scopes are used to delegate access), so `ferrohealth-smart` hands the
+  verified `Access` on and decides nothing more. The policy decision (RBAC
+  and ABAC, Cedar, a remote PDP) belongs to `ferrohealth-authz`, the second
+  crate of this repository, and FerroEHR's `authz/` moves there (owner
+  decision 2026-10-25).
 - **Sender-constrain tokens.** RFC 9700 §2.2.1 has resource servers "SHOULD
   use mechanisms for sender-constraining access tokens" (mutual TLS,
   `rfc8705`; DPoP, `rfc9449`). Both RFCs are vendored for reference, and
@@ -1155,7 +1160,7 @@ four agree on and settles each difference:
 | A blank `sub` is refused, by the token check and by the gate over every verifier | `rfc9068 §2.2`; `rfc7519 §4.1.2` (#41) | none |
 | A bearer value outside `b64token` is `invalid_token`; the reason of every refusal reaches the product as a typed `Reason`, never the wire | `rfc6750 §2.1`, `§3.1`; the omission is our own design (#47) | none |
 | Verified Basic credentials may be cached for a configured TTL under an HMAC of the credential | our own design, FerroEHR's (#47) | none |
-| `[auth]` and `[[auth.basic.users]]` take no product extension fields; a product keeps its own policy in its own section, as FerroEHR's `[authz]` does | `deny_unknown_fields` refuses a mistyped or retired key (4); product policy stays in the product (6) (#49, not planned) | none |
+| `[auth]` and `[[auth.basic.users]]` take no product extension fields; policy configuration belongs to `ferrohealth-authz`, where FerroEHR's `[authz]` moves | `deny_unknown_fields` refuses a mistyped or retired key (4); policy stays out of `ferrohealth-smart` (6) (#49, not planned; owner decision 2026-10-25 on `ferrohealth-authz`) | none |
 | A plain-`http` issuer on a host that is no loopback stays refused, with no development switch; a development authorization server gets TLS | `rfc8414 §2`; `discovery §3` (orchestrator decision 2026-10-20 on the FerroEHR migration) | none |
 | `ResourceServer::lazy` reads the issuer on its first token, a failed read answering `503` and not repeated inside the refresh interval; `discover` stays the eager default and both return `Send` futures | our own design, FerroFED's (#55) | none |
 | A product may name the header the credential travels in, schemed or bare; the default stays `Authorization` and the rules of 3.3 hold in any header | `rfc6750 §2.1`, `§3.1`; `rfc9700 §4.13` puts the sanitizing on the proxy (#56) | a deployment that names a header sanitizes it at its proxy |
