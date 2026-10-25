@@ -166,3 +166,59 @@ async fn supplied_metadata_is_held_to_the_issuer_and_the_https_rule()
     std::fs::remove_file(path)?;
     Ok(())
 }
+
+#[tokio::test]
+async fn a_key_set_that_repeats_a_member_name_refuses_the_start() -> Result<(), Box<dyn StdError>> {
+    let key = ec_key("k1", Algorithm::ES256);
+    let jwk = key.jwk.to_string();
+    let inner = jwk.replacen('{', r#"{"kid": "k2", "#, 1);
+    for (name, set) in [
+        (
+            "repeated-keys-jwks.json",
+            format!(r#"{{"keys": [{jwk}], "keys": []}}"#),
+        ),
+        (
+            "repeated-kid-jwks.json",
+            format!(r#"{{"keys": [{inner}]}}"#),
+        ),
+    ] {
+        let path = temp_file(name, set.as_bytes());
+        let mut settings = Settings::new(ISSUER, "https://fhir.example.org");
+        settings.jwks_file = Some(path.clone());
+        let outcome = ResourceServer::discover(settings).await;
+        std::fs::remove_file(path)?;
+        assert!(
+            matches!(outcome, Err(ResourceError::KeySetRepeatedName { .. })),
+            "RFC 8259 §4: {name}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_key_set_that_is_no_json_stays_a_key_set_error() -> Result<(), Box<dyn StdError>> {
+    let path = temp_file("truncated-jwks.json", br#"{"keys": ["#);
+    let mut settings = Settings::new(ISSUER, "https://fhir.example.org");
+    settings.jwks_file = Some(path.clone());
+    let outcome = ResourceServer::discover(settings).await;
+    std::fs::remove_file(path)?;
+    assert!(matches!(outcome, Err(ResourceError::KeySet { .. })));
+    Ok(())
+}
+
+#[tokio::test]
+async fn supplied_metadata_naming_the_issuer_with_a_terminating_slash_is_refused()
+-> Result<(), Box<dyn StdError>> {
+    let slash = ServerMetadata {
+        issuer: format!("{ISSUER}/"),
+        ..supplied()
+    };
+    let (server, path) = offline_server("slash-issuer-jwks.json").await?;
+    let outcome = server.with_metadata(slash);
+    std::fs::remove_file(path)?;
+    assert!(
+        matches!(outcome, Err(ResourceError::MetadataIssuer { ref found }) if found.ends_with('/')),
+        "RFC 8414 §3.3 and §4: exact text"
+    );
+    Ok(())
+}
