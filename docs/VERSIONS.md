@@ -99,7 +99,7 @@ domain of a United States Government work for NIST SP 800-162.
 | Rust toolchain | 1.99.1, profile `minimal`, components `rustfmt` and `clippy` | `rust-toolchain.toml` |
 | Rust edition | 2024 | `Cargo.toml` `[workspace.package] edition`, `rustfmt.toml` |
 | MSRV | 1.98 | `Cargo.toml` `[workspace.package] rust-version` |
-| `ferrohealth-smart` | 0.6.0, the workspace version, the release tag `v0.6.0` and the `CHANGELOG.md` section | `Cargo.toml` `[workspace.package] version`, `Cargo.lock`, `CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
+| `ferrohealth-smart` | 0.7.0, the workspace version, the release tag `ferrohealth-smart-v0.7.0` and the `CHANGELOG.md` section | `Cargo.toml` `[workspace.package] version`, `Cargo.lock`, `CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
 | `ferrohealth-authz` | 0.0.0, the name holder, until its first release tag `ferrohealth-authz-v0.1.0` and the section of its own `CHANGELOG.md` | `crates/ferrohealth-authz/Cargo.toml` `[package] version`, `Cargo.lock`, `crates/ferrohealth-authz/CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
 | Third-party crates | the `[workspace.dependencies]` table, each version checked against crates.io on 2026-10-19 | `Cargo.toml`, `Cargo.lock` |
 
