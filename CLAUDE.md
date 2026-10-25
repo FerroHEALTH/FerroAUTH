@@ -13,7 +13,7 @@ granted subject, and `ferrohealth-authz` (Rust path `ferrohealth_authz`), the
 policy decision (the NIST SP 800-162 request model, a Cedar engine behind
 `cedar`, a remote PDP behind `remote`), which the owner assigned here on
 2026-10-25 (`.claude/memory/family-architecture.md`). Each crate keeps its own
-version line and tag: `vX.Y.Z` releases `ferrohealth-smart`,
+version line and tag: `ferrohealth-smart-vX.Y.Z` releases `ferrohealth-smart`,
 `ferrohealth-authz-vX.Y.Z` releases `ferrohealth-authz` (`docs/release.md`).
 
 FerroAUTH in prose (the repository was FerroSMART until the owner renamed

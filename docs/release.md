@@ -8,14 +8,16 @@ release from this workspace, each on its own version line:
 
 | Crate | Tag | Version | Changelog |
 |---|---|---|---|
-| `ferrohealth-smart` | `vX.Y.Z` | `[workspace.package]` of `Cargo.toml` | `CHANGELOG.md` |
+| `ferrohealth-smart` | `ferrohealth-smart-vX.Y.Z` | `[workspace.package]` of `Cargo.toml` | `CHANGELOG.md` |
 | `ferrohealth-authz` | `ferrohealth-authz-vX.Y.Z` | `[package]` of `crates/ferrohealth-authz/Cargo.toml` | `crates/ferrohealth-authz/CHANGELOG.md` |
 
 A release is the signed tag on the merge commit of the release pull request
 on `main`; `.github/workflows/release.yml` does the rest for the crate the
 tag names (`.claude/rules/ci-cd.md`, `.claude/rules/crates-publishing.md`).
 Below, `<tag>` is that tag and the steps name the crate's own version and
-changelog.
+changelog. `ferrohealth-smart` 0.1.0 to 0.6.0 were tagged `vX.Y.Z`; those
+tags stay, the plan counts them as its earlier releases, and from 0.7.0 on
+each crate is tagged with its name (owner decision of 2026-10-25).
 
 ## The release pull request
 
@@ -71,11 +73,11 @@ anything is built or published. Its checks are one list,
 list on your machine:
 
 ```sh
-scripts/release/preflight.sh vX.Y.Z
-scripts/release/preflight.sh vX.Y.Z --notes /tmp/notes.md   # keep the notes
+scripts/release/preflight.sh <tag>
+scripts/release/preflight.sh <tag> --notes /tmp/notes.md   # keep the notes
 ```
 
-Run it on `release/vX.Y.Z` once the cut is committed, and again on `main`
+Run it on `release/<tag>` once the cut is committed, and again on `main`
 after the merge, at the commit you are about to tag. It exits 0 when the
 `plan` job would pass, names every check that refuses, and prints the path
 of the release notes it composed, so you read them before they are
@@ -91,7 +93,7 @@ tracker.
 | The section being cut opens its `### Security` with the reason when it sits beside other changes, and every Security entry names a GHSA id or an existing `security/vex/` path | `scripts/checks/changelog-security.sh --section X.Y.Z` |
 | The changelog section becomes the notes, with the support period appended: the month five years after the heading's date (Regulation (EU) 2024/2847 Art 13(19)) | `plan.sh notes` |
 
-`scripts/release/plan.sh prev-tag vX.Y.Z` prints the previous release by
+`scripts/release/plan.sh prev-tag <tag>` prints the previous release by
 version order from the tags of origin, so a tag pushed whose release never
 published still counts. To add a release fact, add a function and a line to
 `list()` in `scripts/release/plan.sh`; the `plan` job and the preflight
@@ -103,8 +105,8 @@ After the release pull request merges and the preflight passes on `main`,
 tag its merge commit signed and push the tag:
 
 ```sh
-git tag -s vX.Y.Z -m vX.Y.Z <merge-commit>
-git push origin vX.Y.Z
+git tag -s <tag> -m <tag> <merge-commit>
+git push origin <tag>
 ```
 
 `release.yml` runs the preflight's list at the tag, takes the notes from
@@ -119,10 +121,10 @@ patch version.
 `.github/workflows/publish-crates.yml` is a dry run unless it is dispatched
 with `publish = true`. Publishing through it is the recovery path for a
 release that already exists, when the `crates` leg of `release.yml` failed:
-dispatch it at the release's tag `vX.Y.Z`, never at a branch. Its `guard`
+dispatch it at the release's tag, never at a branch. Its `guard`
 job (`scripts/release/publish-crates.sh guard`) refuses, before the
 `crates-io` approval is asked for, unless the run is at a tag, that tag is
-`v` followed by the manifest version, and a published GitHub release exists
+the release tag of the crate it names followed by that crate's manifest version, and a published GitHub release exists
 for it, and it names what is missing. A version reaches crates.io only
 through a tag and its release, so the manual lane can never publish a
 version the changelog and the tag do not carry.

@@ -1,8 +1,9 @@
 # SPDX-FileCopyrightText: Cadasto B.V.
 # SPDX-License-Identifier: BUSL-1.1
 
-# The release lane, dormant until a release tag is pushed: `v*` releases
-# ferrohealth-smart and `ferrohealth-authz-v*` releases ferrohealth-authz,
+# The release lane, dormant until a release tag is pushed:
+# `ferrohealth-smart-v*` releases ferrohealth-smart and `ferrohealth-authz-v*`
+# releases ferrohealth-authz,
 # each crate on its own version line (scripts/release/plan.sh crate):
 #
 #   plan ── github-release (draft) ── crate (reusable) ── finalize-release ── crates ── milestone
@@ -19,11 +20,11 @@ name: Release
 
 on:
   push:
-    tags: ["v*", "ferrohealth-authz-v*"]
+    tags: ["ferrohealth-smart-v*", "ferrohealth-authz-v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing vX.Y.Z or ferrohealth-authz-vX.Y.Z tag to (re)publish. Dispatch this workflow AT that tag."
+        description: "Existing ferrohealth-smart-vX.Y.Z or ferrohealth-authz-vX.Y.Z tag to (re)publish. Dispatch this workflow AT that tag."
         required: true
         type: string
 
@@ -62,16 +63,12 @@ jobs:
           else
             tag="${GITHUB_REF_NAME}"
           fi
-          if ! printf '%s\n' "$tag" | grep -qE '^(ferrohealth-authz-)?v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "::error::'$tag' is not a vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" >&2
+          if ! printf '%s\n' "$tag" | grep -qE '^ferrohealth-(smart|authz)-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$tag' is not a ferrohealth-smart-vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" >&2
             exit 1
           fi
-          case "$tag" in
-            ferrohealth-authz-v*) crate=ferrohealth-authz ;;
-            *) crate=ferrohealth-smart ;;
-          esac
-          version="${tag#ferrohealth-authz-}"
-          version="${version#v}"
+          crate="${tag%-v*}"
+          version="${tag#"$crate"-v}"
           case "$version" in
             *-*) is_prerelease=true ;;
             *) is_prerelease=false ;;
@@ -128,8 +125,7 @@ jobs:
           IS_PRERELEASE: ${{ needs.plan.outputs.is-prerelease }}
         run: |
           set -euo pipefail
-          title="$VERSION"
-          if [ "$CRATE" != "ferrohealth-smart" ]; then title="$CRATE $VERSION"; fi
+          title="$CRATE $VERSION"
           args=(--repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$title" --notes-file release-notes.md)
           if [ "$IS_PRERELEASE" = "true" ]; then args+=(--prerelease); fi
           state="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)"

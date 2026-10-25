@@ -11,7 +11,8 @@ Published versions are immutable, so version hygiene is a hard rule.
 ## Two version lines
 
 The workspace `version` in the root `Cargo.toml` is `ferrohealth-smart`'s
-version and its release tag `vX.Y.Z`; it inherits it (`version.workspace =
+version and its release tag `ferrohealth-smart-vX.Y.Z` (0.1.0 to 0.6.0 were
+tagged `vX.Y.Z`; those tags stay); it inherits it (`version.workspace =
 true`), and its changelog is `CHANGELOG.md`. `ferrohealth-authz` keeps its own
 `[package] version`, released by the tag `ferrohealth-authz-vX.Y.Z`, with its
 own `crates/ferrohealth-authz/CHANGELOG.md`. For each, the tag, the crate and
@@ -37,8 +38,8 @@ the changelog section always agree (`scripts/checks/crate-version-guard.sh`,
 `scripts/release/publish-crates.sh` (`publish <crate>` / `verify <crate>` /
 `version` / `crate <tag>` / `guard`) uploads the one crate a tag releases,
 counts "already exists" as done, and reads the registry back before reporting
-success. Two lanes call it: the `crates` leg of `release.yml` on a `v*` or
-`ferrohealth-authz-v*` tag (the primary path, paused by the `crates-io`
+success. Two lanes call it: the `crates` leg of `release.yml` on a `ferrohealth-smart-v*`
+or `ferrohealth-authz-v*` tag (the primary path, paused by the `crates-io`
 environment's required reviewer) and `publish-crates.yml` on a manual
 dispatch (a dry run by default; `publish = true` is the recovery path for
 an existing release, refused by its `guard` job unless the run is at the
@@ -63,7 +64,8 @@ that version is on crates.io.
    `ferrohealth-authz`, the policy decision crate reserved at `0.0.0`, has
    Trusted Publishing for the same repository.
 3. The `crates-io` GitHub environment carries the owner as required reviewer
-   and admits `main`, `v*` tags and `ferrohealth-authz-v*` tags.
+   and admits `main`, `ferrohealth-smart-v*` tags and `ferrohealth-authz-v*`
+   tags (and `v*`, until the per-crate tags have shipped).
 
 ## Official documentation (durable citations)
 

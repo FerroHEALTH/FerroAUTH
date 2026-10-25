@@ -44,8 +44,8 @@ repo() {
 }
 
 valid_tag() {
-  if [[ ! "$1" =~ ^(ferrohealth-authz-)?v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-    echo "::error::milestone: '$1' is not a vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" >&2
+  if [[ ! "$1" =~ ^ferrohealth-(smart|authz)-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+    echo "::error::milestone: '$1' is not a ferrohealth-smart-vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" >&2
     exit 2
   fi
 }
@@ -77,7 +77,7 @@ refuse_open() {
 check() {
   local tag="$1" repository found number state
   valid_tag "$tag"
-  if [[ "${tag#ferrohealth-authz-}" == *-* ]]; then
+  if [[ "${tag#ferrohealth-*-}" == *-* ]]; then
     echo "milestone: $tag is a pre-release, which finishes no milestone."
     return 0
   fi
@@ -92,7 +92,7 @@ check() {
 close() {
   local tag="$1" repository failed leg found number state
   valid_tag "$tag"
-  if [[ "${tag#ferrohealth-authz-}" == *-* ]]; then
+  if [[ "${tag#ferrohealth-*-}" == *-* ]]; then
     echo "milestone: $tag is a pre-release, which finishes no milestone."
     return 0
   fi
@@ -123,7 +123,7 @@ self_test() {
   scratch="$(mktemp -d)"
   trap 'rm -rf "$scratch"' RETURN
   export GITHUB_REPOSITORY=o/r
-  STUB_MILESTONES='[{"number":4,"title":"v1.1.0","state":"open"}][{"number":3,"title":"v1.0.0","state":"open"}]'
+  STUB_MILESTONES='[{"number":4,"title":"ferrohealth-smart-v1.1.0","state":"open"}][{"number":3,"title":"ferrohealth-smart-v1.0.0","state":"open"}]'
   STUB_ISSUES='[]'
   # The stub answers the three calls the script makes and records each close.
   # shellcheck disable=SC2329 # the functions under test call it in place of gh
@@ -153,27 +153,27 @@ self_test() {
       echo "ok: $name"
     fi
   }
-  expect "check passes an empty milestone" 0 "holds no open item" no -- check v1.0.0
-  expect "check passes a pre-release" 0 "pre-release" no -- check v1.0.0-rc.1
-  expect "check refuses a malformed tag" 2 "is not a vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" no -- check 1.0.0
+  expect "check passes an empty milestone" 0 "holds no open item" no -- check ferrohealth-smart-v1.0.0
+  expect "check passes a pre-release" 0 "pre-release" no -- check ferrohealth-smart-v1.0.0-rc.1
+  expect "check refuses a malformed tag" 2 "is not a ferrohealth-smart-vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" no -- check 1.0.0
   expect "check passes an authz pre-release" 0 "pre-release" no -- check ferrohealth-authz-v0.1.0-rc.1
-  expect "check refuses a missing milestone" 1 "no milestone of o/r is titled 'v9.9.9'" no -- check v9.9.9
-  expect "close closes an empty milestone" 0 "closed v1.0.0 (#3)" yes -- close v1.0.0
+  expect "check refuses a missing milestone" 1 "no milestone of o/r is titled 'ferrohealth-smart-v9.9.9'" no -- check ferrohealth-smart-v9.9.9
+  expect "close closes an empty milestone" 0 "closed ferrohealth-smart-v1.0.0 (#3)" yes -- close ferrohealth-smart-v1.0.0
   NEEDS_JSON='{"plan":{"result":"success"},"crates":{"result":"failure"}}' \
-    expect "close keeps the milestone open after a failed leg" 1 "the release leg crates (failure) did not succeed" no -- close v1.0.0
+    expect "close keeps the milestone open after a failed leg" 1 "the release leg crates (failure) did not succeed" no -- close ferrohealth-smart-v1.0.0
   NEEDS_JSON='{"plan":{"result":"success"},"crates":{"result":"success"}}' \
-    expect "close closes after every leg succeeded" 0 "closed v1.0.0" yes -- close v1.0.0
-  expect "close refuses a missing milestone" 1 "nothing to close" no -- close v9.9.9
+    expect "close closes after every leg succeeded" 0 "closed ferrohealth-smart-v1.0.0" yes -- close ferrohealth-smart-v1.0.0
+  expect "close refuses a missing milestone" 1 "nothing to close" no -- close ferrohealth-smart-v9.9.9
   NEEDS_JSON='{"crates":{"result":"skipped"}}' \
-    expect "close leaves a pre-release alone" 0 "pre-release" no -- close v1.0.0-rc.1
+    expect "close leaves a pre-release alone" 0 "pre-release" no -- close ferrohealth-smart-v1.0.0-rc.1
   STUB_ISSUES='[{"number":7,"title":"A straggler"}][{"number":8,"title":"A fix","pull_request":{}}]'
-  expect "check names each open issue" 1 "v1.0.0 still holds #7 A straggler" no -- check v1.0.0
-  expect "check names each open pull request" 1 "#8 (pull request) A fix" no -- check v1.0.0
-  expect "close refuses a milestone with open items" 1 "has 2 open item(s)" no -- close v1.0.0
-  STUB_MILESTONES='[{"number":3,"title":"v1.0.0","state":"closed"}]'
+  expect "check names each open issue" 1 "ferrohealth-smart-v1.0.0 still holds #7 A straggler" no -- check ferrohealth-smart-v1.0.0
+  expect "check names each open pull request" 1 "#8 (pull request) A fix" no -- check ferrohealth-smart-v1.0.0
+  expect "close refuses a milestone with open items" 1 "has 2 open item(s)" no -- close ferrohealth-smart-v1.0.0
+  STUB_MILESTONES='[{"number":3,"title":"ferrohealth-smart-v1.0.0","state":"closed"}]'
   STUB_ISSUES='[]'
-  expect "close counts a closed milestone as done" 0 "already closed" no -- close v1.0.0
-  expect "check passes a closed, empty milestone" 0 "holds no open item" no -- check v1.0.0
+  expect "close counts a closed milestone as done" 0 "already closed" no -- close ferrohealth-smart-v1.0.0
+  expect "check passes a closed, empty milestone" 0 "holds no open item" no -- check ferrohealth-smart-v1.0.0
   unset -f gh
   if [[ "$fails" -ne 0 ]]; then
     echo "milestone: self-test FAILED ($fails)" >&2

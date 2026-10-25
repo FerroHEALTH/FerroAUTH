@@ -2,7 +2,7 @@
 # SPDX-FileCopyrightText: Cadasto B.V.
 # SPDX-License-Identifier: BUSL-1.1
 # The crates.io upload of the published members, and its read-back, as one
-# implementation shared by the `crates` leg of release.yml (a `v*` tag,
+# implementation shared by the `crates` leg of release.yml (a release tag,
 # approval-gated) and publish-crates.yml (a manual dispatch: the dry-run and
 # recovery lane). The two lanes cannot share a reusable workflow: crates.io
 # Trusted Publishing matches the OIDC `workflow_ref` claim, and for a job
@@ -15,9 +15,9 @@
 # reported (no specification governs this: our own design).
 #
 # Two crates publish from this workspace, each on its own version line and
-# tag: ferrohealth-smart at `v<version>` and ferrohealth-authz at
-# `ferrohealth-authz-v<version>`. A run publishes the one crate its tag
-# releases.
+# tag: ferrohealth-smart at `ferrohealth-smart-v<version>` and
+# ferrohealth-authz at `ferrohealth-authz-v<version>`. A run publishes the one
+# crate its tag releases.
 #
 # Usage:
 #   publish-crates.sh publish CRATE    # upload one crate
@@ -48,7 +48,7 @@ readonly CRATES=(
 crate_of_tag() {
   case "$1" in
     ferrohealth-authz-v*) echo ferrohealth-authz ;;
-    v*) echo ferrohealth-smart ;;
+    ferrohealth-smart-v*) echo ferrohealth-smart ;;
     *) return 1 ;;
   esac
 }
@@ -57,7 +57,7 @@ crate_of_tag() {
 tag_prefix() {
   case "$1" in
     ferrohealth-authz) echo ferrohealth-authz-v ;;
-    *) echo v ;;
+    *) echo ferrohealth-smart-v ;;
   esac
 }
 
@@ -142,11 +142,11 @@ do_verify() {
   echo "publish-crates: confirmed on crates.io, $* at the manifest version"
 }
 
-# do_guard REF_TYPE REF_NAME VERSION [PREFIX]: refuses, naming what is
-# missing, unless the ref is the tag PREFIX VERSION (PREFIX `v` by default)
-# and a published release exists for that tag.
+# do_guard REF_TYPE REF_NAME VERSION PREFIX: refuses, naming what is
+# missing, unless the ref is the tag PREFIX VERSION and a published release
+# exists for that tag.
 do_guard() {
-  local ref_type="$1" ref_name="$2" version="$3" prefix="${4:-v}" tag draft
+  local ref_type="$1" ref_name="$2" version="$3" prefix="$4" tag draft
   tag="$prefix$version"
   if [[ "$ref_type" != "tag" ]]; then
     echo "::error::publish-crates: the run is at the $ref_type '$ref_name', not the tag $tag; dispatch it at the tag" >&2
@@ -170,13 +170,13 @@ do_guard() {
 self_test() {
   local fails=0 out rc
   export GITHUB_REPOSITORY=o/r
-  # The stub answers the one call `guard` makes: v1.0.0 is released, v1.1.0
+  # The stub answers the one call `guard` makes: ferrohealth-smart-v1.0.0 is released, ferrohealth-smart-v1.1.0
   # is a draft, and every other tag has no release.
   # shellcheck disable=SC2329 # do_guard calls it in place of gh
   gh() {
     case "$*" in
-      "release view v1.0.0 --repo o/r --json isDraft --jq .isDraft") echo false ;;
-      "release view v1.1.0 --repo o/r --json isDraft --jq .isDraft") echo true ;;
+      "release view ferrohealth-smart-v1.0.0 --repo o/r --json isDraft --jq .isDraft") echo false ;;
+      "release view ferrohealth-smart-v1.1.0 --repo o/r --json isDraft --jq .isDraft") echo true ;;
       "release view "*) return 1 ;;
       *)
         echo "stub gh: unexpected call: $*" >&2
@@ -194,13 +194,13 @@ self_test() {
       fails=$((fails + 1))
     fi
   }
-  expect "the released tag passes" 0 "has a published release" -- tag v1.0.0 1.0.0
-  expect "a branch is refused" 1 "not the tag v1.0.0" -- branch main 1.0.0
-  expect "another tag is refused" 1 "whose tag is v1.0.0" -- tag v0.9.0 1.0.0
-  expect "a tag without a release is refused" 1 "no GitHub release" -- tag v1.2.0 1.2.0
-  expect "a draft release is refused" 1 "is a draft" -- tag v1.1.0 1.1.0
+  expect "the released tag passes" 0 "has a published release" -- tag ferrohealth-smart-v1.0.0 1.0.0 ferrohealth-smart-v
+  expect "a branch is refused" 1 "not the tag ferrohealth-smart-v1.0.0" -- branch main 1.0.0 ferrohealth-smart-v
+  expect "another tag is refused" 1 "whose tag is ferrohealth-smart-v1.0.0" -- tag ferrohealth-smart-v0.9.0 1.0.0 ferrohealth-smart-v
+  expect "a tag without a release is refused" 1 "no GitHub release" -- tag ferrohealth-smart-v1.2.0 1.2.0 ferrohealth-smart-v
+  expect "a draft release is refused" 1 "is a draft" -- tag ferrohealth-smart-v1.1.0 1.1.0 ferrohealth-smart-v
   expect "an authz tag of another version is refused" 1 "whose tag is ferrohealth-authz-v0.2.0" -- tag ferrohealth-authz-v0.1.0 0.2.0 ferrohealth-authz-v
-  if [[ "$(crate_of_tag ferrohealth-authz-v0.1.0)" != ferrohealth-authz || "$(crate_of_tag v0.7.0)" != ferrohealth-smart ]] || crate_of_tag main > /dev/null; then
+  if [[ "$(crate_of_tag ferrohealth-authz-v0.1.0)" != ferrohealth-authz || "$(crate_of_tag ferrohealth-smart-v0.7.0)" != ferrohealth-smart ]] || crate_of_tag main > /dev/null || crate_of_tag v0.6.0 > /dev/null; then
     echo "FAIL: the crate of a tag" >&2
     fails=$((fails + 1))
   fi
