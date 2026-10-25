@@ -6,6 +6,8 @@
 
 use std::error::Error as StdError;
 
+use ferrohealth_smart::metadata::DiscoveryError;
+use ferrohealth_smart::metadata::MtlsEndpointAliases;
 use ferrohealth_smart::metadata::ServerMetadata;
 use ferrohealth_smart::resource::ResourceError;
 use ferrohealth_smart::resource::ResourceServer;
@@ -219,6 +221,31 @@ async fn supplied_metadata_naming_the_issuer_with_a_terminating_slash_is_refused
     assert!(
         matches!(outcome, Err(ResourceError::MetadataIssuer { ref found }) if found.ends_with('/')),
         "RFC 8414 §3.3 and §4: exact text"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn supplied_metadata_with_a_plain_http_mtls_alias_is_refused() -> Result<(), Box<dyn StdError>>
+{
+    let alias = ServerMetadata {
+        mtls_endpoint_aliases: Some(MtlsEndpointAliases {
+            token_endpoint: Some(String::from("http://mtls.example.org/token")),
+        }),
+        ..supplied()
+    };
+    let (server, path) = offline_server("plain-mtls-alias-jwks.json").await?;
+    let outcome = server.with_metadata(alias);
+    std::fs::remove_file(path)?;
+    assert!(
+        matches!(
+            outcome,
+            Err(ResourceError::Discovery(DiscoveryError::Insecure {
+                what: "mtls_endpoint_aliases.token_endpoint",
+                ..
+            }))
+        ),
+        "RFC 8414 §2 and RFC 8705 §5: the alias is an https location too"
     );
     Ok(())
 }

@@ -11,6 +11,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- `ResourceServer::with_metadata` holds the `mtls_endpoint_aliases`
+  token endpoint (RFC 8705 §5) of operator-supplied metadata to the `https`
+  rule of RFC 8414 §2 like every other location, so a plain-`http` alias is
+  refused with `ResourceError::Discovery`; the check reads the members
+  `ServerMetadata::endpoints` lists (#93).
+
 ### Changed
 
 - A key set in which any object, at any depth, repeats a member name is
