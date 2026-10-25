@@ -1,26 +1,25 @@
 <!-- SPDX-FileCopyrightText: Cadasto B.V. -->
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
-<!-- One lockup for both themes: the media query inside the SVG switches the
-     mark and wordmark tones on prefers-color-scheme, so a README or a page
-     serves one file to a light and a dark reader. -->
+<!-- The FerroAUTH lockup in the parent's steel, the construction and the
+     wordmark of FerroHEALTH's assets/brand/ferrohealth-lockup-auto.svg. One file serves both themes through prefers-color-scheme. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="258" height="64" viewBox="0 0 258 64" role="img" aria-label="FerroAUTH">
   <title>FerroAUTH</title>
   <style>
-    .c0-stroke { stroke: #78350F }
-    .c1-fill { fill: #FBBF24 }
-    .c1-stroke { stroke: #FBBF24 }
-    .wm { fill: #0F172A; }
+    .m1 { stroke: #3F6070 }
+    .m2 { stroke: #8FB6C4 }
+    .m2f { fill: #8FB6C4 }
+    .ferro { fill: #0F172A }
+    .suf { fill: #3F6070 }
     @media (prefers-color-scheme: dark) {
-      .c0-stroke { stroke: #FBBF24 }
-      .c1-fill { fill: #F1F5F9 }
-      .c1-stroke { stroke: #F1F5F9 }
-      .wm { fill: #F1F5F9; }
+      .m1 { stroke: #8FB6C4 }
+      .m2 { stroke: #F1F5F9 }
+      .m2f { fill: #F1F5F9 }
+      .ferro { fill: #F1F5F9 }
+      .suf { fill: #8FB6C4 }
     }
   </style>
-  <g>
-  <path d="M32 6 L52 13 V30 C52 44 43 53 32 58 C21 53 12 44 12 30 V13 Z" fill="none" class="c0-stroke" stroke-width="4.6" stroke-linejoin="round"/>
-  <circle cx="32" cy="28" r="5.5" class="c1-fill"/>
-  <path d="M32 32 V42" class="c1-stroke" stroke-width="5" stroke-linecap="round"/>
-  </g>
-  <text class="wm" x="76" y="44" font-family="'Bricolage Grotesque',system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="30" font-weight="700" letter-spacing="-0.3">FerroAUTH</text>
+  <path class="m1" d="M32 6 L52 13 V30 C52 44 43 53 32 58 C21 53 12 44 12 30 V13 Z" fill="none" stroke-width="4.6" stroke-linejoin="round"/>
+  <circle class="m2f" cx="32" cy="28" r="5.5"/>
+  <path class="m2" d="M32 32 V42" stroke-width="5" stroke-linecap="round"/>
+  <text x="76" y="44" font-family="'Bricolage Grotesque',system-ui,-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif" font-size="30" font-weight="700" letter-spacing="-0.3"><tspan class="ferro">Ferro</tspan><tspan class="suf">AUTH</tspan></text>
 </svg>
