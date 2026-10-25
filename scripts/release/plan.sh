@@ -8,6 +8,11 @@
 # scripts/release/preflight.sh runs it on a release branch before the tag is
 # pushed, so the two cannot check different things.
 #
+# Two crates release from this workspace, each on its own version line and
+# tag: `vX.Y.Z` releases ferrohealth-smart (the [workspace.package] version,
+# CHANGELOG.md), and `ferrohealth-authz-vX.Y.Z` releases ferrohealth-authz
+# (its own [package] version, crates/ferrohealth-authz/CHANGELOG.md).
+#
 #   plan.sh checks <tag> [--notes <file>]
 #       Runs every check below at the working tree, in order, and writes the
 #       release notes to <file> (default release-notes.md). A failing check is
@@ -15,9 +20,13 @@
 #       that read the notes are skipped when the notes could not be composed.
 #       Exit 1 when any check failed.
 #   plan.sh prev-tag <tag>
-#       Prints the release tag before <tag> by version order, read from
-#       `git ls-remote` of origin: a pushed tag counts whether or not its
-#       release published, and ancestry plays no part.
+#       Prints the release tag of the same crate before <tag> by version
+#       order, read from `git ls-remote` of origin: a pushed tag counts
+#       whether or not its release published, and ancestry plays no part.
+#   plan.sh crate <tag>
+#       Prints the crate <tag> releases.
+#   plan.sh changelog <tag>
+#       Prints the changelog file of the crate <tag> releases.
 #   plan.sh notes <tag> <file>
 #       Writes the release notes for <tag>: its changelog section and the
 #       support period.
@@ -30,43 +39,76 @@
 # logged-in gh locally). Exit 2 on a usage error.
 set -euo pipefail
 
-readonly TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+readonly TAG_RE='^(ferrohealth-authz-)?v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 # The support period in years from the release date: the minimum of
 # Regulation (EU) 2024/2847 Art 13(8), as SECURITY.md states it.
 readonly SUPPORT_YEARS=5
 readonly SECURITY_URL='https://github.com/FerroHEALTH/FerroAUTH/blob/main/SECURITY.md#supported-versions'
 
 usage() {
-  echo "usage: plan.sh checks <tag> [--notes <file>] | prev-tag <tag> | notes <tag> <file> | support-end <YYYY-MM-DD> | --self-test" >&2
+  echo "usage: plan.sh checks <tag> [--notes <file>] | prev-tag <tag> | crate <tag> | changelog <tag> | notes <tag> <file> | support-end <YYYY-MM-DD> | --self-test" >&2
   exit 2
 }
 
 valid_tag() {
   local tag="$1"
   [[ "$tag" =~ $TAG_RE ]] || {
-    echo "::error::plan: '$tag' is not a vX.Y.Z tag" >&2
+    echo "::error::plan: '$tag' is not a vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" >&2
     exit 2
   }
 }
 
+# The crate a tag releases, the prefix of its tags, and its changelog.
+tag_prefix() {
+  case "$1" in
+  ferrohealth-authz-v*) echo "ferrohealth-authz-" ;;
+  *) echo "" ;;
+  esac
+}
+
+crate_of() {
+  case "$1" in
+  ferrohealth-authz-v*) echo "ferrohealth-authz" ;;
+  *) echo "ferrohealth-smart" ;;
+  esac
+}
+
+changelog_of() {
+  case "$1" in
+  ferrohealth-authz-v*) echo "crates/ferrohealth-authz/CHANGELOG.md" ;;
+  *) echo "CHANGELOG.md" ;;
+  esac
+}
+
+# The version a tag names: the text after its `v`.
+version_of() {
+  local tag="$1"
+  echo "${tag#"$(tag_prefix "$tag")"v}"
+}
+
 # The previous release.
 
-# order_prev TAG: reads tag names on stdin and prints the release tag directly
-# below TAG's release (its pre-release suffix dropped) by version order.
+# order_prev TAG: reads tag names on stdin and prints the release tag of the
+# same crate directly below TAG's release (its pre-release suffix dropped) by
+# version order.
 order_prev() {
-  local base="${1%%-*}"
-  grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | grep -vxF "$base" |
+  local prefix version base
+  prefix="$(tag_prefix "$1")"
+  version="$(version_of "$1")"
+  base="${prefix}v${version%%-*}"
+  grep -E "^${prefix}v[0-9]+\.[0-9]+\.[0-9]+\$" | grep -vxF "$base" |
     {
       cat
       echo "$base"
-    } | sort -V | awk -v t="$base" '$0==t{print p; exit} {p=$0}'
+    } | sed "s#^${prefix}v##" | sort -V | sed "s#^#${prefix}v#" |
+    awk -v t="$base" '$0==t{print p; exit} {p=$0}'
 }
 
 prev_tag() {
   local tag="$1" prev
-  prev="$(git ls-remote --tags --refs origin 'v*' | sed 's#.*refs/tags/##' | order_prev "$tag")"
+  prev="$(git ls-remote --tags --refs origin "$(tag_prefix "$tag")v*" | sed 's#.*refs/tags/##' | order_prev "$tag")"
   [[ -n "$prev" ]] || {
-    echo "::error::plan: no release tag below ${tag%%-*}" >&2
+    echo "::error::plan: no release tag below $tag" >&2
     return 1
   }
   printf '%s\n' "$prev"
@@ -100,13 +142,15 @@ support_end() {
 # The release notes.
 
 notes() {
-  local out="$2" version="${1#v}" released end
-  if [[ ! -f CHANGELOG.md ]]; then
-    echo "::error::CHANGELOG.md is missing, so $version has no release notes." >&2
+  local out="$2" version changelog released end
+  version="$(version_of "$1")"
+  changelog="$(changelog_of "$1")"
+  if [[ ! -f "$changelog" ]]; then
+    echo "::error::$changelog is missing, so $version has no release notes." >&2
     return 1
   fi
-  if ! grep -q "^## \[$version\]" CHANGELOG.md; then
-    echo "::error::CHANGELOG.md has no '## [$version]' section. Cut the release before tagging: run scripts/release/changelog.sh --assemble $version <date> and merge the result." >&2
+  if ! grep -q "^## \[$version\]" "$changelog"; then
+    echo "::error::$changelog has no '## [$version]' section. Cut the release section before tagging." >&2
     return 1
   fi
   # Everything under the version heading, stopping at the next version
@@ -116,14 +160,14 @@ notes() {
     found && /^## \[/ { exit }
     found && /^\[[^]]+\]:/ { exit }
     found { print }
-  ' CHANGELOG.md >"$out"
+  ' "$changelog" >"$out"
   if ! grep -q '[^[:space:]]' "$out"; then
     echo "::error::the [$version] changelog section is empty." >&2
     return 1
   fi
   # Regulation (EU) 2024/2847 Art 13(19): the end of the support commitment,
   # at least month and year, counted from the release date of the heading.
-  released="$(sed -n "s/^## \[$version\] - \([0-9-]*\).*/\1/p" CHANGELOG.md | head -n1)"
+  released="$(sed -n "s/^## \[$version\] - \([0-9-]*\).*/\1/p" "$changelog" | head -n1)"
   if ! end="$(support_end "$released")"; then
     echo "::error::the [$version] heading carries no release date to count the support period from." >&2
     return 1
@@ -141,31 +185,62 @@ notes() {
 # A release is cut only when its milestone is empty.
 check_milestone() { bash scripts/release/milestone.sh check "$TAG"; }
 
-# The tag names the [workspace.package] version of the root Cargo.toml, the
-# product version.
+# The tag names the version of the crate it releases: ferrohealth-smart's is
+# the [workspace.package] version of the root Cargo.toml, ferrohealth-authz's
+# the [package] version of its own manifest.
 check_version() {
-  local manifest
-  manifest="$(awk '
-    /^[[:space:]]*\[/ { h = $0; gsub(/[[:space:]]/, "", h); f = (h == "[workspace.package]"); next }
+  local manifest table file
+  case "$CRATE" in
+  ferrohealth-authz)
+    file="crates/ferrohealth-authz/Cargo.toml"
+    table="[package]"
+    ;;
+  *)
+    file="Cargo.toml"
+    table="[workspace.package]"
+    ;;
+  esac
+  manifest="$(awk -v table="$table" '
+    /^[[:space:]]*\[/ { h = $0; gsub(/[[:space:]]/, "", h); f = (h == table); next }
     f && $0 ~ /^[[:space:]]*version[[:space:]]*=/ {
       if (match($0, /"[^"]*"/)) { print substr($0, RSTART + 1, RLENGTH - 2); exit }
     }
-  ' Cargo.toml)"
+  ' "$file")"
   if [[ "$manifest" != "$VERSION" ]]; then
-    echo "::error::tag $TAG declares version $VERSION, but Cargo.toml says ${manifest:-nothing}." >&2
+    echo "::error::tag $TAG declares version $VERSION, but $file says ${manifest:-nothing}." >&2
     return 1
   fi
-  echo "OK: Cargo.toml declares $VERSION"
+  echo "OK: $file declares $VERSION"
 }
 
-check_changelog_structure() { bash scripts/checks/changelog-structure.sh; }
+check_changelog_structure() { bash scripts/checks/changelog-structure.sh "$CHANGELOG"; }
+
+# The cut refreshes the link references: [Unreleased] compares from the tag
+# being cut and the cut version has a link of its own (Keep a Changelog 1.1.0
+# writes each version heading as a link). A pre-release cuts no section.
+check_changelog_links() {
+  local base="https://github.com/FerroHEALTH/FerroAUTH" failed=0
+  if [[ "$VERSION" == *-* ]]; then
+    echo "a pre-release cuts no changelog section"
+    return 0
+  fi
+  if ! grep -qxF "[Unreleased]: $base/compare/$TAG...HEAD" "$CHANGELOG"; then
+    echo "::error::$CHANGELOG: the [Unreleased] link does not compare from $TAG; write '[Unreleased]: $base/compare/$TAG...HEAD'." >&2
+    failed=1
+  fi
+  if ! grep -q "^\[$VERSION\]: $base/" "$CHANGELOG"; then
+    echo "::error::$CHANGELOG: the [$VERSION] heading has no link reference; add '[$VERSION]: $base/compare/<previous tag>...$TAG'." >&2
+    failed=1
+  fi
+  [[ "$failed" -eq 0 ]] && echo "the [Unreleased] and [$VERSION] links name $TAG"
+}
 
 # Regulation (EU) 2024/2847 Annex I Part II(2), (4) and (8): the section
 # being cut says why a security fix ships with functional changes and names
 # every advisory.
 check_changelog_security() {
   bash scripts/checks/changelog-security.sh --self-test
-  bash scripts/checks/changelog-security.sh --section "$VERSION"
+  bash scripts/checks/changelog-security.sh --section "$VERSION" "$CHANGELOG"
 }
 
 check_notes() {
@@ -187,8 +262,9 @@ check_notes_content() {
 list() {
   cat <<'EOF'
 check_milestone The milestone titled as the tag holds no open item
-check_version The tag matches the workspace version
+check_version The tag matches the version of the crate it releases
 check_changelog_structure Changelog structure (no duplicate subsections, Keep a Changelog types only)
+check_changelog_links The changelog links compare from the tag being cut
 check_changelog_security The Security section of the cut names its advisories and its reason
 check_notes The changelog section for this tag becomes the release notes
 check_notes_content The release notes carry the support period
@@ -197,7 +273,9 @@ EOF
 
 checks() {
   TAG="$1"
-  VERSION="${TAG#v}"
+  VERSION="$(version_of "$TAG")"
+  CRATE="$(crate_of "$TAG")"
+  CHANGELOG="$(changelog_of "$TAG")"
   NOTES="$2"
   local fn title notes_ok=1 rc
   local -a failed=()
@@ -251,6 +329,14 @@ self_test() {
   expect "a minor above nine" "$got" "v1.9.0"
   got="$(printf '%s\n' v0.0.11 | order_prev v0.0.1)"
   expect "no tag below" "$got" ""
+  got="$(printf '%s\n' v0.6.0 ferrohealth-authz-v0.1.0 ferrohealth-authz-v0.1.10 ferrohealth-authz-v0.1.9 | order_prev ferrohealth-authz-v0.1.10)"
+  expect "a crate's tags order apart from the other crate's" "$got" "ferrohealth-authz-v0.1.9"
+  got="$(printf '%s\n' v0.5.0 v0.6.0 ferrohealth-authz-v0.9.0 | order_prev v0.7.0)"
+  expect "the other crate's tags are skipped" "$got" "v0.6.0"
+  expect "the crate of a smart tag" "$(crate_of v0.7.0)" "ferrohealth-smart"
+  expect "the crate of an authz tag" "$(crate_of ferrohealth-authz-v0.1.0)" "ferrohealth-authz"
+  expect "the version of an authz tag" "$(version_of ferrohealth-authz-v0.1.0-rc.1)" "0.1.0-rc.1"
+  expect "the changelog of an authz tag" "$(changelog_of ferrohealth-authz-v0.1.0)" "crates/ferrohealth-authz/CHANGELOG.md"
   expect "a plain date" "$(support_end 2026-10-23)" "October 2031"
   expect "a leap day into a common year" "$(support_end 2028-02-29)" "March 2033"
   expect "a leap day in a common year" "$(support_end 2027-02-29 || echo "$refused")" "$refused"
@@ -281,6 +367,16 @@ main() {
     [[ "$#" -eq 2 ]] || usage
     valid_tag "$tag"
     prev_tag "$tag"
+    ;;
+  crate)
+    [[ "$#" -eq 2 ]] || usage
+    valid_tag "$2"
+    crate_of "$2"
+    ;;
+  changelog)
+    [[ "$#" -eq 2 ]] || usage
+    valid_tag "$2"
+    changelog_of "$2"
     ;;
   notes)
     local tag="${2:-}" out="${3:-}"

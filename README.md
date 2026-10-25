@@ -10,8 +10,11 @@ The repository holds two crates:
 - **Authentication, `ferrohealth-smart`:** SMART for the openEHR ecosystem,
   FHIR included, the shared SMART App Launch and OAuth 2.0 resource-server
   crate.
-- **The policy decision, `ferrohealth-authz`:** reserved on crates.io at
-  `0.0.0`, with `0.1.0` in preparation.
+- **The policy decision, `ferrohealth-authz`:** the attribute-based request
+  a product's enforcement point puts about the subject `ferrohealth-smart`
+  authenticated (NIST SP 800-162), with an embedded Cedar engine and a
+  remote decision point, each behind its feature. It keeps its own version
+  line; see [its README](crates/ferrohealth-authz/README.md).
 
 The rest of this page describes `ferrohealth-smart`.
 
@@ -94,8 +97,9 @@ FerroAUTH is source-available under the Business Source License 1.1. The
 parameters that apply, the Licensor, the Licensed Work, the Additional Use
 Grant and the Change Date, are in [LICENSE](LICENSE): free for non-commercial
 production use, a commercial licence for any other production use, and Apache
-2.0 four years after each version is published. The crate is hand-written
-code that implements the specifications above, which is why it is under the
+2.0 four years after each version is published. Both crates,
+`ferrohealth-smart` and `ferrohealth-authz`, are hand-written code that
+implements the specifications they cite, which is why they are under the
 family's own licence and not the Apache-2.0 of the family's generated crates.
 
 A commercial licence is arranged with [Cadasto B.V.](https://www.cadasto.com),

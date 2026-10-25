@@ -14,17 +14,24 @@
 # resumable and idempotent; the registry is read back before success is
 # reported (no specification governs this: our own design).
 #
+# Two crates publish from this workspace, each on its own version line and
+# tag: ferrohealth-smart at `v<version>` and ferrohealth-authz at
+# `ferrohealth-authz-v<version>`. A run publishes the one crate its tag
+# releases.
+#
 # Usage:
-#   publish-crates.sh publish          # upload each crate in order
-#   publish-crates.sh verify           # read the registry back, with retries
+#   publish-crates.sh publish CRATE    # upload one crate
+#   publish-crates.sh verify CRATE     # read the registry back, with retries
 #   publish-crates.sh version [CRATE]  # print one crate's version
+#   publish-crates.sh crate TAG        # print the crate a release tag names
 #   publish-crates.sh guard            # refuse unless run at the release tag
 #   publish-crates.sh --self-test      # prove `guard` against a stub gh
 #
-# `guard` is the manual lane's precondition: the run's ref is the tag
-# v<manifest version> (GITHUB_REF_TYPE, GITHUB_REF_NAME) and a published
-# GitHub release exists for it, read with gh in GITHUB_REPOSITORY, so the
-# manual lane recovers a release and never makes one.
+# `guard` is the manual lane's precondition: the run's ref is the release
+# tag of the crate it names, at that crate's manifest version
+# (GITHUB_REF_TYPE, GITHUB_REF_NAME), and a published GitHub release exists
+# for it, read with gh in GITHUB_REPOSITORY, so the manual lane recovers a
+# release and never makes one; it prints the crate.
 #
 # Requires cargo, curl, and jq; `publish` also needs CARGO_REGISTRY_TOKEN, and
 # `guard` needs gh with GH_TOKEN.
@@ -34,7 +41,35 @@ cd "$(dirname "$0")/../.."
 # The published members, in dependency order.
 readonly CRATES=(
   ferrohealth-smart
+  ferrohealth-authz
 )
+
+# The crate a release tag names.
+crate_of_tag() {
+  case "$1" in
+    ferrohealth-authz-v*) echo ferrohealth-authz ;;
+    v*) echo ferrohealth-smart ;;
+    *) return 1 ;;
+  esac
+}
+
+# The tag prefix of a crate's releases.
+tag_prefix() {
+  case "$1" in
+    ferrohealth-authz) echo ferrohealth-authz-v ;;
+    *) echo v ;;
+  esac
+}
+
+# Refuses a name that is not a published member.
+known_crate() {
+  local crate
+  for crate in "${CRATES[@]}"; do
+    [[ "$crate" != "$1" ]] || return 0
+  done
+  echo "::error::publish-crates: '$1' is not a published member (${CRATES[*]})" >&2
+  return 1
+}
 
 # The version cargo resolves for one member: its own, or the workspace's when
 # it inherits it.
@@ -52,7 +87,7 @@ strip_ansi() {
 
 do_publish() {
   local crate out plain failed=""
-  for crate in "${CRATES[@]}"; do
+  for crate in "$@"; do
     echo "::group::$crate $(manifest_version "$crate")"
     out="$(cargo publish -p "$crate" --locked 2>&1)" || true
     printf '%s\n' "$out"
@@ -83,7 +118,7 @@ do_publish() {
 # counts as "not seen yet", not as a miss.
 do_verify() {
   local crate want got body bad=""
-  for crate in "${CRATES[@]}"; do
+  for crate in "$@"; do
     want="$(manifest_version "$crate")"
     got=""
     for _ in 1 2 3 4 5 6; do
@@ -104,14 +139,15 @@ do_verify() {
     echo "::error::the published set is incomplete:$bad"
     return 1
   }
-  echo "publish-crates: confirmed on crates.io, all ${#CRATES[@]} crates at their versions"
+  echo "publish-crates: confirmed on crates.io, $* at the manifest version"
 }
 
-# do_guard REF_TYPE REF_NAME VERSION: refuses, naming what is missing, unless
-# the ref is the tag vVERSION and a published release exists for that tag.
+# do_guard REF_TYPE REF_NAME VERSION [PREFIX]: refuses, naming what is
+# missing, unless the ref is the tag PREFIX VERSION (PREFIX `v` by default)
+# and a published release exists for that tag.
 do_guard() {
-  local ref_type="$1" ref_name="$2" version="$3" tag draft
-  tag="v$version"
+  local ref_type="$1" ref_name="$2" version="$3" prefix="${4:-v}" tag draft
+  tag="$prefix$version"
   if [[ "$ref_type" != "tag" ]]; then
     echo "::error::publish-crates: the run is at the $ref_type '$ref_name', not the tag $tag; dispatch it at the tag" >&2
     return 1
@@ -163,6 +199,11 @@ self_test() {
   expect "another tag is refused" 1 "whose tag is v1.0.0" -- tag v0.9.0 1.0.0
   expect "a tag without a release is refused" 1 "no GitHub release" -- tag v1.2.0 1.2.0
   expect "a draft release is refused" 1 "is a draft" -- tag v1.1.0 1.1.0
+  expect "an authz tag of another version is refused" 1 "whose tag is ferrohealth-authz-v0.2.0" -- tag ferrohealth-authz-v0.1.0 0.2.0 ferrohealth-authz-v
+  if [[ "$(crate_of_tag ferrohealth-authz-v0.1.0)" != ferrohealth-authz || "$(crate_of_tag v0.7.0)" != ferrohealth-smart ]] || crate_of_tag main > /dev/null; then
+    echo "FAIL: the crate of a tag" >&2
+    fails=$((fails + 1))
+  fi
   unset -f gh
   if [[ "$fails" -ne 0 ]]; then
     echo "publish-crates: self-test FAILED ($fails)" >&2
@@ -172,13 +213,32 @@ self_test() {
 }
 
 case "${1:-}" in
-  publish) do_publish ;;
-  verify) do_verify ;;
+  publish | verify)
+    [[ "$#" -eq 2 ]] || {
+      echo "publish-crates: '$1' takes the crate to act on" >&2
+      exit 2
+    }
+    known_crate "$2"
+    if [[ "$1" == publish ]]; then do_publish "$2"; else do_verify "$2"; fi
+    ;;
   version) manifest_version "${2:-ferrohealth-smart}" ;;
-  guard) do_guard "${GITHUB_REF_TYPE:?}" "${GITHUB_REF_NAME:?}" "$(manifest_version ferrohealth-smart)" ;;
+  crate)
+    crate_of_tag "${2:-}" || {
+      echo "::error::publish-crates: '${2:-}' is no release tag" >&2
+      exit 2
+    }
+    ;;
+  guard)
+    crate="$(crate_of_tag "${GITHUB_REF_NAME:?}")" || {
+      echo "::error::publish-crates: the run is at '${GITHUB_REF_NAME}', which is no release tag" >&2
+      exit 1
+    }
+    do_guard "${GITHUB_REF_TYPE:?}" "$GITHUB_REF_NAME" "$(manifest_version "$crate")" "$(tag_prefix "$crate")" >&2
+    echo "$crate"
+    ;;
   --self-test) self_test ;;
   *)
-    echo "publish-crates: expected 'publish', 'verify', 'version', 'guard', or '--self-test', got '${1:-<none>}'" >&2
+    echo "publish-crates: expected 'publish', 'verify', 'version', 'crate', 'guard', or '--self-test', got '${1:-<none>}'" >&2
     exit 2
     ;;
 esac

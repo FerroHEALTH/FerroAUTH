@@ -35,11 +35,14 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache: "false"
-      - run: cargo publish -p ferrohealth-smart --dry-run --locked
+      # NOTE: Cargo packages the workspace members together, so ferrohealth-authz
+      # verifies against the ferrohealth-smart it ships beside before that is on crates.io.
+      - run: cargo publish --workspace --dry-run --locked
 
   # Refuses before the crates-io approval is asked for, unless the run is at
-  # the tag v<manifest version> and that tag has a published GitHub release:
-  # this lane recovers a release, it never makes one.
+  # the release tag of a crate at its manifest version and that tag has a
+  # published GitHub release: this lane recovers a release, it never makes
+  # one. It names the crate the publish job uploads.
   guard:
     name: release tag and release
     if: ${{ inputs.publish }}
@@ -47,6 +50,8 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
+    outputs:
+      crate: ${{ steps.guard.outputs.crate }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -54,10 +59,11 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache: "false"
-      - name: The run is at the release tag, which has a published release
+      - id: guard
+        name: The run is at the release tag, which has a published release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash scripts/release/publish-crates.sh guard
+        run: echo "crate=$(bash scripts/release/publish-crates.sh guard)" >> "$GITHUB_OUTPUT"
 
   publish:
     name: publish
@@ -85,7 +91,10 @@ jobs:
       - name: Publish the crate
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: bash scripts/release/publish-crates.sh publish
+          CRATE: ${{ needs.guard.outputs.crate }}
+        run: bash scripts/release/publish-crates.sh publish "$CRATE"
       - name: Verify the crate resolves at its manifest version
         if: always()
-        run: bash scripts/release/publish-crates.sh verify
+        env:
+          CRATE: ${{ needs.guard.outputs.crate }}
+        run: bash scripts/release/publish-crates.sh verify "$CRATE"

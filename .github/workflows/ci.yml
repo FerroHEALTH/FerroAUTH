@@ -102,9 +102,11 @@ jobs:
       - name: The manual crate publish refuses a run off its release tag
         run: bash scripts/release/publish-crates.sh --self-test
 
-  # Every section of CHANGELOG.md holds Keep a Changelog types each once, and
-  # [Unreleased] keeps the Security rules the release plan checks on the
-  # section it cuts (no specification governs the wiring: our own design).
+  # Every section of each crate's changelog (CHANGELOG.md for
+  # ferrohealth-smart, crates/ferrohealth-authz/CHANGELOG.md) holds Keep a
+  # Changelog types each once, and [Unreleased] keeps the Security rules the
+  # release plan checks on the section it cuts (no specification governs the
+  # wiring: our own design).
   changelog:
     name: changelog
     runs-on: ubuntu-latest
@@ -116,10 +118,12 @@ jobs:
         with:
           persist-credentials: false
       - run: bash scripts/checks/changelog-structure.sh
+      - run: bash scripts/checks/changelog-structure.sh crates/ferrohealth-authz/CHANGELOG.md
       # Regulation (EU) 2024/2847 Annex I Part II(2), (4) and (8): every
       # Security entry names its GHSA advisory or VEX statement, and a
       # Security section beside other changes opens with its reason.
       - run: bash scripts/checks/changelog-security.sh --section Unreleased
+      - run: bash scripts/checks/changelog-security.sh --section Unreleased crates/ferrohealth-authz/CHANGELOG.md
 
   comment-style:
     name: comment-style
@@ -323,7 +327,9 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           cache: "false"
-      - run: cargo publish -p ferrohealth-smart --dry-run --locked
+      # NOTE: Cargo packages the workspace members together, so ferrohealth-authz
+      # verifies against the ferrohealth-smart it ships beside before that is on crates.io.
+      - run: cargo publish --workspace --dry-run --locked
 
   crate-version-guard:
     name: crate-version-guard

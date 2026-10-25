@@ -1,0 +1,302 @@
+---
+layout: default
+title: Cedar schema format
+nav_order: 2
+---
+
+# Cedar schema format {#schema}
+{: .no_toc }
+
+<details open markdown="block">
+  <summary>
+    Topics on this page
+  </summary>
+  {: .text-delta }
+- TOC
+{:toc}
+</details>
+
+This topic describes the Cedar schema format.
+
+## Schema format {#schema-format}
+
+A schema consists of zero or more namespaces, each of which contains three kinds of definition --- *Entity Type Definition*, *Action Definition*, and *Common Type Definition*. These define the entity types and actions of your application, and the common types that entity type and action definitions can reference. Definitions are delimited by `;` characters. Note that in the Cedar schema format, unlike in the JSON schema format, you can write Cedar-style comments.
+Starting from version 4.6, schemas also additionally support *declarations* of entity types and actions.
+
+## Namespace {#schema-namespace}
+
+You can create a namespace that you want to associate with your declarations. Add the namespace keyword, for example `namespace Foo { entity Bar; }`. The name of a namespace must be an identifier as specified in Cedar syntax, and it cannot contain the reserved `__cedar` namespace. Anything declared in this namespace must be referred to in its fully-qualified form when referenced outside of the namespace, so the declared entity type would be `Foo::Bar`.
+
+Alternatively, you can create a declaration without a namespace, for example `entity Bar;`. The names of declarations that lack a namespace are always referred to without qualification, for example `Bar`.
+
+You can annotate a namespace declaration: `@doc("this is a Foo") namespace Foo { entity Bar; }`. However, you cannot annotate the empty namespace.
+
+Multiple `namespace` declarations with the same names are disallowed. This rule also applies to the inner declarations like entity type definitions.
+
+## Entity type {#schema-entityTypes}
+
+The following entity type definition specifies an entity type `User` , whose parent entity type is `Group`. Entities of type `User` have four attributes:
+
++ `personalGroup` of type `Group`
++ `delegate` of type `User`
++ `blocked` of type `Set<User>`
++ `team` of type `Team`
+
+The attribute `delegate` is optional, as indicated by the `?` after the attribute name. Entity type `Group` is an enumerated entity. EIDs of entities of this type can only be `G1`, `G2`, and `G3`.
+
+Entity types `Team` and `Organization` are declared `external`, which means that this schema uses them without defining them. 
+While external entity types do not have bodies, they can declare parent types as long as the parent is not an enum entity type.
+
+Finally, entities of type `User` have string-typed `tags`, which means that `User`s may have any number of tags, with any names, where the value associated with each tag is a `String`.
+
+```cedarschema
+entity User in [Group] {
+    personalGroup: Group,
+    delegate?: User,
+    blocked: Set<User>,
+    team: Team,
+} tags String;
+@doc("Only three values of EIDs are valid for entities of type `Group`.")
+entity Group enum ["G1", "G2", "G3"];
+external entity Team in [Organization];
+external entity Organization;
+```
+
+Note that in the Cedar schema format, unlike in the JSON schema format, you can define multiple entity types that share the same definition using a single definition. For example, `entity UserA, UserB, UserC` defines entity types `UserA`, `UserB`, and `UserC` that all have the same membership relations and shapes.
+
+You can annotate an entity type by prepending annotations like `@doc("user entity") entity User ...`.
+
+### Membership relations {#schema-entitytypes-memberOf}
+
+Entity types may declare membership relation.
+To declare membership relation, set an entity to be a member of another with `in <EntityTypes>` after `entity <EntityName>`.
+The `EntityTypes` declaration can be a list of entity type names surrounded by brackets (`[]`) and delimited by commas `,`, for example `entity User in [UserGroup1, UserGroup2]`.
+Entities with one parent type don't require brackets, for example `entity User in UserGroup`.
+
+### Shape {#schema-entitytypes-shape}
+
+Specify the shape of an entity type using the [record syntax](../policies/syntax-datatypes.html#datatype-record) of Cedar policies. Enclose attribute declarations in brackets, each of which is a `<Name>:<Type>` key-value pair. Attribute names are either identifiers or strings. Such a declaration also defines a [record schema type](#schema-entitytypes-shape-record). To make entity type declarations consistent with [common type declarations](#schema-commonTypes), you can prefix a `=` to attribute declarations, for example `entity User = {...};`.
+
+Note that if you omit attribute declarations, then entities of this type don't have any attributes. This is equivalent to specifying an empty record (i.e., `{}`).
+
+### Schema types {#schema-types}
+
+Schema types can be used as right-hand side of an attribute or common type declaration.
+
+Cedar data types have corresponding schema types. The corresponding type names of Cedar primitive data types [Bool](../policies/syntax-datatypes.html#datatype-bool), [String](../policies/syntax-datatypes.html#datatype-string), [Long](../policies/syntax-datatypes.html#datatype-string) are `Bool`, `String`, `Long`, respectively.
+
+An entity type or an extension type is specified by its name. The entity type name is an identifier or identifiers separated by `::`. For example, both `User` and `ExampleCo::User` are valid entity type names.
+
+An extension type name is an identifier. See the list [here](../policies/syntax-datatypes.html#datatype-extension) for all the available extension type names. Since the release of version 3.1 of the Cedar language, the namespace `__cedar` is a reserved namespace. You can specify fully-qualified type names for primitive and extension types under the `__cedar` namespace. For example, `__cedar::ipaddr` uniquely identifies the `ipaddr` extension type.
+
+Format composite data type declarations as follows.
+
+#### Record {#schema-entitytypes-shape-record}
+{: .no_toc }
+
+The specification of a record type is similar to that of a Cedar policy record, except that values of a record in the schema are types. For example, you can declare a record type as follows.
+
+```cedarschema
+{
+  name: String,
+  features: {
+    age: Long,
+    height: Long,
+    eyecolor: String
+  }
+}
+```
+
+Here is a declaration of an entity type `List` which contains an attribute `flags` which is a record:
+
+```cedarschema
+entity List {
+  owner: User,
+  flags: {
+    organizations?: Set<Org>,
+    locales?: Set<Location>,
+    tags: Set<String>,
+  },
+};
+```
+
+Here, the `flags` record contains three attributes: `organizations` (which is optional, per the `?` annotation), `locales` (also optional), and `tags`. Each of these is a set, where the first two contain entity types `Org` and `Location` respectively (not shown), and the third contains `String`s.
+
+Suppose `resource` in a policy is a `List` entity. Per the above declaration, we can write `when`-clause expressions that reference the `flags` attribute's contents. For example: `resource.flags.tags.contains("private")` or `resource.flags has organizations && resource.flags.organizations.contains(principal.org)`.
+
+You can annotate a record attribute declaration by prepending annotations like `{ @doc("list organizations") organizations?: Set<Org>, ...}`.
+
+#### Set {#schema-entitytypes-shape-set}
+{: .no_toc }
+
+A set type declaration consists of keyword `Set` and an element type surrounded by angle brackets (`<>`).
+
+For example, `Set<Long>` is a set type made up of values of type `Long`. Another example of the use of `Set` types is give above, for the `List` entity definition. Finally, another example is this entity definition for `User`, whose `blocked` attribute is a set of `User`s.
+
+```cedarschema
+entity User in [Group] {
+    personalGroup: Group,
+    delegate?: User,
+    blocked: Set<User>,
+};
+```
+
+## Actions {#schema-actions}
+
+The following action definition specifies the action `ViewDocument`. It has the following characteristics:
+
++ It's a member of `ReadActions` & `ExampleNS::Action::"Write"` action groups
++ It applies to principals of entity type `User` and `Public`
++ It applies to resources of entity type `Document`
++ It applies to context of record types `network: ipaddr` and `browser: String`.
+
+```cedarschema
+action ViewDocument in [ReadActions, ExampleNS::Action::"Write"] appliesTo {
+    principal: [User,Public],
+    resource: Document,
+    context: {
+        network: ipaddr,
+        browser: String
+    }
+};
+external action ReadActions;
+```
+
+An action name is either an identifier or a string. The membership relation syntax of action definitions is like that of entity type definitions, but parent action names can be strings, and entity type names must be identifiers. If a parent action belongs to another namespace, its name must be a *fully-qualified action entity name*. This is illustrated by the parent action `Write` in the example action definition. It's defined in the namespace `ExampleNS` with the fully-qualified name  `ExampleNS::Action::"Write"`.
+
+The `appliesTo` construct specifies an action's applicability. It is a record of three keys: `principal`, `resource` , and `context`  that the action applies to. Without the `appliesTo` construct in your schema, the actions do not apply to any principals, resources, or contexts. If the `appliesTo` construct is used, the `principal` and `resource` keys are required and must be an entity type or a non-empty list of entity types. The `context` value is optional, but must be a record. Its absence defaults to an empty record.
+
+The action `ReadActions` is declared as an `external` action.
+It's applicability is supplied by another schema to which it links.
+This schema cannot be used to validate policies or to validate a request for `ReadActions` itself until it is linked to another schema that defines `ReadActions`.
+
+An external action declaration must list all of the action's ancestors.
+This is stricter than for an external entity type, whose declared parent types need only be ancestors of the definition.
+For more information, see [Schema linking](schema-linking.html).
+
+You can annotate an action by prepending annotations like `@doc("view document") action ViewDocument ...`.
+
+## Common types {#schema-commonTypes}
+
+Like in the JSON schema format, Cedar schema syntax allows for declarations of common types so that entity type definitions can use them to avoid error-prone duplication. The syntax of common type declarations is similar to defining type aliases in most programming languages: `type <Id> = <Type>` . The `Type` is a schema type, including common types and types containing them. So, there is a chance there could be cycles in common type declarations: for instance, `type A = Set<B>; type B = {"a" : A};`. In these cases, the Cedar schema parser will report an error.
+
+You can annotate a common type declaration by prepending annotations like `@doc("B is a record") type B = {"a" : A};`.
+
+## Type name disambiguation {#schema-typeDisambiguation}
+
+Type names in the Cedar schema format can conflict with each other. For example, `ipaddr` is a valid unqualified common type name as well as an extension type name. `Foo::Bar` is a valid qualified common type name and an entity type name. Cedar uses the following rules to disambiguate type names.
+
+1. Primitive and extension type names cannot alias by design.
+2. Type references are resolved in a priority order.
+3. To disambiguate extension and primitive types from others, the namespace `__cedar` is reserved. For example, `__cedar::Long` uniquely refers to Cedar primitive type `Long`.
+
+The priority order is
+
+```text
+common type > entity type > primitive/extension type
+```
+
+A type name is resolved by checking if it is declared as a common type, then entity type, and finally a primitive or extension type. The following example demonstrates this rule.
+
+```cedarschema
+namespace Demo {
+  entity Host {
+    // the type of attribute `ip` is common type `ipaddr`
+    // instead of extension type `__cedar::ipaddr`
+    // because the former has a higher priority
+    ip: ipaddr,
+    // the type of attribute `bandwidth` is extension type `decimal`
+    // because there is not any common type or entity type
+    // that shares the same name
+    bandwidth: decimal,
+  };
+  // An artificial entity type name that conflicts with
+  // primitive type `String`
+  entity String {
+    groups: Set<__cedar::String>,
+  };
+  // A common type name that conflicts with extension
+  // type `ipaddr`
+  type ipaddr = {
+    // The type of attribute `repr` is the entity type
+    // `String` declared above instead of primitive type
+    // `__cedar::String` because the former has a higher
+    // priority
+    repr: String,
+    // The type of attribute `isV4` is the primitive type
+    // `Bool` because there is not any common type or
+    // entity type that shares the same name
+    isV4: Bool,
+  };
+}
+```
+
+Common types and entity types can both be qualified with namespaces.
+We do not allow defining entity types or common types that would shadow definitions of other entity types or common types in the empty namespace.
+For example, the following schema is *invalid*.
+
+ ```cedarschema
+type id = {
+  group: String,
+  name: String,
+};
+
+namespace Demo {
+  entity User {
+    name: id,
+  };
+  // ERROR - this definition of `id` would shadow the one above
+  type id = String;
+}
+```
+
+## Example schema {#schema-examples}
+
+The following schema is for the hypothetical application PhotoFlash.
+
+```cedarschema
+namespace PhotoFlash {
+  entity User in UserGroup = {
+    "department": String,
+    "jobLevel": Long,
+  };
+  entity UserGroup;
+  entity Album in Album = {
+    "account": Account,
+    "private": Bool,
+  };
+  entity Account = {
+    "admins"?: Set<User>,
+    "owner": User,
+  };
+  entity Photo in Album = {
+    "account": Account,
+    "private": Bool,
+  };
+  action "uploadPhoto" appliesTo {
+    principal: User,
+    resource: Album,
+    context: {
+      "authenticated": Bool,
+      "photo": {
+        "file_size": Long,
+        "file_type": String,
+      },
+    }
+  };
+  action "viewPhoto" appliesTo {
+    principal: User,
+    resource: Photo,
+    context: {
+      "authenticated": Bool,
+    }
+  };
+  action "listAlbums" appliesTo {
+    principal: User,
+    resource: Account,
+    context: {
+      "authenticated": Bool,
+    }
+  };
+}
+```

@@ -3,26 +3,37 @@
 
 # Cutting a release
 
-No specification governs the release procedure: our own design. A release
-is the signed tag `vX.Y.Z` on the merge commit of the release pull request on
-`main`; `.github/workflows/release.yml` does the rest
-(`.claude/rules/ci-cd.md`, `.claude/rules/crates-publishing.md`). The
-workspace version is every crate's version and the tag.
+No specification governs the release procedure: our own design. Two crates
+release from this workspace, each on its own version line:
+
+| Crate | Tag | Version | Changelog |
+|---|---|---|---|
+| `ferrohealth-smart` | `vX.Y.Z` | `[workspace.package]` of `Cargo.toml` | `CHANGELOG.md` |
+| `ferrohealth-authz` | `ferrohealth-authz-vX.Y.Z` | `[package]` of `crates/ferrohealth-authz/Cargo.toml` | `crates/ferrohealth-authz/CHANGELOG.md` |
+
+A release is the signed tag on the merge commit of the release pull request
+on `main`; `.github/workflows/release.yml` does the rest for the crate the
+tag names (`.claude/rules/ci-cd.md`, `.claude/rules/crates-publishing.md`).
+Below, `<tag>` is that tag and the steps name the crate's own version and
+changelog.
 
 ## The release pull request
 
-On the branch `release/vX.Y.Z`:
+On the branch `release/<tag>`:
 
 1. **The milestone is empty.** Every issue and pull request of the milestone
-   titled `vX.Y.Z` is closed or moved; the release refuses the tag otherwise
-   (`scripts/release/milestone.sh check vX.Y.Z`).
-2. **Bump the version.** Set the `[workspace.package]` version in
-   `Cargo.toml` and run `cargo update -w`.
+   titled as the tag is closed or moved; the release refuses the tag
+   otherwise (`scripts/release/milestone.sh check <tag>`).
+2. **Bump the version.** Set the crate's version and run `cargo update -w`.
+   A `ferrohealth-smart` release that `ferrohealth-authz` must follow also
+   moves the `ferrohealth-smart` requirement in `[workspace.dependencies]`.
 3. **Cut the changelog.** Rename `## [Unreleased]` to
    `## [X.Y.Z] - YYYY-MM-DD` and open a fresh, empty `## [Unreleased]` above
    it. The date is the day of the cut: the release notes count the support
-   period from it. Read the section as the release notes, and reread the
-   reason of a Security section (§ Security entries).
+   period from it. Refresh the link references at the foot: `[Unreleased]`
+   compares from the new tag, and `[X.Y.Z]` compares the previous tag with
+   it. Read the section as the release notes, and reread the reason of a
+   Security section (§ Security entries).
 4. **The gates pass.** The crate-version guard checks that the version, the
    lock and the changelog section agree.
 
@@ -74,8 +85,9 @@ tracker.
 | Check | Script |
 |---|---|
 | The milestone titled as the tag holds no open item | `scripts/release/milestone.sh check` |
-| The `[workspace.package]` version of `Cargo.toml` names the tag's version | `plan.sh` |
+| The crate's version names the tag's version | `plan.sh` |
 | Every section of the changelog holds Keep a Changelog types, each once | `scripts/checks/changelog-structure.sh` |
+| `[Unreleased]` compares from the tag, and the cut version has its link | `plan.sh` |
 | The section being cut opens its `### Security` with the reason when it sits beside other changes, and every Security entry names a GHSA id or an existing `security/vex/` path | `scripts/checks/changelog-security.sh --section X.Y.Z` |
 | The changelog section becomes the notes, with the support period appended: the month five years after the heading's date (Regulation (EU) 2024/2847 Art 13(19)) | `plan.sh notes` |
 
