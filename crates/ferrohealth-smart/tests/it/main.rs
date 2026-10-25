@@ -27,6 +27,8 @@ mod client;
 mod config;
 #[cfg(all(feature = "axum", feature = "fetch"))]
 mod guard;
+#[cfg(feature = "fetch")]
+mod introspection;
 mod key_file;
 #[cfg(feature = "fetch")]
 mod metadata;

@@ -774,6 +774,74 @@ tests and its decision row, never by drift. The crate's tests cite the
 section names of the vendored draft, so a re-vendor that moves a section
 fails a citation before it fails a behaviour.
 
+### 3.10 Token introspection
+
+An authorization server that issues tokens a resource server cannot read
+itself is checked by OAuth 2.0 Token Introspection (`rfc7662`), behind
+`[auth] mode = "introspection"` and the `fetch` feature
+(`resource::introspection::Introspector`, a `Verifier` like the JWT check).
+The issuer's metadata is read once at boot, as 3.1 reads it, and names the
+`introspection_endpoint` unless the section does; the endpoint is held to the
+`https` rule of 3.1, since the token travels in the request (`rfc7662 §4`
+requires TLS).
+
+The token is posted as `token` with `token_type_hint=access_token`
+(`rfc7662 §2.1`) under the product's own credential, which §2.1 requires:
+either the client authentication of the token endpoint (`rfc6749 §2.3.1`,
+`rfc7523 §2.2`, `rfc8705 §2`, the same code the token client of 3.5 runs;
+§4 names it as a common credential), or a bearer token the product obtains
+with the client credentials grant, the form SMART has an EHR accept
+(`smart token-introspection`, Authorization to perform Token
+Introspection), renewed once on a `401`. A `private_key_jwt` assertion
+names the introspection endpoint as its `aud`, or the issuer when the grant
+asks for it (`rfc7523 §3` item 3 admits a value that identifies the
+authorization server; the choice is our own design).
+
+The response is read under these rules, each refusal the generic `401` of
+3.7 with its own `Reason`:
+
+- A body that repeats a member name (`rfc8259 §4`, as 3.1 refuses a
+  metadata document), is no JSON object, or has no boolean `active`, and a
+  status other than `200` (`rfc7662 §2.3`), are an upstream failure: `503`
+  through `Rejection::Upstream`, never a refusal of the caller.
+- `active` other than `true` refuses the token (`Reason::Inactive`,
+  `rfc7662 §2.2`).
+- `scope`, `client_id` and `exp` must be present (`smart
+  token-introspection`, Required fields: "SHALL be included").
+- `exp` and `nbf` are checked within the clock skew, though the
+  authorization server already did (`rfc7662 §4`); the check costs nothing
+  and a stale cache entry cannot outlive it.
+- `iss`, when present, must be the configured issuer as exact text (3.1),
+  and `aud`, when present, must name a configured audience. Both are
+  optional in `rfc7662 §2.2`, and §4 has the authorization server determine
+  whether the token "can be used at the resource server making the
+  introspection call", so an absent one is admitted.
+- A `token_type` other than `Bearer` refuses the token: the resource server
+  takes bearer tokens alone (`rfc6750`), and a DPoP-bound token presented
+  as bearer is the misuse sender-constraining exists to stop.
+- A response without `sub` is the client's: "the value of sub SHOULD
+  correspond to an identifier the authorization server uses to indicate
+  the client application" when no resource owner is involved (`rfc9068
+  §2.2`), so the subject is `client_id`; a blank `sub` is refused as 3.3
+  refuses it.
+
+The claims then go through the step the JWT check of 3.3 ends with (`iat`
+within the skew, the subject, the scope parsed under the product's resource
+table, `client_id`, the `patient` launch context, the whole response kept as
+the caller's claims), so a product's handlers and the audit line read an
+introspected caller as they read a JWT one.
+
+An active response is held, keyed by the SHA-256 of the token so no token
+stays in memory, until its `exp` and never longer than
+`cache_max_age_seconds` (default 60): "the response MUST NOT be cached
+beyond the time indicated" by `exp` (`rfc7662 §4`), and the age bounds the
+window in which a revoked token still passes, the trade-off §4 leaves to the
+deployment. Zero caches nothing. At most `cache_capacity` responses are held;
+a full cache drops its expired entries, then the one that expires first. An
+inactive response is never held, so a token activated later is not refused
+from the cache. A caller admitted from the cache reports `cached()`. The
+cache bounds are no specification's: our own design (FerroBRIDGE #533).
+
 ## 4. The configuration model
 
 Every product embeds the same `[auth]` section, deserialized with
@@ -801,6 +869,17 @@ scopeless_subjects = []              # exact `sub` values granted system-wide ac
 capabilities = []                    # SMART capabilities the discovery document adds
 scopes_supported = []                # the scopes the product honours, listed in the discovery document
 product_scope = ""                   # the product's own scope: `__name` or a full URI
+
+mode = "jwt"                         # or "introspection" (3.10), with the table below
+
+[auth.introspection]                 # only under mode = "introspection", with the flat issuer
+endpoint = ""                        # empty: the metadata's introspection_endpoint
+cache_max_age_seconds = 60           # 0 caches nothing; never past the response's exp
+cache_capacity = 10000
+
+[auth.introspection.client]          # or [auth.introspection.bearer]: a grant whose token authorizes the call
+client_id = "ferrobridge-rs"         # the fields of [<lane>.credentials.oauth]; the issuer stands in
+client_secret_file = "/run/secrets/introspection-secret"
 
 [auth.basic]
 cache_ttl_seconds = 0                # how long a verified credential is kept; 0 keeps none
@@ -916,11 +995,11 @@ its key set from a `jwks_file`.
 | FerroEHR | `authn/jwt.rs` (the remote key source, the claim checks), `authn/basic.rs` (Argon2id and the enumeration defence), the challenge rendering, `service/terminology/oauth2.rs` (the client credentials client) | the RBAC and ABAC gate (`authz/`, Cedar), the assurance gate (`acr`, step-up challenge), the professional and acting-for claims, the ATNA audit, the committer identity |
 | FerroFED | `auth/keys.rs`, `auth/fetch.rs`, the RFC 9068 checks of `auth/mod.rs`, the challenge rendering of `auth/refusal.rs`, the openEHR grant rules of `auth/permission/grant.rs` (3.9) | the trust list and per-issuer policy, RFC 7662 introspection for opaque tokens, the edge mode, the IUA and contact-point claims, purpose of use, the ITS-REST operation table (the classifier, `auth/permission/table.rs`) with its demographic and backend client lists, the FAPI 2.0, mTLS, DPoP and token-exchange onward grants, the HMAC references of the security log |
 
-Two of FerroFED's verifiers do not fit the library's one verifier and plug in
-beside it: the introspecting verifier for a token that is not a JWS
-(`rfc7662 §2.2`), and the edge-assertion verifier. The library exposes the
-`Verifier` trait both implement, so the layer, the `Access` and the audit
-line are shared and only the way a token is checked differs.
+FerroFED's edge-assertion verifier does not fit the library's verifiers and
+plugs in beside them through the `Verifier` trait, so the layer, the
+`Access` and the audit line are shared and only the way a token is checked
+differs. Its introspecting verifier for a token that is not a JWS
+(`rfc7662 §2.2`) can move onto the library's `Introspector` (3.10).
 
 ### 5.2 The migration path
 
@@ -972,8 +1051,9 @@ by editing the test.
   inherits the authorization server's availability and latency on every
   request, and SMART only has an EHR "SHOULD support" the endpoint (`smart
   token-introspection`). Self-contained RFC 9068 tokens checked against a
-  cached key set are the default; introspection is FerroFED's plug-in for
-  opaque tokens from an issuer that mints no JWS.
+  cached key set are the default; introspection (3.10) is a deployment's
+  opt-in, `mode = "introspection"`, for opaque tokens from an issuer that
+  mints no JWS, with a bounded cache in front of the endpoint.
 - **Evaluate the product's own authorization policy.** Roles, attributes,
   purpose of use and consent are "a lower-level responsibility in the access
   control stack" the scopes do not model (`smart scopes-and-launch-context`,
@@ -1087,6 +1167,8 @@ four agree on and settles each difference:
 | The metadata `issuer` is compared as exact text; a product may also hold the configured issuer to its canonical URL form | `rfc8414 §3.3`, `§4`; the canonical form is our own design (#67) | none |
 | A metadata document whose objects repeat a member name is refused | `rfc8259 §4` leaves the meaning to each parser; the refusal is our own design (#69) | none |
 | A product may refuse metadata whose endpoints are off the issuer's origin; the check is opt-in | `rfc6454 §4`, `§5` define the origin; RFC 8414 places no endpoint, so the policy is our own design (#68) | none |
+| Token introspection is a deployment's opt-in (`mode = "introspection"`), under client authentication or a grant's bearer token, with `scope`, `client_id` and `exp` required, `iss` and `aud` checked when present, and a response without `sub` read as the client's | `rfc7662 §2.1`, `§2.2`, `§4`; `smart token-introspection`; `rfc9068 §2.2` | none |
+| An active introspection response is held until its `exp` and at most `cache_max_age_seconds`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
 
 ## 10. Verification
 

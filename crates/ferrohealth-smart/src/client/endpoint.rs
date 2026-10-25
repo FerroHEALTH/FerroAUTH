@@ -70,27 +70,33 @@ pub(super) async fn request_token(
     config: &ClientCredentials,
 ) -> Result<TokenResponse, TokenError> {
     config.validate()?;
-    let mut request = http
-        .client()
-        .post(endpoint.clone())
-        .header(http::header::ACCEPT, "application/json");
-    if config.client_auth == ClientAuth::ClientSecretBasic
-        && let Some(secret) = &config.client_secret
-    {
-        // NOTE: RFC 6749 §2.3.1 form-encodes the id and the secret
-        // (Appendix B) before they become the RFC 7617 user-pass.
-        let user: String =
-            url::form_urlencoded::byte_serialize(config.client_id.as_bytes()).collect();
-        let password: String =
-            url::form_urlencoded::byte_serialize(secret.expose_secret().as_bytes()).collect();
-        request = request.basic_auth(user, Some(password));
-    }
+    // NOTE: no specification governs this: our own design; the form encoder
+    // is not `Sync`, so it is finished and dropped before the request awaits.
+    let (request, body) = {
+        let mut form = url::form_urlencoded::Serializer::new(String::new());
+        form.append_pair("grant_type", "client_credentials");
+        if let Some(scope) = config.scope.as_deref() {
+            form.append_pair("scope", scope);
+        }
+        if let Some(audience) = config.audience.as_deref() {
+            form.append_pair("audience", audience);
+        }
+        if let Some(resource) = config.resource.as_ref() {
+            form.append_pair("resource", resource.as_str());
+        }
+        let request = http
+            .client()
+            .post(endpoint.clone())
+            .header(http::header::ACCEPT, "application/json");
+        let request = authenticate(request, &mut form, config, endpoint)?;
+        (request, form.finish())
+    };
     let response = request
         .header(
             http::header::CONTENT_TYPE,
             "application/x-www-form-urlencoded",
         )
-        .body(token_request_body(config, endpoint)?)
+        .body(body)
         .send()
         .await
         .map_err(|source| DiscoveryError::Transport {
@@ -118,21 +124,31 @@ pub(super) async fn request_token(
     serde_json::from_str(&body).map_err(|source| TokenError::Malformed { source })
 }
 
-/// Returns the form-encoded body of the token request of `config`
-/// (RFC 6749 §4.4.2): the client's id and secret under
-/// `client_secret_post`, or the assertion under `private_key_jwt`
-/// (RFC 7523 §2.2).
-fn token_request_body(config: &ClientCredentials, endpoint: &Url) -> Result<String, TokenError> {
-    let mut form = url::form_urlencoded::Serializer::new(String::new());
-    form.append_pair("grant_type", "client_credentials");
-    if let Some(scope) = config.scope.as_deref() {
-        form.append_pair("scope", scope);
-    }
-    if let Some(audience) = config.audience.as_deref() {
-        form.append_pair("audience", audience);
-    }
-    if let Some(resource) = config.resource.as_ref() {
-        form.append_pair("resource", resource.as_str());
+/// Returns `request`, posted to `endpoint`, authenticated as the client of
+/// `config`: HTTP Basic under `client_secret_basic`, or `form` extended with
+/// the client's id and secret under `client_secret_post`, the assertion
+/// under `private_key_jwt` (RFC 7523 §2.2), or the `client_id` under mutual
+/// TLS (RFC 8705 §2). The token request and the introspection request share
+/// it (RFC 7662 §2.1 and §4 admit the token endpoint's client authentication).
+///
+/// The assertion's `aud` is `endpoint`, or the issuer identifier when the
+/// grant names one and asks for it.
+pub(crate) fn authenticate(
+    mut request: reqwest::RequestBuilder,
+    form: &mut url::form_urlencoded::Serializer<'_, String>,
+    config: &ClientCredentials,
+    endpoint: &Url,
+) -> Result<reqwest::RequestBuilder, TokenError> {
+    if config.client_auth == ClientAuth::ClientSecretBasic
+        && let Some(secret) = &config.client_secret
+    {
+        // NOTE: RFC 6749 §2.3.1 form-encodes the id and the secret
+        // (Appendix B) before they become the RFC 7617 user-pass.
+        let user: String =
+            url::form_urlencoded::byte_serialize(config.client_id.as_bytes()).collect();
+        let password: String =
+            url::form_urlencoded::byte_serialize(secret.expose_secret().as_bytes()).collect();
+        request = request.basic_auth(user, Some(password));
     }
     match config.client_auth {
         ClientAuth::ClientSecretPost => {
@@ -163,5 +179,5 @@ fn token_request_body(config: &ClientCredentials, endpoint: &Url) -> Result<Stri
         }
         ClientAuth::ClientSecretBasic => {}
     }
-    Ok(form.finish())
+    Ok(request)
 }

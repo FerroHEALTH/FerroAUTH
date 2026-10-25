@@ -113,14 +113,15 @@ impl Caller {
         self.extensions.get::<T>()
     }
 
-    /// Returns whether the caller's Basic credential was admitted from the
-    /// verified-credential cache (`[auth.basic] cache_ttl_seconds`) without
-    /// the key derivation.
+    /// Returns whether the caller was admitted from a cache: a Basic
+    /// credential from the verified-credential cache (`[auth.basic]
+    /// cache_ttl_seconds`) without the key derivation, or a bearer token
+    /// from a held introspection response without a call to the endpoint.
     ///
-    /// A bearer caller, and a Basic credential verified on this request,
-    /// are `false`, so a product that records each fresh authentication
-    /// records it once per cache lifetime (no specification governs the
-    /// cache: our own design).
+    /// A JWT bearer caller, and a credential checked on this request, are
+    /// `false`, so a product that records each fresh authentication records
+    /// it once per cache lifetime (no specification governs the cache: our
+    /// own design).
     #[must_use]
     pub const fn cached(&self) -> bool {
         self.cached

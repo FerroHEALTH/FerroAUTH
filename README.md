@@ -18,7 +18,9 @@ smart-auth). What it does for every product:
   fetched and cached with rotation, and every JWT access token is validated
   under RFC 9068: the signature with an asymmetric algorithm only, `iss`,
   `aud`, `exp` and `nbf` within a clock skew. A refused token is one generic
-  `401` that names no claim.
+  `401` that names no claim. An issuer whose tokens are opaque is checked by
+  RFC 7662 token introspection instead (`[auth] mode = "introspection"`),
+  with a cache bounded by each response's `exp`.
 - **SMART on openEHR scopes**, through the `openehr` feature: the
   `template-`, `composition-` and `aql-` families with their `::` patterns
   under `patient/`, `user/` and `system/`, parsed by `openehr-sdt` (the one

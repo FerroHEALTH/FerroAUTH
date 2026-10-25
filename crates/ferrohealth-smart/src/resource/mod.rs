@@ -23,6 +23,8 @@
 
 mod caller;
 pub mod configuration;
+#[cfg(feature = "fetch")]
+pub mod introspection;
 mod jwks;
 mod token;
 
@@ -503,15 +505,6 @@ impl ResourceServer {
     #[must_use]
     pub fn smart_configuration(&self, options: &configuration::SmartOptions) -> serde_json::Value {
         configuration::document(&self.metadata, options)
-    }
-
-    /// Returns the clinical scopes `scope` grants under this server's
-    /// resource table.
-    fn scopes(&self, scope: &str) -> Scopes {
-        match &self.resource_types {
-            Some(known) => Scopes::parse_known(scope, |name| known(name)),
-            None => Scopes::parse(scope),
-        }
     }
 }
 
