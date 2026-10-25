@@ -9,7 +9,9 @@ metadata:
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 
 The crate is `ferrohealth-smart` (Rust path `ferrohealth_smart`). The
-repository is `FerroHEALTH/FerroSMART`, and FerroSMART is the name in prose.
+repository is `FerroHEALTH/FerroAUTH`, and FerroAUTH is the name in prose;
+it was FerroSMART until the owner renamed it on 2026-10-25, and the crate
+names `ferrohealth-smart` and `ferrohealth-authz` stay.
 
 **Why:** the owner's decision of 2026-10-19, after considering a
 standard-neutral name; the name is final. The owner reserved

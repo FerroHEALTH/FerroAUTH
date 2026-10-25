@@ -10,6 +10,6 @@ metadata:
 
 A published release closes its milestone: `release.yml` refuses a `vX.Y.Z` tag in `plan` when the milestone titled exactly as the tag is missing or holds an open item, and its last job closes that milestone once every leg, crates.io included, has succeeded (`scripts/release/milestone.sh`).
 
-**Why:** FerroSMART v0.1.0 was tagged and published on 2026-10-19 while its milestone stayed open, and the owner asked that this be impossible in every product (#25).
+**Why:** v0.1.0 of this repository (then FerroSMART) was tagged and published on 2026-10-19 while its milestone stayed open, and the owner asked that this be impossible in every product (#25).
 
-**How to apply:** the workflow enforces it. After any manual or recovery release (a re-run, a `publish-crates.yml` dispatch, a leg finished by hand), check that the milestone is closed, and run `GITHUB_REPOSITORY=FerroHEALTH/FerroSMART bash scripts/release/milestone.sh close vX.Y.Z` when it is not.
+**How to apply:** the workflow enforces it. After any manual or recovery release (a re-run, a `publish-crates.yml` dispatch, a leg finished by hand), check that the milestone is closed, and run `GITHUB_REPOSITORY=FerroHEALTH/FerroAUTH bash scripts/release/milestone.sh close vX.Y.Z` when it is not.

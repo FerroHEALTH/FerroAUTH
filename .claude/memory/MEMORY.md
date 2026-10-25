@@ -10,7 +10,7 @@
   2026-10-25
 - [Memory lives in the repo](memory-lives-in-repo.md): every learning is a
   tracked file here, never a per-user note
-- [What FerroSMART is](ferrosmart.md): two shared crates, never an
+- [What FerroAUTH is](ferroauth.md): two shared crates, never an
   authorization server; `ferrohealth-smart` (the resource server, the
   scopes, two machine-auth modes, the audit line) and `ferrohealth-authz`
   (the policy decision); owner 2026-10-19 and 2026-10-25

@@ -3,7 +3,7 @@
 
 # CLAUDE.md
 
-**FerroSMART** is SMART for the openEHR ecosystem, FHIR included: the
+**FerroAUTH** is SMART for the openEHR ecosystem, FHIR included: the
 shared SMART App Launch 2.x and OAuth 2.0 resource-server crate of the
 FerroHEALTH products, FerroBRIDGE, FerroEHR, FerroFED, FerroPIX and
 FerroTERM. It is one Cargo workspace with the library crate
@@ -14,7 +14,8 @@ this repository, `ferrohealth-authz`, which the owner assigned here on
 2026-10-25 and which is not yet in the workspace
 (`.claude/memory/family-architecture.md`).
 
-FerroSMART in prose, `ferrohealth-smart` in identifiers. The crate name and
+FerroAUTH in prose (the repository was FerroSMART until the owner renamed
+it on 2026-10-25), `ferrohealth-smart` in identifiers. The crate name and
 its licence are the owner's decision of 2026-10-19: `ferrohealth-smart`,
 under BUSL-1.1, because it is hand-written code that implements a
 specification, and in this family only generator-emitted code is Apache-2.0
@@ -22,14 +23,14 @@ specification, and in this family only generator-emitted code is Apache-2.0
 
 ## What the library is, and is not
 
-**FerroSMART is not an authorization server.** It never issues a token and
+**FerroAUTH is not an authorization server.** It never issues a token and
 never holds a key that signs one. Each deployment points it at its own
 standards-compliant authorization server (Keycloak, Entra ID, Cadasto's
 smart-auth, any other). The one private key it can hold is the client
 credential of `private_key_jwt`, which signs only the product's own client
 assertion to the token endpoint (RFC 7523 §2.2), never an access token.
 
-**FerroSMART is the library every product uses to:**
+**FerroAUTH is the library every product uses to:**
 
 - act as an OAuth 2.0 and SMART App Launch 2.x resource server
   (`resource`, `metadata`): discover the issuer (RFC 8414, with OpenID

@@ -1,6 +1,6 @@
 ---
-name: ferrosmart
-description: "FerroSMART holds the FerroHEALTH products' shared authentication and authorization crates, never an authorization server: ferrohealth-smart (the resource server, the SMART v2 scopes, HTTP Basic and the client credentials grant as the only machine-auth modes, the audit line) and ferrohealth-authz (the policy decision); owner 2026-10-19 and 2026-10-25"
+name: ferroauth
+description: "FerroAUTH holds the FerroHEALTH products' shared authentication and authorization crates, never an authorization server: ferrohealth-smart (the resource server, the SMART v2 scopes, HTTP Basic and the client credentials grant as the only machine-auth modes, the audit line) and ferrohealth-authz (the policy decision); owner 2026-10-19 and 2026-10-25"
 metadata:
   type: project
 ---
@@ -8,7 +8,7 @@ metadata:
 <!-- SPDX-FileCopyrightText: Cadasto B.V. -->
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 
-FerroSMART (FerroHEALTH/FerroSMART) holds two shared crates every
+FerroAUTH (FerroHEALTH/FerroAUTH, named FerroAUTH until 2026-10-25) holds two shared crates every
 FerroHEALTH product uses, the way FerroUI holds the shared UI crate
 ([[family-architecture]]):
 
