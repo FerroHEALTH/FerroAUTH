@@ -54,7 +54,7 @@ record of both.
 
 ```toml
 [dependencies]
-ferrohealth-smart = { version = "=0.5.1", features = ["axum", "openehr"] }
+ferrohealth-smart = { version = "=0.6.0", features = ["axum", "openehr"] }
 ```
 
 The crate documentation on docs.rs is the integration guide; the design, the

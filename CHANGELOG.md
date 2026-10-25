@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-25
+
+Token introspection (RFC 7662) for an authorization server that issues
+opaque access tokens: `resource::introspection::Introspector` beside the
+JWT check, under the product's client authentication or a bearer token, with
+a cache bounded by each response's `exp`, and `[auth] mode =
+"introspection"` to configure it. Products pin `=0.6.0`; the breaking change
+below names what a product changes.
+
 ### Added
 
 - `resource::introspection`, behind the `fetch` feature: `Introspector`, a
