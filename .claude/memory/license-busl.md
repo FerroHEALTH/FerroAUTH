@@ -1,6 +1,6 @@
 ---
 name: license-busl
-description: "FerroSMART is under the Business Source License 1.1 on the FerroHEALTH terms, Cadasto B.V. the Licensor, Apache 2.0 the Change License four years after each version"
+description: "FerroAUTH is under the Business Source License 1.1 on the FerroHEALTH terms, Cadasto B.V. the Licensor, Apache 2.0 the Change License four years after each version"
 metadata:
   type: project
 ---
@@ -8,7 +8,7 @@ metadata:
 <!-- SPDX-FileCopyrightText: Cadasto B.V. -->
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 
-FerroSMART's own code and text are under the Business Source License 1.1,
+FerroAUTH's own code and text are under the Business Source License 1.1,
 the terms FerroBRIDGE, FerroEHR, FerroTERM and FerroUI use. Cadasto B.V. is
 the Licensor and handles the business side (info@cadasto.com); the
 maintainer handles the technical side.

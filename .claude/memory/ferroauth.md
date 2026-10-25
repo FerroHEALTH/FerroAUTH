@@ -1,6 +1,6 @@
 ---
-name: ferrosmart
-description: "FerroSMART is the shared SMART and OAuth 2.0 library of the FerroHEALTH products, never an authorization server: the resource server, the SMART v2 scopes, HTTP Basic and the client credentials grant as the only machine-auth modes, and the audit line; owner 2026-10-19"
+name: ferroauth
+description: "FerroAUTH holds the FerroHEALTH products' shared authentication and authorization crates, never an authorization server: ferrohealth-smart (the resource server, the SMART v2 scopes, HTTP Basic and the client credentials grant as the only machine-auth modes, the audit line) and ferrohealth-authz (the policy decision); owner 2026-10-19 and 2026-10-25"
 metadata:
   type: project
 ---
@@ -8,9 +8,18 @@ metadata:
 <!-- SPDX-FileCopyrightText: Cadasto B.V. -->
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 
-FerroSMART (`ferrohealth-smart` on crates.io, FerroHEALTH/FerroSMART) is
-the shared SMART App Launch 2.x and OAuth 2.0 crate every FerroHEALTH
-product uses, the way FerroUI is the shared UI crate (owner, 2026-10-19).
+FerroAUTH (FerroHEALTH/FerroAUTH, named FerroAUTH until 2026-10-25) holds two shared crates every
+FerroHEALTH product uses, the way FerroUI holds the shared UI crate
+([[family-architecture]]):
+
+- `ferrohealth-smart` on crates.io (owner, 2026-10-19): authentication,
+  OAuth 2.0 and SMART App Launch 2.x, and the authenticated subject with
+  its scopes and roles;
+- `ferrohealth-authz`, the new crate for the policy decision (owner,
+  2026-10-25): ABAC, Cedar and a remote PDP. The policy decision belongs
+  there, never in `ferrohealth-smart` and never as a product's local copy.
+
+The points below are about `ferrohealth-smart`.
 
 - **Not an authorization server.** It never issues a token and never holds
   a key that signs one; each deployment points it at its own
@@ -33,4 +42,6 @@ product uses, the way FerroUI is the shared UI crate (owner, 2026-10-19).
 
 **How to apply:** build every behaviour to `docs/architecture.md`; a change
 that would issue a token, add a third machine-auth mode or name a product
-in the library is refused and goes back to the owner.
+in the library is refused and goes back to the owner. A policy decision
+(roles and attributes evaluated against a rule set, Cedar, a PDP call)
+goes to `ferrohealth-authz`, not to `ferrohealth-smart`.
