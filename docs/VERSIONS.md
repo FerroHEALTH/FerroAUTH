@@ -37,6 +37,8 @@ hashes the vendored bytes again, failing when either disagrees with its row.
 | SMART App Launch source | `HL7/smart-app-launch` tag `2.2.0` commit `13449f93ba52d401d29ca9e72e8a4cbced8d6424` (the page sources the STU 2.2 publication renders) | `scripts/vendor/smart-app-launch.sh`, `docs/specs/smart-app-launch/PROVENANCE.md` |
 | SMART on openEHR source | `openEHR/specifications-ITS-REST` commit `9d25ea783f790512e05f908ef743626b4f7e8d2c` (the default branch head on 2026-10-16) path `docs/smart_app_launch` last change `5183c1f9274ed84096b29ea2b3977bc2e2b26247` (status DEVELOPMENT; `scripts/vendor/smart-on-openehr.sh --upstream` fails when the default branch has a newer commit touching the path) | `scripts/vendor/smart-on-openehr.sh`, `docs/specs/smart-on-openehr/PROVENANCE.md`, the `smart-on-openehr-upstream` job of `.github/workflows/specs.yml` |
 | OpenID Connect Discovery 1.0 document | `openid-connect-discovery-1_0-errata2.html` sha256 `0401a07b35de50e914e195aa2c3c64cc4f6542464381c885d24a2623fbf75ec2` (the edition `openid-connect-discovery-1_0.html` serves) | `scripts/vendor/openid-connect-discovery.sh`, `docs/specs/openid-connect-discovery/PROVENANCE.md` |
+| NIST SP 800-162 document | `NIST.SP.800-162.pdf` sha256 `ea90ee967a7011c8de5cfaffe0820d157167edefdea5fc2a84af730af4295cd7` (January 2014, with the updates of 2019-08-02) | `scripts/vendor/nist-sp-800-162.sh`, `docs/specs/nist-sp-800-162/PROVENANCE.md` |
+| Cedar language documentation | `cedar-policy/cedar-docs` commit `5d8a02fda9ddf629b9989b0e0e2fb16215d394e4` (the default branch head on 2026-10-25) paths `docs/collections/_policies`, `_auth` and `_schema` | `scripts/vendor/cedar-docs.sh`, `docs/specs/cedar-docs/PROVENANCE.md` |
 
 ### The RFCs
 
@@ -86,8 +88,9 @@ first-party file.
 Vendored material keeps its upstream terms, recorded beside each vendored tree
 in its `PROVENANCE.md`: CC BY 4.0 for the SMART App Launch package and page
 sources, the IETF Trust Legal Provisions for the RFCs, Apache License 2.0
-for the SMART on openEHR source, and the OpenID Foundation's notice for the
-Discovery specification.
+for the SMART on openEHR source and the Cedar language documentation, the
+OpenID Foundation's notice for the Discovery specification, and the public
+domain of a United States Government work for NIST SP 800-162.
 
 ## The toolchain and the crate
 
@@ -97,6 +100,7 @@ Discovery specification.
 | Rust edition | 2024 | `Cargo.toml` `[workspace.package] edition`, `rustfmt.toml` |
 | MSRV | 1.98 | `Cargo.toml` `[workspace.package] rust-version` |
 | `ferrohealth-smart` | 0.6.0, the workspace version, the release tag `v0.6.0` and the `CHANGELOG.md` section | `Cargo.toml` `[workspace.package] version`, `Cargo.lock`, `CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
+| `ferrohealth-authz` | 0.0.0, the name holder, until its first release tag `ferrohealth-authz-v0.1.0` and the section of its own `CHANGELOG.md` | `crates/ferrohealth-authz/Cargo.toml` `[package] version`, `Cargo.lock`, `crates/ferrohealth-authz/CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
 | Third-party crates | the `[workspace.dependencies]` table, each version checked against crates.io on 2026-10-19 | `Cargo.toml`, `Cargo.lock` |
 
 ## The CI tools

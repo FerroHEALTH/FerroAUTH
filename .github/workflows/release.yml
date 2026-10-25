@@ -1,7 +1,9 @@
 # SPDX-FileCopyrightText: Cadasto B.V.
 # SPDX-License-Identifier: BUSL-1.1
 
-# The release lane, dormant until a `v*` tag is pushed:
+# The release lane, dormant until a release tag is pushed: `v*` releases
+# ferrohealth-smart and `ferrohealth-authz-v*` releases ferrohealth-authz,
+# each crate on its own version line (scripts/release/plan.sh crate):
 #
 #   plan ── github-release (draft) ── crate (reusable) ── finalize-release ── crates ── milestone
 #
@@ -17,11 +19,11 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "ferrohealth-authz-v*"]
   workflow_dispatch:
     inputs:
       tag:
-        description: "Existing vX.Y.Z tag to (re)publish. Dispatch this workflow AT that tag."
+        description: "Existing vX.Y.Z or ferrohealth-authz-vX.Y.Z tag to (re)publish. Dispatch this workflow AT that tag."
         required: true
         type: string
 
@@ -42,6 +44,7 @@ jobs:
     outputs:
       tag: ${{ steps.tag.outputs.tag }}
       version: ${{ steps.tag.outputs.version }}
+      crate: ${{ steps.tag.outputs.crate }}
       is-prerelease: ${{ steps.tag.outputs.is_prerelease }}
     steps:
       - id: tag
@@ -59,17 +62,24 @@ jobs:
           else
             tag="${GITHUB_REF_NAME}"
           fi
-          if ! printf '%s\n' "$tag" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
-            echo "::error::'$tag' is not a vX.Y.Z tag" >&2
+          if ! printf '%s\n' "$tag" | grep -qE '^(ferrohealth-authz-)?v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$tag' is not a vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" >&2
             exit 1
           fi
           case "$tag" in
+            ferrohealth-authz-v*) crate=ferrohealth-authz ;;
+            *) crate=ferrohealth-smart ;;
+          esac
+          version="${tag#ferrohealth-authz-}"
+          version="${version#v}"
+          case "$version" in
             *-*) is_prerelease=true ;;
             *) is_prerelease=false ;;
           esac
           {
             echo "tag=$tag"
-            echo "version=${tag#v}"
+            echo "version=$version"
+            echo "crate=$crate"
             echo "is_prerelease=$is_prerelease"
           } >> "$GITHUB_OUTPUT"
 
@@ -114,15 +124,18 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.plan.outputs.tag }}
           VERSION: ${{ needs.plan.outputs.version }}
+          CRATE: ${{ needs.plan.outputs.crate }}
           IS_PRERELEASE: ${{ needs.plan.outputs.is-prerelease }}
         run: |
           set -euo pipefail
-          args=(--repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$VERSION" --notes-file release-notes.md)
+          title="$VERSION"
+          if [ "$CRATE" != "ferrohealth-smart" ]; then title="$CRATE $VERSION"; fi
+          args=(--repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$title" --notes-file release-notes.md)
           if [ "$IS_PRERELEASE" = "true" ]; then args+=(--prerelease); fi
           state="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)"
           case "$state" in
             missing) gh release create "$TAG" "${args[@]}" ;;
-            true) gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$VERSION" --notes-file release-notes.md ;;
+            true) gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$title" --notes-file release-notes.md ;;
             *)
               echo "::error::$TAG is already published. A bad cut ships forward as a new patch version; it is never retagged." >&2
               exit 1
@@ -142,6 +155,7 @@ jobs:
     with:
       tag: ${{ needs.plan.outputs.tag }}
       version: ${{ needs.plan.outputs.version }}
+      crate: ${{ needs.plan.outputs.crate }}
 
   finalize-release:
     name: github release (publish)
@@ -156,14 +170,15 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.plan.outputs.tag }}
           VERSION: ${{ needs.plan.outputs.version }}
+          CRATE: ${{ needs.plan.outputs.crate }}
         run: |
           set -euo pipefail
           assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
           printf '%s\n' "$assets"
           missing=""
           for suffix in ".crate" ".crate.sha256sum" ".crate.sigstore.json"; do
-            printf '%s\n' "$assets" | grep -Fxq "ferrohealth-smart-${VERSION}${suffix}" \
-              || missing="$missing ferrohealth-smart-${VERSION}${suffix}"
+            printf '%s\n' "$assets" | grep -Fxq "${CRATE}-${VERSION}${suffix}" \
+              || missing="$missing ${CRATE}-${VERSION}${suffix}"
           done
           if [ -n "$missing" ]; then
             echo "::error::the draft is missing assets, so it will not be published:$missing" >&2
@@ -173,10 +188,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ needs.plan.outputs.tag }}
+          CRATE: ${{ needs.plan.outputs.crate }}
           IS_PRERELEASE: ${{ needs.plan.outputs.is-prerelease }}
         run: |
           set -euo pipefail
-          if [ "$IS_PRERELEASE" = "true" ]; then
+          # NOTE: no specification governs it: the repository's latest release stays ferrohealth-smart's.
+          if [ "$IS_PRERELEASE" = "true" ] || [ "$CRATE" != "ferrohealth-smart" ]; then
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
           else
             gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
@@ -211,10 +228,13 @@ jobs:
       - name: Publish the crate
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-        run: bash scripts/release/publish-crates.sh publish
+          CRATE: ${{ needs.plan.outputs.crate }}
+        run: bash scripts/release/publish-crates.sh publish "$CRATE"
       - name: Verify the crate resolves at its manifest version
         if: always()
-        run: bash scripts/release/publish-crates.sh verify
+        env:
+          CRATE: ${{ needs.plan.outputs.crate }}
+        run: bash scripts/release/publish-crates.sh verify "$CRATE"
 
   # Closes the release's milestone after every leg, the approval-gated crates
   # leg included. `always()` keeps the job in the graph when a leg fails, so

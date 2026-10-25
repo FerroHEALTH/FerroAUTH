@@ -4,8 +4,8 @@
 # Architecture
 
 FerroAUTH holds two crates: authentication, `ferrohealth-smart`, and the
-policy decision, `ferrohealth-authz` (reserved on crates.io at `0.0.0`). This
-document designs `ferrohealth-smart`, the shared library with which every
+policy decision, `ferrohealth-authz` (section 11). Sections 0 to 10 design
+`ferrohealth-smart`, the shared library with which every
 FerroHEALTH product (FerroBRIDGE, FerroEHR, FerroFED, FerroPIX and FerroTERM) acts as an
 OAuth 2.0 and SMART App Launch 2.x resource server, verifies and sends
 machine-to-machine credentials, and writes one audit line per request. It is
@@ -1041,7 +1041,7 @@ its key set from a `jwks_file`.
 |---|---|---|
 | FerroBRIDGE | `src/auth/{discovery,jwks,token,scope}.rs`, the token and scope halves of `guard.rs`, the audit line, `smart.rs` (the discovery document), `src/cdr/oauth/` whole | `compartment.rs` (the patient-to-EHR mapping), the route table `CLASSIFIED`, the `OperationOutcome` bodies, the operator scope and the operations it admits, the `[auth]` loader over the shared section |
 | FerroTERM | `src/smart/{discovery,jwks}.rs`, the token checks and the challenge rendering of `mod.rs`, the scope parser of `scopes.rs`, the discovery document | the write-route classification, the admin listener's requirement, the per-version audience list, the `CapabilityStatement` security block, the `OperationOutcome` bodies |
-| FerroEHR | `authn/jwt.rs` (the remote key source, the claim checks), `authn/basic.rs` (Argon2id and the enumeration defence), the challenge rendering, `service/terminology/oauth2.rs` (the client credentials client) | the RBAC and ABAC gate (`authz/`, Cedar), which moves to `ferrohealth-authz` (owner decision 2026-10-25), the assurance gate (`acr`, step-up challenge), the professional and acting-for claims, the ATNA audit, the committer identity |
+| FerroEHR | `authn/jwt.rs` (the remote key source, the claim checks), `authn/basic.rs` (Argon2id and the enumeration defence), the challenge rendering, `service/terminology/oauth2.rs` (the client credentials client) | the RBAC and ABAC gate (`authz/`, Cedar), which moves to `ferrohealth-authz` (owner decision 2026-10-25), the choice of which routes carry patient data (the assurance and professional reading itself is `assurance`, 3.12), the ATNA audit, the committer identity |
 | FerroFED | `auth/keys.rs`, `auth/fetch.rs`, the RFC 9068 checks of `auth/mod.rs`, the challenge rendering of `auth/refusal.rs`, the openEHR grant rules of `auth/permission/grant.rs` (3.9) | the trust list and per-issuer policy, RFC 7662 introspection for opaque tokens, the edge mode, the IUA and contact-point claims, purpose of use, the ITS-REST operation table (the classifier, `auth/permission/table.rs`) with its demographic and backend client lists, the FAPI 2.0, mTLS, DPoP and token-exchange onward grants, the HMAC references of the security log |
 
 FerroFED's edge-assertion verifier does not fit the library's verifiers and
@@ -1252,3 +1252,59 @@ Every rule above is a test the crate carries before a product moves:
 The vendored specifications are read by the design and by the tests that
 cite them; `scripts/checks/versions.sh` holds the trees to their provenance,
 so the corpus cannot drift under the citations.
+
+## 11. `ferrohealth-authz`: the policy decision
+
+`ferrohealth-smart` says who the caller is and what it was granted;
+`ferrohealth-authz` decides what that subject may do with an object. The
+vocabulary is NIST SP 800-162 (`nist-sp-800-162 §2`, §3): attribute-based
+access control over subject, object and environment attributes, a policy
+decision point (PDP) and the policy enforcement point (PEP) that consults it.
+The code came from FerroEHR (`app/ferroehr-rest/src/extensions/access/authz/`),
+generalised so FerroFED and FerroPIX use it too (owner decision 2026-10-25).
+
+- **The request.** `request::Subject` is read from the caller
+  `ferrohealth-smart` admitted: its subject id, roles (3.11), scopes, and the
+  claims a product names as subject attributes. `request::Request` names an
+  action, a resource type, resource attributes and context attributes. A
+  resource attribute may be a set, when one operation touches several objects;
+  the engine decides every combination of one value per set and permits only
+  when every combination is permitted, the first deny ending the evaluation.
+  An empty set is refused when the request is built, since it would leave
+  nothing to decide. No specification governs the fan-out: our own design.
+- **The decision.** `request::Decision` is `Permit` or `Deny`, each with the
+  policies that made it. An engine that cannot decide answers
+  `engine::AuthzError`, never a decision, and a product answers that as a
+  fault of its own (a `500`): the PDP decides (`nist-sp-800-162 §3.2.1`), and
+  failing closed when it cannot is our own design.
+- **Cedar** (feature `cedar`). Policies are in the Cedar language
+  (`cedar-docs`, the language reference): deny by default, a `forbid`
+  overriding every `permit`. The schema is written from the product's
+  `cedar::Model` (the subject attributes, each resource type with its
+  attributes, each action with the resource types it applies to, the context
+  attributes), so a policy can name only what the product sends; the principal
+  is `User` with `roles` and `scopes`. Policies are validated strictly at load
+  and at every reload; a reload that does not validate keeps the set in force.
+  Cedar skips a policy that errors during evaluation and reports it in the
+  diagnostics; the engine answers such an evaluation with an error, since a
+  skipped `forbid` would otherwise stop forbidding. Entity ids are built with
+  the API, never by formatting a policy string, so no subject can forge
+  another principal.
+- **A remote PDP** (feature `remote`). One `POST {server}{policy}` per
+  combination with a flat JSON object of the attributes the resource type's
+  binding names; `200` permits, a `4xx` denies, and every other answer, a
+  redirect included, is no decision. Under a client credentials grant the
+  call carries `ferrohealth-smart`'s token and is sent once more under a new
+  token on a `401`. The wire contract is our own design.
+- **Dependencies.** Without a feature the crate holds the request model and
+  the trait alone. `cedar` adds `cedar-policy`, `arc-swap` and the Tokio
+  timer of the reload; `remote` adds the HTTP client through
+  `ferrohealth-smart`'s `fetch`.
+- **Releases.** The crate keeps its own version line and changelog,
+  released by the tag `ferrohealth-authz-vX.Y.Z` through the same release and
+  publish lanes as `ferrohealth-smart` (`docs/release.md`).
+
+| Decision | Ground | Owner items |
+|---|---|---|
+| The policy decision is its own crate in this repository, `ferrohealth-authz`, on its own version line, reading `ferrohealth-smart`'s subject | owner decision 2026-10-25; `nist-sp-800-162 §2`, §3 | FerroEHR moves its `authz/` here and deletes its copy |
+| A request with a set attribute is permitted only when every combination is; an engine that cannot decide answers an error the PEP fails closed on | our own design | none |

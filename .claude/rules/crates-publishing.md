@@ -3,20 +3,27 @@
 
 # Published crate discipline (crates.io)
 
-`crates/ferrohealth-smart` is published on crates.io as `ferrohealth-smart`
-so the FerroHEALTH products can depend on it. The crate is BUSL-1.1.
+Two crates are published on crates.io so the FerroHEALTH products can
+depend on them: `crates/ferrohealth-smart` as `ferrohealth-smart` and
+`crates/ferrohealth-authz` as `ferrohealth-authz`. Both are BUSL-1.1.
 Published versions are immutable, so version hygiene is a hard rule.
 
-## One version line
+## Two version lines
 
-The workspace `version` in the root `Cargo.toml` is the library's version and
-the release tag `vX.Y.Z`. The library inherits it (`version.workspace =
-true`), so the tag, the crate and the changelog section always agree.
+The workspace `version` in the root `Cargo.toml` is `ferrohealth-smart`'s
+version and its release tag `vX.Y.Z`; it inherits it (`version.workspace =
+true`), and its changelog is `CHANGELOG.md`. `ferrohealth-authz` keeps its own
+`[package] version`, released by the tag `ferrohealth-authz-vX.Y.Z`, with its
+own `crates/ferrohealth-authz/CHANGELOG.md`. For each, the tag, the crate and
+the changelog section always agree (`scripts/checks/crate-version-guard.sh`,
+`scripts/release/plan.sh`).
 
 ## The bump rule
 
-- **A release bumps the workspace version, the changelog section and the
-  lock together** (`cargo update -w`), in the release pull request.
+- **A release bumps the crate's version, its changelog section and the lock
+  together** (`cargo update -w`), in the release pull request. A
+  `ferrohealth-smart` release that `ferrohealth-authz` must follow also moves
+  the `ferrohealth-smart` requirement of `[workspace.dependencies]`.
 - Consumers pin the crate exactly (`ferrohealth-smart = "=0.1.0"`): Cargo
   reads a `0.x` caret requirement as compatible across patches
   (<https://doc.rust-lang.org/cargo/reference/semver.html>), and a product
@@ -27,21 +34,24 @@ true`), so the tag, the crate and the changelog section always agree.
 
 ## The publish lane is resumable and verified
 
-`scripts/release/publish-crates.sh` (`publish` / `verify` / `version` /
-`guard`)
-uploads the crate, counts "already exists" as done, and reads the registry
-back before reporting success. Two lanes call it: the `crates` leg of
-`release.yml` on a `v*` tag (the primary path, paused by the `crates-io`
+`scripts/release/publish-crates.sh` (`publish <crate>` / `verify <crate>` /
+`version` / `crate <tag>` / `guard`) uploads the one crate a tag releases,
+counts "already exists" as done, and reads the registry back before reporting
+success. Two lanes call it: the `crates` leg of `release.yml` on a `v*` or
+`ferrohealth-authz-v*` tag (the primary path, paused by the `crates-io`
 environment's required reviewer) and `publish-crates.yml` on a manual
 dispatch (a dry run by default; `publish = true` is the recovery path for
-an existing release, refused by its `guard` job unless the run is at the tag
-`v<manifest version>` and that tag has a published GitHub release). Both
+an existing release, refused by its `guard` job unless the run is at the
+release tag of a crate at its manifest version and that tag has a published
+GitHub release). Both
 authenticate with crates.io Trusted Publishing (OIDC through
 `rust-lang/crates-io-auth-action`); no long-lived crates.io token exists in
 the repository. Neither lane restores a build cache (`ci-cd.md`).
 
-`cargo publish -p ferrohealth-smart --dry-run --locked` runs on every pull
-request as the `publish-dry-run` job.
+`cargo publish --workspace --dry-run --locked` runs on every pull request as
+the `publish-dry-run` job; Cargo packages the members together, so
+`ferrohealth-authz` verifies against the `ferrohealth-smart` beside it before
+that version is on crates.io.
 
 ## Owner steps (done once)
 
@@ -53,7 +63,7 @@ request as the `publish-dry-run` job.
    `ferrohealth-authz`, the policy decision crate reserved at `0.0.0`, has
    Trusted Publishing for the same repository.
 3. The `crates-io` GitHub environment carries the owner as required reviewer
-   and admits `main` and `v*` tags.
+   and admits `main`, `v*` tags and `ferrohealth-authz-v*` tags.
 
 ## Official documentation (durable citations)
 

@@ -6,13 +6,15 @@
 **FerroAUTH** is SMART for the openEHR ecosystem, FHIR included: the
 shared SMART App Launch 2.x and OAuth 2.0 resource-server crate of the
 FerroHEALTH products, FerroBRIDGE, FerroEHR, FerroFED, FerroPIX and
-FerroTERM. It is one Cargo workspace with the library crate
-`ferrohealth-smart` (Rust path `ferrohealth_smart`, published to
-crates.io), the way FerroUI is the family's shared UI crate. The family's
-policy decision (ABAC, Cedar, a remote PDP) belongs to a second crate of
-this repository, `ferrohealth-authz`, which the owner assigned here on
-2026-10-25 and which is not yet in the workspace
-(`.claude/memory/family-architecture.md`).
+FerroTERM. It is one Cargo workspace with two library crates, both
+published to crates.io, the way FerroUI is the family's shared UI crate:
+`ferrohealth-smart` (Rust path `ferrohealth_smart`), authentication and the
+granted subject, and `ferrohealth-authz` (Rust path `ferrohealth_authz`), the
+policy decision (the NIST SP 800-162 request model, a Cedar engine behind
+`cedar`, a remote PDP behind `remote`), which the owner assigned here on
+2026-10-25 (`.claude/memory/family-architecture.md`). Each crate keeps its own
+version line and tag: `vX.Y.Z` releases `ferrohealth-smart`,
+`ferrohealth-authz-vX.Y.Z` releases `ferrohealth-authz` (`docs/release.md`).
 
 FerroAUTH in prose (the repository was FerroSMART until the owner renamed
 it on 2026-10-25), `ferrohealth-smart` in identifiers. The crate name and
@@ -80,9 +82,13 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   `guard` and `extract` behind `axum`), `tests/it/` (one binary: the token
   check, the client credentials, Basic, the guard, every upstream a
   `wiremock` stub and every key generated when the case runs).
-- `docs/`: `architecture.md`, `VERSIONS.md`, `specs/` (the vendored SMART App
-  Launch, RFC and OpenID Connect Discovery corpora, each with a
-  `PROVENANCE.md`).
+- `crates/ferrohealth-authz`: the policy decision, on its own version line
+  with its own `CHANGELOG.md`. `src/` (`request`, `engine`, `cedar` behind
+  `cedar`, `remote` behind `remote`), `tests/it/` (the Cedar engine over
+  synthetic models and policies, the remote PDP against a `wiremock` point).
+- `docs/`: `architecture.md`, `VERSIONS.md`, `release.md`, `specs/` (the
+  vendored SMART App Launch, RFC, OpenID Connect Discovery, NIST SP 800-162
+  and Cedar language corpora, each with a `PROVENANCE.md`).
 - `scripts/`: `vendor/` (the corpus fetchers), `checks/` (the committed
   guards), `release/` (the crate publish), `gh/` (the tracker helpers).
 - `.github/`: CI with a single required `conclusion` job, the vendored

@@ -16,6 +16,10 @@
 #                        vendored text, which the PROVENANCE.md repeats.
 #   3. OpenID Connect    the vendored Discovery document hashes to the row's
 #                        sha256, which its PROVENANCE.md repeats.
+#   3b. NIST SP 800-162  the vendored PDF hashes to the row's sha256, which
+#                        its PROVENANCE.md repeats.
+#   3c. Cedar docs       the PROVENANCE.md names the pinned commit and the
+#                        tree still hashes to the digest it records.
 #   4. the design        the pin table of docs/architecture.md names the
 #                        same SMART App Launch version as the matrix.
 #   5. the licence       no first-party file claims a licence other than
@@ -148,6 +152,38 @@ if [ -f "$oidc/$file" ]; then
   ok "OpenID Connect Discovery 1.0 ($file) at its checksum"
 else
   fail "$oidc/$file is missing"
+fi
+
+# ---- 3b. NIST SP 800-162 ----------------------------------------------------
+nist="docs/specs/nist-sp-800-162"
+pin="$(corpus_pin_cell "NIST SP 800-162 document")"
+file="$(awk '{ print $1; exit }' <<< "$pin")"
+want="$(corpus_pin_field sha256 "$pin")"
+if [ -f "$nist/$file" ]; then
+  got="$(corpus_sha256 "$nist/$file")"
+  [ "$got" = "$want" ] || fail "$nist/$file hashes to $got, docs/VERSIONS.md pins $want"
+  recorded="$(provenance_line "$nist/PROVENANCE.md" sha256)"
+  [ "$recorded" = "$want" ] || fail "$nist/PROVENANCE.md records sha256 '$recorded', docs/VERSIONS.md pins $want"
+  ok "NIST SP 800-162 ($file) at its checksum"
+else
+  fail "$nist/$file is missing"
+fi
+
+# ---- 3c. the Cedar language documentation -----------------------------------
+cedar="docs/specs/cedar-docs"
+if [ -f "$cedar/PROVENANCE.md" ]; then
+  commit="$(corpus_pin_commit "$(corpus_pin_cell "Cedar language documentation")")"
+  got_commit="$(provenance_line "$cedar/PROVENANCE.md" Pin)"
+  case "$got_commit" in
+    "commit $commit"*) ;;
+    *) fail "$cedar/PROVENANCE.md names '$got_commit', docs/VERSIONS.md pins commit $commit" ;;
+  esac
+  want="$(provenance_digest "$cedar/PROVENANCE.md" "Tree digest")"
+  got="$(corpus_tree_digest "$cedar")"
+  [ "$got" = "$want" ] || fail "$cedar hashes to $got, its PROVENANCE.md records ${want:-nothing}"
+  ok "the Cedar language documentation at $commit"
+else
+  fail "$cedar/PROVENANCE.md is missing"
 fi
 
 # ---- 4. the design ----------------------------------------------------------
