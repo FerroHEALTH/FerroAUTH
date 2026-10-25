@@ -52,7 +52,7 @@ cd "${CLAUDE_PROJECT_DIR}" && git status --short | head -40 && echo "---" && git
    never leave finished work sitting unmerged. Flag an open pull request
    without auto-merge armed (`gh pr list --json number,autoMergeRequest`).
 3. If the user asks how things look publicly, point at the milestone page:
-   FerroSMART has no roadmap board (`.claude/rules/project-board.md`), so the
+   FerroAUTH has no roadmap board (`.claude/rules/project-board.md`), so the
    milestones and the issue list are the public view.
 4. **Do not** modify any issue or make any commit; this is a read-only status
    check. If the user wants the next task turned into a work plan, point them

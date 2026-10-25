@@ -9,7 +9,7 @@ body:
       value: |
         Thanks for reporting a bug. A maintainer sets the priority during
         triage. Do not use this form for a security vulnerability; see
-        [SECURITY.md](https://github.com/FerroHEALTH/FerroSMART/blob/main/SECURITY.md).
+        [SECURITY.md](https://github.com/FerroHEALTH/FerroAUTH/blob/main/SECURITY.md).
         Never paste a real token, key, secret or password: describe its
         shape, or mint a synthetic one.
   - type: textarea

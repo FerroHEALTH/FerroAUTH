@@ -36,7 +36,7 @@
 #   scripts/gh/rel.sh id         <n>                          # print the database id of n
 #
 # All commands act on the current repository (`gh repo view`); default
-# FerroHEALTH/FerroSMART when run inside its clone.
+# FerroHEALTH/FerroAUTH when run inside its clone.
 
 set -euo pipefail
 

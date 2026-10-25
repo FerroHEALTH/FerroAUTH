@@ -1,10 +1,11 @@
 <!-- SPDX-FileCopyrightText: Cadasto B.V. -->
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 
-# Contributing to FerroSMART
+# Contributing to FerroAUTH
 
-FerroSMART is the shared SMART App Launch and OAuth 2.0 resource-server
-crate of the FerroHEALTH products, published as `ferrohealth-smart`. The
+FerroAUTH holds two crates of the FerroHEALTH products: authentication,
+`ferrohealth-smart`, the shared SMART App Launch and OAuth 2.0
+resource-server crate, and the policy decision, `ferrohealth-authz`. The
 working discipline is [`CLAUDE.md`](CLAUDE.md) and the design of record is
 [`docs/architecture.md`](docs/architecture.md). Read both before making a
 change. The contribution terms every FerroHEALTH product shares are in the
@@ -80,7 +81,7 @@ open a public issue for a security problem.
 
 ## Licensing of contributions
 
-FerroSMART's own code is licensed under the Business Source License 1.1
+FerroAUTH's own code is licensed under the Business Source License 1.1
 ([`LICENSE`](LICENSE)). These are the terms the family book states for every
 FerroHEALTH product
 ([Contributions](https://ferrohealth.eu/docs/licensing.html#contributions)).

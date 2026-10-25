@@ -3,7 +3,7 @@
 
 # Vendored inputs: fetched by a committed script, verbatim, with provenance
 
-FerroSMART vendors the specifications it implements under `docs/specs/`: the
+FerroAUTH vendors the specifications it implements under `docs/specs/`: the
 SMART App Launch package and page sources, the OAuth 2.0 and JOSE RFCs, and
 the OpenID Connect Discovery document, each tree with a `PROVENANCE.md`.
 

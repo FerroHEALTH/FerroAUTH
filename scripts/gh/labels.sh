@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: Cadasto B.V.
 # SPDX-License-Identifier: BUSL-1.1
-# scripts/gh/labels.sh: bootstrap the FerroSMART issue-label taxonomy.
+# scripts/gh/labels.sh: bootstrap the FerroAUTH issue-label taxonomy.
 #
 # Creates, idempotently, the WORK-KIND labels a Task carries to pick its
 # commit type (a Bug and a Feature carry none: the native issue type says fix

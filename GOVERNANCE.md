@@ -3,11 +3,11 @@
 
 # Governance
 
-How decisions get made in FerroSMART, who makes them, and how that changes.
+How decisions get made in FerroAUTH, who makes them, and how that changes.
 
 ## Current structure: one maintainer
 
-FerroSMART has a single maintainer ([MAINTAINERS.md](MAINTAINERS.md)) who
+FerroAUTH has a single maintainer ([MAINTAINERS.md](MAINTAINERS.md)) who
 holds final say on every technical decision: what gets built, merged and
 released. There is no steering committee and no vote.
 
@@ -18,7 +18,7 @@ business side, the commercial licence included: write to
 
 ## The products are the customers
 
-FerroSMART exists for the FerroHEALTH products. A change that alters what a
+FerroAUTH exists for the FerroHEALTH products. A change that alters what a
 product accepts, refuses or records names that effect in its pull request
 and changelog entry, and every product moves its exact version pin in
 lockstep, in one pull request per product.

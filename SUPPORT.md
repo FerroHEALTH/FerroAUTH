@@ -10,7 +10,7 @@ Start at the [README](README.md), the crate documentation on docs.rs
 [`docs/architecture.md`](docs/architecture.md), which records every check
 with its specification citation and the configuration model. If those do
 not answer it, open an issue through the
-[issue chooser](https://github.com/FerroHEALTH/FerroSMART/issues/new/choose).
+[issue chooser](https://github.com/FerroHEALTH/FerroAUTH/issues/new/choose).
 
 There is no commercial support offering and no service-level agreement. A
 commercial licence or any other business question goes to Cadasto B.V., the
@@ -19,7 +19,7 @@ Licensor: [info@cadasto.com](mailto:info@cadasto.com) or
 
 ## I found a defect
 
-[Open an issue](https://github.com/FerroHEALTH/FerroSMART/issues/new/choose)
+[Open an issue](https://github.com/FerroHEALTH/FerroAUTH/issues/new/choose)
 when a token is admitted that the specification refuses, a refusal names a
 claim or a scope, a challenge or a status differs from the one the design
 fixes, or a credential reaches a log line. The status, the

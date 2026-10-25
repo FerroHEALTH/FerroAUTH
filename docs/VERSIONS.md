@@ -3,13 +3,13 @@
 
 # Pinned version matrix
 
-This file is the single source of truth for every version pin in FerroSMART.
+This file is the single source of truth for every version pin in FerroAUTH.
 When it and a file that repeats a pin disagree, that is drift. Fix the
 disagreement; never let either side silently win. `scripts/checks/versions.sh`
 reads every vendored `PROVENANCE.md` and every vendored file back against the
 rows below.
 
-No specification governs this file; it is FerroSMART's own design.
+No specification governs this file; it is FerroAUTH's own design.
 
 ## Specifications
 

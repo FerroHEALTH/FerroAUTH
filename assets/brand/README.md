@@ -1,11 +1,11 @@
 <!-- SPDX-FileCopyrightText: Cadasto B.V. -->
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 
-# FerroSMART brand
+# FerroAUTH brand
 
-FerroSMART follows the FerroHEALTH family system and takes its own mark and its
+FerroAUTH follows the FerroHEALTH family system and takes its own mark and its
 own hue, as every product in the family does. The file set, the naming and the
-variants are shared with the family; the mark and the palette are FerroSMART's
+variants are shared with the family; the mark and the palette are FerroAUTH's
 own. Everything here is under the Business Source License 1.1 with the rest of
 the repository.
 
@@ -34,7 +34,7 @@ values from `tokens.css` here verbatim.
 
 | File | What it is |
 |---|---|
-| `ferrosmart-icon.svg` | primary icon, full colour, transparent background, 64-unit viewBox at a 512 intrinsic size |
+| `ferroauth-icon.svg` | primary icon, full colour, transparent background, 64-unit viewBox at a 512 intrinsic size |
 | `tokens.css` | the palette as CSS custom properties |
 
 The lockups, the favicon set and the social card follow when the product has a

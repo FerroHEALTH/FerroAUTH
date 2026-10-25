@@ -13,7 +13,7 @@
 #
 # Requires: curl, tar, shasum, jq.
 #
-# No specification governs this file; it is FerroSMART's own design.
+# No specification governs this file; it is FerroAUTH's own design.
 
 corpus_ua="ferrohealth-smart-vendor (scripts/vendor)"
 corpus_matrix="docs/VERSIONS.md"

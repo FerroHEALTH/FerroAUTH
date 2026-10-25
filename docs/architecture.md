@@ -3,7 +3,9 @@
 
 # Architecture
 
-FerroSMART is the shared library, `ferrohealth-smart`, with which every
+FerroAUTH holds two crates: authentication, `ferrohealth-smart`, and the
+policy decision, `ferrohealth-authz` (reserved on crates.io at `0.0.0`). This
+document designs `ferrohealth-smart`, the shared library with which every
 FerroHEALTH product (FerroBRIDGE, FerroEHR, FerroFED and FerroTERM) acts as an
 OAuth 2.0 and SMART App Launch 2.x resource server, verifies and sends
 machine-to-machine credentials, and writes one audit line per request. It is
@@ -52,8 +54,8 @@ error body, a JSON document), and every policy beyond the SMART grant
 OAuth 2.0 names four roles: the resource owner, the resource server, the
 client and the authorization server (`rfc6749 §1.1`). SMART App Launch has an
 EHR system "operate as both resource servers and authorization servers"
-(`smart conformance`, Actors). FerroSMART takes exactly one of those roles for
-every product: the resource server, which "SHALL validate the access token
+(`smart conformance`, Actors). `ferrohealth-smart` takes exactly one of those
+roles for every product: the resource server, which "SHALL validate the access token
 and ensure that it has not expired and that its scope covers the requested
 resource" (`smart app-launch`, Access FHIR API, Response; `smart
 backend-services`, Access FHIR API, Response), plus the two client-side
@@ -1036,7 +1038,7 @@ contract the library must meet, and a difference between a product's pinned
 behaviour and this design is settled on the tracker before the move, never
 by editing the test.
 
-## 6. What FerroSMART deliberately does not do
+## 6. What `ferrohealth-smart` deliberately does not do
 
 - **Issue tokens.** That is the authorization server (`rfc6749 §1.1`), and
   the family takes one off the shelf per deployment. A token-issuing library
@@ -1131,7 +1133,7 @@ four agree on and settles each difference:
 
 | Decision | Ground | Owner items |
 |---|---|---|
-| FerroSMART is a library, `ferrohealth-smart`, a resource server and a credential client, never an authorization server | owner decision 2026-10-19 | the repository's `README.md` still describes a SMART on openEHR server that issues tokens and launch context; it needs the new statement |
+| `ferrohealth-smart` is a library, a resource server and a credential client, never an authorization server | owner decision 2026-10-19 | the repository's `README.md` still describes a SMART on openEHR server that issues tokens and launch context; it needs the new statement |
 | The crate is licensed BUSL-1.1 | It is hand-written code that implements the specifications above, which is the family's rule for its own code; only generator-emitted code (`fhir-types`, `hl7v2-types` in FerroBRIDGE) is published under Apache-2.0, because it is emitted from CC0 inputs and three servers depend on it. `ferrohealth-smart` emits nothing and is consumed by the family's own products (owner decision 2026-10-19). `docs/VERSIONS.md` records the licence row and `scripts/checks/versions.sh` fails on any other claim. | none |
 | Machine-to-machine traffic is HTTP Basic or the client credentials grant, nothing else | owner decision 2026-10-19 | none |
 | The `private_key_jwt` key is a client credential, held under `[<lane>.credentials.oauth]`, and is the one private key the library can hold; "never holds a signing key" means never a key that signs an access token, and this key signs only the product's own client assertion (owner decision 2026-10-19) | `rfc7523 §2.2`; the assertion authenticates the client to the token endpoint and no resource server accepts it as an access token (`rfc9068 §4`, the `typ` and `aud` checks) | none |

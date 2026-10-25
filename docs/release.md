@@ -35,10 +35,10 @@ cuts (`scripts/release/plan.sh`). A section released before the rules is
 never checked again.
 
 - **Every entry names its advisory** (Annex I Part II(4), (8)). A Security
-  entry carries the `GHSA-` id of the FerroSMART security advisory drafted
+  entry carries the `GHSA-` id of the FerroAUTH security advisory drafted
   for the fix and published with the release (`SECURITY.md`, Security
   advisories), or, for a dependency finding an OpenVEX statement shows does
-  not affect FerroSMART, the path of that statement under `security/vex/`,
+  not affect FerroAUTH, the path of that statement under `security/vex/`,
   which must exist. A RUSTSEC id alone is not enough: name it beside the
   advisory.
 - **A security fix ships alone, or says why not** (Annex I Part II(2)). A
