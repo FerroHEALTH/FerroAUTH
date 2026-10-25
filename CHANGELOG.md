@@ -11,6 +11,16 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-25
+
+`openehr-sdt` 0.0.98, the version FerroEHR v5.4.1 publishes, so FerroEHR
+builds one copy of the SMART on openEHR parser, and three checks on the
+authorization server metadata FerroPIX's Nuts grant kept privately: the
+issuer compared as exact text, a document that repeats a member name
+refused, and an opt-in check that every endpoint sits on the issuer's
+origin. Products pin `=0.5.0`; the breaking changes below name what a
+product changes.
+
 ### Added
 
 - `metadata::check_issuer`, the RFC 8414 §3.3 comparison of the issuer a
