@@ -30,13 +30,26 @@ deuteranope vision. The numbers and the bar are recorded in the family
 repository's `assets/brand/README.md`, and the family site copies the two hue
 values from `tokens.css` here verbatim.
 
+## The lockups
+
+The family's brand rule gives the shared libraries (FerroAUTH, FerroAUDIT,
+FerroUI) no hue of their own and shows them in the parent's steel, so the
+lockups draw the shield in steel (`#3F6070`, steel-light `#8FB6C4` on a dark
+ground) with the keyhole in steel-light (mist `#F1F5F9` on a dark ground),
+and set the wordmark as FerroHEALTH's is: "Ferro" in iron (`#0F172A`, mist
+on a dark ground) and "AUTH" in steel. The construction and the type come
+from FerroHEALTH's `assets/brand/ferrohealth-lockup-auto.svg`. The icon and
+the bronze palette above stay as they are.
+
 ## Files
 
 | File | What it is |
 |---|---|
 | `ferroauth-icon.svg` | primary icon, full colour, transparent background, 64-unit viewBox at a 512 intrinsic size |
 | `tokens.css` | the palette as CSS custom properties |
-| `ferroauth-lockup-auto.svg` | the mark and the wordmark side by side for the README: the shield in bronze and the keyhole in bronze-light on a light ground, the shield in bronze-light and the keyhole in mist on a dark ground, switched on `prefers-color-scheme` |
+| `ferroauth-lockup-auto.svg` | the shield beside the wordmark for the README and any page that serves one file to both themes, switched on `prefers-color-scheme` |
+| `ferroauth-lockup-light.svg` | the lockup for a light ground |
+| `ferroauth-lockup-dark.svg` | the lockup for a dark ground |
 
 The favicon set and the social card follow when the product has a site to
 carry them.
