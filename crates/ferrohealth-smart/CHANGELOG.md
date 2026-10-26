@@ -25,6 +25,11 @@ and this project adheres to
   for the userinfo in place of a percent-encoded `%5Bredacted%5D`, and an
   explicit default port is no longer dropped.
 
+### Fixed
+
+- A URL no parser accepts, such as one whose password holds a character a
+  URL forbids, has its userinfo masked too. It was shown whole.
+
 - The changelog moves from the repository root to
   `crates/ferrohealth-smart/CHANGELOG.md`, beside `ferrohealth-authz`'s, and
   the published crate carries it.
