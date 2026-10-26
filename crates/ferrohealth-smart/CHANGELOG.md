@@ -11,8 +11,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.7.4] - 2026-10-26
+
 ### Changed
 
+- It builds on `ferrohealth-secret` 0.2.0, so a product can take the newest
+  family mask beside it.
 - `[auth.basic] cache_ttl_seconds` defaults to 300: a credential that verified
   is kept for five minutes, so a repeat request skips the Argon2id key
   derivation (#127). Each request otherwise costs about 10 ms of CPU, which
@@ -635,7 +639,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.3...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.4...HEAD
+[0.7.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.3...ferrohealth-smart-v0.7.4
 [0.7.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.2...ferrohealth-smart-v0.7.3
 [0.7.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.1...ferrohealth-smart-v0.7.2
 [0.7.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.0...ferrohealth-smart-v0.7.1
