@@ -17,6 +17,10 @@ keywords = ["authorization", "abac", "cedar", "policy", "healthcare"]
 categories = ["authentication", "web-programming"]
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md"]
 
+# docs.rs builds every feature, so each feature-gated module is documented.
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 default = []
 # The embedded engine over the Cedar policy language, its schema written

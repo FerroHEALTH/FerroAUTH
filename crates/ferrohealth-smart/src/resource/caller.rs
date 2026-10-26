@@ -160,8 +160,8 @@ impl Caller {
     /// Basic (RFC 7617) and its user-id is one of `users`.
     ///
     /// A bearer caller never matches, whatever its subject, the scheme rule
-    /// of [`Requirement::Client`](crate::guard::Requirement) (no
-    /// specification governs the list: our own design).
+    /// of `guard::Requirement::Client` (no specification governs the list:
+    /// our own design).
     #[must_use]
     pub fn basic_user_in<S: AsRef<str>>(&self, users: &[S]) -> Option<&str> {
         (self.via == Via::Basic && users.iter().any(|user| user.as_ref() == self.subject))

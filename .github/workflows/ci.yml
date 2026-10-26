@@ -285,6 +285,10 @@ jobs:
         with:
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo doc --locked --workspace --all-features --no-deps --document-private-items
+      # docs.rs builds all features, a product's `cargo doc` the features it
+      # takes: each set documents without a broken link (#135).
+      - run: cargo doc --locked --workspace --no-deps --document-private-items
+      - run: cargo doc --locked --workspace --no-default-features --no-deps --document-private-items
 
   cargo-deny:
     name: cargo-deny

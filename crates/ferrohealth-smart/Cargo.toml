@@ -16,6 +16,10 @@ keywords = ["smart-on-fhir", "openehr", "oauth2", "jwt", "resource-server"]
 categories = ["authentication", "web-programming"]
 include = ["src/**", "tests/**", "README.md", "CHANGELOG.md"]
 
+# docs.rs builds every feature, so each feature-gated module is documented.
+[package.metadata.docs.rs]
+all-features = true
+
 [features]
 default = ["fetch"]
 # The HTTP fetchers: the issuer's metadata (RFC 8414 §3), its key set over
