@@ -23,6 +23,8 @@
 mod audit;
 mod basic;
 #[cfg(feature = "fetch")]
+mod ca_file;
+#[cfg(feature = "fetch")]
 mod client;
 mod config;
 #[cfg(all(feature = "axum", feature = "fetch"))]
