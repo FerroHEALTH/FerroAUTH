@@ -110,5 +110,6 @@ domain of a United States Government work for NIST SP 800-162.
 | zizmor | 1.31.1 | `.github/workflows/ci.yml` |
 | actionlint | 1.7.12, image digest `sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` | `.github/workflows/ci.yml` |
 | shellcheck | 0.11.0 | `.github/workflows/ci.yml` |
+| cargo-semver-checks | 0.51.0, installed through `taiki-e/install-action`, which verifies the archive against its manifest checksum | read from this row by `scripts/checks/semver.sh --pin` for `.github/workflows/ci.yml` and `.github/workflows/release.yml` |
 | cargo-nextest, cargo-deny | the newest release `taiki-e/install-action` resolves at run time | `.github/workflows/ci.yml` |
 | GitHub Actions | every `uses:` pinned to a full commit SHA with its version in a trailing comment, bumped by Dependabot | `.github/workflows/*.yml`, `.github/actions/setup-rust/action.yml` |

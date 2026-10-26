@@ -36,6 +36,30 @@ the changelog section always agree (`scripts/checks/crate-version-guard.sh`,
 - A pull request that breaks a public API says so in its body and its
   CHANGELOG entry, naming what a product changes; while the line is `0.x`,
   such a release moves the minor version.
+- `ferrohealth-authz` keeps its exact requirement on `ferrohealth-smart`:
+  both release from this one workspace, together.
+
+## Every release is checked for compatibility
+
+A caret on these crates is only safe while a patch never breaks the API.
+`cargo-semver-checks`
+(<https://github.com/obi1kenobi/cargo-semver-checks>) holds that by machine:
+it builds the rustdoc of each crate and of its newest version on crates.io
+and refuses a break the manifest version does not allow (Cargo's SemVer
+rules count `0.x.y` to `0.x.(y+1)` as compatible, so a break on a `0.x`
+line moves the minor version). An unchanged version is checked as a patch.
+`scripts/checks/semver.sh` runs it at the version pinned in
+`docs/VERSIONS.md`:
+
+- on every pull request, over the workspace (the `cargo-semver-checks` job
+  of `ci.yml`), so a breaking change carries its minor bump in the pull
+  request that breaks;
+- in the release plan (`scripts/release/plan.sh`, which
+  `scripts/release/preflight.sh` and the `plan` job of `release.yml` both
+  run), over the crate the tag releases.
+
+A failure is answered with the minor bump and a changelog entry naming what
+a product changes, or by keeping the API; never by skipping the check.
 
 ## The publish lane is resumable and verified
 
@@ -75,3 +99,6 @@ that version is on crates.io.
 
 - Trusted Publishing on crates.io: <https://crates.io/docs/trusted-publishing>
 - `cargo publish`: <https://doc.rust-lang.org/cargo/commands/cargo-publish.html>
+- Caret requirements: <https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#caret-requirements>
+- SemVer compatibility: <https://doc.rust-lang.org/cargo/reference/semver.html>
+- cargo-semver-checks: <https://github.com/obi1kenobi/cargo-semver-checks>
