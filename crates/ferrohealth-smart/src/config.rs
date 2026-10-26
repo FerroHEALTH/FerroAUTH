@@ -17,6 +17,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use ferrohealth_secret::secret_url::RedactedUrl;
 use jsonwebtoken::Algorithm;
 use secrecy::ExposeSecret;
 use secrecy::SecretString;
@@ -1149,48 +1150,39 @@ fn parse_url(text: &str, key: &'static str) -> Result<Url, ConfigError> {
         .map_err(|_malformed| ConfigError::Missing { key })
 }
 
-/// The text a set secret, or the userinfo of a URL, is rendered as, so a
-/// product renders every secret of its configuration one way.
-pub const REDACTED: &str = "[redacted]";
+/// The text a set secret, or the userinfo and the query of a URL, is
+/// rendered as: the family mask of `ferrohealth-secret`, so every product
+/// renders every secret of its configuration one way.
+pub const REDACTED: &str = ferrohealth_secret::REDACTED;
 
-/// Returns `text` with the userinfo of the URL it holds replaced by
-/// [`REDACTED`], or `text` itself when it carries none.
+/// Returns `text` with the userinfo and the query of the URL it holds
+/// replaced by [`REDACTED`], or `text` itself when it holds no URL.
 ///
-/// The authority is the span after `//` up to the first `/`, `?` or `#`
-/// (RFC 3986 §3.2), and its userinfo ends at the last `@` inside it, so an
-/// `@` in the path, query or fragment is not one. The text is never parsed
-/// as a URL: a value no parser accepts, such as a password holding a
-/// character a URL forbids, is masked all the same. The rest of the text is
-/// kept as written, its port included, so the rendering still names the host
-/// and path an operator configured. A product renders every URL of its
-/// configuration through this function, so one rendering of a masked URL
-/// holds across the family (no specification governs the rendering: our own
-/// design).
+/// A text carrying `://` renders through
+/// `ferrohealth_secret::secret_url::RedactedUrl`, the family mask: the
+/// scheme, the host, the port, the path and the fragment show as written, so
+/// the rendering still names the host and path an operator configured, and a
+/// value no URL parser accepts, such as a password holding a character a URL
+/// forbids, is masked all the same. Any other text is kept as written (no
+/// specification governs the rendering: our own design).
 ///
 /// ```
 /// use ferrohealth_smart::config::mask_userinfo;
 ///
 /// let masked = mask_userinfo("https://user:secret@idp.example:443/token");
-/// assert_eq!(masked, "https://[redacted]@idp.example:443/token");
-/// assert_eq!(mask_userinfo("postgres://u:p[x@db/x"), "postgres://[redacted]@db/x");
+/// assert_eq!(masked, "https://***@idp.example:443/token");
+/// assert_eq!(mask_userinfo("postgres://u:p[x@db/x"), "postgres://***@db/x");
 /// assert_eq!(mask_userinfo("https://host/path/@handle"), "https://host/path/@handle");
-/// assert_eq!(mask_userinfo("https://host?next=a@b"), "https://host?next=a@b");
+/// assert_eq!(mask_userinfo("https://host?next=a@b"), "https://host?***");
 /// assert_eq!(mask_userinfo("not a url"), "not a url");
 /// ```
 #[must_use]
 pub fn mask_userinfo(text: &str) -> String {
-    let masked = text.find("//").and_then(|slashes| {
-        let start = slashes + 2;
-        let rest = text.get(start..)?;
-        let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
-        let at = rest.get(..end)?.rfind('@')?;
-        Some(format!(
-            "{}{REDACTED}@{}",
-            text.get(..start)?,
-            rest.get(at + 1..)?
-        ))
-    });
-    masked.unwrap_or_else(|| text.to_owned())
+    if text.contains("://") {
+        RedactedUrl(text).to_string()
+    } else {
+        text.to_owned()
+    }
 }
 
 /// Writes a URL with its userinfo masked ([`mask_userinfo`]).

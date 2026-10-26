@@ -380,7 +380,7 @@ fn a_rendered_section_carries_every_key_and_no_secret() {
     }
     let auth_json = serde_json::to_value(&auth).expect("serializes");
     assert_eq!(
-        serde_json::json!("[redacted]"),
+        serde_json::json!("***"),
         auth_json["basic"]["users"][0]["password_hash"]
     );
     assert_eq!(
@@ -396,7 +396,7 @@ fn a_rendered_section_carries_every_key_and_no_secret() {
     assert_eq!(serde_json::json!(["svc"]), auth_json["scopeless_subjects"]);
     let oauth_json = serde_json::to_value(&oauth).expect("serializes");
     assert_eq!(
-        serde_json::json!("[redacted]"),
+        serde_json::json!("***"),
         oauth_json["oauth"]["client_secret"]
     );
     assert_eq!(serde_json::json!("ferro"), oauth_json["oauth"]["client_id"]);

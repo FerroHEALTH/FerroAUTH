@@ -765,6 +765,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferrohealth-secret"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e41064ea7f807d837b9e61d4b8b493d426fb0da7570a915864f71b422d55d87e"
+dependencies = [
+ "secrecy",
+ "serde",
+ "thiserror",
+ "url",
+]
+
+[[package]]
 name = "ferrohealth-smart"
 version = "0.7.2"
 dependencies = [
@@ -772,6 +784,7 @@ dependencies = [
  "aws-lc-rs",
  "axum",
  "base64 0.23.1",
+ "ferrohealth-secret",
  "http",
  "http-body-util",
  "jiff",
