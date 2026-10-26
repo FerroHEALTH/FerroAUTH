@@ -1126,10 +1126,8 @@ pub const REDACTED: &str = "[redacted]";
 /// ```
 /// use ferrohealth_smart::config::mask_userinfo;
 ///
-/// assert_eq!(
-///     mask_userinfo("https://user:secret@idp.example:443/token"),
-///     "https://[redacted]@idp.example:443/token"
-/// );
+/// let masked = mask_userinfo("https://user:secret@idp.example:443/token");
+/// assert_eq!(masked, "https://[redacted]@idp.example:443/token");
 /// assert_eq!(mask_userinfo("https://idp.example/r"), "https://idp.example/r");
 /// assert_eq!(mask_userinfo("not a url"), "not a url");
 /// ```
