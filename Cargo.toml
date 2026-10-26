@@ -6,7 +6,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.7.2"
+version = "0.7.3"
 edition = "2024"
 rust-version = "1.98"
 license = "BUSL-1.1"
@@ -41,7 +41,7 @@ openehr-sdt = { version = "0.0.98", default-features = false }
 ferrohealth-secret = "=0.1.0"
 # ferrohealth-authz reads the subject ferrohealth-smart authenticates; the
 # path is the workspace member, the version the one it publishes.
-ferrohealth-smart = { path = "crates/ferrohealth-smart", version = "=0.7.2", default-features = false }
+ferrohealth-smart = { path = "crates/ferrohealth-smart", version = "=0.7.3", default-features = false }
 # ferrohealth-authz: the engine seam, the embedded Cedar engine and its
 # hot-swapped policy set. Verified against crates.io on 2026-10-25.
 async-trait = "0.1.92"
