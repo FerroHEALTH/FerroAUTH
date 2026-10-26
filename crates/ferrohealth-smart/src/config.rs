@@ -1110,23 +1110,49 @@ fn parse_url(text: &str, key: &'static str) -> Result<Url, ConfigError> {
         .map_err(|_malformed| ConfigError::Missing { key })
 }
 
-/// The text a set secret is rendered as.
-const REDACTED: &str = "[redacted]";
+/// The text a set secret, or the userinfo of a URL, is rendered as, so a
+/// product renders every secret of its configuration one way.
+pub const REDACTED: &str = "[redacted]";
 
 /// Returns `text` with the userinfo of the URL it is replaced by
 /// [`REDACTED`], or `text` itself when it is no URL or carries none.
-fn mask_userinfo(text: &str) -> String {
-    match text.parse::<Url>() {
-        Ok(mut url) if !url.username().is_empty() || url.password().is_some() => {
-            let masked = url.set_username(REDACTED).is_ok() && url.set_password(None).is_ok();
-            if masked {
-                url.to_string()
-            } else {
-                String::from(REDACTED)
-            }
-        }
-        _ => text.to_owned(),
+///
+/// The rest of the URL is kept as written, its port included, so the
+/// rendering still names the host and path an operator configured. A product
+/// renders every URL of its configuration through this function, so one
+/// rendering of a masked URL holds across the family (no specification
+/// governs the rendering: our own design).
+///
+/// ```
+/// use ferrohealth_smart::config::mask_userinfo;
+///
+/// let masked = mask_userinfo("https://user:secret@idp.example:443/token");
+/// assert_eq!(masked, "https://[redacted]@idp.example:443/token");
+/// assert_eq!(mask_userinfo("https://idp.example/r"), "https://idp.example/r");
+/// assert_eq!(mask_userinfo("not a url"), "not a url");
+/// ```
+#[must_use]
+pub fn mask_userinfo(text: &str) -> String {
+    let Ok(url) = text.parse::<Url>() else {
+        return text.to_owned();
+    };
+    if url.username().is_empty() && url.password().is_none() {
+        return text.to_owned();
     }
+    // NOTE: RFC 3986 §3.2, the authority follows `//` and ends at the next `/`,
+    // `?` or `#`, and its userinfo ends at the last `@` within it.
+    let masked = text.find("//").and_then(|slashes| {
+        let start = slashes + 2;
+        let rest = text.get(start..)?;
+        let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+        let at = rest.get(..end)?.rfind('@')?;
+        Some(format!(
+            "{}{REDACTED}@{}",
+            text.get(..start)?,
+            rest.get(at + 1..)?
+        ))
+    });
+    masked.unwrap_or_else(|| String::from(REDACTED))
 }
 
 /// Writes a URL with its userinfo masked ([`mask_userinfo`]).
