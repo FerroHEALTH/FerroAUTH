@@ -80,6 +80,10 @@ pub struct ServerMetadata {
     /// The token revocation endpoint (RFC 7009).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revocation_endpoint: Option<String>,
+    /// The end-session endpoint a relying party signs the operator out at
+    /// (OpenID Connect RP-Initiated Logout 1.0 §2.1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_session_endpoint: Option<String>,
     /// The PKCE challenge methods the server supports (RFC 7636).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub code_challenge_methods_supported: Option<Vec<String>>,

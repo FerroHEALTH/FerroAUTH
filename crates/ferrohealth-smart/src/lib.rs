@@ -48,7 +48,9 @@
 //! admitted. The core stays framework-neutral. The HTTP fetchers (the
 //! issuer's metadata, the key set over its `jwks_uri`, and the client
 //! credentials token client) sit behind the default `fetch` feature; without
-//! it the crate links no HTTP client and reads a key set from a file.
+//! it the crate links no HTTP client and reads a key set from a file. The
+//! `oidc` feature adds `oidc`, the OpenID Connect relying-party client an
+//! operator console signs its operator in with.
 
 #![doc(test(attr(deny(warnings))))]
 
@@ -62,6 +64,8 @@ pub mod extract;
 #[cfg(feature = "axum")]
 pub mod guard;
 pub mod metadata;
+#[cfg(feature = "oidc")]
+pub mod oidc;
 #[cfg(feature = "openehr")]
 pub mod openehr;
 pub mod refusal;

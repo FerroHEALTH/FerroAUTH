@@ -11,6 +11,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The `oidc` feature: `oidc::RelyingParty`, the OpenID Connect
+  relying-party client every operator console signs in with (#131). It
+  builds the authorization request with `state`, `nonce` and a PKCE `S256`
+  challenge (OpenID Connect Core 1.0 §3.1.2.1, RFC 7636 §4), refuses a
+  callback whose `state` is not the sign-in's before reading anything else
+  (RFC 6749 §10.12), exchanges the code with the verifier, checks the ID
+  Token's signature, `iss`, `aud`, `azp`, `exp` and `nonce` (OpenID Connect
+  Core 1.0 §3.1.3.7), refreshes the access token (RFC 6749 §6), revokes a
+  token (RFC 7009 §2.1), and returns the end-session URL (OpenID Connect
+  RP-Initiated Logout 1.0 §2). Every failure is a typed `oidc::OidcError`
+  carrying the provider's status and error code. Tokens are held in
+  `ferrohealth_secret::secret::Secret` and none is rendered; the console
+  keeps the session.
+- `metadata::ServerMetadata::end_session_endpoint` (OpenID Connect
+  RP-Initiated Logout 1.0 §2.1).
+
 ## [0.7.5] - 2026-10-26
 
 ### Changed
