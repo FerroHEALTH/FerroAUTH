@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-26
+
 ### Added
 
 - `config::mask_userinfo` and `config::REDACTED` are public, so a product
@@ -26,6 +28,17 @@ and this project adheres to
 - The changelog moves from the repository root to
   `crates/ferrohealth-smart/CHANGELOG.md`, beside `ferrohealth-authz`'s, and
   the published crate carries it.
+
+### Security
+
+Shipped with functional changes because: the fix is the public mask the Added entry names, so the two cannot ship apart.
+
+- Every rendering of `OauthSection` masks the userinfo of its `issuer` and
+  `token_endpoint`, a URL no parser accepts included. Before 0.7.1 a
+  credential in those URLs could reach the rendering in full: through
+  `Debug` since 0.1.0 and `Serialize` since 0.3.0, and in 0.7.0 still
+  whenever the URL did not parse. A product that logged its configuration
+  could write the credential to its log (CWE-532, GHSA-vphj-3f8c-5hpx).
 
 ## [0.7.0] - 2026-10-25
 
@@ -592,7 +605,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.1...HEAD
+[0.7.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.0...ferrohealth-smart-v0.7.1
 [0.7.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.6.0...ferrohealth-smart-v0.7.0
 [0.6.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.5.0...v0.5.1

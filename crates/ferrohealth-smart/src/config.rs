@@ -1114,33 +1114,32 @@ fn parse_url(text: &str, key: &'static str) -> Result<Url, ConfigError> {
 /// product renders every secret of its configuration one way.
 pub const REDACTED: &str = "[redacted]";
 
-/// Returns `text` with the userinfo of the URL it is replaced by
-/// [`REDACTED`], or `text` itself when it is no URL or carries none.
+/// Returns `text` with the userinfo of the URL it holds replaced by
+/// [`REDACTED`], or `text` itself when it carries none.
 ///
-/// The rest of the URL is kept as written, its port included, so the
-/// rendering still names the host and path an operator configured. A product
-/// renders every URL of its configuration through this function, so one
-/// rendering of a masked URL holds across the family (no specification
-/// governs the rendering: our own design).
+/// The authority is the span after `//` up to the first `/`, `?` or `#`
+/// (RFC 3986 §3.2), and its userinfo ends at the last `@` inside it, so an
+/// `@` in the path, query or fragment is not one. The text is never parsed
+/// as a URL: a value no parser accepts, such as a password holding a
+/// character a URL forbids, is masked all the same. The rest of the text is
+/// kept as written, its port included, so the rendering still names the host
+/// and path an operator configured. A product renders every URL of its
+/// configuration through this function, so one rendering of a masked URL
+/// holds across the family (no specification governs the rendering: our own
+/// design).
 ///
 /// ```
 /// use ferrohealth_smart::config::mask_userinfo;
 ///
 /// let masked = mask_userinfo("https://user:secret@idp.example:443/token");
 /// assert_eq!(masked, "https://[redacted]@idp.example:443/token");
-/// assert_eq!(mask_userinfo("https://idp.example/r"), "https://idp.example/r");
+/// assert_eq!(mask_userinfo("postgres://u:p[x@db/x"), "postgres://[redacted]@db/x");
+/// assert_eq!(mask_userinfo("https://host/path/@handle"), "https://host/path/@handle");
+/// assert_eq!(mask_userinfo("https://host?next=a@b"), "https://host?next=a@b");
 /// assert_eq!(mask_userinfo("not a url"), "not a url");
 /// ```
 #[must_use]
 pub fn mask_userinfo(text: &str) -> String {
-    let Ok(url) = text.parse::<Url>() else {
-        return text.to_owned();
-    };
-    if url.username().is_empty() && url.password().is_none() {
-        return text.to_owned();
-    }
-    // NOTE: RFC 3986 §3.2, the authority follows `//` and ends at the next `/`,
-    // `?` or `#`, and its userinfo ends at the last `@` within it.
     let masked = text.find("//").and_then(|slashes| {
         let start = slashes + 2;
         let rest = text.get(start..)?;
@@ -1152,7 +1151,7 @@ pub fn mask_userinfo(text: &str) -> String {
             rest.get(at + 1..)?
         ))
     });
-    masked.unwrap_or_else(|| String::from(REDACTED))
+    masked.unwrap_or_else(|| text.to_owned())
 }
 
 /// Writes a URL with its userinfo masked ([`mask_userinfo`]).
