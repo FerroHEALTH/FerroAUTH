@@ -14,10 +14,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-27
+
 ### Changed
 
 - docs.rs builds every feature, so the `cedar` and `remote` modules are
   documented there (#135).
+- It requires `ferrohealth-smart` 0.8.1 (`=0.8.1`).
 
 ## [0.2.0] - 2026-10-26
 
@@ -88,7 +91,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.1...HEAD
+[0.2.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.0...ferrohealth-authz-v0.2.1
 [0.2.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.5...ferrohealth-authz-v0.2.0
 [0.1.5]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.4...ferrohealth-authz-v0.1.5
 [0.1.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.3...ferrohealth-authz-v0.1.4
