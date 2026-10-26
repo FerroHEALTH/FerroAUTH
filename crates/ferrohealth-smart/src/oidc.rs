@@ -605,8 +605,8 @@ impl RelyingParty {
             ("refresh_token", refresh_token.expose()),
         ];
         let tokens = self.token_request(&grant).await?;
-        // NOTE: OpenID Connect Core 1.0 §12.2: an ID Token a refresh answers is not
-        // read here; the sign-in's verified one stays the console's.
+        // NOTE: OpenID Connect Core 1.0 §12.2: a refresh answer might not contain
+        // an `id_token`, so one it carries is not read; the sign-in's stays.
         Ok(Refreshed {
             access_token: Secret::new(tokens.access_token),
             expires_in: tokens.expires_in.map(Duration::from_secs),
@@ -770,6 +770,8 @@ impl RelyingParty {
         }
         .ok_or(OidcError::Key)?;
         let key = DecodingKey::from_jwk(jwk).map_err(|_unusable| OidcError::Key)?;
+        // NOTE: OpenID Connect Core 1.0 §3.1.3.7 items 2, 3, 6 and 9: the `iss`
+        // match, this client in `aud`, the signature by the issuer's key and `exp`.
         let mut validation = Validation::new(header.alg);
         validation.algorithms = vec![header.alg];
         validation.leeway = self.clock_skew.as_secs();
@@ -779,13 +781,13 @@ impl RelyingParty {
         let claims = jsonwebtoken::decode::<IdTokenClaims>(id_token, &key, &validation)
             .map_err(|source| OidcError::IdToken { source })?
             .claims;
-        // NOTE: OpenID Connect Core 1.0 §3.1.3.7: an audience the client does not
-        // trust refuses the token, and this client trusts none beside itself.
+        // NOTE: OpenID Connect Core 1.0 §3.1.3.7 item 3: an audience the client
+        // does not trust refuses the token, and this client trusts none beside itself.
         if !claims.audience.is_only(&self.client_id) {
             return Err(OidcError::Audience);
         }
-        // NOTE: OpenID Connect Core 1.0 §3.1.3.7: an `azp` present names the client
-        // the token was issued to, which must be this one.
+        // NOTE: OpenID Connect Core 1.0 §3.1.3.7 item 5: an `azp` present names
+        // the client the token was issued to, which must be this one.
         if claims
             .authorized_party
             .as_deref()
@@ -793,8 +795,8 @@ impl RelyingParty {
         {
             return Err(OidcError::AuthorizedParty);
         }
-        // NOTE: OpenID Connect Core 1.0 §3.1.3.7: the `nonce` must be the one the
-        // authorization request sent, so a replayed ID Token is refused.
+        // NOTE: OpenID Connect Core 1.0 §3.1.3.7 item 11: the `nonce` must be the
+        // one the authorization request sent, so a replayed ID Token is refused.
         let sent = claims.nonce.as_deref().ok_or(OidcError::Nonce)?;
         if !equal(sent, nonce) {
             return Err(OidcError::Nonce);

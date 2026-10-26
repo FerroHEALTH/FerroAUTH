@@ -5,7 +5,8 @@
 
 FerroAUTH vendors the specifications it implements under `docs/specs/`: the
 SMART App Launch package and page sources, the OAuth 2.0 and JOSE RFCs, and
-the OpenID Connect Discovery document, each tree with a `PROVENANCE.md`.
+the OpenID Connect Discovery, Core and RP-Initiated Logout documents, each
+tree with a `PROVENANCE.md`.
 
 ## Rules
 
@@ -21,7 +22,7 @@ the OpenID Connect Discovery document, each tree with a `PROVENANCE.md`.
   version, the date fetched, the licence, and how to refresh it. Vendored
   material keeps its upstream terms (CC BY 4.0 for SMART App Launch, the
   IETF Trust Legal Provisions for the RFCs, the OpenID Foundation's notice
-  for Discovery).
+  for the OpenID Connect documents).
 - **A new corpus or RFC** is a row in `docs/VERSIONS.md`, a fetch by the
   script and the citation that needs it, in one change.
 - **Bumping a pin** is a deliberate change: rerun the script, read what
