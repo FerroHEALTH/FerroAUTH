@@ -109,6 +109,10 @@ pub struct Settings {
     /// The claims a token's roles are read from, each a dotted path
     /// (RFC 9068 §2.2.3.1; [`crate::roles`]).
     pub role_claims: Vec<String>,
+    /// PEM trust roots added to the platform's for the discovery document
+    /// and the key set, for an issuer behind a private certificate
+    /// authority; none trusts the platform roots alone.
+    pub trust_roots: Option<Vec<u8>>,
 }
 
 impl Settings {
@@ -140,6 +144,7 @@ impl Settings {
             timeout: Duration::from_secs(10),
             scopeless_subjects: BTreeSet::new(),
             role_claims: crate::roles::default_claims(),
+            trust_roots: None,
         }
     }
 
@@ -341,7 +346,16 @@ impl ResourceServer {
     pub async fn discover(settings: Settings) -> Result<Self, ResourceError> {
         settings.validate()?;
         #[cfg(feature = "fetch")]
-        let http = Http::new(settings.timeout)?;
+        let http = match &settings.trust_roots {
+            Some(roots) => Http::with_tls(
+                settings.timeout,
+                &crate::client::Tls {
+                    root_certificates: Some(roots.clone()),
+                    identity: None,
+                },
+            )?,
+            None => Http::new(settings.timeout)?,
+        };
         let (metadata, source) = if let Some(path) = &settings.jwks_file {
             let metadata = ServerMetadata {
                 issuer: settings.issuer.clone(),

@@ -224,3 +224,106 @@ async fn read_request(
         }
     }
 }
+
+/// An authorization server on loopback over TLS, its certificate chaining to
+/// a fresh certificate authority no platform trusts.
+pub(crate) struct PrivateIssuer {
+    /// The issuer identifier, `https://localhost:<port>`.
+    pub(crate) issuer: String,
+    /// The certificate authority its certificate chains to, in PEM.
+    pub(crate) ca_pem: String,
+}
+
+/// Starts an authorization server answering its RFC 8414 metadata and the
+/// key set holding `jwk`, with no client certificate asked.
+pub(crate) async fn start_issuer(jwk: serde_json::Value) -> PrivateIssuer {
+    let ca_key = KeyPair::generate().expect("a key pair");
+    let mut ca_params = CertificateParams::new(Vec::<String>::new()).expect("parameters");
+    ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    validity(&mut ca_params);
+    let ca_certificate = ca_params.self_signed(&ca_key).expect("the authority signs");
+    let issuer_ca = Issuer::new(ca_params, ca_key);
+    let server_key = KeyPair::generate().expect("a key pair");
+    let mut server_params =
+        CertificateParams::new(vec![String::from("localhost")]).expect("parameters");
+    server_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+    validity(&mut server_params);
+    let server_certificate = server_params
+        .signed_by(&server_key, &issuer_ca)
+        .expect("the server certificate signs");
+    let provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
+    let chain: Vec<CertificateDer<'static>> = vec![server_certificate.der().clone()];
+    let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(server_key.serialize_der()));
+    let config = ServerConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("the protocol versions")
+        .with_no_client_auth()
+        .with_single_cert(chain, key)
+        .expect("the server certificate");
+    let acceptor = TlsAcceptor::from(Arc::new(config));
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
+    let port = listener.local_addr().expect("an address").port();
+    let issuer = format!("https://localhost:{port}");
+    let metadata = serde_json::json!({
+        "issuer": issuer,
+        "jwks_uri": format!("{issuer}{}", crate::support::JWKS_PATH),
+        "token_endpoint": format!("{issuer}{}", crate::support::TOKEN_PATH),
+    })
+    .to_string();
+    let keys = serde_json::json!({ "keys": [jwk] }).to_string();
+    drop(tokio::spawn(serve_issuer(
+        listener, acceptor, metadata, keys,
+    )));
+    PrivateIssuer {
+        issuer,
+        ca_pem: ca_certificate.pem(),
+    }
+}
+
+/// Answers the metadata at its RFC 8414 location and the key set at
+/// `JWKS_PATH`, and `404` for anything else.
+async fn serve_issuer(
+    listener: TcpListener,
+    acceptor: TlsAcceptor,
+    metadata: String,
+    keys: String,
+) {
+    while let Ok((tcp, _peer)) = listener.accept().await {
+        let acceptor = acceptor.clone();
+        let metadata = metadata.clone();
+        let keys = keys.clone();
+        drop(tokio::spawn(async move {
+            let Ok(mut stream) = acceptor.accept(tcp).await else {
+                return;
+            };
+            let mut head = Vec::new();
+            let mut chunk = [0u8; 4096];
+            while !String::from_utf8_lossy(&head).contains("\r\n\r\n") {
+                match stream.read(&mut chunk).await {
+                    Ok(0) | Err(_) => return,
+                    Ok(read) => head.extend_from_slice(chunk.get(..read).unwrap_or_default()),
+                }
+            }
+            let text = String::from_utf8_lossy(&head).into_owned();
+            let path = text
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or_default()
+                .to_owned();
+            let (status, body) = if path == "/.well-known/oauth-authorization-server" {
+                ("200 OK", metadata)
+            } else if path == crate::support::JWKS_PATH {
+                ("200 OK", keys)
+            } else {
+                ("404 Not Found", String::from("{}"))
+            };
+            let response = format!(
+                "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            if stream.write_all(response.as_bytes()).await.is_ok() {
+                drop(stream.shutdown().await);
+            }
+        }));
+    }
+}

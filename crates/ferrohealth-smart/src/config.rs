@@ -146,6 +146,14 @@ pub enum ConfigError {
         #[source]
         source: Box<crate::resource::introspection::IntrospectionError>,
     },
+    /// The `auth.ca_file` trust roots cannot be read, are no PEM, or hold
+    /// no certificate.
+    #[error("auth.ca_file is refused")]
+    CaFile {
+        /// Why.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     /// The trust roots or the client certificate of the token endpoint
     /// connection are refused.
     #[error("the TLS material of credentials.oauth is refused")]
@@ -209,6 +217,10 @@ pub struct AuthSection {
     pub mode: AuthMode,
     /// The introspection check, under `mode = "introspection"`.
     pub introspection: Option<IntrospectionSection>,
+    /// A PEM file of trust roots added to the platform's, for an issuer
+    /// behind a private certificate authority: the discovery document and
+    /// the key set of every issuer are read trusting it. Read once at start.
+    pub ca_file: Option<PathBuf>,
 }
 
 /// How a bearer token is checked.
@@ -289,6 +301,7 @@ impl Default for AuthSection {
             basic: None,
             mode: AuthMode::Jwt,
             introspection: None,
+            ca_file: None,
         }
     }
 }
@@ -463,6 +476,7 @@ impl AuthSection {
                 right: "auth.mode = \"jwt\"",
             });
         }
+        let trust_roots = self.trust_roots()?;
         let mut issuers = Vec::new();
         #[cfg(feature = "fetch")]
         let mut introspection = None;
@@ -478,7 +492,8 @@ impl AuthSection {
                 if entry.issuer.is_empty() {
                     return Err(ConfigError::Missing { key: "auth.issuer" });
                 }
-                let settings = self.settings_of(&entry);
+                let mut settings = self.settings_of(&entry);
+                settings.trust_roots.clone_from(&trust_roots);
                 settings.validate().map_err(|source| ConfigError::Issuer {
                     issuer: entry.issuer.clone(),
                     source: Box::new(source),
@@ -621,6 +636,29 @@ impl AuthSection {
         Ok(settings)
     }
 
+    /// Returns the PEM trust roots of `ca_file`, read and, with the `fetch`
+    /// feature, parsed, so a bad file refuses the start.
+    fn trust_roots(&self) -> Result<Option<Vec<u8>>, ConfigError> {
+        let Some(path) = &self.ca_file else {
+            return Ok(None);
+        };
+        let pem = std::fs::read(path).map_err(|source| ConfigError::CaFile {
+            source: Box::new(source),
+        })?;
+        #[cfg(feature = "fetch")]
+        crate::metadata::Http::with_tls(
+            Duration::from_millis(self.timeout_ms),
+            &Tls {
+                root_certificates: Some(pem.clone()),
+                identity: None,
+            },
+        )
+        .map_err(|source| ConfigError::CaFile {
+            source: Box::new(source),
+        })?;
+        Ok(Some(pem))
+    }
+
     /// Returns the settings of `entry`, the section standing in for a field
     /// it omits.
     fn settings_of(&self, entry: &IssuerEntry) -> Settings {
@@ -660,6 +698,7 @@ impl AuthSection {
                 .cloned()
                 .collect::<BTreeSet<_>>(),
             role_claims: self.role_claims.clone(),
+            trust_roots: None,
         }
     }
 }

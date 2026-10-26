@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `[auth] ca_file`: a PEM file of trust roots added to the platform's for
+  every issuer's discovery document and key set, so an issuer behind a
+  private certificate authority can be reached without changing the trust
+  of the whole process. `resource::Settings::trust_roots` carries it to
+  `ResourceServer::discover`. A file that cannot be read, is no PEM or holds
+  no certificate refuses the start as `ConfigError::CaFile`.
+
 ## [0.7.1] - 2026-10-26
 
 ### Added
