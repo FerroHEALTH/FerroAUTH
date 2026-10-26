@@ -42,6 +42,8 @@ confidence-threshold = 0.9
 exceptions = [
   { allow = ["BUSL-1.1"], crate = "ferrohealth-smart" },
   { allow = ["BUSL-1.1"], crate = "ferrohealth-authz" },
+  # The family's shared mask crate.
+  { allow = ["BUSL-1.1"], crate = "ferrohealth-secret" },
   # The family's own openEHR crate, the SMART on openEHR grammar.
   { allow = ["BUSL-1.1"], crate = "openehr-sdt" },
 ]

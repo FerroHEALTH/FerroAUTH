@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Every secret and every masked URL renders through `ferrohealth-secret`,
+  the family's one mask: `config::REDACTED` is its `***` in place of
+  `[redacted]`, and `config::mask_userinfo` renders a URL through its
+  `RedactedUrl`, so the query is masked as `?***` beside the userinfo. The
+  `OauthSection` and `AuthSection` renderings follow. Text without `://` is
+  still kept as written.
+
 ## [0.7.2] - 2026-10-26
 
 ### Added
