@@ -11,7 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `config::mask_userinfo` and `config::REDACTED` are public, so a product
+  renders every URL of its configuration with the one mask the shared
+  sections use.
+
 ### Changed
+
+- A masked URL keeps the rest of the URL as written: `[redacted]` stands in
+  for the userinfo in place of a percent-encoded `%5Bredacted%5D`, and an
+  explicit default port is no longer dropped.
 
 - The changelog moves from the repository root to
   `crates/ferrohealth-smart/CHANGELOG.md`, beside `ferrohealth-authz`'s, and
