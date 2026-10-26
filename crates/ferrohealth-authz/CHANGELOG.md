@@ -14,6 +14,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-10-26
+
+### Changed
+
+- Takes `ferrohealth-smart` 0.7.3, the line it releases beside.
+
 ## [0.1.2] - 2026-10-26
 
 ### Changed
@@ -56,7 +62,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.2...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.3...HEAD
+[0.1.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.2...ferrohealth-authz-v0.1.3
 [0.1.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.1...ferrohealth-authz-v0.1.2
 [0.1.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.0...ferrohealth-authz-v0.1.1
 [0.1.0]: https://github.com/FerroHEALTH/FerroAUTH/releases/tag/ferrohealth-authz-v0.1.0
