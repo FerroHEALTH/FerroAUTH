@@ -10,6 +10,7 @@ use ferrohealth_smart::basic::PasswordStore;
 use ferrohealth_smart::client::ClientAuth;
 use ferrohealth_smart::client::Endpoint;
 use ferrohealth_smart::config::AuthSection;
+use ferrohealth_smart::config::BasicSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::CredentialsSection;
 use ferrohealth_smart::config::IssuerKey;
@@ -473,4 +474,14 @@ fn the_grant_names_every_problem_under_the_products_table() {
         ..ferrohealth_smart::config::OauthSection::default()
     };
     assert_eq!(sound.problems("x"), Vec::<String>::new());
+}
+
+#[test]
+fn the_basic_cache_keeps_a_verified_credential_for_five_minutes_unless_set_to_zero() {
+    let defaulted: BasicSection = toml::from_str("users = []").expect("the section parses");
+    assert_eq!(300, defaulted.cache_ttl_seconds);
+    assert_eq!(300, BasicSection::default().cache_ttl_seconds);
+    let off: BasicSection =
+        toml::from_str("users = []\ncache_ttl_seconds = 0").expect("the section parses");
+    assert_eq!(0, off.cache_ttl_seconds);
 }
