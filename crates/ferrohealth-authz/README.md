@@ -16,6 +16,11 @@ a policy decision point and the enforcement point that consults it).
 | `cedar` | `cedar` | the embedded engine over the Cedar policy language, its schema written from the product's `Model` and its policies validated strictly before they run |
 | `remote` | `remote` | a remote decision point over HTTP, authorized with `ferrohealth-smart`'s client credentials token |
 
+```toml
+[dependencies]
+ferrohealth-authz = { version = "=0.2.0", features = ["cedar"] }
+```
+
 Without a feature the crate holds the request model and the trait alone,
 with no policy engine and no HTTP client.
 

@@ -29,6 +29,9 @@ On the branch `release/<tag>`:
 2. **Bump the version.** Set the crate's version and run `cargo update -w`.
    A `ferrohealth-smart` release that `ferrohealth-authz` must follow also
    moves the `ferrohealth-smart` requirement in `[workspace.dependencies]`.
+   Move the crate's install line in `crates/<crate>/README.md`, its
+   crates.io page, and any `cargo add <crate>@=` line of the repository
+   `README.md` to the new version.
 3. **Cut the changelog.** Rename `## [Unreleased]` to
    `## [X.Y.Z] - YYYY-MM-DD` and open a fresh, empty `## [Unreleased]` above
    it. The date is the day of the cut: the release notes count the support
@@ -93,6 +96,7 @@ tracker, and the pinned `cargo-semver-checks` installed
 | Every section of the changelog holds Keep a Changelog types, each once | `scripts/checks/changelog-structure.sh` |
 | `[Unreleased]` compares from the tag, and the cut version has its link | `plan.sh` |
 | The section being cut opens its `### Security` with the reason when it sits beside other changes, and every Security entry names a GHSA id or an existing `security/vex/` path | `scripts/checks/changelog-security.sh --section X.Y.Z` |
+| The crate README's install line, and every install line of the crate in the repository README, pins the version being released | `plan.sh` |
 | The changelog section becomes the notes, with the support period appended: the month five years after the heading's date (Regulation (EU) 2024/2847 Art 13(19)) | `plan.sh notes` |
 
 `scripts/release/plan.sh prev-tag <tag>` prints the previous release by
