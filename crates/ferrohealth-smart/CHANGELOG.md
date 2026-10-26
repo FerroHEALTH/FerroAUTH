@@ -25,14 +25,19 @@ and this project adheres to
   for the userinfo in place of a percent-encoded `%5Bredacted%5D`, and an
   explicit default port is no longer dropped.
 
-### Fixed
-
-- A URL no parser accepts, such as one whose password holds a character a
-  URL forbids, has its userinfo masked too. It was shown whole.
-
 - The changelog moves from the repository root to
   `crates/ferrohealth-smart/CHANGELOG.md`, beside `ferrohealth-authz`'s, and
   the published crate carries it.
+
+### Security
+
+Shipped with functional changes because: the fix is the public mask the Added entry names, so the two cannot ship apart.
+
+- A configured URL that no URL parser accepts, such as one whose password
+  holds a character a URL forbids, has its userinfo masked in every
+  rendering of `OauthSection`. In 0.7.0 it was rendered whole, so a product
+  that logged its configuration could write the credential to its log
+  (CWE-532, GHSA-vphj-3f8c-5hpx).
 
 ## [0.7.0] - 2026-10-25
 
