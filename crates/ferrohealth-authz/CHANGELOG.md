@@ -14,6 +14,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-26
+
+### Changed
+
+- Takes `ferrohealth-smart` 0.8.0, the line it releases beside.
+  `request::Subject::of` takes a `ferrohealth_smart::resource::Caller` and
+  `remote::RemotePdp::new` a `ferrohealth_smart::client::cache::TokenSource`,
+  so a product moves both crates together; nothing else it calls changes.
+
 ## [0.1.5] - 2026-10-26
 
 ### Changed
@@ -74,7 +83,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.5...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.0...HEAD
+[0.2.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.5...ferrohealth-authz-v0.2.0
 [0.1.5]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.4...ferrohealth-authz-v0.1.5
 [0.1.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.3...ferrohealth-authz-v0.1.4
 [0.1.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.2...ferrohealth-authz-v0.1.3

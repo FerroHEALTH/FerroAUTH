@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-26
+
 ### Added
 
 - The `oidc` feature: `oidc::RelyingParty`, the OpenID Connect
@@ -664,7 +666,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.5...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.0...HEAD
+[0.8.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.5...ferrohealth-smart-v0.8.0
 [0.7.5]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.4...ferrohealth-smart-v0.7.5
 [0.7.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.3...ferrohealth-smart-v0.7.4
 [0.7.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.2...ferrohealth-smart-v0.7.3
