@@ -14,6 +14,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- docs.rs builds every feature, so the `cedar` and `remote` modules are
+  documented there (#135).
+
 ## [0.2.0] - 2026-10-26
 
 ### Changed

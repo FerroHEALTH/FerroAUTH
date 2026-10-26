@@ -19,7 +19,7 @@
 //! - [`scope`]: the SMART App Launch 2.x scopes, `patient/`, `user/` and
 //!   `system/` with the `cruds` permissions, and the patient compartment the
 //!   token's launch context names; a missing permission is a `403` that names
-//!   no scope. Behind the `openehr` feature, [`openehr`] enforces the SMART
+//!   no scope. Behind the `openehr` feature, `openehr` enforces the SMART
 //!   on openEHR grammar beside it, parsed by `openehr-sdt`: the
 //!   `template-`, `composition-` and `aql-` families with their patterns,
 //!   and the `ehrId` of the launch context. The product's route table
@@ -42,9 +42,9 @@
 //!   token or any content.
 //!
 //! [`config`] holds the `[auth]` and `[<lane>.credentials]` sections every
-//! product embeds. The `axum` feature adds [`guard`], the `tower::Layer` that
+//! product embeds. The `axum` feature adds `guard`, the `tower::Layer` that
 //! runs the credential check, the scope check and the audit line in front of
-//! every route, and [`extract`], the extractor of the caller the layer
+//! every route, and `extract`, the extractor of the caller the layer
 //! admitted. The core stays framework-neutral. The HTTP fetchers (the
 //! issuer's metadata, the key set over its `jwks_uri`, and the client
 //! credentials token client) sit behind the default `fetch` feature; without

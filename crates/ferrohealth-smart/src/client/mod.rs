@@ -12,8 +12,8 @@
 //! or `client_secret_post` (RFC 6749 §2.3.1), with a `private_key_jwt`
 //! assertion (RFC 7523 §2.2, [`assertion`]), or with a client certificate
 //! over mutual TLS (RFC 8705 §2). Extra trust roots and the client
-//! certificate travel in [`Tls`]. [`cache::TokenSource`] fetches
-//! on first use, shares one fetch among concurrent callers, hands out the
+//! certificate travel in [`Tls`]. `cache::TokenSource`, behind the default
+//! `fetch` feature, fetches on first use, shares one fetch among concurrent callers, hands out the
 //! bearer credential per attempt, and sends a call once more with a new
 //! token when the upstream refuses the held one with `401`.
 

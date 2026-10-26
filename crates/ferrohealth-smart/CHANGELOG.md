@@ -11,6 +11,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The documentation builds without a broken link under the default
+  features and with no features, where it linked to the modules behind
+  `openehr`, `axum` and `fetch` (#135). docs.rs builds every feature.
+
 ## [0.8.0] - 2026-10-26
 
 ### Added
