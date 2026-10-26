@@ -36,10 +36,16 @@ locked_version() {
        p && /^version = /{gsub(/version = "|"/, ""); print; exit}'
 }
 
-want="$(git show "$head:Cargo.toml" | workspace_version)"
+# Each file is read whole into a variable before a reader sees it: a reader
+# that stops early (`awk … exit`, `grep -q`) on a pipe from `git show` can
+# kill it with SIGPIPE, which pipefail reports as a failed check.
+head_manifest="$(git show "$head:Cargo.toml")"
+head_lock="$(git show "$head:Cargo.lock")"
+want="$(workspace_version <<< "$head_manifest")"
 # The base has no manifest before the workspace's first change.
-was="$(git show "$base:Cargo.toml" 2> /dev/null | workspace_version || true)"
-locked="$(git show "$head:Cargo.lock" | locked_version ferrohealth-smart)"
+base_manifest="$(git show "$base:Cargo.toml" 2> /dev/null || true)"
+was="$(workspace_version <<< "$base_manifest")"
+locked="$(locked_version ferrohealth-smart <<< "$head_lock")"
 
 failed=0
 if [[ -z "$want" ]]; then
@@ -61,16 +67,19 @@ if [[ "$locked" != "$want" ]]; then
 fi
 
 smart_changelog="crates/ferrohealth-smart/CHANGELOG.md"
-if ! git show "$head:$smart_changelog" | grep -qF "## [$want]"; then
+smart_changelog_text="$(git show "$head:$smart_changelog" 2> /dev/null || true)"
+if ! grep -qF "## [$want]" <<< "$smart_changelog_text"; then
   echo "crate-version-guard: $smart_changelog has no section for $want" >&2
   failed=1
 fi
 
 authz_manifest="crates/ferrohealth-authz/Cargo.toml"
 authz_changelog="crates/ferrohealth-authz/CHANGELOG.md"
-authz_want="$(git show "$head:$authz_manifest" 2> /dev/null | package_version || true)"
+authz_head="$(git show "$head:$authz_manifest" 2> /dev/null || true)"
+authz_want="$(package_version <<< "$authz_head")"
 if [[ -n "$authz_want" ]]; then
-  authz_was="$(git show "$base:$authz_manifest" 2> /dev/null | package_version || true)"
+  authz_base="$(git show "$base:$authz_manifest" 2> /dev/null || true)"
+  authz_was="$(package_version <<< "$authz_base")"
   if [[ -n "$authz_was" && "$authz_was" != "$authz_want" ]]; then
     newest="$(printf '%s\n%s\n' "$authz_was" "$authz_want" | sort -V | tail -1)"
     if [[ "$newest" != "$authz_want" ]]; then
@@ -78,12 +87,13 @@ if [[ -n "$authz_want" ]]; then
       failed=1
     fi
   fi
-  authz_locked="$(git show "$head:Cargo.lock" | locked_version ferrohealth-authz)"
+  authz_locked="$(locked_version ferrohealth-authz <<< "$head_lock")"
   if [[ "$authz_locked" != "$authz_want" ]]; then
     echo "crate-version-guard: Cargo.lock holds ferrohealth-authz ${authz_locked:-<none>}, its manifest $authz_want; run cargo update -w" >&2
     failed=1
   fi
-  if [[ "$authz_want" != "0.0.0" ]] && ! git show "$head:$authz_changelog" 2> /dev/null | grep -qF "## [$authz_want]"; then
+  authz_changelog_text="$(git show "$head:$authz_changelog" 2> /dev/null || true)"
+  if [[ "$authz_want" != "0.0.0" ]] && ! grep -qF "## [$authz_want]" <<< "$authz_changelog_text"; then
     echo "crate-version-guard: $authz_changelog has no section for $authz_want" >&2
     failed=1
   fi
