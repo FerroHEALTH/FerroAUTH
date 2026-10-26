@@ -33,11 +33,12 @@ and this project adheres to
 
 Shipped with functional changes because: the fix is the public mask the Added entry names, so the two cannot ship apart.
 
-- A configured URL that no URL parser accepts, such as one whose password
-  holds a character a URL forbids, has its userinfo masked in every
-  rendering of `OauthSection`. In 0.7.0 it was rendered whole, so a product
-  that logged its configuration could write the credential to its log
-  (CWE-532, GHSA-vphj-3f8c-5hpx).
+- Every rendering of `OauthSection` masks the userinfo of its `issuer` and
+  `token_endpoint`, a URL no parser accepts included. Before 0.7.1 a
+  credential in those URLs could reach the rendering in full: through
+  `Debug` since 0.1.0 and `Serialize` since 0.3.0, and in 0.7.0 still
+  whenever the URL did not parse. A product that logged its configuration
+  could write the credential to its log (CWE-532, GHSA-vphj-3f8c-5hpx).
 
 ## [0.7.0] - 2026-10-25
 
