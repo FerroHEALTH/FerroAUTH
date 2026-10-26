@@ -343,14 +343,25 @@ pub struct IssuerEntry {
 }
 
 /// The `[auth.basic]` table.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BasicSection {
     /// The users.
     pub users: Vec<BasicUser>,
     /// How long a credential that verified is kept, so a repeat request
-    /// skips the key derivation; 0 keeps none.
+    /// skips the key derivation; 300 seconds by default, 0 keeps none.
     pub cache_ttl_seconds: u64,
+}
+
+impl Default for BasicSection {
+    fn default() -> Self {
+        Self {
+            users: Vec::new(),
+            // NOTE: no specification governs the cache: our own design, safe on
+            // by default because the user list changes only at a restart.
+            cache_ttl_seconds: 300,
+        }
+    }
 }
 
 /// One `[[auth.basic.users]]` entry.

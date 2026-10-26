@@ -11,6 +11,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `[auth.basic] cache_ttl_seconds` defaults to 300: a credential that verified
+  is kept for five minutes, so a repeat request skips the Argon2id key
+  derivation (#127). Each request otherwise costs about 10 ms of CPU, which
+  capped a product's throughput. `cache_ttl_seconds = 0` keeps the old
+  behaviour.
+
 ## [0.7.3] - 2026-10-26
 
 ### Changed
