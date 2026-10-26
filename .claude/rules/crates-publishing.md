@@ -25,10 +25,14 @@ the changelog section always agree (`scripts/checks/crate-version-guard.sh`,
   together** (`cargo update -w`), in the release pull request. A
   `ferrohealth-smart` release that `ferrohealth-authz` must follow also moves
   the `ferrohealth-smart` requirement of `[workspace.dependencies]`.
-- Consumers pin the crate exactly (`ferrohealth-smart = "=0.1.0"`): Cargo
-  reads a `0.x` caret requirement as compatible across patches
-  (<https://doc.rust-lang.org/cargo/reference/semver.html>), and a product
-  moves its pin deliberately, in lockstep with the other products.
+- A **product** pins the crate exactly (`=X.Y.Z`) and moves its pin
+  deliberately, in lockstep with the other products. A **shared crate** that
+  builds on it takes a caret requirement on the newest release it needs
+  (`ferrohealth-secret = "0.2.0"`), which Cargo reads as compatible across the patches of that
+  `0.x` line (<https://doc.rust-lang.org/cargo/reference/semver.html>), so a
+  patch reaches every product through its lockfile without a release of
+  every shared crate in between (owner decision, 2026-10-26). That is safe
+  only because a patch release never breaks the public API.
 - A pull request that breaks a public API says so in its body and its
   CHANGELOG entry, naming what a product changes; while the line is `0.x`,
   such a release moves the minor version.

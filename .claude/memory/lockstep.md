@@ -17,6 +17,11 @@ the products depend on FerroUI (owner, 2026-10-19).
   to every product at once: a migration or pin-bump pull request in each
   repository, merged together, so no product runs an older FerroAUTH than
   the others. The rollout is coordinated from the FerroBRIDGE session.
+- **A shared crate takes a caret requirement** on another shared crate
+  (owner, 2026-10-26): `ihe-atna`, `ferrobridge-term` and `ihe-iti` require
+  `ferrohealth-smart = "0.7.4"`, never `=0.7.4`, so a FerroAUTH patch
+  reaches a product through its lockfile without a release of every shared
+  crate first. Only the products pin exactly.
 - **The first migration order** was `docs/architecture.md` §5.2:
   FerroBRIDGE, FerroTERM, FerroEHR, FerroFED. Every product stays green on
   its own gates and keeps every existing test.
