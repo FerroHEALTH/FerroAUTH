@@ -7,10 +7,10 @@ Vendored verbatim by `scripts/vendor/rfcs.sh` from the RFC Editor
 (<https://www.rfc-editor.org/rfc/>), the text form of each, as published. Never edit a file here:
 change the pin in docs/VERSIONS.md and re-run the script.
 
-- Fetched: 2026-10-25
-- Files: 21
+- Fetched: 2026-10-26
+- Files: 23
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `5070efd2bb2a9e3147bc3ee22bf780243f0bbf57e41ce0dc1f44f5c48b22f0aa`
+  `PROVENANCE.md` excluded): `4c51f6f4916b7a3edad5d765a5b86c9e2098508d8229ea4ea1364192f7bc6b61`
 - Upstream licence: each RFC is "Copyright (c) <year> IETF Trust and the
   persons identified as the document authors. All rights reserved." and is
   "subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF
@@ -53,6 +53,8 @@ change the pin in docs/VERSIONS.md and re-run the script.
 | RFC 6454 | The Web Origin Concept | December 2011 | PROPOSED STANDARD | none | `6a42d01bf407e87255e3bd8d870fda0f473e09f3272592ba438b57c983bc5399` |
 | RFC 7643 | System for Cross-domain Identity Management: Core Schema | September 2015 | PROPOSED STANDARD | RFC9865, RFC9967 | `df799c112a3fa5be3c0fe054c08b1f4eb5d07590c4c8343a014c4537bf638ae3` |
 | RFC 9396 | OAuth 2.0 Rich Authorization Requests | May 2023 | PROPOSED STANDARD | none | `d6a8f032d8a585daae1c33a8c7b6e539d199f886ec8cc1c7898436f7f2eed29c` |
+| RFC 7636 | Proof Key for Code Exchange by OAuth Public Clients | September 2015 | PROPOSED STANDARD | none | `1972e5d81cbaba7066cfd46374207bc2b4546b085ed5dd9b034e79e023e0ca31` |
+| RFC 7009 | OAuth 2.0 Token Revocation | August 2013 | PROPOSED STANDARD | none | `b2f346d5a87ba9d7f09047901257a65f7ac0b26352095969c25821afab447829` |
 
 An "Updated by" entry names an RFC that changes the document without
 replacing it; the design reads each update that bears on the resource

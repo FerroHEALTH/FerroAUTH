@@ -33,6 +33,9 @@ versions `docs/VERSIONS.md` pins:
      <https://hl7.org/fhir/smart-app-launch/>.
    - The RFCs: `docs/specs/rfc/rfcNNNN.txt`, the RFC Editor's text form.
    - OpenID Connect Discovery 1.0: `docs/specs/openid-connect-discovery/`.
+   - OpenID Connect Core 1.0: `docs/specs/openid-connect-core/`.
+   - OpenID Connect RP-Initiated Logout 1.0:
+     `docs/specs/openid-connect-rpinitiated/`.
 2. **Official documentation of the tools:** the docs.rs page of each pinned
    crate (`jsonwebtoken`, `argon2`, `reqwest`, `secrecy`, `axum`, `tower`),
    the Rust book and reference.

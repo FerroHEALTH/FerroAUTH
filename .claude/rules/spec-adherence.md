@@ -18,10 +18,14 @@ version `docs/VERSIONS.md` pins, and the design of record,
    (the security best practice), 8707 (resource indicators), 7638 (the
    JWK thumbprint), 8705 (mutual TLS client authentication, §2 and §5) and
    9470 (the step-up challenge), 8259 (JSON, §4 on repeated member names)
-   and 6454 (the web origin, §4 and §5); 9449 (DPoP) is vendored for
-   reference.
+   and 6454 (the web origin, §4 and §5), 7636 (PKCE) and 7009 (token
+   revocation), the last two for the `oidc` relying party; 9449 (DPoP) is
+   vendored for reference.
 3. **OpenID Connect Discovery 1.0** (incorporating errata set 2): the
-   fallback metadata location and the `issuer` and `jwks_uri` rules.
+   fallback metadata location and the `issuer` and `jwks_uri` rules. For
+   the `oidc` relying party, **OpenID Connect Core 1.0** (incorporating
+   errata set 2), the authorization code flow and the ID Token check, and
+   **OpenID Connect RP-Initiated Logout 1.0**, the end-session request.
 4. **The docs.rs pages of the pinned crates** (`jsonwebtoken`, `argon2`,
    `reqwest`, `secrecy`, `axum`, `tower`), the Rust book and reference, for
    every question about the tools.

@@ -14,8 +14,9 @@
 #                        tree still hashes to the digest it records.
 #   2. the RFCs          every `RFC NNNN` row's sha256 is the sha256 of the
 #                        vendored text, which the PROVENANCE.md repeats.
-#   3. OpenID Connect    the vendored Discovery document hashes to the row's
-#                        sha256, which its PROVENANCE.md repeats.
+#   3. OpenID Connect    the vendored Discovery, Core and RP-Initiated
+#                        Logout documents each hash to their row's sha256,
+#                        which their PROVENANCE.md repeats.
 #   3b. NIST SP 800-162  the vendored PDF hashes to the row's sha256, which
 #                        its PROVENANCE.md repeats.
 #   3c. Cedar docs       the PROVENANCE.md names the pinned commit and the
@@ -139,20 +140,25 @@ vendored="$(find "$rfc" -maxdepth 1 -name 'rfc*.txt' | wc -l | tr -d '[:space:]'
 [ "$vendored" = "$count" ] || fail "$rfc holds $vendored RFC texts, docs/VERSIONS.md pins $count"
 ok "$count RFCs at their checksums"
 
-# ---- 3. OpenID Connect Discovery --------------------------------------------
-oidc="docs/specs/openid-connect-discovery"
-pin="$(corpus_pin_cell "OpenID Connect Discovery 1.0 document")"
-file="$(awk '{ print $1; exit }' <<< "$pin")"
-want="$(corpus_pin_field sha256 "$pin")"
-if [ -f "$oidc/$file" ]; then
-  got="$(corpus_sha256 "$oidc/$file")"
-  [ "$got" = "$want" ] || fail "$oidc/$file hashes to $got, docs/VERSIONS.md pins $want"
-  recorded="$(provenance_line "$oidc/PROVENANCE.md" sha256)"
-  [ "$recorded" = "$want" ] || fail "$oidc/PROVENANCE.md records sha256 '$recorded', docs/VERSIONS.md pins $want"
-  ok "OpenID Connect Discovery 1.0 ($file) at its checksum"
-else
-  fail "$oidc/$file is missing"
-fi
+# ---- 3. the OpenID Connect specifications ----------------------------------
+for spec in discovery:"OpenID Connect Discovery 1.0" core:"OpenID Connect Core 1.0" \
+  rpinitiated:"OpenID Connect RP-Initiated Logout 1.0"; do
+  oidc="docs/specs/openid-connect-${spec%%:*}"
+  name="${spec#*:}"
+  pin="$(corpus_pin_cell "$name document")"
+  file="$(awk '{ print $1; exit }' <<< "$pin")"
+  want="$(corpus_pin_field sha256 "$pin")"
+  if [ -f "$oidc/$file" ]; then
+    before="$failures"
+    got="$(corpus_sha256 "$oidc/$file")"
+    [ "$got" = "$want" ] || fail "$oidc/$file hashes to $got, docs/VERSIONS.md pins $want"
+    recorded="$(provenance_line "$oidc/PROVENANCE.md" sha256)"
+    [ "$recorded" = "$want" ] || fail "$oidc/PROVENANCE.md records sha256 '$recorded', docs/VERSIONS.md pins $want"
+    [ "$failures" -ne "$before" ] || ok "$name ($file) at its checksum"
+  else
+    fail "$oidc/$file is missing"
+  fi
+done
 
 # ---- 3b. NIST SP 800-162 ----------------------------------------------------
 nist="docs/specs/nist-sp-800-162"
