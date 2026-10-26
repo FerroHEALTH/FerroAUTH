@@ -82,12 +82,14 @@ after the merge, at the commit you are about to tag. It exits 0 when the
 `plan` job would pass, names every check that refuses, and prints the path
 of the release notes it composed, so you read them before they are
 published. You need `gh` logged in, because the milestone check reads the
-tracker.
+tracker, and the pinned `cargo-semver-checks` installed
+(`cargo binstall cargo-semver-checks@<pin>`).
 
 | Check | Script |
 |---|---|
 | The milestone titled as the tag holds no open item | `scripts/release/milestone.sh check` |
 | The crate's version names the tag's version | `plan.sh` |
+| The crate's public API breaks nothing its version does not allow, against its newest version on crates.io (`cargo-semver-checks` at the version `docs/VERSIONS.md` pins) | `scripts/checks/semver.sh` |
 | Every section of the changelog holds Keep a Changelog types, each once | `scripts/checks/changelog-structure.sh` |
 | `[Unreleased]` compares from the tag, and the cut version has its link | `plan.sh` |
 | The section being cut opens its `### Security` with the reason when it sits beside other changes, and every Security entry names a GHSA id or an existing `security/vex/` path | `scripts/checks/changelog-security.sh --section X.Y.Z` |
