@@ -63,6 +63,13 @@ ferrohealth-smart = { version = "=0.7.0", features = ["axum", "openehr"] }
   head so it can follow the request's `Accept` or `_format`.
 - **`config`**: the `[auth]` and `[<lane>.credentials]` sections a product
   embeds in its own configuration.
+- **`oidc`** (feature `oidc`): the OpenID Connect relying-party client an
+  operator console signs in with. `oidc::RelyingParty` builds the
+  authorization request with `state`, `nonce` and a PKCE `S256` challenge,
+  exchanges the code and checks the ID Token (OpenID Connect Core 1.0
+  §3.1.3.7), refreshes the access token, revokes a token, and returns the
+  end-session URL of RP-Initiated Logout. It keeps no state: the console
+  stores the `PendingSignIn` and the tokens of the `SignedIn` it returns.
 
 The HTTP fetchers (the issuer's metadata, the key set over its `jwks_uri`
 and `client::cache::TokenSource`) sit behind the default `fetch` feature.

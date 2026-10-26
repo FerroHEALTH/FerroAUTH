@@ -27,6 +27,10 @@ fetch = ["dep:reqwest"]
 # scope check and the audit line in front of every route), the extractor of
 # the caller it admitted, and the default renderer of a refusal.
 axum = ["dep:axum", "dep:tower"]
+# The OpenID Connect relying-party client of an operator console: the
+# authorization code flow with PKCE, the ID Token check, the refresh grant,
+# revocation and RP-initiated logout.
+oidc = ["fetch"]
 # The SMART on openEHR scope grammar beside the FHIR one, parsed by
 # openehr-sdt and enforced here: the `Requirement::OpenEhr` of a product
 # route, the grant rules of the draft, and the launch context `ehrId`.

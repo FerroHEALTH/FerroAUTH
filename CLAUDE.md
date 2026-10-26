@@ -78,7 +78,7 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 
 - `crates/ferrohealth-smart`: the library, with its own `CHANGELOG.md`. `src/` (`metadata`, `resource`
   with `jwks`, `token`, `configuration` and `introspection`, `scope`, `basic`, `client` with
-  `cache`, `endpoint` and `assertion`, `audit`, `refusal`, `config`, and
+  `cache`, `endpoint` and `assertion`, `audit`, `refusal`, `config`, `oidc` behind `oidc`, and
   `guard` and `extract` behind `axum`), `tests/it/` (one binary: the token
   check, the client credentials, Basic, the guard, every upstream a
   `wiremock` stub and every key generated when the case runs).

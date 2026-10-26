@@ -34,6 +34,8 @@ mod introspection;
 mod key_file;
 #[cfg(feature = "fetch")]
 mod metadata;
+#[cfg(feature = "oidc")]
+mod oidc;
 #[cfg(all(feature = "openehr", feature = "fetch"))]
 mod openehr;
 #[cfg(feature = "fetch")]
