@@ -11,7 +11,7 @@ authorization server.
 
 ```toml
 [dependencies]
-ferrohealth-smart = { version = "=0.8.2", features = ["axum", "openehr"] }
+ferrohealth-smart = { version = "=0.8.3", features = ["axum", "openehr"] }
 ```
 
 ## What it does
