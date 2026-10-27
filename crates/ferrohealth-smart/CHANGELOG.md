@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-10-27
+
 ### Changed
 
 - Requires `openehr-sdt` 0.0.109, the version FerroEHR publishes, so a
@@ -700,7 +702,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.3...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.4...HEAD
+[0.8.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.3...ferrohealth-smart-v0.8.4
 [0.8.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.2...ferrohealth-smart-v0.8.3
 [0.8.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.1...ferrohealth-smart-v0.8.2
 [0.8.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.0...ferrohealth-smart-v0.8.1
