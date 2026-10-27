@@ -33,7 +33,7 @@ remote = ["dep:reqwest", "dep:http", "dep:serde_json", "dep:url", "ferrohealth-s
 
 [dependencies]
 async-trait.workspace = true
-ferrohealth-smart = { workspace = true, default-features = false }
+ferrohealth-smart = { workspace = true, default-features = false, features = ["full"] }
 thiserror.workspace = true
 arc-swap = { workspace = true, optional = true }
 cedar-policy = { workspace = true, optional = true }

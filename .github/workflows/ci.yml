@@ -234,15 +234,20 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           components: clippy
+          target: wasm32-unknown-unknown
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       # The core compiles without a framework, and the layer and the
       # extractor behind the `axum` feature, so both are linted; so is the
       # build without the `fetch` feature, which links no HTTP client, and
-      # the `axum` build without `openehr` the FHIR products link.
+      # the `axum` build without `openehr` the FHIR products link. The
+      # SMART on openEHR grammar alone (`openehr-scopes`) is linted on the
+      # host and for the browser target a viewer builds it for.
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo clippy --workspace --all-targets --no-default-features --features axum,openehr --locked -- -D warnings
       - run: cargo clippy --workspace --all-targets --features axum --locked -- -D warnings
+      - run: cargo clippy -p ferrohealth-smart --all-targets --no-default-features --features openehr-scopes --locked -- -D warnings
+      - run: cargo clippy -p ferrohealth-smart --no-default-features --features openehr-scopes --target wasm32-unknown-unknown --locked -- -D warnings
 
   test:
     name: nextest (core and axum)

@@ -789,7 +789,6 @@ dependencies = [
  "http-body-util",
  "jiff",
  "jsonwebtoken",
- "openehr-sdt",
  "rcgen",
  "reqwest",
  "rustls",
@@ -1744,12 +1743,6 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
-name = "openehr-sdt"
-version = "0.0.109"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc14de2cc358c6c3460120028bc01195f5fac7a624b4e3ac738749a2bfb84935"
 
 [[package]]
 name = "openssl-probe"

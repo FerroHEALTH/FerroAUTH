@@ -1,15 +1,16 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The SMART on openEHR grant check, over the grammar `openehr-sdt` parses.
+//! The SMART on openEHR scope grammar and its grant check.
 //!
 //! The grammar is the ITS-REST "SMART on openEHR" draft, status
 //! DEVELOPMENT, vendored under `docs/specs/smart-on-openehr/` and cited as
 //! `master08 §Resource Scopes` and so on: `<compartment>/<resource>.<permissions>`,
 //! the resource one of `template-`, `composition-` and `aql-` with a
-//! pattern. The parser is [`openehr_sdt::smart_scopes`], the one every
-//! product reads the grammar with; this module adds what the draft leaves
-//! to the resource server, carried over from FerroFED's gate: which grant
+//! pattern. [`smart_scopes`] is its parser, the one every product reads the
+//! grammar with, and it builds alone behind the `openehr-scopes` feature
+//! with no dependency. The `openehr` feature adds what the draft leaves to
+//! the resource server, carried over from FerroFED's gate: which grant
 //! covers which operation, and which grant a product honours for which
 //! caller.
 //!
@@ -22,26 +23,22 @@
 //! data; the FHIR v1 suffixes are not applied; and both grammars coexist in
 //! one `scope` claim.
 
-/// The SMART on openEHR scope grammar `openehr-sdt` parses, so a product
-/// names the types [`crate::guard`]'s `Requirement::OpenEhr` takes through
-/// this crate and links one copy of the parser.
-#[expect(
-    clippy::useless_attribute,
-    reason = "clippy reads a lint attribute on a use item as useless, and this one scopes pub_use to the one re-export"
-)]
-#[expect(
-    clippy::pub_use,
-    reason = "the grammar is openehr-sdt's, and a product reaches it through this crate so the two never disagree on a version"
-)]
-pub use openehr_sdt::smart_scopes;
+pub mod smart_scopes;
 
-use openehr_sdt::smart_scopes::Compartment;
-use openehr_sdt::smart_scopes::Permission;
-use openehr_sdt::smart_scopes::ResourceFamily;
-use openehr_sdt::smart_scopes::ResourceScope;
-use openehr_sdt::smart_scopes::ResourceSelector;
-use openehr_sdt::smart_scopes::SmartScope;
+#[cfg(feature = "openehr")]
+use smart_scopes::Compartment;
+#[cfg(feature = "openehr")]
+use smart_scopes::Permission;
+#[cfg(feature = "openehr")]
+use smart_scopes::ResourceFamily;
+#[cfg(feature = "openehr")]
+use smart_scopes::ResourceScope;
+#[cfg(feature = "openehr")]
+use smart_scopes::ResourceSelector;
+#[cfg(feature = "openehr")]
+use smart_scopes::SmartScope;
 
+#[cfg(feature = "openehr")]
 use crate::resource::Honoured;
 
 /// Returns whether `scopes` grant `permission` on a resource of `family`.
@@ -50,6 +47,7 @@ use crate::resource::Honoured;
 /// it; `None` is an operation only a pattern covering every resource (`*`
 /// or `**`) covers. `honoured` says what the caller's issuer or client lets
 /// count beyond a `user/` grant.
+#[cfg(feature = "openehr")]
 #[must_use]
 pub fn granted(
     scopes: &[SmartScope],
@@ -72,6 +70,7 @@ pub fn granted(
 
 /// Returns the scopes of `scopes` that cover `permission` on a resource of
 /// `family` named `named`, the grant an exchanged token asks for.
+#[cfg(feature = "openehr")]
 #[must_use]
 pub fn covering(
     scopes: &[SmartScope],
@@ -98,6 +97,7 @@ pub fn covering(
 /// Returns whether every one of `covering`, the scopes that cover an
 /// operation, is a `patient/` grant, so the operation is confined to the
 /// token's EHR.
+#[cfg(feature = "openehr")]
 #[must_use]
 pub fn confined(covering: &[SmartScope]) -> bool {
     !covering.is_empty()
@@ -111,6 +111,7 @@ pub fn confined(covering: &[SmartScope]) -> bool {
 ///
 /// A `system/` scope is granted "to backend applications acting without a
 /// user context" (`master08 §Resource Scopes`).
+#[cfg(feature = "openehr")]
 #[must_use]
 pub fn backend_only(covering: &[SmartScope]) -> bool {
     !covering.is_empty()
@@ -127,6 +128,7 @@ pub fn backend_only(covering: &[SmartScope]) -> bool {
 /// data, so it neither makes nor breaks a patient grant. A patient grant
 /// reaches "data within that patient's EHR" alone (`master08 §Resource
 /// Scopes`), so a product refuses it on the DEMOGRAPHIC API.
+#[cfg(feature = "openehr")]
 #[must_use]
 pub fn patient_grant(granted: &[SmartScope]) -> bool {
     let resources: Vec<SmartScope> = granted
@@ -139,6 +141,7 @@ pub fn patient_grant(granted: &[SmartScope]) -> bool {
 
 /// Returns whether `scope` is of `family`, holds `permission` and covers
 /// the resource `named`, or every resource when the request names none.
+#[cfg(feature = "openehr")]
 fn covers(
     scope: &ResourceScope,
     family: ResourceFamily,
@@ -156,6 +159,7 @@ fn covers(
 }
 
 /// Returns whether `scope`'s pattern covers every resource of its family.
+#[cfg(feature = "openehr")]
 fn every(scope: &ResourceScope) -> bool {
     matches!(scope.resource.pattern().as_str(), "*" | "**")
 }
@@ -165,6 +169,7 @@ fn every(scope: &ResourceScope) -> bool {
 /// where the issuer is bound to the product's EHR space and only on an
 /// EHR's data, and a `system/aql-*` grant only for a backend client the
 /// product lists.
+#[cfg(feature = "openehr")]
 fn counts(
     scope: &ResourceScope,
     family: ResourceFamily,
@@ -193,6 +198,7 @@ fn counts(
 /// The `composition-` family covers an EHR's resources, and an `aql-` grant
 /// covers running a query; reading or storing a query definition, and
 /// every template, is no EHR's data.
+#[cfg(feature = "openehr")]
 const fn on_ehr_data(family: ResourceFamily, permission: Permission) -> bool {
     match family {
         ResourceFamily::Composition => true,
@@ -201,11 +207,11 @@ const fn on_ehr_data(family: ResourceFamily, permission: Permission) -> bool {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "openehr"))]
 mod tests {
+    use super::smart_scopes::{Permission, ResourceFamily, SmartScope};
     use super::{backend_only, confined, covering, granted, patient_grant};
     use crate::resource::Honoured;
-    use openehr_sdt::smart_scopes::{Permission, ResourceFamily, SmartScope};
 
     const NONE: Honoured = Honoured {
         backend: false,
