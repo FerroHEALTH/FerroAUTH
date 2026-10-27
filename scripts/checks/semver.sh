@@ -55,9 +55,13 @@ else
   for crate in "$@"; do args+=(--package "$crate"); done
 fi
 cd "$root"
+# The higher exit code of the two passes wins, so a setup error stays 2.
 status=0
 echo "semver: pass 1 of 2, the default feature selection" >&2
-cargo semver-checks check-release "${args[@]}" || status=1
+cargo semver-checks check-release "${args[@]}" || status=$?
 echo "semver: pass 2 of 2, no default features (--only-explicit-features)" >&2
-cargo semver-checks check-release --only-explicit-features "${args[@]}" || status=1
+cargo semver-checks check-release --only-explicit-features "${args[@]}" || {
+  code=$?
+  if (( code > status )); then status=$code; fi
+}
 exit "$status"
