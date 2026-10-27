@@ -14,70 +14,53 @@ publish = true
 readme = "README.md"
 keywords = ["smart-on-fhir", "openehr", "oauth2", "jwt", "resource-server"]
 categories = ["authentication", "web-programming"]
-include = ["src/**", "tests/**", "README.md", "CHANGELOG.md"]
+include = ["build.rs", "src/**", "tests/**", "README.md", "CHANGELOG.md"]
 
 # docs.rs builds every feature, so each feature-gated module is documented.
 [package.metadata.docs.rs]
 all-features = true
 
 [features]
-default = ["full", "fetch"]
-# Everything but the SMART on openEHR scope grammar: the resource server, the
-# SMART on FHIR scopes, Basic and client-credentials authentication, the
-# audit line and the configuration. A product that takes the crate with
-# `default-features = false` names this feature or one that implies it.
-full = [
-  "dep:argon2",
-  "dep:aws-lc-rs",
-  "dep:base64",
-  "dep:ferrohealth-secret",
-  "dep:http",
-  "dep:jiff",
-  "dep:jsonwebtoken",
-  "dep:secrecy",
-  "dep:serde",
-  "dep:serde_json",
-  "dep:thiserror",
-  "dep:tokio",
-  "dep:tracing",
-  "dep:url",
-]
+default = ["fetch"]
 # The HTTP fetchers: the issuer's metadata (RFC 8414 §3), its key set over
 # its `jwks_uri`, and the client credentials token client. Without it the
 # crate links no HTTP client, and a resource server reads its key set from
 # a `jwks_file`.
-fetch = ["full", "dep:reqwest"]
+fetch = ["dep:reqwest"]
 # The tower Layer that guards an axum router (the credential check, the
 # scope check and the audit line in front of every route), the extractor of
 # the caller it admitted, and the default renderer of a refusal.
-axum = ["full", "dep:axum", "dep:tower"]
+axum = ["dep:axum", "dep:tower"]
 # The OpenID Connect relying-party client of an operator console: the
 # authorization code flow with PKCE, the ID Token check, the refresh grant,
 # revocation and RP-initiated logout.
 oidc = ["fetch"]
-# The SMART on openEHR scope grammar alone (`openehr::smart_scopes`), with no
-# dependency of any kind, so a browser client builds it for wasm32.
+# The SMART on openEHR scope grammar (`openehr::smart_scopes`). It depends on
+# nothing, so a browser client builds it for `wasm32-unknown-unknown`, where
+# it is the whole crate.
 openehr-scopes = []
 # The grammar enforced beside the FHIR one: the `Requirement::OpenEhr` of a
 # product route, the grant rules of the draft, and the launch context `ehrId`.
-openehr = ["full", "openehr-scopes"]
+openehr = ["openehr-scopes"]
 
-[dependencies]
-argon2 = { workspace = true, optional = true }
-aws-lc-rs = { workspace = true, optional = true }
-base64 = { workspace = true, optional = true }
-ferrohealth-secret = { workspace = true, optional = true }
-http = { workspace = true, optional = true }
-jiff = { workspace = true, optional = true }
-jsonwebtoken = { workspace = true, optional = true }
+# Everything but the grammar is the resource server, which a browser never
+# runs, so it is compiled for every target but the browser's.
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
+argon2.workspace = true
+aws-lc-rs.workspace = true
+base64.workspace = true
+ferrohealth-secret.workspace = true
+http.workspace = true
+jiff.workspace = true
+jsonwebtoken.workspace = true
 reqwest = { workspace = true, optional = true }
-secrecy = { workspace = true, optional = true }
-serde = { workspace = true, optional = true }
-serde_json = { workspace = true, optional = true }
-thiserror = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true, features = ["sync", "rt", "fs"] }
-tracing = { workspace = true, optional = true }
-url = { workspace = true, optional = true }
+secrecy.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync", "rt", "fs"] }
+tracing.workspace = true
+url.workspace = true
 tower = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
 
@@ -92,13 +75,6 @@ wiremock.workspace = true
 rustls.workspace = true
 tokio-rustls.workspace = true
 rcgen.workspace = true
-
-# The integration tests drive the resource server, which the grammar alone
-# does not build.
-[[test]]
-name = "it"
-path = "tests/it/main.rs"
-required-features = ["full"]
 
 [lints]
 workspace = true

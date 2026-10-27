@@ -14,11 +14,6 @@ and this project adheres to
 
 ## [Unreleased]
 
-### Changed
-
-- Takes `ferrohealth-smart` with its `full` feature, which now holds the
-  resource server this crate's request reads (#158).
-
 ## [0.2.2] - 2026-10-27
 
 ### Changed

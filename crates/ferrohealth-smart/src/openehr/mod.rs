@@ -25,20 +25,20 @@
 
 pub mod smart_scopes;
 
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 use smart_scopes::Compartment;
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 use smart_scopes::Permission;
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 use smart_scopes::ResourceFamily;
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 use smart_scopes::ResourceScope;
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 use smart_scopes::ResourceSelector;
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 use smart_scopes::SmartScope;
 
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 use crate::resource::Honoured;
 
 /// Returns whether `scopes` grant `permission` on a resource of `family`.
@@ -47,7 +47,7 @@ use crate::resource::Honoured;
 /// it; `None` is an operation only a pattern covering every resource (`*`
 /// or `**`) covers. `honoured` says what the caller's issuer or client lets
 /// count beyond a `user/` grant.
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 #[must_use]
 pub fn granted(
     scopes: &[SmartScope],
@@ -70,7 +70,7 @@ pub fn granted(
 
 /// Returns the scopes of `scopes` that cover `permission` on a resource of
 /// `family` named `named`, the grant an exchanged token asks for.
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 #[must_use]
 pub fn covering(
     scopes: &[SmartScope],
@@ -97,7 +97,7 @@ pub fn covering(
 /// Returns whether every one of `covering`, the scopes that cover an
 /// operation, is a `patient/` grant, so the operation is confined to the
 /// token's EHR.
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 #[must_use]
 pub fn confined(covering: &[SmartScope]) -> bool {
     !covering.is_empty()
@@ -111,7 +111,7 @@ pub fn confined(covering: &[SmartScope]) -> bool {
 ///
 /// A `system/` scope is granted "to backend applications acting without a
 /// user context" (`master08 §Resource Scopes`).
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 #[must_use]
 pub fn backend_only(covering: &[SmartScope]) -> bool {
     !covering.is_empty()
@@ -128,7 +128,7 @@ pub fn backend_only(covering: &[SmartScope]) -> bool {
 /// data, so it neither makes nor breaks a patient grant. A patient grant
 /// reaches "data within that patient's EHR" alone (`master08 §Resource
 /// Scopes`), so a product refuses it on the DEMOGRAPHIC API.
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 #[must_use]
 pub fn patient_grant(granted: &[SmartScope]) -> bool {
     let resources: Vec<SmartScope> = granted
@@ -141,7 +141,7 @@ pub fn patient_grant(granted: &[SmartScope]) -> bool {
 
 /// Returns whether `scope` is of `family`, holds `permission` and covers
 /// the resource `named`, or every resource when the request names none.
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 fn covers(
     scope: &ResourceScope,
     family: ResourceFamily,
@@ -159,7 +159,7 @@ fn covers(
 }
 
 /// Returns whether `scope`'s pattern covers every resource of its family.
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 fn every(scope: &ResourceScope) -> bool {
     matches!(scope.resource.pattern().as_str(), "*" | "**")
 }
@@ -169,7 +169,7 @@ fn every(scope: &ResourceScope) -> bool {
 /// where the issuer is bound to the product's EHR space and only on an
 /// EHR's data, and a `system/aql-*` grant only for a backend client the
 /// product lists.
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 fn counts(
     scope: &ResourceScope,
     family: ResourceFamily,
@@ -198,7 +198,7 @@ fn counts(
 /// The `composition-` family covers an EHR's resources, and an `aql-` grant
 /// covers running a query; reading or storing a query definition, and
 /// every template, is no EHR's data.
-#[cfg(feature = "openehr")]
+#[cfg(all(feature = "openehr", resource_server))]
 const fn on_ehr_data(family: ResourceFamily, permission: Permission) -> bool {
     match family {
         ResourceFamily::Composition => true,
@@ -207,7 +207,7 @@ const fn on_ehr_data(family: ResourceFamily, permission: Permission) -> bool {
     }
 }
 
-#[cfg(all(test, feature = "openehr"))]
+#[cfg(all(test, feature = "openehr", resource_server))]
 mod tests {
     use super::smart_scopes::{Permission, ResourceFamily, SmartScope};
     use super::{backend_only, confined, covering, granted, patient_grant};

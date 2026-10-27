@@ -42,7 +42,8 @@ assertion to the token endpoint (RFC 7523 §2.2), never an access token.
   skew), answering one generic `401` that names no claim;
 - parse and enforce the SMART on openEHR scopes (`openehr`, behind the
   `openehr` feature, parsed by `openehr::smart_scopes`, the grammar's one
-  parser, which builds alone and dependency-free behind `openehr-scopes`):
+  parser, dependency-free behind `openehr-scopes` and the whole crate for
+  `wasm32-unknown-unknown`):
   the `template-`, `composition-` and `aql-` families with their patterns,
   the rules `docs/architecture.md` §3.9 fixes where the draft is silent,
   and the `ehrId` of the launch context; and the SMART on FHIR scopes

@@ -71,17 +71,16 @@ ferrohealth-smart = { version = "=0.8.4", features = ["axum", "openehr"] }
   end-session URL of RP-Initiated Logout. It keeps no state: the console
   stores the `PendingSignIn` and the tokens of the `SignedIn` it returns.
 
-Every module above sits behind the default `full` feature, which `fetch`,
-`axum`, `oidc` and `openehr` imply. The HTTP fetchers (the issuer's
-metadata, the key set over its `jwks_uri` and `client::cache::TokenSource`)
-sit behind the default `fetch` feature. A product built with
-`default-features = false, features = ["full"]` links no HTTP client and
+The HTTP fetchers (the issuer's metadata, the key set over its `jwks_uri`
+and `client::cache::TokenSource`) sit behind the default `fetch` feature.
+A product built with `default-features = false` links no HTTP client and
 reads its key set from a `jwks_file`.
 
-The `openehr-scopes` feature alone builds `openehr::smart_scopes`, the
-SMART on openEHR scope grammar, with no dependency of any kind, so a
-browser client built for `wasm32-unknown-unknown` parses a scope string
-with the parser the resource server enforces it with:
+The `openehr-scopes` feature builds `openehr::smart_scopes`, the SMART on
+openEHR scope grammar, which depends on nothing. Built for the browser
+(`wasm32-unknown-unknown`), the grammar is the whole crate: the resource
+server and its dependencies are left out, so a browser client parses a
+scope string with the parser the resource server enforces it with:
 
 ```toml
 ferrohealth-smart = { version = "=0.8.4", default-features = false, features = ["openehr-scopes"] }
