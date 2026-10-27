@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- `[auth] ca_file` is trusted under `mode = "introspection"` too: the
+  metadata, introspection and token calls trust it beside the client or
+  bearer grant's own `ca_file`, so an issuer behind a private certificate
+  authority is reached with the setting that reaches it in JWT mode (#168).
+  A bearer `IntrospectionAuth` now reads the metadata and calls the
+  introspection endpoint trusting its grant's trust roots.
+
 ## [0.8.5] - 2026-10-27
 
 ### Added

@@ -172,6 +172,12 @@ impl TokenSource {
         Self::assemble(config, http, Arc::new(SystemClock))
     }
 
+    /// Returns the trust roots of the grant's TLS material, which the
+    /// introspection calls of a bearer source trust beside the platform's.
+    pub(crate) fn root_certificates(&self) -> Option<&[u8]> {
+        self.inner.config.tls.root_certificates.as_deref()
+    }
+
     /// Returns the source of `config` over `http`, reading expiry against
     /// `clock`.
     fn assemble(config: ClientCredentials, http: Http, clock: Arc<dyn Clock>) -> Self {
