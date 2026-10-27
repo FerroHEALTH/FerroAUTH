@@ -527,7 +527,7 @@ impl AuthSection {
         if self.enabled && !basic_only && self.mode == AuthMode::Introspection {
             #[cfg(feature = "fetch")]
             {
-                introspection = Some(self.introspection_settings()?);
+                introspection = Some(self.introspection_settings(trust_roots.as_deref())?);
             }
             #[cfg(not(feature = "fetch"))]
             return Err(ConfigError::IntrospectionUnavailable);
@@ -608,6 +608,7 @@ impl AuthSection {
     #[cfg(feature = "fetch")]
     fn introspection_settings(
         &self,
+        trust_roots: Option<&[u8]>,
     ) -> Result<crate::resource::introspection::IntrospectionSettings, ConfigError> {
         use crate::resource::introspection::IntrospectionAuth;
         use crate::resource::introspection::IntrospectionSettings;
@@ -646,18 +647,22 @@ impl AuthSection {
                 if client.issuer.is_empty() && client.token_endpoint.is_empty() {
                     client.issuer.clone_from(issuer);
                 }
-                IntrospectionAuth::Client(Box::new(client.resolve()?))
+                let mut credentials = client.resolve()?;
+                trust_also(&mut credentials.tls, trust_roots);
+                IntrospectionAuth::Client(Box::new(credentials))
             }
             (None, Some(bearer)) => {
-                let source = crate::client::cache::TokenSource::new(bearer.resolve()?).map_err(
-                    |source| ConfigError::Introspection {
+                let mut grant = bearer.resolve()?;
+                trust_also(&mut grant.tls, trust_roots);
+                let source = crate::client::cache::TokenSource::new(grant).map_err(|source| {
+                    ConfigError::Introspection {
                         source: Box::new(
                             crate::resource::introspection::IntrospectionError::Credential {
                                 source: std::sync::Arc::new(source),
                             },
                         ),
-                    },
-                )?;
+                    }
+                })?;
                 IntrospectionAuth::Bearer(source)
             }
         };
@@ -745,6 +750,22 @@ impl AuthSection {
             trust_roots: None,
         }
     }
+}
+
+/// Adds the `auth.ca_file` roots to the roots of an introspection grant, so
+/// the metadata, introspection and token calls trust both (no specification
+/// governs trust configuration: our own design).
+#[cfg(feature = "fetch")]
+fn trust_also(tls: &mut Tls, roots: Option<&[u8]>) {
+    let Some(roots) = roots else {
+        return;
+    };
+    let mut merged = tls.root_certificates.take().unwrap_or_default();
+    if !merged.is_empty() && !merged.ends_with(b"\n") {
+        merged.push(b'\n');
+    }
+    merged.extend_from_slice(roots);
+    tls.root_certificates = Some(merged);
 }
 
 /// The `[<lane>.credentials]` table: HTTP Basic with `user` and `password`,

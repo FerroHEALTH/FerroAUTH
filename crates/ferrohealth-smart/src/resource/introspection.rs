@@ -297,7 +297,9 @@ impl Introspector {
     /// The metadata is read once here, so an authorization server that
     /// cannot be reached refuses the start; it names the introspection
     /// endpoint unless the settings do, and builds the SMART discovery
-    /// document.
+    /// document. The metadata and introspection calls trust the roots of
+    /// the credential's grant beside the platform's: the client grant's TLS
+    /// material, or the bearer grant's trust roots.
     ///
     /// # Errors
     ///
@@ -310,7 +312,13 @@ impl Introspector {
             IntrospectionAuth::Client(credentials) => {
                 Http::with_tls(settings.timeout, &credentials.tls)?
             }
-            IntrospectionAuth::Bearer(_) => Http::new(settings.timeout)?,
+            IntrospectionAuth::Bearer(source) => Http::with_tls(
+                settings.timeout,
+                &crate::client::Tls {
+                    root_certificates: source.root_certificates().map(<[u8]>::to_vec),
+                    identity: None,
+                },
+            )?,
         };
         let metadata = http.discover(&settings.issuer).await?;
         let endpoint = if let Some(endpoint) = &settings.endpoint {
