@@ -746,7 +746,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "ferrohealth-authz"
-version = "0.2.2"
+version = "0.3.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -778,7 +778,7 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-smart"
-version = "0.8.4"
+version = "0.9.0"
 dependencies = [
  "argon2",
  "aws-lc-rs",

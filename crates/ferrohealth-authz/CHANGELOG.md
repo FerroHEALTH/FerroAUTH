@@ -14,8 +14,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-27
+
 ### Changed
 
+- **Breaking:** requires `ferrohealth-smart` 0.9.0, the release whose
+  `openehr::smart_scopes` is its own and no longer `openehr-sdt`'s (#158).
+  `request::Subject::of` takes a `ferrohealth_smart::resource::Caller` and
+  `remote::RemotePdp::new` a `ferrohealth_smart::client::cache::TokenSource`,
+  so a product moves its `ferrohealth-smart` pin to 0.9.0 with this release.
 - Takes `ferrohealth-smart` with its `full` feature, which now holds the
   resource server this crate's request reads (#158).
 
@@ -104,7 +111,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.2...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.3.0...HEAD
+[0.3.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.2...ferrohealth-authz-v0.3.0
 [0.2.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.1...ferrohealth-authz-v0.2.2
 [0.2.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.0...ferrohealth-authz-v0.2.1
 [0.2.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.5...ferrohealth-authz-v0.2.0
