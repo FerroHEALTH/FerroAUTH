@@ -75,6 +75,7 @@ provenance_digest() {
 # ---- 1. SMART App Launch ----------------------------------------------------
 smart="docs/specs/smart-app-launch"
 if [ -f "$smart/PROVENANCE.md" ]; then
+  before="$failures"
   pin="$(corpus_pin_cell "SMART App Launch package")"
   version="$(awk '{ print $1; exit }' <<< "$pin")"
   commit="$(corpus_pin_commit "$(corpus_pin_cell "SMART App Launch source")")"
@@ -93,7 +94,7 @@ if [ -f "$smart/PROVENANCE.md" ]; then
     [ "$got" = "$want" ] ||
       fail "$smart/${tree%%:*} hashes to $got, its PROVENANCE.md records ${want:-nothing}"
   done
-  ok "SMART App Launch $version at $commit, both trees at their digests"
+  [ "$failures" -ne "$before" ] || ok "SMART App Launch $version at $commit, both trees at their digests"
 else
   fail "$smart/PROVENANCE.md is missing"
 fi
@@ -101,6 +102,7 @@ fi
 # ---- 1b. SMART on openEHR ---------------------------------------------------
 soe="docs/specs/smart-on-openehr"
 if [ -f "$soe/PROVENANCE.md" ]; then
+  before="$failures"
   commit="$(corpus_pin_commit "$(corpus_pin_cell "SMART on openEHR source")")"
   status="$(awk '{ print $1; exit }' <<< "$(corpus_pin_cell "SMART on openEHR")")"
   got_commit="$(provenance_line "$soe/PROVENANCE.md" Pin)"
@@ -114,7 +116,7 @@ if [ -f "$soe/PROVENANCE.md" ]; then
   want="$(provenance_digest "$soe/PROVENANCE.md" "Tree digest")"
   got="$(corpus_tree_digest "$soe")"
   [ "$got" = "$want" ] || fail "$soe hashes to $got, its PROVENANCE.md records ${want:-nothing}"
-  ok "SMART on openEHR at $commit, status $status, tree at its digest"
+  [ "$failures" -ne "$before" ] || ok "SMART on openEHR at $commit, status $status, tree at its digest"
 else
   fail "$soe/PROVENANCE.md is missing"
 fi
@@ -122,6 +124,7 @@ fi
 # ---- 2. the RFCs ------------------------------------------------------------
 rfc="docs/specs/rfc"
 count=0
+before="$failures"
 while IFS= read -r item; do
   number="${item#RFC }"
   want="$(corpus_pin_field sha256 "$(corpus_pin_cell "$item")")"
@@ -138,7 +141,7 @@ while IFS= read -r item; do
 done < <(corpus_pin_items "RFC ")
 vendored="$(find "$rfc" -maxdepth 1 -name 'rfc*.txt' | wc -l | tr -d '[:space:]')"
 [ "$vendored" = "$count" ] || fail "$rfc holds $vendored RFC texts, docs/VERSIONS.md pins $count"
-ok "$count RFCs at their checksums"
+[ "$failures" -ne "$before" ] || ok "$count RFCs at their checksums"
 
 # ---- 3. the OpenID Connect specifications ----------------------------------
 for spec in discovery:"OpenID Connect Discovery 1.0" core:"OpenID Connect Core 1.0" \
@@ -166,11 +169,12 @@ pin="$(corpus_pin_cell "NIST SP 800-162 document")"
 file="$(awk '{ print $1; exit }' <<< "$pin")"
 want="$(corpus_pin_field sha256 "$pin")"
 if [ -f "$nist/$file" ]; then
+  before="$failures"
   got="$(corpus_sha256 "$nist/$file")"
   [ "$got" = "$want" ] || fail "$nist/$file hashes to $got, docs/VERSIONS.md pins $want"
   recorded="$(provenance_line "$nist/PROVENANCE.md" sha256)"
   [ "$recorded" = "$want" ] || fail "$nist/PROVENANCE.md records sha256 '$recorded', docs/VERSIONS.md pins $want"
-  ok "NIST SP 800-162 ($file) at its checksum"
+  [ "$failures" -ne "$before" ] || ok "NIST SP 800-162 ($file) at its checksum"
 else
   fail "$nist/$file is missing"
 fi
@@ -178,6 +182,7 @@ fi
 # ---- 3c. the Cedar language documentation -----------------------------------
 cedar="docs/specs/cedar-docs"
 if [ -f "$cedar/PROVENANCE.md" ]; then
+  before="$failures"
   commit="$(corpus_pin_commit "$(corpus_pin_cell "Cedar language documentation")")"
   got_commit="$(provenance_line "$cedar/PROVENANCE.md" Pin)"
   case "$got_commit" in
@@ -187,7 +192,7 @@ if [ -f "$cedar/PROVENANCE.md" ]; then
   want="$(provenance_digest "$cedar/PROVENANCE.md" "Tree digest")"
   got="$(corpus_tree_digest "$cedar")"
   [ "$got" = "$want" ] || fail "$cedar hashes to $got, its PROVENANCE.md records ${want:-nothing}"
-  ok "the Cedar language documentation at $commit"
+  [ "$failures" -ne "$before" ] || ok "the Cedar language documentation at $commit"
 else
   fail "$cedar/PROVENANCE.md is missing"
 fi
@@ -195,6 +200,7 @@ fi
 # ---- 4. the design ----------------------------------------------------------
 architecture="docs/architecture.md"
 if [ -f "$architecture" ]; then
+  before="$failures"
   matrix="$(awk '{ print $1; exit }' <<< "$(corpus_pin_cell "SMART App Launch")")"
   design="$(awk -F'|' '
     NF >= 3 {
@@ -206,19 +212,20 @@ if [ -f "$architecture" ]; then
     }' "$architecture")"
   [ "$design" = "$matrix" ] ||
     fail "$architecture pins SMART App Launch '$design', docs/VERSIONS.md $matrix"
-  ok "$architecture agrees on SMART App Launch $matrix"
+  [ "$failures" -ne "$before" ] || ok "$architecture agrees on SMART App Launch $matrix"
 else
   fail "$architecture is missing"
 fi
 
 # ---- 5. the licence ---------------------------------------------------------
 licence="$(awk '{ print $1; exit }' <<< "$(corpus_pin_cell "Project licence")")"
+before="$failures"
 while IFS= read -r path; do
   claimed="$(grep -m1 -oE 'SPDX-License-Identifier: [A-Za-z0-9.+-]+' "$path" | cut -d' ' -f2 || true)"
   [ -z "$claimed" ] || [ "$claimed" = "$licence" ] ||
     fail "$path claims $claimed, the project licence is $licence"
 done < <(git ls-files -z | tr '\0' '\n' | grep -v '^docs/specs/' | grep -v '^LICENSE$')
-ok "every first-party SPDX header names $licence"
+[ "$failures" -ne "$before" ] || ok "every first-party SPDX header names $licence"
 
 if [ "$failures" -gt 0 ]; then
   printf 'versions: %d failure(s)\n' "$failures" >&2
