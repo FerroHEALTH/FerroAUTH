@@ -12,6 +12,11 @@
 # on every pull request over the workspace, and the release plan over the
 # crate a tag releases.
 #
+# It runs two passes and fails when either fails: the default feature
+# selection, and --only-explicit-features (no default features), which is
+# what a dependent built with default-features = false compiles against, so
+# moving a public item behind a default feature is a break there.
+#
 #   semver.sh [<crate>...]   check the named crates, or every crate
 #   semver.sh --pin          print the cargo-semver-checks version pinned in
 #                            docs/VERSIONS.md, which CI installs
@@ -50,4 +55,9 @@ else
   for crate in "$@"; do args+=(--package "$crate"); done
 fi
 cd "$root"
-exec cargo semver-checks check-release "${args[@]}"
+status=0
+echo "semver: pass 1 of 2, the default feature selection" >&2
+cargo semver-checks check-release "${args[@]}" || status=1
+echo "semver: pass 2 of 2, no default features (--only-explicit-features)" >&2
+cargo semver-checks check-release --only-explicit-features "${args[@]}" || status=1
+exit "$status"
