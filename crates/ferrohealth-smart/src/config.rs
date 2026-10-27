@@ -309,7 +309,7 @@ impl Default for AuthSection {
 
 /// The `issuer` key: the flat issuer identifier, or the `[[auth.issuer]]`
 /// list.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum IssuerKey {
     /// One issuer, the rest of its fields on the section.
@@ -317,6 +317,38 @@ pub enum IssuerKey {
     /// Several issuers, each with its own fields; a field an entry omits is
     /// the section's.
     List(Vec<IssuerEntry>),
+}
+
+impl<'de> Deserialize<'de> for IssuerKey {
+    // NOTE: serde's `untagged` drops each variant's own error, so the form is chosen
+    // by the value's shape and an entry's refusal, naming its key, reaches the caller.
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_any(IssuerKeyVisitor)
+    }
+}
+
+/// Reads [`IssuerKey`] by the shape of the value: a string or a list.
+struct IssuerKeyVisitor;
+
+impl<'de> serde::de::Visitor<'de> for IssuerKeyVisitor {
+    type Value = IssuerKey;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("an issuer identifier or a list of issuer tables")
+    }
+
+    fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<IssuerKey, E> {
+        Ok(IssuerKey::Flat(value.to_owned()))
+    }
+
+    fn visit_string<E: serde::de::Error>(self, value: String) -> Result<IssuerKey, E> {
+        Ok(IssuerKey::Flat(value))
+    }
+
+    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, seq: A) -> Result<IssuerKey, A::Error> {
+        Vec::<IssuerEntry>::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))
+            .map(IssuerKey::List)
+    }
 }
 
 /// One `[[auth.issuer]]` entry: the fields of the flat form, each optional,

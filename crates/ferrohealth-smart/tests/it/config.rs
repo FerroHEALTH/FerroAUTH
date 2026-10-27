@@ -485,3 +485,33 @@ fn the_basic_cache_keeps_a_verified_credential_for_five_minutes_unless_set_to_ze
         toml::from_str("users = []\ncache_ttl_seconds = 0").expect("the section parses");
     assert_eq!(0, off.cache_ttl_seconds);
 }
+
+#[test]
+fn a_misspelt_key_in_an_issuer_entry_is_refused_by_its_name() {
+    let refused = toml::from_str::<AuthSection>(
+        r#"
+        audience = ["https://fed.example.org"]
+
+        [[issuer]]
+        issuer = "https://one.example.org"
+        jwks_fiel = "/etc/ferro/one.jwks"
+        "#,
+    )
+    .expect_err("an unknown key in an issuer entry is refused");
+    assert!(
+        refused.to_string().contains("jwks_fiel"),
+        "the refusal names the key: {refused}"
+    );
+}
+
+#[test]
+fn an_issuer_that_is_neither_a_string_nor_a_list_is_refused() {
+    let refused = toml::from_str::<AuthSection>("issuer = 7\naudience = [\"a\"]\n")
+        .expect_err("a number is no issuer");
+    assert!(
+        refused
+            .to_string()
+            .contains("an issuer identifier or a list of issuer tables"),
+        "the refusal says what the key takes: {refused}"
+    );
+}
