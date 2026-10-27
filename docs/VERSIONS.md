@@ -105,8 +105,8 @@ the public domain of a United States Government work for NIST SP 800-162.
 | Rust toolchain | 1.99.1, profile `minimal`, components `rustfmt` and `clippy` | `rust-toolchain.toml` |
 | Rust edition | 2024 | `Cargo.toml` `[workspace.package] edition`, `rustfmt.toml` |
 | MSRV | 1.98 | `Cargo.toml` `[workspace.package] rust-version` |
-| `ferrohealth-smart` | 0.7.0, the workspace version, the release tag `ferrohealth-smart-v0.7.0` and the section of its own `CHANGELOG.md` | `Cargo.toml` `[workspace.package] version`, `Cargo.lock`, `crates/ferrohealth-smart/CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
-| `ferrohealth-authz` | 0.1.0, its own version line, the release tag `ferrohealth-authz-v0.1.0` and the section of its own `CHANGELOG.md` | `crates/ferrohealth-authz/Cargo.toml` `[package] version`, `Cargo.lock`, `crates/ferrohealth-authz/CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
+| `ferrohealth-smart` | the workspace version (read it in the manifest; a release moves it), with the release tag `ferrohealth-smart-vX.Y.Z` and the section of its own `CHANGELOG.md` | `Cargo.toml` `[workspace.package] version`, `Cargo.lock`, `crates/ferrohealth-smart/CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
+| `ferrohealth-authz` | its own version line (read it in the manifest; a release moves it), with the release tag `ferrohealth-authz-vX.Y.Z` and the section of its own `CHANGELOG.md` | `crates/ferrohealth-authz/Cargo.toml` `[package] version`, `Cargo.lock`, `crates/ferrohealth-authz/CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
 | Third-party crates | the `[workspace.dependencies]` table, each version checked against crates.io on 2026-10-19 | `Cargo.toml`, `Cargo.lock` |
 
 ## The CI tools
