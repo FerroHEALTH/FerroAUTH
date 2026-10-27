@@ -23,8 +23,8 @@ the changelog section always agree (`scripts/checks/crate-version-guard.sh`,
 
 - **A release bumps the crate's version, its changelog section and the lock
   together** (`cargo update -w`), in the release pull request. A
-  `ferrohealth-smart` release that `ferrohealth-authz` must follow also moves
-  the `ferrohealth-smart` requirement of `[workspace.dependencies]`.
+  release that moves the `ferrohealth-smart` requirement of
+  `[workspace.dependencies]` releases `ferrohealth-authz` with it.
 - A **product** pins the crate exactly (`=X.Y.Z`) and moves its pin
   deliberately, in lockstep with the other products. A **shared crate** that
   builds on it takes a caret requirement on the newest release it needs
@@ -36,8 +36,12 @@ the changelog section always agree (`scripts/checks/crate-version-guard.sh`,
 - A pull request that breaks a public API says so in its body and its
   CHANGELOG entry, naming what a product changes; while the line is `0.x`,
   such a release moves the minor version.
-- `ferrohealth-authz` keeps its exact requirement on `ferrohealth-smart`:
-  both release from this one workspace, together.
+- `ferrohealth-authz` takes `ferrohealth-smart` by a caret requirement on
+  the newest release it needs, like any shared crate on another (since
+  `ferrohealth-authz` 0.2.2), so a `ferrohealth-smart` patch needs no
+  `ferrohealth-authz` release. The requirement moves only when
+  `ferrohealth-authz` needs a newer `ferrohealth-smart`, and that move is a
+  `ferrohealth-authz` release of its own.
 
 ## Every release is checked for compatibility
 
