@@ -11,6 +11,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- Requires `openehr-sdt` 0.0.109, the version FerroEHR publishes, so a
+  product that also takes FerroEHR's openEHR crates resolves one
+  `openehr-sdt` (#154). The `openehr` feature's re-exported scope types
+  come from that version.
+
 ## [0.8.3] - 2026-10-27
 
 ### Changed

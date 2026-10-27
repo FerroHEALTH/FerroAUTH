@@ -35,7 +35,7 @@ base64 = { version = "0.23.1", default-features = false, features = ["std"] }
 jiff = { version = "0.2.38", default-features = false, features = ["std"] }
 # The SMART on openEHR scope grammar, the one parser every product reads it
 # with; without its default features it depends on nothing.
-openehr-sdt = { version = "0.0.102", default-features = false }
+openehr-sdt = { version = "0.0.109", default-features = false }
 # The family mask every secret and masked URL renders through. Verified
 # against crates.io on 2026-10-26.
 ferrohealth-secret = "0.2.0"
