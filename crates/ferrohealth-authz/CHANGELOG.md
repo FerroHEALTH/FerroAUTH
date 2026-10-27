@@ -14,6 +14,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-27
+
+### Changed
+
+- Requires `ferrohealth-smart` as caret `0.8.2` in place of the exact
+  `=0.8.1`, so a product takes a patch of ferrohealth-smart without waiting
+  for a release of this crate, the family rule for shared crates.
+
 ## [0.2.1] - 2026-10-27
 
 ### Changed
@@ -91,7 +99,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.2...HEAD
+[0.2.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.1...ferrohealth-authz-v0.2.2
 [0.2.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.0...ferrohealth-authz-v0.2.1
 [0.2.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.5...ferrohealth-authz-v0.2.0
 [0.1.5]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.4...ferrohealth-authz-v0.1.5
