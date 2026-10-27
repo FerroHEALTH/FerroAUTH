@@ -11,6 +11,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `openehr-sdt` 0.0.102 in place of 0.0.98, the newest version on
+  crates.io. The `openehr::smart_scopes` re-export names the 0.0.102 types,
+  so a product with the `openehr` feature that depends on `openehr-sdt`
+  itself moves to 0.0.102 with it (#148).
+
 ## [0.8.2] - 2026-10-27
 
 ### Fixed
