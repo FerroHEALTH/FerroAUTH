@@ -11,6 +11,27 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The `openehr-scopes` feature builds `openehr::smart_scopes`, the SMART on
+  openEHR scope grammar, alone and with no dependency of any kind, so a
+  browser client built for `wasm32-unknown-unknown` parses a scope string
+  with the parser the resource server enforces it with (#158).
+
+### Changed
+
+- **Breaking:** `openehr::smart_scopes` is this crate's own module, moved
+  from FerroEHR's `openehr-sdt` with the same path, types and behaviour, and
+  the crate no longer depends on `openehr-sdt` (#158). A `0.0.x`
+  requirement on that crate was exact, so each FerroEHR release left this
+  crate behind and a product resolved two copies. A product that names
+  `openehr_sdt::smart_scopes` types beside this crate's names
+  `ferrohealth_smart::openehr::smart_scopes` instead.
+- **Breaking:** every module but `openehr::smart_scopes` sits behind the new
+  default `full` feature, which `fetch`, `axum`, `oidc` and `openehr` imply
+  (#158). A product that takes the crate with `default-features = false`
+  and none of those features adds `features = ["full"]`.
+
 ## [0.8.4] - 2026-10-27
 
 ### Changed

@@ -216,13 +216,13 @@ impl Caller {
     /// Returns every token of the `scope` claim read under the SMART on
     /// openEHR grammar, a token outside it as [`SmartScope::Other`].
     ///
-    /// [`SmartScope::Other`]: openehr_sdt::smart_scopes::SmartScope::Other
+    /// [`SmartScope::Other`]: crate::openehr::smart_scopes::SmartScope::Other
     #[cfg(feature = "openehr")]
     #[must_use]
-    pub fn openehr_scopes(&self) -> Vec<openehr_sdt::smart_scopes::SmartScope> {
+    pub fn openehr_scopes(&self) -> Vec<crate::openehr::smart_scopes::SmartScope> {
         self.scope
             .iter()
-            .map(|token| openehr_sdt::smart_scopes::SmartScope::parse(token))
+            .map(|token| crate::openehr::smart_scopes::SmartScope::parse(token))
             .collect()
     }
 
@@ -261,7 +261,7 @@ impl Caller {
         let openehr = self
             .openehr_scopes()
             .iter()
-            .any(|scope| matches!(scope, openehr_sdt::smart_scopes::SmartScope::Resource(_)));
+            .any(|scope| matches!(scope, crate::openehr::smart_scopes::SmartScope::Resource(_)));
         #[cfg(not(feature = "openehr"))]
         let openehr = false;
         openehr || !self.scopes.is_empty()

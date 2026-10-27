@@ -41,7 +41,8 @@ assertion to the token endpoint (RFC 7523 §2.2), never an access token.
   an asymmetric algorithm only, `iss`, `aud`, `exp` and `nbf` with a clock
   skew), answering one generic `401` that names no claim;
 - parse and enforce the SMART on openEHR scopes (`openehr`, behind the
-  `openehr` feature, parsed by `openehr-sdt` and never by a second parser):
+  `openehr` feature, parsed by `openehr::smart_scopes`, the grammar's one
+  parser, which builds alone and dependency-free behind `openehr-scopes`):
   the `template-`, `composition-` and `aql-` families with their patterns,
   the rules `docs/architecture.md` §3.9 fixes where the draft is silent,
   and the `ehrId` of the launch context; and the SMART on FHIR scopes

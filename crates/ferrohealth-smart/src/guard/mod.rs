@@ -74,9 +74,9 @@ pub enum Requirement {
     #[cfg(feature = "openehr")]
     OpenEhr {
         /// The resource family the route addresses.
-        family: openehr_sdt::smart_scopes::ResourceFamily,
+        family: crate::openehr::smart_scopes::ResourceFamily,
         /// The permission the operation needs.
-        permission: openehr_sdt::smart_scopes::Permission,
+        permission: crate::openehr::smart_scopes::Permission,
         /// The resource the route names, when the product can see it.
         resource: Option<String>,
     },
@@ -815,7 +815,7 @@ mod tests {
     #[cfg(feature = "openehr")]
     #[test]
     fn an_openehr_requirement_admits_an_allowlisted_caller_with_no_resource_scope() {
-        use openehr_sdt::smart_scopes::{Permission, ResourceFamily};
+        use crate::openehr::smart_scopes::{Permission, ResourceFamily};
         let none = Honoured::default();
         let read = Requirement::OpenEhr {
             family: ResourceFamily::Composition,

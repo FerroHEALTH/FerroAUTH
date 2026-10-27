@@ -28,7 +28,7 @@ ferrohealth-smart = { version = "=0.8.4", features = ["axum", "openehr"] }
   introspection, under the product's client authentication or a bearer
   token, with a cache bounded by each response's `exp`.
 - **`openehr`** (feature `openehr`): the SMART on openEHR scopes, parsed by
-  `openehr-sdt` and enforced with `openehr::granted` over the `template-`,
+  `openehr::smart_scopes` and enforced with `openehr::granted` over the `template-`,
   `composition-` and `aql-` families, the product's `Honoured` flags per
   issuer or client, and `Caller::ehr_id` for the launch context's EHR.
 - **`scope`**: the SMART on FHIR scopes, `patient/`, `user/` and `system/`
@@ -71,10 +71,21 @@ ferrohealth-smart = { version = "=0.8.4", features = ["axum", "openehr"] }
   end-session URL of RP-Initiated Logout. It keeps no state: the console
   stores the `PendingSignIn` and the tokens of the `SignedIn` it returns.
 
-The HTTP fetchers (the issuer's metadata, the key set over its `jwks_uri`
-and `client::cache::TokenSource`) sit behind the default `fetch` feature.
-A product built with `default-features = false` links no HTTP client and
+Every module above sits behind the default `full` feature, which `fetch`,
+`axum`, `oidc` and `openehr` imply. The HTTP fetchers (the issuer's
+metadata, the key set over its `jwks_uri` and `client::cache::TokenSource`)
+sit behind the default `fetch` feature. A product built with
+`default-features = false, features = ["full"]` links no HTTP client and
 reads its key set from a `jwks_file`.
+
+The `openehr-scopes` feature alone builds `openehr::smart_scopes`, the
+SMART on openEHR scope grammar, with no dependency of any kind, so a
+browser client built for `wasm32-unknown-unknown` parses a scope string
+with the parser the resource server enforces it with:
+
+```toml
+ferrohealth-smart = { version = "=0.8.4", default-features = false, features = ["openehr-scopes"] }
+```
 
 With the `axum` feature, **`guard::AuthLayer`** runs the credential check,
 the type-level scope check and the audit line in front of every route the
