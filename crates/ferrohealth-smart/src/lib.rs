@@ -9,14 +9,14 @@
 //! standards-compliant authorization server, and the crate does four things
 //! every product needs:
 //!
-//! - `resource`: the resource-server role. The issuer's metadata is read at
+//! - [`resource`]: the resource-server role. The issuer's metadata is read at
 //!   the RFC 8414 §3 location, with `OpenID` Connect Discovery 1.0 §4 as the
-//!   fallback (`metadata`), its key set is read and read again on a
+//!   fallback ([`metadata`]), its key set is read and read again on a
 //!   rotation, and every JWT access token is validated under RFC 9068 (the
 //!   signature with an asymmetric algorithm only, `iss`, `aud`, `exp` and
 //!   `nbf` within a clock skew). A refused token is one generic `401` that
-//!   names no claim (`refusal`).
-//! - `scope`: the SMART App Launch 2.x scopes, `patient/`, `user/` and
+//!   names no claim ([`refusal`]).
+//! - [`scope`]: the SMART App Launch 2.x scopes, `patient/`, `user/` and
 //!   `system/` with the `cruds` permissions, and the patient compartment the
 //!   token's launch context names; a missing permission is a `403` that names
 //!   no scope. Behind the `openehr` feature, `openehr` enforces the SMART
@@ -24,24 +24,24 @@
 //!   `template-`, `composition-` and `aql-` families with their patterns,
 //!   and the `ehrId` of the launch context. The product's route table
 //!   declares which grammar each route is checked against.
-//! - `basic` and `client`: machine-to-machine authentication in exactly
+//! - [`basic`] and [`client`]: machine-to-machine authentication in exactly
 //!   two modes, HTTP Basic (RFC 7617, verified against Argon2id hashes and
 //!   sent outgoing) and the OAuth 2.0 client credentials grant (RFC 6749 §4.4,
 //!   a token client with a cache and one renewal on a `401`, authenticating
 //!   with a secret or a `private_key_jwt` assertion). A static bearer token
 //!   or an API key is not a mode.
-//! - `assurance`: the assurance level of the authentication behind a
+//! - [`assurance`]: the assurance level of the authentication behind a
 //!   token, with the RFC 9470 step-up refusal below a minimum, and the
 //!   natural person the token names or the client acts for.
-//! - `roles`: the roles a caller holds, read from the claims RFC 9068
+//! - [`roles`]: the roles a caller holds, read from the claims RFC 9068
 //!   §2.2.3.1 names or granted to a Basic user, which a route requirement
 //!   checks beside its scopes.
-//! - `audit`: one audit line per request, which carries the principal, the
+//! - [`audit`]: one audit line per request, which carries the principal, the
 //!   client, the scheme, the issuer, the method, the route, what was
 //!   addressed, the interaction, the status and the duration, and never the
 //!   token or any content.
 //!
-//! `config` holds the `[auth]` and `[<lane>.credentials]` sections every
+//! [`config`] holds the `[auth]` and `[<lane>.credentials]` sections every
 //! product embeds. The `axum` feature adds `guard`, the `tower::Layer` that
 //! runs the credential check, the scope check and the audit line in front of
 //! every route, and `extract`, the extractor of the caller the layer
@@ -52,39 +52,39 @@
 //! `oidc` feature adds `oidc`, the OpenID Connect relying-party client an
 //! operator console signs its operator in with.
 //!
-//! Every module above sits behind the default `full` feature, which `fetch`,
-//! `axum`, `oidc` and `openehr` imply. The `openehr-scopes` feature alone
-//! builds `openehr::smart_scopes`, the SMART on openEHR scope grammar, with
-//! no dependency of any kind, so a browser client parses scopes with the
-//! parser the resource server enforces them with.
+//! The `openehr-scopes` feature builds `openehr::smart_scopes`, the SMART on
+//! openEHR scope grammar, which depends on nothing. For the browser
+//! (`wasm32-unknown-unknown`) the grammar is the whole crate: the resource
+//! server is left out with its dependencies, so a browser client parses
+//! scopes with the parser the resource server enforces them with.
 
 #![doc(test(attr(deny(warnings))))]
 
-#[cfg(feature = "full")]
+#[cfg(resource_server)]
 pub mod assurance;
-#[cfg(feature = "full")]
+#[cfg(resource_server)]
 pub mod audit;
-#[cfg(feature = "full")]
+#[cfg(resource_server)]
 pub mod basic;
-#[cfg(feature = "full")]
+#[cfg(resource_server)]
 pub mod client;
-#[cfg(feature = "full")]
+#[cfg(resource_server)]
 pub mod config;
-#[cfg(feature = "axum")]
+#[cfg(all(feature = "axum", resource_server))]
 pub mod extract;
-#[cfg(feature = "axum")]
+#[cfg(all(feature = "axum", resource_server))]
 pub mod guard;
-#[cfg(feature = "full")]
+#[cfg(resource_server)]
 pub mod metadata;
-#[cfg(feature = "oidc")]
+#[cfg(all(feature = "oidc", resource_server))]
 pub mod oidc;
 #[cfg(feature = "openehr-scopes")]
 pub mod openehr;
-#[cfg(feature = "full")]
+#[cfg(resource_server)]
 pub mod refusal;
-#[cfg(feature = "full")]
+#[cfg(resource_server)]
 pub mod resource;
-#[cfg(feature = "full")]
+#[cfg(resource_server)]
 pub mod roles;
-#[cfg(feature = "full")]
+#[cfg(resource_server)]
 pub mod scope;

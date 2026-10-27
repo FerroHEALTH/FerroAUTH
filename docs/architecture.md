@@ -702,10 +702,10 @@ between the products, which is the drift one crate exists to close. It
 moved here from FerroEHR's `openehr-sdt` with the same path and API
 (owner decision 2026-10-27): a `0.0.x` requirement on that crate is exact,
 so each of FerroEHR's lockstep releases left this crate behind and a
-product resolved two copies. It depends on nothing beyond `std` and builds
-alone behind the `openehr-scopes` feature, so a browser client (the FerroEHR
-viewer's scope previewer) parses with the code the resource server enforces
-with. What the `openehr` feature adds is the enforcement: a `Requirement::OpenEhr {
+product resolved two copies. It depends on nothing beyond `std`, behind
+the `openehr-scopes` feature, and for the browser (`wasm32-unknown-unknown`)
+it is the whole crate, so a browser client (the FerroEHR viewer's scope
+previewer) parses with the code the resource server enforces with (5). What the `openehr` feature adds is the enforcement: a `Requirement::OpenEhr {
 family, permission, resource }` the product's classifier names per route,
 checked against the token's parsed scopes.
 
@@ -1034,10 +1034,12 @@ behind an `axum` feature, so a product that fronts a different server keeps
 the core. The HTTP fetchers (the issuer's metadata, the key set over its
 `jwks_uri`, the client credentials token client) sit behind the default
 `fetch` feature; a product built without it links no HTTP client and reads
-its key set from a `jwks_file`. All of it sits behind the default `full`
-feature, which `fetch`, `axum`, `oidc` and `openehr` imply, so
-`openehr-scopes` alone builds the SMART on openEHR grammar with no
-dependency (3.9).
+its key set from a `jwks_file`. A browser runs none of it, so for
+`wasm32-unknown-unknown` the manifest leaves these dependencies out and a
+build script's `resource_server` cfg leaves out every module but the SMART
+on openEHR grammar (3.9); a feature would have broken every product built
+with `default-features = false` (no specification governs this: our own
+design).
 
 ### 5.1 What each product keeps
 
@@ -1205,7 +1207,7 @@ four agree on and settles each difference:
 | `resource` is the RFC 8707 resource indicator, sent when configured; `audience` has no specification and is sent only when configured | `rfc8707 §2`; FerroBRIDGE sends both today | none |
 | The `kid` of the product's own JWK is configured, or defaults to the RFC 7638 SHA-256 thumbprint | `rfc7638 §3`; the default is our own design | none |
 | A caller's roles are read from the RFC 9068 §2.2.3.1 claims, or the paths a deployment names, and a Basic user's from its configuration; a route table states role requirements beside scope requirements, matched without regard to ASCII case | `rfc9068 §2.2.3.1`, `rfc7643 §2.4`, `§4.1.2`; the matching and the requirement forms are our own design (owner decision 2026-10-25: authentication and the granted subject belong in this crate) | a product that read roles itself (FerroEHR's claim paths and Basic role table) moves them to `[auth] role_claims` and `[[auth.basic.users]] roles` |
-| The crate parses (with its own `openehr::smart_scopes`, which moved here from `openehr-sdt` and builds dependency-free behind `openehr-scopes`) and enforces the SMART on openEHR grammar beside the FHIR grammar; the product's route table declares which applies per route | owner decision 2026-10-19, the move 2026-10-27; `soe master07`, `master08`; the rules the draft leaves open are listed in 3.9 as our own design | a product that named `openehr_sdt::smart_scopes` names `ferrohealth_smart::openehr::smart_scopes`, and one built with `default-features = false` adds `full` |
+| The crate parses (with its own `openehr::smart_scopes`, which moved here from `openehr-sdt` and builds dependency-free behind `openehr-scopes`, for the browser too) and enforces the SMART on openEHR grammar beside the FHIR grammar; the product's route table declares which applies per route | owner decision 2026-10-19, the move 2026-10-27; `soe master07`, `master08`; the rules the draft leaves open are listed in 3.9 as our own design | a product that named `openehr_sdt::smart_scopes` names `ferrohealth_smart::openehr::smart_scopes` |
 | SMART on openEHR is DEVELOPMENT: pinned by commit, its status checked on every vendor run, upstream read weekly, and every upstream change re-vendored and recorded here as a decision naming what changed | the draft's `manifest_vars.adoc`; no release stabilises it | none yet: the draft last changed on 2026-07-19 (amendment record 1.1.0) |
 | The `ehrId` of the launch context is read from an `ehrId` claim when the issuer carries it in the token | our own design, as `patient` in 3.3; the draft places it in the token response (`soe master07`, Context Selection) | none |
 | An enabled `[auth]` with Basic users and no issuer is a Basic-only surface; an enabled section that admits no credential is refused at load | our own design, fail closed; asked by the FerroEHR migration (#43) | none |

@@ -240,8 +240,8 @@ jobs:
       # extractor behind the `axum` feature, so both are linted; so is the
       # build without the `fetch` feature, which links no HTTP client, and
       # the `axum` build without `openehr` the FHIR products link. The
-      # SMART on openEHR grammar alone (`openehr-scopes`) is linted on the
-      # host and for the browser target a viewer builds it for.
+      # SMART on openEHR grammar (`openehr-scopes`) is linted on the host
+      # and for the browser target, where it is the whole crate.
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo clippy --workspace --all-targets --no-default-features --features axum,openehr --locked -- -D warnings
