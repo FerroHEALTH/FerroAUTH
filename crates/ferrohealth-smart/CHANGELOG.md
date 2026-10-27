@@ -11,6 +11,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- A misspelt key inside an `[[auth.issuer]]` entry is refused by its name.
+  `config::IssuerKey` read the flat and list forms as an untagged enum,
+  whose refusal ("data did not match any variant") dropped the entry's own
+  error; it is now read by the value's shape, so the entry's
+  `deny_unknown_fields` refusal reaches the operator (#145).
+
 ## [0.8.1] - 2026-10-27
 
 ### Fixed
