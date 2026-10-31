@@ -85,7 +85,7 @@ FerroAUTH's own code is licensed under the Business Source License 1.1
 ([`LICENSE`](LICENSE)). These are the terms the family book states for every
 FerroHEALTH product
 ([Contributions](https://ferrohealth.eu/docs/licensing.html#contributions)).
-By submitting a contribution you:
+By opening a pull request you:
 
 1. certify that you wrote it, or otherwise have the right to submit it under
    these terms;
@@ -97,8 +97,5 @@ By submitting a contribution you:
    modify, distribute, sublicense and relicense the contribution as part of
    the Licensed Work under any terms, including commercial licences.
 
-You keep your copyright. There is no separate agreement to sign: the pull
-request template carries a checkbox recording your acceptance of these terms,
-and a pull request from a person does not merge without it (the
-`contribution-licence` check, backed by
-`scripts/checks/contribution-licence.sh`).
+You keep your copyright. There is no separate agreement to sign and no box to
+tick: opening the pull request is your acceptance of these terms.

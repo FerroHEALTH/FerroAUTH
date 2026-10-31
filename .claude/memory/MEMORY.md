@@ -22,8 +22,6 @@
   the Licensor, Apache 2.0 four years after each version
 - [Signed commits and the merge queue](merge-queue-signed.md): `main` takes
   only signed commits through pull requests and the merge queue
-- [PR licence box](pr-licence-box.md): tick the contribution-licence box in
-  every pull request body; the owner's standing consent
 - [Release tag](release-tag.md): the tag is signed on the merge commit and the
   crates-io environment waits for the owner's approval
 - [All products in lockstep](lockstep.md): every release rolls out to every

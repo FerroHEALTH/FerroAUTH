@@ -30,4 +30,4 @@ token and is the owner's wording to keep or trim.
   Foundation's notice for Discovery), recorded in each `PROVENANCE.md`;
   `deny.toml` admits the dependency licences.
 - A contribution is licensed under the same terms (CONTRIBUTING.md §
-  Licensing of contributions); the pull request box records it.
+  Licensing of contributions); opening the pull request accepts them.

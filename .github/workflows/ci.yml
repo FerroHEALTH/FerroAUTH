@@ -22,9 +22,7 @@ on:
     # Only the activity types that change the code under test, so a commit
     # gets one run: `edited` started a second run on the same commit, the
     # concurrency group cancelled the first, and its `conclusion` reported a
-    # failure on the head commit (#77). contribution-licence reads the
-    # description from the API when it runs, and pr-guards.yml re-runs it once
-    # this run completes.
+    # failure on the head commit (#77).
     types: [opened, synchronize, reopened]
   merge_group:
   workflow_dispatch:
@@ -154,34 +152,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: bash scripts/checks/todo-issues.sh
-
-  # A person's pull request records acceptance of the contribution licensing
-  # terms (CONTRIBUTING.md § Licensing of contributions) through the
-  # template's checkbox. Bots are skipped: a bot cannot accept terms. The
-  # body is read when the step runs, and pr-guards.yml re-runs this job when
-  # the description changes, so ticking the box takes effect (#77).
-  contribution-licence:
-    name: contribution-licence
-    if: github.event_name == 'pull_request' && github.event.pull_request.user.type != 'Bot'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      pull-requests: read # the description when the step runs
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: The pull request body accepts the contribution licensing terms
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          set -euo pipefail
-          PR_BODY=$(gh api "repos/${GH_REPO}/pulls/${PR}" --jq '.body // ""')
-          export PR_BODY
-          bash scripts/checks/contribution-licence.sh
 
   detect:
     name: detect
@@ -414,7 +384,6 @@ jobs:
       - changelog
       - comment-style
       - todo-issues
-      - contribution-licence
       - detect
       - fmt
       - clippy
