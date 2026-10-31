@@ -438,8 +438,8 @@ impl ResourceServer {
     /// admits, which a handler reads with [`Caller::extension`].
     ///
     /// This is how a product attaches its own per-issuer policy to the
-    /// callers of that issuer; the crate reads no extension (no
-    /// specification governs this: our own design).
+    /// callers of that issuer; the crate reads one extension, the
+    /// [`PatientClaim`] (no specification governs this: our own design).
     #[must_use]
     pub fn with_extension<T: Clone + Send + Sync + 'static>(mut self, value: T) -> Self {
         self.extensions.insert(value);
@@ -921,6 +921,62 @@ pub enum Compartment {
     /// Only the compartment of the patient with this id, the `patient`
     /// launch context of the token.
     Patient(String),
+}
+
+/// The patient a request of the person's own access is bound to, as its
+/// token names it ([`Caller::person`]).
+///
+/// Each field is what one source names, `None` when the token carries no
+/// such value; a product reads the one its own identifiers live in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PersonContext<'a> {
+    /// The `patient` launch context (SMART App Launch 2.2.0, Scopes and
+    /// Launch Context, §Launch context arrives with your `access_token`).
+    pub patient: Option<&'a str>,
+    /// The `ehrId` of the SMART on openEHR launch context (`master07
+    /// §Context Selection`).
+    pub ehr_id: Option<&'a str>,
+    /// The value of the deployment's [`PatientClaim`].
+    pub claim: Option<&'a str>,
+}
+
+/// The claim a deployment names the patient of a person's own token in, a
+/// dotted path such as `patient_id` or `person.patient_id`.
+///
+/// A product attaches it to its resource server with `with_extension`, so
+/// every caller that server admits carries it, and
+/// [`Caller::acts_for_the_person`] reads it. No specification names such a
+/// claim: our own design, FerroEHR's ABAC patient claim moved here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PatientClaim(String);
+
+/// A [`PatientClaim`] path that is blank, has an empty step, or carries
+/// whitespace.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("the patient claim path is blank, has an empty step or carries whitespace")]
+pub struct PatientClaimError;
+
+impl PatientClaim {
+    /// Returns the claim at the dotted `path`.
+    ///
+    /// # Errors
+    ///
+    /// [`PatientClaimError`] when `path` is blank, has an empty step, or
+    /// carries whitespace, which would name no claim.
+    pub fn new(path: impl Into<String>) -> Result<Self, PatientClaimError> {
+        let path = path.into();
+        if path.split('.').any(str::is_empty) || path.contains(char::is_whitespace) {
+            return Err(PatientClaimError);
+        }
+        Ok(Self(path))
+    }
+
+    /// Returns the dotted path.
+    #[must_use]
+    pub fn path(&self) -> &str {
+        &self.0
+    }
 }
 
 /// What a request may do, as the gate established it.

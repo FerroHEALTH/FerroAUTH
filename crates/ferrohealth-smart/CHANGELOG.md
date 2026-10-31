@@ -11,6 +11,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- Whether a request is the natural person's own access, for the EHDS
+  person-access rights of Regulation (EU) 2025/327 Art. 3, 5 and 9, in two
+  answers that fail safe in opposite directions (#171).
+  `Caller::acts_for_the_person` is the broad answer, for the Art. 3(3)
+  access delay: a bearer token that carries any `patient/` scope of the
+  SMART on FHIR or SMART on openEHR grammar, or the deployment's patient
+  claim, also beside `user/` or `system/` scopes. `Caller::is_the_person`
+  is the strict answer, for Art. 5 authorship and the Art. 9 access record:
+  a bearer token with a `patient/` scope and no `user/` or `system/` scope;
+  the patient claim alone does not count. A Basic user is neither.
+  `Caller::person` returns the `PersonContext` the request is bound to: the
+  `patient` launch context, the `ehrId` and the patient claim's value.
+- `resource::PatientClaim`, the dotted path of the claim a deployment names
+  the patient in, attached to a resource server or introspector with
+  `with_extension` so every caller it admits carries it.
+
 ## [0.8.6] - 2026-10-27
 
 ### Fixed

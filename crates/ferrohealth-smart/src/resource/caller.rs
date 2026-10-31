@@ -7,6 +7,8 @@
 use crate::resource::Access;
 use crate::resource::Caller;
 use crate::resource::Compartment;
+use crate::resource::PatientClaim;
+use crate::resource::PersonContext;
 use crate::resource::Via;
 use crate::scope::Evaluator;
 use crate::scope::Permission;
@@ -112,8 +114,8 @@ impl Caller {
     /// [`Caller::extension`].
     ///
     /// A product's own [`Verifier`](crate::resource::Verifier) attaches its
-    /// per-issuer policy this way; the crate reads no extension (no
-    /// specification governs this: our own design).
+    /// per-issuer policy this way; the crate reads one extension, the
+    /// [`PatientClaim`] (no specification governs this: our own design).
     #[must_use]
     pub fn with_extension<T: Clone + Send + Sync + 'static>(mut self, value: T) -> Self {
         self.extensions.insert(value);
@@ -224,6 +226,90 @@ impl Caller {
             .iter()
             .map(|token| crate::openehr::smart_scopes::SmartScope::parse(token))
             .collect()
+    }
+
+    /// Returns whether the request may be the natural person's own access,
+    /// the broad answer: erring toward the person is the safe direction.
+    ///
+    /// Regulation (EU) 2025/327 Art. 3(3) lets a Member State delay a
+    /// person's access to newly registered data "until a health professional
+    /// is able to properly communicate and explain" it. A product that
+    /// withholds such data asks this question, and a request wrongly read as
+    /// the person's is withheld from, which delays a read; one wrongly read
+    /// as a professional's would show the person the data too early.
+    ///
+    /// A bearer token is read as the person's when its `scope` claim carries
+    /// any `patient/` scope of the SMART on FHIR or the SMART on openEHR
+    /// grammar, or the claim the deployment names in a [`PatientClaim`]
+    /// extension, whatever `user/`
+    /// or `system/` scope it carries beside them. A Basic caller never is.
+    /// SMART names *what* a `patient/` scope reaches and not *who* asks
+    /// (SMART App Launch 2.2.0, Scopes and Launch Context, §Patient-specific
+    /// scopes), so reading it as the person's is no specification's rule:
+    /// the owner's ruling of 2026-10-31 on FerroAUTH #171.
+    #[must_use]
+    pub fn acts_for_the_person(&self) -> bool {
+        self.via == Via::Bearer
+            && (self.grants_in("patient") || self.patient_claim_value().is_some())
+    }
+
+    /// Returns whether the request is the natural person's own access, the
+    /// strict answer: erring toward the professional is the safe direction.
+    ///
+    /// Regulation (EU) 2025/327 Art. 5 has information the person inserts
+    /// "clearly distinguishable as having been inserted by the natural
+    /// person", who "shall not be able to directly alter" what health
+    /// professionals inserted, and Art. 9(1) gives the person information on
+    /// every access "through the health professional access service". A
+    /// professional's request wrongly read as the person's would record a
+    /// professional's write as the person's, lock professionals out of
+    /// altering it, and leave their access out of the person's record of
+    /// accesses, so this answer admits only a token that cannot be a
+    /// professional's.
+    ///
+    /// A bearer token is the person's when its `scope` claim carries a
+    /// `patient/` scope of either grammar and no `user/` or `system/` scope.
+    /// The patient claim alone does not count, because a professional's
+    /// token in a patient's context carries it too. A Basic caller never is
+    /// (the owner's ruling of 2026-10-31 on FerroAUTH #171).
+    #[must_use]
+    pub fn is_the_person(&self) -> bool {
+        self.via == Via::Bearer
+            && self.grants_in("patient")
+            && !self.grants_in("user")
+            && !self.grants_in("system")
+    }
+
+    /// Returns the patient the request is bound to when
+    /// [`Caller::acts_for_the_person`] holds, or `None` when it does not.
+    ///
+    /// The context carries what the token names: the `patient` launch
+    /// context, the `ehrId` of the openEHR launch context, and the value of
+    /// the deployment's patient claim, each `None` when absent.
+    #[must_use]
+    pub fn person(&self) -> Option<PersonContext<'_>> {
+        self.acts_for_the_person().then(|| PersonContext {
+            patient: self.patient(),
+            ehr_id: self.ehr_id(),
+            claim: self.patient_claim_value(),
+        })
+    }
+
+    /// Returns the value of the deployment's patient claim, when it names
+    /// one and the token carries it as a string that is not blank.
+    fn patient_claim_value(&self) -> Option<&str> {
+        self.extension::<PatientClaim>()
+            .and_then(|claim| self.claim_text(claim.path()))
+    }
+
+    /// Returns whether a token of the `scope` claim names `context`, the
+    /// `<context>/` prefix both SMART grammars share.
+    fn grants_in(&self, context: &str) -> bool {
+        self.scope.iter().any(|token| {
+            token
+                .strip_prefix(context)
+                .is_some_and(|rest| rest.starts_with('/'))
+        })
     }
 
     /// Returns the scheme the credential arrived with.
@@ -434,7 +520,7 @@ impl Access {
 
 #[cfg(test)]
 mod tests {
-    use crate::resource::{Access, Caller, Compartment, Via};
+    use crate::resource::{Access, Caller, Compartment, PatientClaim, PatientClaimError, Via};
     use crate::scope::Permission;
 
     #[test]
@@ -546,6 +632,164 @@ mod tests {
         assert!(!compartment.admits(Some("124")));
         assert!(!compartment.admits(None));
         assert!(Compartment::Any.admits(None));
+    }
+
+    /// A bearer caller of `scope` under a deployment whose patient claim is
+    /// `patient_id`, carrying that claim when `claimed` names a value.
+    fn bearer(scope: &str, claimed: Option<&str>) -> Caller {
+        let mut claims = serde_json::Map::new();
+        if let Some(value) = claimed {
+            claims.insert(String::from("patient_id"), serde_json::json!(value));
+        }
+        Caller::new(
+            String::from("sub-1"),
+            None,
+            scope,
+            Some(String::from("123")),
+            false,
+        )
+        .with_claims(claims)
+        .with_extension(PatientClaim::new("patient_id").expect("a valid path"))
+    }
+
+    /// The token matrix of FerroAUTH #171, each with the broad answer
+    /// (Art. 3(3)) and the strict answer (Art. 5, Art. 9) it must give.
+    fn matrix() -> Vec<(&'static str, Caller, bool, bool)> {
+        vec![
+            (
+                "a patient/ token",
+                bearer("openid patient/Observation.rs", None),
+                true,
+                true,
+            ),
+            (
+                "a patient-claim token",
+                bearer("openid", Some("p-7")),
+                true,
+                false,
+            ),
+            (
+                "a mixed patient/ and user/ token",
+                bearer("patient/Observation.rs user/Practitioner.r", None),
+                true,
+                false,
+            ),
+            (
+                "a mixed patient/ and system/ token",
+                bearer("patient/*.rs system/Patient.r", None),
+                true,
+                false,
+            ),
+            (
+                "a user/ token",
+                bearer("user/Observation.rs", None),
+                false,
+                false,
+            ),
+            ("a system/ token", bearer("system/*.rs", None), false, false),
+            (
+                "a user/ token with the patient claim",
+                bearer("user/Observation.rs", Some("p-7")),
+                true,
+                false,
+            ),
+            (
+                "a Basic user",
+                Caller::basic(String::from("etl"), "patient/Observation.rs"),
+                false,
+                false,
+            ),
+        ]
+    }
+
+    #[test]
+    fn the_broad_answer_reads_any_patient_scope_or_the_patient_claim() {
+        for (name, caller, broad, _) in matrix() {
+            assert_eq!(broad, caller.acts_for_the_person(), "{name}");
+            assert_eq!(broad, caller.person().is_some(), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_strict_answer_reads_only_patient_scopes() {
+        for (name, caller, _, strict) in matrix() {
+            assert_eq!(strict, caller.is_the_person(), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_strict_answer_implies_the_broad_one() {
+        for (name, caller, _, _) in matrix() {
+            assert!(
+                !caller.is_the_person() || caller.acts_for_the_person(),
+                "{name}"
+            );
+        }
+    }
+
+    #[cfg(feature = "openehr")]
+    #[test]
+    fn an_openehr_patient_scope_is_the_persons_too() {
+        let alone = bearer("patient/composition-*.r patient/aql-*.s", None);
+        assert!(alone.acts_for_the_person());
+        assert!(alone.is_the_person());
+        let mixed = bearer("patient/composition-*.r user/composition-*.r", None);
+        assert!(mixed.acts_for_the_person());
+        assert!(!mixed.is_the_person());
+    }
+
+    #[test]
+    fn the_person_context_names_what_the_token_binds() {
+        let mut claims = serde_json::Map::new();
+        claims.insert(String::from("patient_id"), serde_json::json!("p-7"));
+        claims.insert(String::from("ehrId"), serde_json::json!("ehr-9"));
+        let caller = Caller::new(
+            String::from("sub-1"),
+            None,
+            "patient/*.rs",
+            Some(String::from("123")),
+            false,
+        )
+        .with_claims(claims)
+        .with_extension(PatientClaim::new("patient_id").expect("a valid path"));
+        let person = caller.person().expect("a patient/ token is the person's");
+        assert_eq!(Some("123"), person.patient);
+        assert_eq!(Some("ehr-9"), person.ehr_id);
+        assert_eq!(Some("p-7"), person.claim);
+    }
+
+    #[test]
+    fn a_blank_or_absent_patient_claim_does_not_count() {
+        assert!(!bearer("openid", None).acts_for_the_person(), "absent");
+        assert!(!bearer("openid", Some("  ")).acts_for_the_person(), "blank");
+        let unconfigured = Caller::new(String::from("sub-1"), None, "openid", None, false)
+            .with_claims(serde_json::Map::from_iter([(
+                String::from("patient_id"),
+                serde_json::json!("p-7"),
+            )]));
+        assert!(
+            !unconfigured.acts_for_the_person(),
+            "a claim the deployment does not name"
+        );
+    }
+
+    #[test]
+    fn a_malformed_patient_claim_path_is_refused() {
+        for path in ["", "person..patient_id", ".", "patient id"] {
+            assert_eq!(Err(PatientClaimError), PatientClaim::new(path), "{path:?}");
+        }
+        assert_eq!(
+            Ok("person.patient_id"),
+            PatientClaim::new("person.patient_id")
+                .as_ref()
+                .map(PatientClaim::path)
+        );
+    }
+
+    #[test]
+    fn a_scope_that_only_starts_like_a_context_names_none() {
+        assert!(!bearer("patients/Observation.rs", None).acts_for_the_person());
+        assert!(bearer("patient/Observation.rs users/x", None).is_the_person());
     }
 
     #[test]
