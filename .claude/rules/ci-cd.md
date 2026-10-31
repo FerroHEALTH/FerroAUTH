@@ -16,8 +16,7 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
 
 - `.github/workflows/ci.yml`: the gate on every pull request, merge-group run
   and push to `main`. The workflow tier (zizmor, actionlint, shellcheck, the
-  comment-style guard, the `TODO(#N)` guard, the contribution-licence
-  guard) and the Rust tier (`cargo fmt --all --check`; `cargo clippy
+  comment-style guard, the `TODO(#N)` guard) and the Rust tier (`cargo fmt --all --check`; `cargo clippy
   --workspace --all-targets --locked -- -D warnings` with and without
   `--all-features`; `cargo nextest run --workspace --locked` with and without
   `--all-features`, plus `cargo test --doc`; `cargo doc` with
@@ -25,10 +24,6 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
   ferrohealth-smart --dry-run --locked`; the crate-version guard and
   `dependency-review-action` on pull requests). The `conclusion` job is the
   single required status check on `main`.
-- `.github/workflows/pr-guards.yml`: `ci.yml` runs on `opened`, `synchronize`
-  and `reopened` only, so a commit gets one run; when the description
-  changes, this waits for the CI run on the head commit to complete and
-  re-runs `contribution-licence`, which re-runs `conclusion` with it.
 - `.github/workflows/specs.yml`: the vendored-specification guard,
   `scripts/checks/versions.sh`, offline, on the same events.
 - `.github/workflows/codeql.yml`: CodeQL over the `actions` language and Rust.
