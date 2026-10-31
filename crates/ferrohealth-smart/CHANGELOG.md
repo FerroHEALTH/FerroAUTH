@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.7] - 2026-10-31
+
 ### Added
 
 - Whether a request is the natural person's own access, for the EHDS
@@ -752,7 +754,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.6...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.7...HEAD
+[0.8.7]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.6...ferrohealth-smart-v0.8.7
 [0.8.6]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.5...ferrohealth-smart-v0.8.6
 [0.8.5]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.4...ferrohealth-smart-v0.8.5
 [0.8.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.3...ferrohealth-smart-v0.8.4
