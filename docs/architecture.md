@@ -890,6 +890,38 @@ routes a product holds to them, and what it records of the result, stay the
 product's. The level mapping is the deployment's: no specification governs it,
 our own design.
 
+### 3.13 The natural person's own access
+
+The EHDS person-access rights (Regulation (EU) 2025/327 Art. 3, 5 and 9)
+need every product to tell the same way whether a request is the natural
+person's own access or a health professional's. SMART names *what* a
+`patient/` scope reaches and not *who* asks (`smart scopes-and-launch-context`,
+Patient-specific scopes), so no specification decides it; the rule is the
+owner's ruling of 2026-10-31 (#171), and it gives two answers, because the
+articles fail safe in opposite directions:
+
+- `Caller::acts_for_the_person`, the broad answer, serves Art. 3(3), which
+  lets a Member State delay a person's access to new data until a health
+  professional can explain it. Reading too many requests as the person's
+  only withholds more, so a bearer token counts when it carries any
+  `patient/` scope of either grammar, or the claim the deployment names,
+  whatever `user/` or `system/` scope it carries beside them.
+- `Caller::is_the_person`, the strict answer, serves Art. 5 (what the person
+  inserts is distinguishable as theirs, and they cannot alter what
+  professionals inserted) and Art. 9 (the person learns of every
+  professional access). Reading a professional as the person would record a
+  professional's write as the person's and drop a professional's access from
+  the person's record, so a bearer token counts only when it carries a
+  `patient/` scope and no `user/` or `system/` scope. The patient claim alone
+  does not count: a professional's token in a patient's context carries it
+  too.
+
+A Basic caller is never the person. `Caller::person` returns the patient the
+broad answer binds the request to: the `patient` launch context, the `ehrId`
+and the patient claim's value. The deployment names its patient claim as a
+`resource::PatientClaim`, a dotted path, attached to each resource server
+with `with_extension`, the one extension the crate reads.
+
 ## 4. The configuration model
 
 Every product embeds the same `[auth]` section, deserialized with
@@ -1209,6 +1241,7 @@ four agree on and settles each difference:
 | A caller's roles are read from the RFC 9068 §2.2.3.1 claims, or the paths a deployment names, and a Basic user's from its configuration; a route table states role requirements beside scope requirements, matched without regard to ASCII case | `rfc9068 §2.2.3.1`, `rfc7643 §2.4`, `§4.1.2`; the matching and the requirement forms are our own design (owner decision 2026-10-25: authentication and the granted subject belong in this crate) | a product that read roles itself (FerroEHR's claim paths and Basic role table) moves them to `[auth] role_claims` and `[[auth.basic.users]] roles` |
 | The crate parses (with its own `openehr::smart_scopes`, which moved here from `openehr-sdt` and builds dependency-free behind `openehr-scopes`, for the browser too) and enforces the SMART on openEHR grammar beside the FHIR grammar; the product's route table declares which applies per route | owner decision 2026-10-19, the move 2026-10-27; `soe master07`, `master08`; the rules the draft leaves open are listed in 3.9 as our own design | a product that named `openehr_sdt::smart_scopes` names `ferrohealth_smart::openehr::smart_scopes` |
 | SMART on openEHR is DEVELOPMENT: pinned by commit, its status checked on every vendor run, upstream read weekly, and every upstream change re-vendored and recorded here as a decision naming what changed | the draft's `manifest_vars.adoc`; no release stabilises it | none yet: the draft last changed on 2026-07-19 (amendment record 1.1.0) |
+| A request is the natural person's own access by two answers: the broad one (Art. 3(3)) counts any `patient/` scope or the deployment's patient claim, mixed scopes included; the strict one (Art. 5, Art. 9) counts only a token whose resource scopes are all `patient/`; a Basic user is never the person (3.13) | Regulation (EU) 2025/327 Art. 3(3), 5, 9; `smart scopes-and-launch-context`, Patient-specific scopes leaves *who* open; owner ruling 2026-10-31 (#171) | a product that decides it itself (FerroEHR's access delay and authorship) calls `Caller::acts_for_the_person` or `Caller::is_the_person` and attaches its patient claim as a `PatientClaim` |
 | The `ehrId` of the launch context is read from an `ehrId` claim when the issuer carries it in the token | our own design, as `patient` in 3.3; the draft places it in the token response (`soe master07`, Context Selection) | none |
 | An enabled `[auth]` with Basic users and no issuer is a Basic-only surface; an enabled section that admits no credential is refused at load | our own design, fail closed; asked by the FerroEHR migration (#43) | none |
 | A blank `sub` is refused, by the token check and by the gate over every verifier | `rfc9068 §2.2`; `rfc7519 §4.1.2` (#41) | none |

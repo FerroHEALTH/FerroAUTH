@@ -41,6 +41,11 @@ ferrohealth-smart = { version = "=0.8.6", features = ["axum", "openehr"] }
   paths `[auth] role_claims` names, or granted to a Basic user; the route
   table checks them with `Requirement::Role`, `AnyRole`, `WithoutRole` and
   `All`.
+- **The person's own access**: `Caller::acts_for_the_person` (the broad
+  answer, for the EHDS Art. 3(3) access delay) and `Caller::is_the_person`
+  (the strict answer, for Art. 5 authorship and the Art. 9 access record),
+  with `Caller::person` naming the patient the request is bound to and a
+  deployment's patient claim attached as a `resource::PatientClaim`.
 - **`assurance`**: the assurance level behind a token (`AssuranceSection`,
   its claim mapped to low, substantial or high, a minimum and the RFC 9470
   step-up refusal) and the natural person it names or the client acts for

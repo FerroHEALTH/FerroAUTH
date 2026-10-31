@@ -39,6 +39,8 @@ mod oidc;
 #[cfg(all(feature = "openehr", feature = "fetch"))]
 mod openehr;
 #[cfg(feature = "fetch")]
+mod person;
+#[cfg(feature = "fetch")]
 mod roles;
 #[cfg_attr(
     not(feature = "fetch"),
