@@ -16,7 +16,9 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
 
 - `.github/workflows/ci.yml`: the gate on every pull request, merge-group run
   and push to `main`. The workflow tier (zizmor, actionlint, shellcheck, the
-  comment-style guard, the `TODO(#N)` guard) and the Rust tier (`cargo fmt --all --check`; `cargo clippy
+  comment-style guard, the `TODO(#N)` guard, the conflict-marker guard,
+  which the `conflict_markers_guard.sh` hook also runs on every commit's
+  staged files) and the Rust tier (`cargo fmt --all --check`; `cargo clippy
   --workspace --all-targets --locked -- -D warnings` with and without
   `--all-features`; `cargo nextest run --workspace --locked` with and without
   `--all-features`, plus `cargo test --doc`; `cargo doc` with
