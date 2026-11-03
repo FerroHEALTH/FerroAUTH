@@ -14,12 +14,25 @@ and this project adheres to
 
 ## [Unreleased]
 
+<<<<<<< HEAD
 ### Fixed
 
 - `return_path::ReturnPath::parse` refuses every page under the sign-in
   page, such as `/sign-in/expired`, as well as the sign-in page itself, so a
   completed sign-in never lands on the page that says the session ended
   (#180).
+=======
+### Added
+
+- `config::OidcSection::check` refuses a section a console cannot sign in
+  with safely: the issuer or a written endpoint that is not `https` off a
+  loopback host (RFC 6749 §3.1), a `redirect_uri` that is no `http` or
+  `https` URL with a host and no userinfo or that carries a fragment
+  (RFC 6749 §3.1.2), `scopes` without `openid` (OpenID Connect Core 1.0
+  §3.1.2.1), and `scopes` that list `offline_access`, which
+  `offline_access = true` asks for (§11). The refusals are the new
+  `ConfigError::UrlShape`, `NoOpenId` and `OfflineAccessScope` (#181).
+>>>>>>> 9859940 (feat(session): hold [oidc] to TLS at the provider, a fragment-free redirect and the openid scope)
 
 ## [0.1.0] - 2026-11-03
 
