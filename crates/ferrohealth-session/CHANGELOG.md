@@ -14,6 +14,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-03
+
+The first release: the OpenID Connect sign-in and the session of the
+FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
+0.8. Consoles pin `=0.1.0` with the `axum` feature.
+
 ### Added
 
 - The sign-in and the session of the FerroHEALTH operator consoles, one
@@ -41,4 +47,5 @@ and this project adheres to
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/commits/main/crates/ferrohealth-session
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.1.0...HEAD
+[0.1.0]: https://github.com/FerroHEALTH/FerroAUTH/releases/tag/ferrohealth-session-v0.1.0
