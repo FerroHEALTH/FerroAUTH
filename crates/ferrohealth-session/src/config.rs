@@ -12,15 +12,18 @@
 //! naming the key and never the secret.
 
 use std::fmt;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
 use ferrohealth_secret::file::{SecretError, read_secret, require_secret};
 use ferrohealth_secret::secret::Secret;
-use ferrohealth_smart::client::Tls;
+use ferrohealth_smart::client::{Reach, Tls, TlsVersion};
 use ferrohealth_smart::metadata::{DiscoveryError, Http, ServerMetadata};
 use ferrohealth_smart::oidc::{OFFLINE_ACCESS, OPENID, OidcError, Provider, RelyingParty};
+use secrecy::SecretSlice;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -111,6 +114,26 @@ pub enum ConfigError {
         #[source]
         source: std::io::Error,
     },
+    /// An `oidc.resolve` entry is not `host=ip:port`.
+    #[error("oidc.resolve entry {index} must be host=ip:port")]
+    Resolve {
+        /// The entry's position, from zero.
+        index: usize,
+    },
+    /// `oidc.tls` names a client certificate without its key, or a key
+    /// without its certificate.
+    #[error("oidc.tls.client_certificate and oidc.tls.client_key must be set together")]
+    ClientIdentityHalf,
+    /// The client certificate of `oidc.tls.client_certificate` could not be
+    /// read.
+    #[error("oidc.tls.client_certificate names {}, which could not be read", path.display())]
+    ClientCertificate {
+        /// The file.
+        path: PathBuf,
+        /// What the file system said.
+        #[source]
+        source: std::io::Error,
+    },
     /// The HTTP engine could not be built.
     #[error("the OpenID Provider's client could not be built")]
     Http(#[source] DiscoveryError),
@@ -160,8 +183,32 @@ pub struct OidcSection {
     /// PEM trust roots added to the platform's for a provider behind a
     /// private certificate authority.
     pub ca_file: Option<PathBuf>,
+    /// Provider hosts reached at a fixed address in place of resolving
+    /// their names, each `host=ip:port`, for a provider whose name resolves
+    /// only inside a private network. The URL's port and the certificate
+    /// check against the host name stay as the URL names them.
+    pub resolve: Vec<String>,
+    /// `[oidc.tls]`: the client certificate and the TLS floor of the
+    /// provider connection.
+    pub tls: OidcTlsSection,
     /// How long one call to the provider may take, in seconds.
     pub timeout_s: u64,
+}
+
+/// `[oidc.tls]`: the client certificate the console presents to its
+/// provider (RFC 8705 §2) and the lowest TLS version it negotiates.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OidcTlsSection {
+    /// The PEM client certificate chain, set together with `client_key`.
+    pub client_certificate: Option<PathBuf>,
+    /// The PEM private key of the client certificate, inline.
+    pub client_key: Option<Secret>,
+    /// A file holding the private key of the client certificate.
+    pub client_key_file: Option<PathBuf>,
+    /// The lowest TLS version of the provider connection, `"1.2"` or
+    /// `"1.3"`.
+    pub min_version: TlsVersion,
 }
 
 impl Default for OidcSection {
@@ -181,6 +228,8 @@ impl Default for OidcSection {
             scopes: vec![String::from(OPENID)],
             offline_access: false,
             ca_file: None,
+            resolve: Vec::new(),
+            tls: OidcTlsSection::default(),
             timeout_s: 10,
         }
     }
@@ -198,6 +247,8 @@ pub struct OidcSettings {
     scopes: Vec<String>,
     offline_access: bool,
     roots: Option<Vec<u8>>,
+    identity: Option<Arc<SecretSlice<u8>>>,
+    reach: Reach,
     timeout: Duration,
 }
 
@@ -225,8 +276,12 @@ impl OidcSection {
     /// URL with a host, no userinfo and no fragment,
     /// [`ConfigError::NoOpenId`] and [`ConfigError::OfflineAccessScope`] for
     /// `scopes` without `openid` or with `offline_access`,
-    /// [`ConfigError::Zero`] for a zero `timeout_s`, and the errors of
-    /// reading `client_secret` and `ca_file`.
+    /// [`ConfigError::Zero`] for a zero `timeout_s`,
+    /// [`ConfigError::Resolve`] for a `resolve` entry that is not
+    /// `host=ip:port`, [`ConfigError::ClientIdentityHalf`] for a client
+    /// certificate without its key or a key without its certificate, and the
+    /// errors of reading `client_secret`, `ca_file`, the client certificate
+    /// and its key.
     pub fn check(&self) -> Result<OidcSettings, ConfigError> {
         let issuer = required("oidc.issuer", &self.issuer)?;
         provider_url("oidc.issuer", issuer)?;
@@ -287,6 +342,12 @@ impl OidcSection {
             self.client_secret_file.as_deref(),
         )?;
         let roots = self.ca_file.as_deref().map(read_roots).transpose()?;
+        let identity = self.tls.identity()?;
+        let mut reach = Reach::default().with_min_tls_version(self.tls.min_version);
+        for (index, entry) in self.resolve.iter().enumerate() {
+            let (host, address) = resolve_entry(entry).ok_or(ConfigError::Resolve { index })?;
+            reach = reach.with_resolve(host, address);
+        }
         Ok(OidcSettings {
             issuer: issuer.to_owned(),
             endpoints,
@@ -297,6 +358,8 @@ impl OidcSection {
             scopes: self.scopes.clone(),
             offline_access: self.offline_access,
             roots,
+            identity,
+            reach,
             timeout: Duration::from_secs(self.timeout_s),
         })
     }
@@ -320,9 +383,9 @@ impl OidcSettings {
     pub async fn relying_party(&self) -> Result<RelyingParty, ConfigError> {
         let tls = Tls {
             root_certificates: self.roots.clone(),
-            ..Tls::default()
+            identity: self.identity.clone(),
         };
-        let http = Http::with_tls(self.timeout, &tls).map_err(ConfigError::Http)?;
+        let http = Http::reaching(self.timeout, &tls, &self.reach).map_err(ConfigError::Http)?;
         let given = &self.endpoints;
         let complete = given.authorization_endpoint.is_some()
             && given.token_endpoint.is_some()
@@ -640,6 +703,43 @@ fn is_loopback(url: &Url) -> bool {
 }
 
 /// The PEM trust roots in `path`.
+impl OidcTlsSection {
+    /// The client certificate chain and its key as one PEM document, when
+    /// both are set.
+    fn identity(&self) -> Result<Option<Arc<SecretSlice<u8>>>, ConfigError> {
+        let key = read_secret(
+            "oidc.tls.client_key",
+            self.client_key.clone(),
+            self.client_key_file.as_deref(),
+        )?;
+        match (&self.client_certificate, key) {
+            (None, None) => Ok(None),
+            (Some(path), Some(key)) => {
+                let mut pem =
+                    std::fs::read(path).map_err(|source| ConfigError::ClientCertificate {
+                        path: path.clone(),
+                        source,
+                    })?;
+                pem.push(b'\n');
+                pem.extend_from_slice(key.expose().as_bytes());
+                Ok(Some(Arc::new(SecretSlice::from(pem))))
+            }
+            _ => Err(ConfigError::ClientIdentityHalf),
+        }
+    }
+}
+
+/// The host and the address of one `resolve` entry, `host=ip:port`.
+fn resolve_entry(entry: &str) -> Option<(String, SocketAddr)> {
+    let (host, address) = entry.split_once('=')?;
+    let host = host.trim();
+    if host.is_empty() {
+        return None;
+    }
+    let address = address.trim().parse().ok()?;
+    Some((host.to_ascii_lowercase(), address))
+}
+
 fn read_roots(path: &Path) -> Result<Vec<u8>, ConfigError> {
     std::fs::read(path).map_err(|source| ConfigError::CaFile {
         path: path.to_path_buf(),
@@ -654,7 +754,7 @@ mod tests {
 
     use ferrohealth_smart::oidc::{OFFLINE_ACCESS, OPENID};
 
-    use super::{ConfigError, OidcSection, SessionSection, StoreKind};
+    use super::{ConfigError, OidcSection, OidcTlsSection, SessionSection, StoreKind};
 
     fn key(bytes: usize) -> Secret {
         let mut raw = vec![0_u8; bytes];
@@ -886,6 +986,106 @@ mod tests {
                     ..
                 })
             ),
+            "{refused:?}"
+        );
+    }
+
+    #[test]
+    fn resolve_entries_name_a_host_and_its_address() {
+        let section: OidcSection = toml::from_str(
+            "issuer = \"https://keycloak:8443/realms/console\"\n\
+             client_id = \"console\"\n\
+             redirect_uri = \"https://console.example.org/auth/callback\"\n\
+             resolve = [\"Keycloak = 127.0.0.1:8443\"]\n\
+             [tls]\nmin_version = \"1.3\"\n",
+        )
+        .expect("the section reads");
+        let settings = section.check().expect("valid");
+        assert_eq!(
+            settings.reach.resolve(),
+            [(
+                String::from("keycloak"),
+                "127.0.0.1:8443".parse().expect("an address")
+            )]
+        );
+        assert_eq!(
+            settings.reach.min_tls_version(),
+            ferrohealth_smart::client::TlsVersion::Tls13
+        );
+        assert!(
+            toml::from_str::<OidcSection>("[tls]\nmin_version = \"1.1\"").is_err(),
+            "no floor below TLS 1.2"
+        );
+        for (index, entry) in [
+            "keycloak",
+            "=127.0.0.1:8443",
+            "keycloak=localhost:8443",
+            "keycloak=127.0.0.1",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let refused = OidcSection {
+                resolve: vec![String::from("idp.example.org=127.0.0.1:443"); index]
+                    .into_iter()
+                    .chain([entry.to_owned()])
+                    .collect(),
+                ..oidc()
+            }
+            .check();
+            assert!(
+                matches!(refused, Err(ConfigError::Resolve { index: found }) if found == index),
+                "{entry}: {refused:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_client_certificate_is_set_with_its_key() {
+        let dir = tempfile::tempdir().expect("a directory");
+        let certificate = dir.path().join("client.pem");
+        std::fs::write(&certificate, "synthetic certificate").expect("written");
+        let key = Secret::new("synthetic-client-key");
+        let both = OidcSection {
+            tls: OidcTlsSection {
+                client_certificate: Some(certificate.clone()),
+                client_key: Some(key.clone()),
+                ..OidcTlsSection::default()
+            },
+            ..oidc()
+        };
+        let settings = both.check().expect("valid");
+        assert!(settings.identity.is_some(), "the identity is read");
+        let shown = format!("{both:?} {settings:?}");
+        assert!(!shown.contains("synthetic-client-key"), "{shown}");
+
+        for tls in [
+            OidcTlsSection {
+                client_certificate: Some(certificate.clone()),
+                ..OidcTlsSection::default()
+            },
+            OidcTlsSection {
+                client_key: Some(key.clone()),
+                ..OidcTlsSection::default()
+            },
+        ] {
+            let refused = OidcSection { tls, ..oidc() }.check();
+            assert!(
+                matches!(refused, Err(ConfigError::ClientIdentityHalf)),
+                "{refused:?}"
+            );
+        }
+        let refused = OidcSection {
+            tls: OidcTlsSection {
+                client_certificate: Some(dir.path().join("absent.pem")),
+                client_key: Some(key),
+                ..OidcTlsSection::default()
+            },
+            ..oidc()
+        }
+        .check();
+        assert!(
+            matches!(refused, Err(ConfigError::ClientCertificate { .. })),
             "{refused:?}"
         );
     }
