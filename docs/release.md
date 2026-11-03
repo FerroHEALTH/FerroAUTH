@@ -92,8 +92,9 @@ of them once it is opened in that milestone. So run the branch preflight
 before you open the release pull request, or open the pull request without
 the milestone: on the branch, an open release pull request in the milestone
 is refused like any other open item. At the tag the release pull request is
-merged, so it is closed and no longer counts. Every other check reads only
-the tree, and holds alike on the branch and at the merge commit.
+merged, so it is closed and no longer counts. Every other check reads the
+tree, and the semver check crates.io too, so each holds alike on the branch
+and at the merge commit.
 
 At the tag, the `plan` job of `release.yml` runs the same list as the
 preflight, at the tagged commit, before any build or publish: the milestone
