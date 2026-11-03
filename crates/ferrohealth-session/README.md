@@ -54,7 +54,11 @@ let app = pages
     .merge(router(sign_in));
 ```
 
-Every page then reads the request's `record::Held` from its extensions. The
+Every page then reads the request's `record::Held` from its extensions.
+`POST /logout` ends the session and removes its cookie whatever the
+provider: with an end-session endpoint it redirects there, and with none, or
+with no provider configured at all, it redirects to the console's
+`Pages::signed_out`. A sign-out never answers `503`. The
 console implements `routes::Pages` to draw a stopped sign-in in its own
 locale, and keeps its stack's same-origin check in front of the two `POST`
 routes.

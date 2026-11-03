@@ -6,9 +6,11 @@
 //! rotation, the session watch and the sign-out.
 
 use axum::Router;
+use ferrohealth_secret::secret::Secret;
 use ferrohealth_session::config::{SessionSection, StoreKind};
 use ferrohealth_session::cookies::CookieNames;
-use ferrohealth_session::routes::SignIn;
+use ferrohealth_session::record::SignedIn;
+use ferrohealth_session::routes::{Pages as _, SignIn};
 use ferrohealth_session::sessions::Sessions;
 use http::{Method, StatusCode};
 
@@ -356,6 +358,34 @@ async fn a_console_with_no_provider_answers_not_configured() {
     );
     let home = Browser::default().get(&app, "/").await;
     assert_eq!("Absent", home.body, "no cookie, no session");
+}
+
+#[tokio::test]
+async fn a_sign_out_with_no_provider_ends_the_session_and_lands_on_the_signed_out_page() {
+    let settings = SessionSection::default().check_with(false).expect("valid");
+    let sessions = Sessions::new(settings, CookieNames::for_console("synthetic_console"));
+    let cookie = sessions
+        .establish(
+            &http::HeaderMap::new(),
+            SignedIn::basic("synthetic-operator", Secret::new("synthetic-password")),
+        )
+        .expect("a session");
+    let app = console_of(SignIn::new(sessions, None, TestPages));
+    let mut browser = Browser::default();
+    let pair = cookie
+        .to_str()
+        .expect("text")
+        .split(';')
+        .next()
+        .expect("a pair");
+    let (name, value) = pair.split_once('=').expect("name=value");
+    browser.jar.insert(name.to_owned(), value.to_owned());
+    let out = browser.send(&app, Method::POST, "/logout").await;
+    assert_eq!(StatusCode::SEE_OTHER, out.status, "never a 503");
+    assert_eq!(Some(TestPages.signed_out()), out.location.as_deref());
+    assert!(!browser.jar.contains_key(name), "the cookie is removed");
+    let home = browser.get(&app, "/").await;
+    assert_eq!("Absent", home.body, "the session is gone");
 }
 
 #[tokio::test]
