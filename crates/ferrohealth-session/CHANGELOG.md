@@ -14,6 +14,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- `return_path::ReturnPath::parse` refuses every page under the sign-in
+  page, such as `/sign-in/expired`, as well as the sign-in page itself, so a
+  completed sign-in never lands on the page that says the session ended
+  (#180).
+
 ## [0.1.0] - 2026-11-03
 
 The first release: the OpenID Connect sign-in and the session of the
