@@ -14,6 +14,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-03
+
 ### Fixed
 
 - `POST /logout` sends the operator to the provider's end-session endpoint
@@ -110,7 +112,8 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.1...HEAD
+[0.2.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.0...ferrohealth-session-v0.2.1
 [0.2.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.1.1...ferrohealth-session-v0.2.0
 [0.1.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.1.0...ferrohealth-session-v0.1.1
 [0.1.0]: https://github.com/FerroHEALTH/FerroAUTH/releases/tag/ferrohealth-session-v0.1.0
