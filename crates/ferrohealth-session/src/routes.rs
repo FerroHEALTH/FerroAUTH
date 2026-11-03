@@ -14,6 +14,9 @@
 //! - `POST /logout` ends the session, revokes its token at the provider when
 //!   it has a revocation endpoint (RFC 7009 §2.1), and sends the operator to
 //!   its end-session endpoint (OpenID Connect RP-Initiated Logout 1.0 §2).
+//!   With no provider configured, or one with no end-session endpoint, it
+//!   ends the session, removes its cookie and redirects to
+//!   [`Pages::signed_out`]; a sign-out never answers `503`.
 //! - `GET /session` reads what the session has left and never counts as
 //!   activity, `POST /session` extends the idle lifetime, and both answer
 //!   `401` once the session is gone, with an RFC 9457 problem whose `detail`
@@ -98,7 +101,10 @@ pub trait Pages: Clone + Send + Sync + 'static {
     /// path.
     fn sign_in_page(&self) -> &str;
 
-    /// Where a sign-out lands when the provider has no end-session endpoint.
+    /// Where a sign-out lands when the provider has no end-session
+    /// endpoint, or the console has no provider: the session is ended and
+    /// its cookie removed all the same, and the sign-out never answers
+    /// `503`.
     fn signed_out(&self) -> &str;
 
     /// Where a completed sign-in lands with no return path, such as `/`.
