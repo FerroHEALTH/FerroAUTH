@@ -564,3 +564,36 @@ fn no_token_password_or_id_reaches_a_debug_rendering() {
         );
     }
 }
+
+#[test]
+fn a_session_preference_carries_no_max_age_and_reads_back() {
+    for kind in both() {
+        let (sessions, _now) = store(kind);
+        let cookie = sessions
+            .session_preference("sidebar", "rail")
+            .expect("a cookie");
+        let text = cookie.to_str().expect("text");
+        assert_eq!(
+            "__Host-synthetic_console_sidebar=rail; HttpOnly; SameSite=Lax; Secure; Path=/", text,
+            "{kind:?}: no Max-Age, so the browser drops it with its session"
+        );
+        assert!(!text.contains("Expires"), "{kind:?}");
+        let kept = sessions
+            .preference("sidebar", "rail", Duration::from_secs(60))
+            .expect("a cookie");
+        assert!(
+            kept.to_str().expect("text").ends_with("; Max-Age=60"),
+            "the kept form keeps its Max-Age"
+        );
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            COOKIE,
+            HeaderValue::from_static("__Host-synthetic_console_sidebar=rail"),
+        );
+        assert_eq!(
+            Some(String::from("rail")),
+            sessions.preference_in(&headers, "sidebar"),
+            "{kind:?}"
+        );
+    }
+}
