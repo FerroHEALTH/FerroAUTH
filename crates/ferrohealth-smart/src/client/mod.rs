@@ -114,6 +114,61 @@ pub struct Tls {
     pub identity: Option<Arc<SecretSlice<u8>>>,
 }
 
+/// The lowest TLS version a connection negotiates, written `"1.2"` or
+/// `"1.3"` in a configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Deserialize, Serialize)]
+#[non_exhaustive]
+pub enum TlsVersion {
+    /// TLS 1.2 (RFC 5246), the lowest version the engine speaks.
+    #[default]
+    #[serde(rename = "1.2")]
+    Tls12,
+    /// TLS 1.3 (RFC 8446).
+    #[serde(rename = "1.3")]
+    Tls13,
+}
+
+/// How a connection reaches its server beyond its TLS material.
+///
+/// It names the lowest TLS version the connection negotiates, and the hosts
+/// it reaches at a fixed address in place of resolving their names, for a
+/// server whose name resolves only inside a private network (no
+/// specification governs the override: our own design). An override replaces the name lookup only. The URL's port and the
+/// certificate check against the host name stay as the URL names them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Reach {
+    min_tls_version: TlsVersion,
+    resolve: Vec<(String, std::net::SocketAddr)>,
+}
+
+impl Reach {
+    /// Returns this reach negotiating no TLS version below `version`.
+    #[must_use]
+    pub const fn with_min_tls_version(mut self, version: TlsVersion) -> Self {
+        self.min_tls_version = version;
+        self
+    }
+
+    /// Returns this reach reaching `host` at `address`.
+    #[must_use]
+    pub fn with_resolve(mut self, host: impl Into<String>, address: std::net::SocketAddr) -> Self {
+        self.resolve.push((host.into(), address));
+        self
+    }
+
+    /// The lowest TLS version the connection negotiates.
+    #[must_use]
+    pub const fn min_tls_version(&self) -> TlsVersion {
+        self.min_tls_version
+    }
+
+    /// The hosts reached at a fixed address, each with its address.
+    #[must_use]
+    pub fn resolve(&self) -> &[(String, std::net::SocketAddr)] {
+        &self.resolve
+    }
+}
+
 /// Everything a product needs to obtain its upstream token.
 ///
 /// The secret is a [`SecretString`] and the key redacts itself, so a

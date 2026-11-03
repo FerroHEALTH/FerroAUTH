@@ -581,10 +581,33 @@ impl Http {
     /// for roots that hold no certificate, and [`DiscoveryError::Build`] when
     /// the engine cannot be built.
     pub fn with_tls(timeout: Duration, tls: &crate::client::Tls) -> Result<Self, DiscoveryError> {
+        Self::reaching(timeout, tls, &crate::client::Reach::default())
+    }
+
+    /// Returns an engine as [`Self::with_tls`] does, negotiating no TLS
+    /// version below the one `reach` names and reaching each host `reach`
+    /// overrides at its address.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::with_tls`].
+    pub fn reaching(
+        timeout: Duration,
+        tls: &crate::client::Tls,
+        reach: &crate::client::Reach,
+    ) -> Result<Self, DiscoveryError> {
         use secrecy::ExposeSecret as _;
+        let min_version = match reach.min_tls_version() {
+            crate::client::TlsVersion::Tls12 => reqwest::tls::Version::TLS_1_2,
+            crate::client::TlsVersion::Tls13 => reqwest::tls::Version::TLS_1_3,
+        };
         let mut builder = reqwest::Client::builder()
             .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none());
+            .redirect(reqwest::redirect::Policy::none())
+            .tls_version_min(min_version);
+        for (host, address) in reach.resolve() {
+            builder = builder.resolve(host, *address);
+        }
         if let Some(pem) = &tls.root_certificates {
             let roots = reqwest::Certificate::from_pem_bundle(pem).map_err(|source| {
                 DiscoveryError::Tls {

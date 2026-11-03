@@ -228,7 +228,7 @@ async fn read_request(
 /// An authorization server on loopback over TLS, its certificate chaining to
 /// a fresh certificate authority no platform trusts.
 pub(crate) struct PrivateIssuer {
-    /// The issuer identifier, `https://localhost:<port>`.
+    /// The issuer identifier, `https://<host>:<port>`.
     pub(crate) issuer: String,
     /// The certificate authority its certificate chains to, in PEM.
     pub(crate) ca_pem: String,
@@ -237,6 +237,16 @@ pub(crate) struct PrivateIssuer {
 /// Starts an authorization server answering its RFC 8414 metadata and the
 /// key set holding `jwk`, with no client certificate asked.
 pub(crate) async fn start_issuer(jwk: serde_json::Value) -> PrivateIssuer {
+    start_issuer_at(jwk, "localhost", rustls::DEFAULT_VERSIONS).await
+}
+
+/// Starts the authorization server of [`start_issuer`] under the host name
+/// `host`, on loopback, speaking only the TLS `versions`.
+pub(crate) async fn start_issuer_at(
+    jwk: serde_json::Value,
+    host: &str,
+    versions: &[&'static rustls::SupportedProtocolVersion],
+) -> PrivateIssuer {
     let ca_key = KeyPair::generate().expect("a key pair");
     let mut ca_params = CertificateParams::new(Vec::<String>::new()).expect("parameters");
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
@@ -244,8 +254,7 @@ pub(crate) async fn start_issuer(jwk: serde_json::Value) -> PrivateIssuer {
     let ca_certificate = ca_params.self_signed(&ca_key).expect("the authority signs");
     let issuer_ca = Issuer::new(ca_params, ca_key);
     let server_key = KeyPair::generate().expect("a key pair");
-    let mut server_params =
-        CertificateParams::new(vec![String::from("localhost")]).expect("parameters");
+    let mut server_params = CertificateParams::new(vec![host.to_owned()]).expect("parameters");
     server_params.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
     validity(&mut server_params);
     let server_certificate = server_params
@@ -255,7 +264,7 @@ pub(crate) async fn start_issuer(jwk: serde_json::Value) -> PrivateIssuer {
     let chain: Vec<CertificateDer<'static>> = vec![server_certificate.der().clone()];
     let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(server_key.serialize_der()));
     let config = ServerConfig::builder_with_provider(provider)
-        .with_safe_default_protocol_versions()
+        .with_protocol_versions(versions)
         .expect("the protocol versions")
         .with_no_client_auth()
         .with_single_cert(chain, key)
@@ -263,7 +272,7 @@ pub(crate) async fn start_issuer(jwk: serde_json::Value) -> PrivateIssuer {
     let acceptor = TlsAcceptor::from(Arc::new(config));
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("a port");
     let port = listener.local_addr().expect("an address").port();
-    let issuer = format!("https://localhost:{port}");
+    let issuer = format!("https://{host}:{port}");
     let metadata = serde_json::json!({
         "issuer": issuer,
         "jwks_uri": format!("{issuer}{}", crate::support::JWKS_PATH),
