@@ -64,6 +64,7 @@ label resource-server 1d76db "Token validation, issuer discovery and the key set
 label scopes 5319e7 "SMART scopes and the patient compartment."
 label machine-auth 0e8a16 "HTTP Basic and the client credentials grant."
 label audit 006b75 "The audit line."
+label session 1f883d "The console sign-in and session (ferrohealth-session)."
 label "spec:SMART" fbca04 "SMART App Launch, the specification."
 label "spec:OAuth" d93f0b "The OAuth 2.0, JWT and Basic RFCs and OpenID Connect Discovery."
 

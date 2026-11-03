@@ -93,14 +93,16 @@ integration guide, and
 - [One audit line per request](crates/ferrohealth-smart/README.md#what-it-does), never with the token or any content
 - [The SMART discovery document](crates/ferrohealth-smart/README.md#what-it-does) a product publishes for its clients
 - [The policy decision](crates/ferrohealth-authz/README.md), `ferrohealth-authz`: attribute-based access with an embedded Cedar engine or a remote decision point
+- [The console sign-in](crates/ferrohealth-session/README.md), `ferrohealth-session`: the OpenID Connect sign-in with PKCE and the operator's session, with idle and absolute lifetimes and the session watch
 
 <details>
-<summary><b>Published crates</b> (2)</summary>
+<summary><b>Published crates</b> (3)</summary>
 
 | Crate | What it does | Version | Docs | Downloads |
 |---|---|---|---|---|
 | [`ferrohealth-smart`](https://crates.io/crates/ferrohealth-smart) | SMART App Launch and OAuth 2.0 resource server: token checks, SMART on openEHR and FHIR scopes, machine sign-in and the audit line | [![crates.io](https://img.shields.io/crates/v/ferrohealth-smart?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-smart) | [![docs.rs](https://img.shields.io/docsrs/ferrohealth-smart?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-smart) | [![downloads](https://img.shields.io/crates/d/ferrohealth-smart?logo=rust&label=downloads)](https://crates.io/crates/ferrohealth-smart) |
 | [`ferrohealth-authz`](https://crates.io/crates/ferrohealth-authz) | The policy decision: attribute-based access over the authenticated caller, with an embedded Cedar engine or a remote decision point | [![crates.io](https://img.shields.io/crates/v/ferrohealth-authz?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-authz) | [![docs.rs](https://img.shields.io/docsrs/ferrohealth-authz?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-authz) | [![downloads](https://img.shields.io/crates/d/ferrohealth-authz?logo=rust&label=downloads)](https://crates.io/crates/ferrohealth-authz) |
+| [`ferrohealth-session`](https://crates.io/crates/ferrohealth-session) | The operator consoles' OpenID Connect sign-in and session: PKCE, a memory or sealed-cookie store, idle and absolute lifetimes and the session watch | [![crates.io](https://img.shields.io/crates/v/ferrohealth-session?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-session) | [![docs.rs](https://img.shields.io/docsrs/ferrohealth-session?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-session) | [![downloads](https://img.shields.io/crates/d/ferrohealth-session?logo=rust&label=downloads)](https://crates.io/crates/ferrohealth-session) |
 
 </details>
 
@@ -108,7 +110,7 @@ integration guide, and
 
 - [`ferrohealth-smart` on docs.rs](https://docs.rs/ferrohealth-smart) and the [FerroHEALTH book](https://ferrohealth.eu/docs/)
 - [Architecture](docs/architecture.md) and the [pinned specifications](docs/VERSIONS.md)
-- Changelogs of [`ferrohealth-smart`](crates/ferrohealth-smart/CHANGELOG.md) and [`ferrohealth-authz`](crates/ferrohealth-authz/CHANGELOG.md), and [milestones](https://github.com/FerroHEALTH/FerroAUTH/milestones)
+- Changelogs of [`ferrohealth-smart`](crates/ferrohealth-smart/CHANGELOG.md), [`ferrohealth-authz`](crates/ferrohealth-authz/CHANGELOG.md) and [`ferrohealth-session`](crates/ferrohealth-session/CHANGELOG.md), and [milestones](https://github.com/FerroHEALTH/FerroAUTH/milestones)
 - [Security policy](SECURITY.md)
 - [Contributing](CONTRIBUTING.md), [code of conduct](CODE_OF_CONDUCT.md), [support](SUPPORT.md), [governance](GOVERNANCE.md) and [maintainers](MAINTAINERS.md)
 

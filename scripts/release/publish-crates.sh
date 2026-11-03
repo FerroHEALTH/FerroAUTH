@@ -14,10 +14,11 @@
 # resumable and idempotent; the registry is read back before success is
 # reported (no specification governs this: our own design).
 #
-# Two crates publish from this workspace, each on its own version line and
-# tag: ferrohealth-smart at `ferrohealth-smart-v<version>` and
-# ferrohealth-authz at `ferrohealth-authz-v<version>`. A run publishes the one
-# crate its tag releases.
+# Three crates publish from this workspace, each on its own version line and
+# tag: ferrohealth-smart at `ferrohealth-smart-v<version>`, ferrohealth-authz
+# at `ferrohealth-authz-v<version>` and ferrohealth-session at
+# `ferrohealth-session-v<version>`. A run publishes the one crate its tag
+# releases.
 #
 # Usage:
 #   publish-crates.sh publish CRATE    # upload one crate
@@ -42,12 +43,14 @@ cd "$(dirname "$0")/../.."
 readonly CRATES=(
   ferrohealth-smart
   ferrohealth-authz
+  ferrohealth-session
 )
 
 # The crate a release tag names.
 crate_of_tag() {
   case "$1" in
     ferrohealth-authz-v*) echo ferrohealth-authz ;;
+    ferrohealth-session-v*) echo ferrohealth-session ;;
     ferrohealth-smart-v*) echo ferrohealth-smart ;;
     *) return 1 ;;
   esac
@@ -57,6 +60,7 @@ crate_of_tag() {
 tag_prefix() {
   case "$1" in
     ferrohealth-authz) echo ferrohealth-authz-v ;;
+    ferrohealth-session) echo ferrohealth-session-v ;;
     *) echo ferrohealth-smart-v ;;
   esac
 }
@@ -200,7 +204,7 @@ self_test() {
   expect "a tag without a release is refused" 1 "no GitHub release" -- tag ferrohealth-smart-v1.2.0 1.2.0 ferrohealth-smart-v
   expect "a draft release is refused" 1 "is a draft" -- tag ferrohealth-smart-v1.1.0 1.1.0 ferrohealth-smart-v
   expect "an authz tag of another version is refused" 1 "whose tag is ferrohealth-authz-v0.2.0" -- tag ferrohealth-authz-v0.1.0 0.2.0 ferrohealth-authz-v
-  if [[ "$(crate_of_tag ferrohealth-authz-v0.1.0)" != ferrohealth-authz || "$(crate_of_tag ferrohealth-smart-v0.7.0)" != ferrohealth-smart ]] || crate_of_tag main > /dev/null || crate_of_tag v0.6.0 > /dev/null; then
+  if [[ "$(crate_of_tag ferrohealth-authz-v0.1.0)" != ferrohealth-authz || "$(crate_of_tag ferrohealth-session-v0.1.0)" != ferrohealth-session || "$(tag_prefix ferrohealth-session)" != ferrohealth-session-v || "$(crate_of_tag ferrohealth-smart-v0.7.0)" != ferrohealth-smart ]] || crate_of_tag main > /dev/null || crate_of_tag v0.6.0 > /dev/null; then
     echo "FAIL: the crate of a tag" >&2
     fails=$((fails + 1))
   fi

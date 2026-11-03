@@ -3,9 +3,10 @@
 
 # Published crate discipline (crates.io)
 
-Two crates are published on crates.io so the FerroHEALTH products can
-depend on them: `crates/ferrohealth-smart` as `ferrohealth-smart` and
-`crates/ferrohealth-authz` as `ferrohealth-authz`. Both are BUSL-1.1.
+Three crates are published on crates.io so the FerroHEALTH products can
+depend on them: `crates/ferrohealth-smart` as `ferrohealth-smart`,
+`crates/ferrohealth-authz` as `ferrohealth-authz` and
+`crates/ferrohealth-session` as `ferrohealth-session`. All are BUSL-1.1.
 Published versions are immutable, so version hygiene is a hard rule.
 
 ## Two version lines

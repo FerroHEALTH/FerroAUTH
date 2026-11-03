@@ -6,15 +6,19 @@
 **FerroAUTH** is SMART for the openEHR ecosystem, FHIR included: the
 shared SMART App Launch 2.x and OAuth 2.0 resource-server crate of the
 FerroHEALTH products, FerroBRIDGE, FerroEHR, FerroFED, FerroPIX and
-FerroTERM. It is one Cargo workspace with two library crates, both
+FerroTERM. It is one Cargo workspace with three library crates, all
 published to crates.io, the way FerroUI is the family's shared UI crate:
 `ferrohealth-smart` (Rust path `ferrohealth_smart`), authentication and the
 granted subject, and `ferrohealth-authz` (Rust path `ferrohealth_authz`), the
 policy decision (the NIST SP 800-162 request model, a Cedar engine behind
 `cedar`, a remote PDP behind `remote`), which the owner assigned here on
-2026-10-25 (`.claude/memory/family-architecture.md`). Each crate keeps its own
-version line and tag: `ferrohealth-smart-vX.Y.Z` releases `ferrohealth-smart`,
-`ferrohealth-authz-vX.Y.Z` releases `ferrohealth-authz` (`docs/release.md`).
+2026-10-25 (`.claude/memory/family-architecture.md`), and `ferrohealth-session`
+(Rust path `ferrohealth_session`), the operator consoles' OpenID Connect
+sign-in and session store over `ferrohealth-smart`'s relying party, which the
+owner placed here on 2026-11-03. Each crate keeps its own version line and
+tag: `ferrohealth-smart-vX.Y.Z` releases `ferrohealth-smart`,
+`ferrohealth-authz-vX.Y.Z` releases `ferrohealth-authz` and
+`ferrohealth-session-vX.Y.Z` releases `ferrohealth-session` (`docs/release.md`).
 
 FerroAUTH in prose (the repository was FerroSMART until the owner renamed
 it on 2026-10-25), `ferrohealth-smart` in identifiers. The crate name and
@@ -88,6 +92,12 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   with its own `CHANGELOG.md`. `src/` (`request`, `engine`, `cedar` behind
   `cedar`, `remote` behind `remote`), `tests/it/` (the Cedar engine over
   synthetic models and policies, the remote PDP against a `wiremock` point).
+- `crates/ferrohealth-session`: the console sign-in and session, on its own
+  version line with its own `CHANGELOG.md`. `src/` (`config`, `sessions`
+  with its `memory` and `sealed` stores, `lifetime`, `refresh`, `record`,
+  `cookies`, `return_path`, `paths`, and `routes` behind `axum`),
+  `tests/it/` (the four routes of a synthetic console against a test OpenID
+  Provider, a `wiremock` stub with a key generated when the case runs).
 - `docs/`: `architecture.md`, `VERSIONS.md`, `release.md`, `specs/` (the
   vendored SMART App Launch, RFC, OpenID Connect Discovery, Core and
   RP-Initiated Logout, NIST SP 800-162 and Cedar language corpora, each with a `PROVENANCE.md`).

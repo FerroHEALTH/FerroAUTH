@@ -1,0 +1,204 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! A synthetic console over the crate: its pages, its router, and a browser
+//! that keeps the cookies it is handed.
+
+use std::collections::BTreeMap;
+use std::future::Future;
+
+use axum::Router;
+use axum::body::Body;
+use axum::extract::Extension;
+use axum::response::{IntoResponse as _, Response};
+use axum::routing::get;
+use base64::Engine as _;
+use ferrohealth_secret::secret::Secret;
+use ferrohealth_session::config::{OidcSection, SessionSection, StoreKind};
+use ferrohealth_session::cookies::CookieNames;
+use ferrohealth_session::record::{Credential, Held};
+use ferrohealth_session::routes::{Pages, SignIn, Stopped, keep_session, router};
+use ferrohealth_session::sessions::Sessions;
+use http::header::{COOKIE, LOCATION, SET_COOKIE};
+use http::request::Parts;
+use http::{Method, Request, StatusCode};
+use http_body_util::BodyExt as _;
+use tower::ServiceExt as _;
+
+use crate::provider::{CLIENT, Provider, REDIRECT, SECRET};
+
+/// The console's pages: a stopped sign-in answers its status and the name
+/// of why it stopped.
+#[derive(Debug, Clone)]
+pub(crate) struct TestPages;
+
+impl Pages for TestPages {
+    fn stopped(&self, _parts: Parts, why: Stopped) -> impl Future<Output = Response> + Send {
+        let name = format!("{why:?}");
+        let name = name.split('(').next().unwrap_or_default().to_owned();
+        std::future::ready((why.status(), name).into_response())
+    }
+
+    fn sign_in_page(&self) -> &'static str {
+        "/sign-in"
+    }
+
+    fn signed_out(&self) -> &'static str {
+        "/signed-out"
+    }
+
+    fn home(&self) -> &'static str {
+        "/"
+    }
+}
+
+/// What the console's home page says the request holds.
+async fn home(Extension(held): Extension<Held>) -> String {
+    match held {
+        Held::SignedIn(session) => match session.credential() {
+            Credential::Bearer(token) => {
+                format!(
+                    "{} {}",
+                    session.operator().unwrap_or_default(),
+                    token.expose()
+                )
+            }
+            Credential::Basic { username, .. } => username.clone(),
+        },
+        other => format!("{other:?}"),
+    }
+}
+
+/// A console signed in at `provider` over the store `store`.
+pub(crate) async fn console(provider: &Provider, store: StoreKind) -> Router {
+    let oidc = OidcSection {
+        issuer: provider.uri(),
+        client_id: String::from(CLIENT),
+        client_secret: Some(Secret::new(SECRET)),
+        redirect_uri: String::from(REDIRECT),
+        scopes: vec![String::from("openid"), String::from("profile")],
+        ..OidcSection::default()
+    }
+    .check()
+    .expect("a valid [oidc]");
+    let key = (store == StoreKind::Sealed).then(|| {
+        let mut raw = [0_u8; 64];
+        aws_lc_rs::rand::fill(&mut raw).expect("the random source works");
+        Secret::new(base64::engine::general_purpose::STANDARD.encode(raw))
+    });
+    let settings = SessionSection {
+        store,
+        key,
+        ..SessionSection::default()
+    }
+    .check(&oidc)
+    .expect("a valid [session]");
+    let party = oidc
+        .relying_party()
+        .await
+        .expect("the provider is discovered");
+    let sessions = Sessions::new(settings, CookieNames::for_console("synthetic_console"));
+    let sign_in = SignIn::new(sessions, Some(party), TestPages);
+    console_of(sign_in)
+}
+
+/// The console of `sign_in`.
+pub(crate) fn console_of(sign_in: SignIn<TestPages>) -> Router {
+    Router::new()
+        .route("/", get(home))
+        .layer(axum::middleware::from_fn_with_state(
+            sign_in.clone(),
+            keep_session::<TestPages>,
+        ))
+        .merge(router(sign_in))
+}
+
+/// One answer, read whole.
+#[derive(Debug)]
+pub(crate) struct Answer {
+    pub(crate) status: StatusCode,
+    pub(crate) location: Option<String>,
+    pub(crate) set_cookies: Vec<String>,
+    pub(crate) cache: Option<String>,
+    pub(crate) body: String,
+}
+
+/// A browser that keeps the cookies the console hands it.
+#[derive(Debug, Default)]
+pub(crate) struct Browser {
+    pub(crate) jar: BTreeMap<String, String>,
+}
+
+impl Browser {
+    /// Sends `method` to `path` with the cookies it holds.
+    pub(crate) async fn send(&mut self, app: &Router, method: Method, path: &str) -> Answer {
+        let cookies: Vec<String> = self
+            .jar
+            .iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect();
+        let mut request = Request::builder().method(method).uri(path);
+        if !cookies.is_empty() {
+            request = request.header(COOKIE, cookies.join("; "));
+        }
+        let response = app
+            .clone()
+            .oneshot(request.body(Body::empty()).expect("a request"))
+            .await
+            .expect("the router answers");
+        let status = response.status();
+        let header = |name| {
+            response
+                .headers()
+                .get(name)
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_owned)
+        };
+        let location = header(LOCATION);
+        let cache = header(http::header::CACHE_CONTROL);
+        let set_cookies: Vec<String> = response
+            .headers()
+            .get_all(SET_COOKIE)
+            .iter()
+            .filter_map(|value| value.to_str().ok())
+            .map(str::to_owned)
+            .collect();
+        for set in &set_cookies {
+            let pair = set.split(';').next().unwrap_or_default();
+            if let Some((name, value)) = pair.split_once('=') {
+                if set.contains("Max-Age=0") {
+                    self.jar.remove(name);
+                } else {
+                    self.jar.insert(name.to_owned(), value.to_owned());
+                }
+            }
+        }
+        let body = response
+            .into_body()
+            .collect()
+            .await
+            .expect("a body")
+            .to_bytes();
+        Answer {
+            status,
+            location,
+            set_cookies,
+            cache,
+            body: String::from_utf8_lossy(&body).into_owned(),
+        }
+    }
+
+    /// `GET path`.
+    pub(crate) async fn get(&mut self, app: &Router, path: &str) -> Answer {
+        self.send(app, Method::GET, path).await
+    }
+}
+
+/// The query of `url`, by name.
+pub(crate) fn query(url: &str) -> BTreeMap<String, String> {
+    url::Url::parse(url)
+        .expect("a URL")
+        .query_pairs()
+        .map(|(name, value)| (name.into_owned(), value.into_owned()))
+        .collect()
+}

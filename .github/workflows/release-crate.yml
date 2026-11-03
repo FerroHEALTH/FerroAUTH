@@ -50,7 +50,7 @@ jobs:
         run: |
           set -euo pipefail
           case "$CRATE" in
-            ferrohealth-smart | ferrohealth-authz) ;;
+            ferrohealth-smart | ferrohealth-authz | ferrohealth-session) ;;
             *) echo "::error::'$CRATE' is not a published member" >&2; exit 1 ;;
           esac
           cargo package -p "$CRATE" --locked
