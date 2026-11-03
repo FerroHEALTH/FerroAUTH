@@ -20,7 +20,7 @@ callback, and the session once the sign-in completes.
 
 ```toml
 [dependencies]
-ferrohealth-session = { version = "=0.1.1", features = ["axum"] }
+ferrohealth-session = { version = "=0.2.0", features = ["axum"] }
 ```
 
 ```toml
@@ -29,6 +29,13 @@ issuer = "https://idp.example.org/realms/console"
 client_id = "console"
 client_secret_file = "/run/secrets/oidc-client"
 redirect_uri = "https://console.example.org/auth/callback"
+# ca_file = "/run/secrets/private-ca.pem"      # roots added to the built-in ones
+# resolve = ["idp.internal=10.0.0.12:443"]     # a host reached at a fixed address
+
+# [oidc.tls]                                   # mutual TLS to the provider (RFC 8705 §2)
+# client_certificate = "/run/secrets/console.crt"
+# client_key_file = "/run/secrets/console.key"
+# min_version = "1.3"                          # the default is "1.2"
 
 [session]
 store = "memory"

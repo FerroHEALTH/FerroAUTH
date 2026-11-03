@@ -4,7 +4,7 @@
 name = "ferrohealth-session"
 description = "The OpenID Connect sign-in and the session of the FerroHEALTH operator consoles: the authorization code flow with PKCE over ferrohealth-smart, a server-side or sealed-cookie session with idle and absolute lifetimes counted from the sign-in time, and the session-watch route"
 # Its own version line, released by the tag ferrohealth-session-v<version>.
-version = "0.1.1"
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -37,6 +37,7 @@ ferrohealth-smart = { workspace = true, features = ["oidc"] }
 ferrohealth-ui.workspace = true
 http.workspace = true
 jiff.workspace = true
+secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -49,6 +50,7 @@ axum = { workspace = true, optional = true, features = ["query", "json"] }
 axum = { workspace = true, features = ["query", "json", "tokio"] }
 http-body-util.workspace = true
 jsonwebtoken.workspace = true
+tempfile.workspace = true
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 toml.workspace = true
 tower = { workspace = true, features = ["util"] }

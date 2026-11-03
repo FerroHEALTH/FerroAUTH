@@ -14,6 +14,33 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-03
+
+### Added
+
+- `[oidc] resolve` reaches provider hosts at a fixed address in place of
+  resolving their names, for a provider whose name resolves only inside a
+  private network (#196). Each entry is `host=ip:port`, and an entry that is
+  not refuses the section with the new `ConfigError::Resolve`. The URL's port
+  and the certificate check against the host name stay as the URL names them.
+  The override reaches the provider client only.
+- `[oidc.tls]`: the client certificate the console presents to its provider
+  (RFC 8705 §2), as `client_certificate` with `client_key` or
+  `client_key_file`, and `min_version`, the lowest TLS version of the
+  provider connection (`"1.2"`, the default, or `"1.3"`). A certificate
+  without its key, or a key without its certificate, is refused with
+  `ConfigError::ClientIdentityHalf`, and a certificate file that cannot be
+  read with `ConfigError::ClientCertificate`. The key is read as a secret.
+
+### Changed
+
+- `config::OidcSection` carries the two new fields `resolve` and `tls`
+  (`config::OidcTlsSection`). A console that builds the section with a struct
+  literal naming every field adds them, or ends the literal with
+  `..OidcSection::default()`. `ferrohealth-session` requires
+  `ferrohealth-smart` 0.8.8, whose `client::Reach` the provider client is
+  built with.
+
 ## [0.1.1] - 2026-11-03
 
 ### Added
@@ -74,6 +101,7 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.1.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.0...HEAD
+[0.2.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.1.1...ferrohealth-session-v0.2.0
 [0.1.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.1.0...ferrohealth-session-v0.1.1
 [0.1.0]: https://github.com/FerroHEALTH/FerroAUTH/releases/tag/ferrohealth-session-v0.1.0
