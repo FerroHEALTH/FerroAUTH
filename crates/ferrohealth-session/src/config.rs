@@ -20,7 +20,7 @@ use ferrohealth_secret::file::{SecretError, read_secret, require_secret};
 use ferrohealth_secret::secret::Secret;
 use ferrohealth_smart::client::Tls;
 use ferrohealth_smart::metadata::{DiscoveryError, Http, ServerMetadata};
-use ferrohealth_smart::oidc::{OPENID, OidcError, Provider, RelyingParty};
+use ferrohealth_smart::oidc::{OFFLINE_ACCESS, OPENID, OidcError, Provider, RelyingParty};
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -54,6 +54,22 @@ pub enum ConfigError {
         #[source]
         source: url::ParseError,
     },
+    /// A URL is not one its key admits: a provider URL that is not `https`
+    /// off loopback, or a redirection endpoint with userinfo or a fragment.
+    #[error("{key} {reason}")]
+    UrlShape {
+        /// The key.
+        key: &'static str,
+        /// What the key requires.
+        reason: &'static str,
+    },
+    /// `scopes` lacks `openid` (OpenID Connect Core 1.0 §3.1.2.1).
+    #[error("oidc.scopes must hold openid")]
+    NoOpenId,
+    /// `scopes` lists `offline_access`, which `offline_access = true` asks
+    /// for (OpenID Connect Core 1.0 §11).
+    #[error("oidc.scopes must not list offline_access; set oidc.offline_access = true")]
+    OfflineAccessScope,
     /// A lifetime or a bound is zero.
     #[error("{key} must be greater than zero")]
     Zero {
@@ -204,15 +220,39 @@ impl OidcSection {
     ///
     /// Returns [`ConfigError::Missing`] for an empty `issuer`, `client_id`
     /// or `redirect_uri`, [`ConfigError::Url`] for a value that is not a
-    /// URL, [`ConfigError::Zero`] for a zero `timeout_s`, and the errors of
+    /// URL, [`ConfigError::UrlShape`] for a provider URL that is not `https`
+    /// off loopback or a redirection endpoint that is no `http` or `https`
+    /// URL with a host, no userinfo and no fragment,
+    /// [`ConfigError::NoOpenId`] and [`ConfigError::OfflineAccessScope`] for
+    /// `scopes` without `openid` or with `offline_access`,
+    /// [`ConfigError::Zero`] for a zero `timeout_s`, and the errors of
     /// reading `client_secret` and `ca_file`.
     pub fn check(&self) -> Result<OidcSettings, ConfigError> {
         let issuer = required("oidc.issuer", &self.issuer)?;
+        provider_url("oidc.issuer", issuer)?;
         let client_id = required("oidc.client_id", &self.client_id)?;
-        let redirect_uri = url(
+        let redirect_uri = web_url(
             "oidc.redirect_uri",
             required("oidc.redirect_uri", &self.redirect_uri)?,
         )?;
+        // NOTE: RFC 6749 §3.1.2: the redirection endpoint URI MUST NOT include a fragment
+        // component.
+        if redirect_uri.fragment().is_some() {
+            return Err(ConfigError::UrlShape {
+                key: "oidc.redirect_uri",
+                reason: "must not carry a fragment",
+            });
+        }
+        // NOTE: OpenID Connect Core 1.0 §3.1.2.1: an OpenID Connect request MUST carry the
+        // `openid` scope value.
+        if !self.scopes.iter().any(|scope| scope == OPENID) {
+            return Err(ConfigError::NoOpenId);
+        }
+        // NOTE: OpenID Connect Core 1.0 §11: `offline_access` goes with `prompt=consent`,
+        // which the relying party sends only for `offline_access = true`.
+        if self.scopes.iter().any(|scope| scope == OFFLINE_ACCESS) {
+            return Err(ConfigError::OfflineAccessScope);
+        }
         let endpoints = ServerMetadata {
             issuer: issuer.to_owned(),
             authorization_endpoint: endpoint(
@@ -234,7 +274,7 @@ impl OidcSection {
         let post_logout_redirect_uri = self
             .post_logout_redirect_uri
             .as_deref()
-            .map(|value| url("oidc.post_logout_redirect_uri", value))
+            .map(|value| web_url("oidc.post_logout_redirect_uri", value))
             .transpose()?;
         if self.timeout_s == 0 {
             return Err(ConfigError::Zero {
@@ -550,11 +590,53 @@ fn url(key: &'static str, value: &str) -> Result<Url, ConfigError> {
     Url::parse(value).map_err(|source| ConfigError::Url { key, source })
 }
 
-/// An optional endpoint, checked as a URL and kept as written.
+/// An optional provider endpoint, checked as [`provider_url`] and kept as
+/// written.
 fn endpoint(key: &'static str, value: Option<&str>) -> Result<Option<String>, ConfigError> {
     value
-        .map(|text| url(key, text).map(|_| text.to_owned()))
+        .map(|text| provider_url(key, text).map(|_| text.to_owned()))
         .transpose()
+}
+
+/// `value` of `key` as an `http` or `https` URL with a host and no userinfo.
+fn web_url(key: &'static str, value: &str) -> Result<Url, ConfigError> {
+    let parsed = url(key, value)?;
+    let shape = |reason| Err(ConfigError::UrlShape { key, reason });
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return shape("must be an http or https URL");
+    }
+    if parsed.host().is_none() {
+        return shape("must name a host");
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return shape("must not carry userinfo");
+    }
+    Ok(parsed)
+}
+
+/// `value` of `key` as a provider URL: `https`, or `http` on a loopback host.
+fn provider_url(key: &'static str, value: &str) -> Result<Url, ConfigError> {
+    let parsed = web_url(key, value)?;
+    // NOTE: RFC 6749 §3.1: the authorization server MUST require TLS at its authorization
+    // endpoint, so plain `http` is admitted only on loopback.
+    if parsed.scheme() == "https" || is_loopback(&parsed) {
+        Ok(parsed)
+    } else {
+        Err(ConfigError::UrlShape {
+            key,
+            reason: "must be an https URL unless its host is loopback",
+        })
+    }
+}
+
+/// Whether `url` names a loopback host: `localhost`, `127.0.0.0/8` or `::1`.
+fn is_loopback(url: &Url) -> bool {
+    match url.host() {
+        Some(url::Host::Domain(name)) => name == "localhost",
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    }
 }
 
 /// The PEM trust roots in `path`.
@@ -569,6 +651,8 @@ fn read_roots(path: &Path) -> Result<Vec<u8>, ConfigError> {
 mod tests {
     use base64::Engine as _;
     use ferrohealth_secret::secret::Secret;
+
+    use ferrohealth_smart::oidc::{OFFLINE_ACCESS, OPENID};
 
     use super::{ConfigError, OidcSection, SessionSection, StoreKind};
 
@@ -680,6 +764,104 @@ mod tests {
         };
         let shown = format!("{oidc:?} {:?}", oidc.check().expect("valid"));
         assert!(!shown.contains("synthetic-client-secret"), "{shown}");
+    }
+
+    fn oidc() -> OidcSection {
+        OidcSection {
+            issuer: String::from("https://idp.example.org"),
+            client_id: String::from("console"),
+            redirect_uri: String::from("https://console.example.org/auth/callback"),
+            ..OidcSection::default()
+        }
+    }
+
+    #[test]
+    fn a_provider_url_off_loopback_must_be_https() {
+        assert!(oidc().check().is_ok(), "https");
+        for (key, section) in [
+            (
+                "oidc.issuer",
+                OidcSection {
+                    issuer: String::from("http://idp.example.org"),
+                    ..oidc()
+                },
+            ),
+            (
+                "oidc.token_endpoint",
+                OidcSection {
+                    token_endpoint: Some(String::from("http://idp.example.org/token")),
+                    ..oidc()
+                },
+            ),
+            (
+                "oidc.revocation_endpoint",
+                OidcSection {
+                    revocation_endpoint: Some(String::from("http://idp.example.org/revoke")),
+                    ..oidc()
+                },
+            ),
+        ] {
+            let refused = section.check();
+            assert!(
+                matches!(refused, Err(ConfigError::UrlShape { key: named, .. }) if named == key),
+                "{key}: {refused:?}"
+            );
+        }
+        let loopback = OidcSection {
+            issuer: String::from("http://127.0.0.1:8081/realm"),
+            jwks_uri: Some(String::from("http://localhost:8081/jwks")),
+            ..oidc()
+        };
+        assert!(loopback.check().is_ok(), "plain http on loopback");
+    }
+
+    #[test]
+    fn a_redirect_with_a_fragment_or_userinfo_is_refused() {
+        for redirect in [
+            "https://console.example.org/auth/callback#x",
+            "https://u:p@console.example.org/auth/callback",
+            "ftp://console.example.org/auth/callback",
+        ] {
+            let refused = OidcSection {
+                redirect_uri: String::from(redirect),
+                ..oidc()
+            }
+            .check();
+            assert!(
+                matches!(
+                    refused,
+                    Err(ConfigError::UrlShape {
+                        key: "oidc.redirect_uri",
+                        ..
+                    })
+                ),
+                "{redirect}: {refused:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_scopes_hold_openid_and_never_offline_access() {
+        let refused = OidcSection {
+            scopes: vec![String::from("profile")],
+            ..oidc()
+        }
+        .check();
+        assert!(matches!(refused, Err(ConfigError::NoOpenId)), "{refused:?}");
+        let refused = OidcSection {
+            scopes: vec![String::from(OPENID), String::from(OFFLINE_ACCESS)],
+            ..oidc()
+        }
+        .check();
+        assert!(
+            matches!(refused, Err(ConfigError::OfflineAccessScope)),
+            "{refused:?}"
+        );
+        let asked = OidcSection {
+            offline_access: true,
+            ..oidc()
+        };
+        assert!(asked.check().is_ok(), "offline_access = true asks for it");
     }
 
     #[test]
