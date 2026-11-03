@@ -20,7 +20,7 @@ callback, and the session once the sign-in completes.
 
 ```toml
 [dependencies]
-ferrohealth-session = { version = "=0.2.0", features = ["axum"] }
+ferrohealth-session = { version = "=0.2.1", features = ["axum"] }
 ```
 
 ```toml
