@@ -14,7 +14,7 @@ use ferrohealth_session::routes::{Pages as _, SignIn};
 use ferrohealth_session::sessions::Sessions;
 use http::{Method, StatusCode};
 
-use crate::console::{Browser, TestPages, console, console_of, query};
+use crate::console::{Browser, TestPages, console, console_of, query, sign_in};
 use crate::provider::Provider;
 
 /// The `state`, `nonce` and challenge `GET /login?return=…` sent the
@@ -372,20 +372,44 @@ async fn a_sign_out_with_no_provider_ends_the_session_and_lands_on_the_signed_ou
         .expect("a session");
     let app = console_of(SignIn::new(sessions, None, TestPages));
     let mut browser = Browser::default();
-    let pair = cookie
-        .to_str()
-        .expect("text")
-        .split(';')
-        .next()
-        .expect("a pair");
-    let (name, value) = pair.split_once('=').expect("name=value");
-    browser.jar.insert(name.to_owned(), value.to_owned());
+    let name = browser.keep(&cookie);
     let out = browser.send(&app, Method::POST, "/logout").await;
     assert_eq!(StatusCode::SEE_OTHER, out.status, "never a 503");
     assert_eq!(Some(TestPages.signed_out()), out.location.as_deref());
-    assert!(!browser.jar.contains_key(name), "the cookie is removed");
+    assert!(!browser.jar.contains_key(&name), "the cookie is removed");
     let home = browser.get(&app, "/").await;
     assert_eq!("Absent", home.body, "the session is gone");
+}
+
+#[tokio::test]
+async fn a_basic_sign_out_with_a_provider_lands_on_the_signed_out_page() {
+    for store in [StoreKind::Memory, StoreKind::Sealed] {
+        let provider = Provider::start().await;
+        let sign_in = sign_in(&provider, store).await;
+        let cookie = sign_in
+            .sessions()
+            .establish(
+                &http::HeaderMap::new(),
+                SignedIn::basic("synthetic-operator", Secret::new("synthetic-password")),
+            )
+            .expect("a session");
+        let app = console_of(sign_in);
+        let mut browser = Browser::default();
+        let name = browser.keep(&cookie);
+        let page = browser.get(&app, "/").await;
+        assert_eq!("synthetic-operator", page.body, "{store:?}");
+        let out = browser.send(&app, Method::POST, "/logout").await;
+        assert_eq!(StatusCode::SEE_OTHER, out.status, "{store:?}");
+        assert_eq!(
+            Some(TestPages.signed_out()),
+            out.location.as_deref(),
+            "RP-Initiated Logout 1.0 §2: no ID Token, no session at the provider to end"
+        );
+        assert!(!browser.jar.contains_key(&name), "the cookie is removed");
+        let home = browser.get(&app, "/").await;
+        assert_eq!("Absent", home.body, "the session is gone");
+        provider.server.verify().await;
+    }
 }
 
 #[tokio::test]

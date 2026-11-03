@@ -13,10 +13,11 @@
 //!   checks the ID Token, and only then is a session begun.
 //! - `POST /logout` ends the session, revokes its token at the provider when
 //!   it has a revocation endpoint (RFC 7009 §2.1), and sends the operator to
-//!   its end-session endpoint (OpenID Connect RP-Initiated Logout 1.0 §2).
-//!   With no provider configured, or one with no end-session endpoint, it
-//!   ends the session, removes its cookie and redirects to
-//!   [`Pages::signed_out`]; a sign-out never answers `503`.
+//!   its end-session endpoint with the session's ID Token as the hint
+//!   (OpenID Connect RP-Initiated Logout 1.0 §2). With no provider
+//!   configured, one with no end-session endpoint, or a session that holds no
+//!   ID Token (a Basic sign-in), it ends the session, removes its cookie and
+//!   redirects to [`Pages::signed_out`]; a sign-out never answers `503`.
 //! - `GET /session` reads what the session has left and never counts as
 //!   activity, `POST /session` extends the idle lifetime, and both answer
 //!   `401` once the session is gone, with an RFC 9457 problem whose `detail`
@@ -324,8 +325,11 @@ async fn logout<P: Pages>(State(sign_in): State<SignIn<P>>, request: Request) ->
             // did not revoke expires on its own, and the log says so.
             tracing::warn!(%error, "the OpenID Provider did not revoke an operator's token");
         }
-        let hint = held.and_then(|ended| ended.id_token.as_ref());
-        location = party.end_session_url(hint, None).map(String::from);
+        // NOTE: OpenID Connect RP-Initiated Logout 1.0 §2: the provider is asked to end only the
+        // session its ID Token names, so a sign-out the console checked itself lands here.
+        if let Some(hint) = held.and_then(|ended| ended.id_token.as_ref()) {
+            location = party.end_session_url(Some(hint), None).map(String::from);
+        }
     }
     let location = location.unwrap_or_else(|| sign_in.pages.signed_out().to_owned());
     redirect(&location, ended.cookies)

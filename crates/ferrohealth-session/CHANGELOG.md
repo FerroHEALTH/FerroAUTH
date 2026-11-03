@@ -14,6 +14,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- `POST /logout` sends the operator to the provider's end-session endpoint
+  only when the ended session holds an ID Token (OpenID Connect RP-Initiated
+  Logout 1.0 §2), and otherwise redirects to `Pages::signed_out` (#201).
+  A Basic sign-out on a console that also has a provider configured went to
+  the provider, which held no session of the operator's to end. Revocation
+  is unchanged.
+
 ## [0.2.0] - 2026-11-03
 
 ### Added

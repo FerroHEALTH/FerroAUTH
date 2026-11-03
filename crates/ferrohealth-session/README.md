@@ -63,9 +63,10 @@ let app = pages
 
 Every page then reads the request's `record::Held` from its extensions.
 `POST /logout` ends the session and removes its cookie whatever the
-provider: with an end-session endpoint it redirects there, and with none, or
-with no provider configured at all, it redirects to the console's
-`Pages::signed_out`. A sign-out never answers `503`. The
+provider: a session signed in at the provider is sent to its end-session
+endpoint with its ID Token as the hint. A session with no ID Token (a Basic
+sign-in), a provider with no end-session endpoint, or no provider configured
+at all redirects to the console's `Pages::signed_out`. A sign-out never answers `503`. The
 console implements `routes::Pages` to draw a stopped sign-in in its own
 locale, and keeps its stack's same-origin check in front of the two `POST`
 routes.

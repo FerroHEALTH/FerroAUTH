@@ -78,6 +78,11 @@ async fn home(Extension(held): Extension<Held>) -> String {
 
 /// A console signed in at `provider` over the store `store`.
 pub(crate) async fn console(provider: &Provider, store: StoreKind) -> Router {
+    console_of(sign_in(provider, store).await)
+}
+
+/// The sign-in of a console at `provider` over the store `store`.
+pub(crate) async fn sign_in(provider: &Provider, store: StoreKind) -> SignIn<TestPages> {
     let oidc = OidcSection {
         issuer: provider.uri(),
         client_id: String::from(CLIENT),
@@ -105,8 +110,7 @@ pub(crate) async fn console(provider: &Provider, store: StoreKind) -> Router {
         .await
         .expect("the provider is discovered");
     let sessions = Sessions::new(settings, CookieNames::for_console("synthetic_console"));
-    let sign_in = SignIn::new(sessions, Some(party), TestPages);
-    console_of(sign_in)
+    SignIn::new(sessions, Some(party), TestPages)
 }
 
 /// The console of `sign_in`.
@@ -196,6 +200,20 @@ impl Browser {
             content_type,
             body: String::from_utf8_lossy(&body).into_owned(),
         }
+    }
+
+    /// Keeps the session cookie `set`, a `Set-Cookie` value, and answers
+    /// its name.
+    pub(crate) fn keep(&mut self, set: &http::HeaderValue) -> String {
+        let pair = set
+            .to_str()
+            .expect("text")
+            .split(';')
+            .next()
+            .expect("a pair");
+        let (name, value) = pair.split_once('=').expect("name=value");
+        self.jar.insert(name.to_owned(), value.to_owned());
+        name.to_owned()
     }
 
     /// `GET path`.
