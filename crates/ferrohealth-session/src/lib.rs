@@ -1,0 +1,45 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The sign-in and the session of a FerroHEALTH operator console.
+//!
+//! An operator signs in at the deployment's OpenID Provider with the
+//! authorization code flow and PKCE, through the relying party of
+//! `ferrohealth-smart` (`ferrohealth_smart::oidc::RelyingParty`), which keeps
+//! no state of its own. This crate keeps the state between the redirect and
+//! the callback, and the session once the sign-in completes:
+//!
+//! - [`config`]: the `[oidc]` and `[session]` sections every console embeds,
+//!   read with `deny_unknown_fields`, each secret through
+//!   `ferrohealth-secret`'s `<key>` / `<key>_file` rule;
+//! - [`sessions::Sessions`]: the store, in process (`memory`, an opaque id in
+//!   the cookie) or in one AES-256-GCM sealed cookie (`sealed`, for a console
+//!   that runs as several instances with no shared store);
+//! - [`lifetime`]: the idle and the absolute lifetime, both counted from
+//!   times the session carries, the absolute one from the sign-in time, and
+//!   what is left as FerroUI's session watch reads it;
+//! - [`sessions::Sessions::keep_fresh`]: the refresh of an access token before
+//!   it expires;
+//! - `routes` (feature `axum`): `GET /login`, `GET /auth/callback`,
+//!   `POST /logout` and `GET`/`POST /session`, and the middleware that hands
+//!   every page what its request holds.
+//!
+//! No token, key, password, session id, `state`, `nonce` or verifier reaches a
+//! log line, a `Debug` rendering or an error message. No specification
+//! governs the session store, its lifetimes or the watch route: our own
+//! design, held to the OWASP Session Management Cheat Sheet (idle and
+//! absolute timeouts).
+
+pub mod config;
+pub mod cookies;
+pub mod lifetime;
+pub mod paths;
+pub mod record;
+pub mod refresh;
+pub mod return_path;
+#[cfg(feature = "axum")]
+pub mod routes;
+pub mod sessions;
+
+mod clock;
+mod store;

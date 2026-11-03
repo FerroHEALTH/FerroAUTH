@@ -107,6 +107,7 @@ the public domain of a United States Government work for NIST SP 800-162.
 | MSRV | 1.98 | `Cargo.toml` `[workspace.package] rust-version` |
 | `ferrohealth-smart` | the workspace version (read it in the manifest; a release moves it), with the release tag `ferrohealth-smart-vX.Y.Z` and the section of its own `CHANGELOG.md` | `Cargo.toml` `[workspace.package] version`, `Cargo.lock`, `crates/ferrohealth-smart/CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
 | `ferrohealth-authz` | its own version line (read it in the manifest; a release moves it), with the release tag `ferrohealth-authz-vX.Y.Z` and the section of its own `CHANGELOG.md` | `crates/ferrohealth-authz/Cargo.toml` `[package] version`, `Cargo.lock`, `crates/ferrohealth-authz/CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
+| `ferrohealth-session` | its own version line (read it in the manifest; a release moves it), with the release tag `ferrohealth-session-vX.Y.Z` and the section of its own `CHANGELOG.md` | `crates/ferrohealth-session/Cargo.toml` `[package] version`, `Cargo.lock`, `crates/ferrohealth-session/CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
 | Third-party crates | the `[workspace.dependencies]` table, each version checked against crates.io on 2026-10-19 | `Cargo.toml`, `Cargo.lock` |
 
 ## The CI tools

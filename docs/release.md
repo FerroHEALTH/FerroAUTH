@@ -3,13 +3,14 @@
 
 # Cutting a release
 
-No specification governs the release procedure: our own design. Two crates
+No specification governs the release procedure: our own design. Three crates
 release from this workspace, each on its own version line:
 
 | Crate | Tag | Version | Changelog |
 |---|---|---|---|
 | `ferrohealth-smart` | `ferrohealth-smart-vX.Y.Z` | `[workspace.package]` of `Cargo.toml` | `crates/ferrohealth-smart/CHANGELOG.md` |
 | `ferrohealth-authz` | `ferrohealth-authz-vX.Y.Z` | `[package]` of `crates/ferrohealth-authz/Cargo.toml` | `crates/ferrohealth-authz/CHANGELOG.md` |
+| `ferrohealth-session` | `ferrohealth-session-vX.Y.Z` | `[package]` of `crates/ferrohealth-session/Cargo.toml` | `crates/ferrohealth-session/CHANGELOG.md` |
 
 A release is the signed tag on the merge commit of the release pull request
 on `main`; `.github/workflows/release.yml` does the rest for the crate the
@@ -27,8 +28,9 @@ On the branch `release/<tag>`:
    titled as the tag is closed or moved; the release refuses the tag
    otherwise (`scripts/release/milestone.sh check <tag>`).
 2. **Bump the version.** Set the crate's version and run `cargo update -w`.
-   A `ferrohealth-smart` release that `ferrohealth-authz` must follow also
-   moves the `ferrohealth-smart` requirement in `[workspace.dependencies]`.
+   A `ferrohealth-smart` release that `ferrohealth-authz` or
+   `ferrohealth-session` must follow also moves the `ferrohealth-smart`
+   requirement in `[workspace.dependencies]`.
    Move the crate's install line in `crates/<crate>/README.md`, its
    crates.io page, and any `cargo add <crate>@=` line of the repository
    `README.md` to the new version.

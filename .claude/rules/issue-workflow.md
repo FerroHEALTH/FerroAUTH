@@ -113,7 +113,7 @@ Labels carry what the platform has no field for. Bootstrap them with
 - **Work kind, on a `Task` only, exactly ONE:** `documentation` (docs),
   `chore`, `refactor`, `perf`, `test`, `ci`. A `Bug` and a `Feature` carry
   none, because the type already names the commit type.
-- **Domain or area:** `resource-server` (token validation, discovery and the key set), `scopes` (the SMART scopes and the patient compartment), `machine-auth` (Basic and the client credentials grant), `audit` (the audit line), `spec:SMART`, `spec:OAuth`, and `research` (an investigation whose deliverable is cited evidence). Add more as the
+- **Domain or area:** `resource-server` (token validation, discovery and the key set), `scopes` (the SMART scopes and the patient compartment), `machine-auth` (Basic and the client credentials grant), `audit` (the audit line), `session` (the console sign-in and session, `ferrohealth-session`), `spec:SMART`, `spec:OAuth`, and `research` (an investigation whose deliverable is cited evidence). Add more as the
   project grows; keep the set small and meaningful.
 - **Workflow:** `security`, `dependencies` (Dependabot), `blocked-upstream`
   (waits on an upstream specification or tool release), and the pull-request

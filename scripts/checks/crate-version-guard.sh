@@ -4,10 +4,11 @@
 # The crate version rule (.claude/rules/crates-publishing.md): the workspace
 # version is ferrohealth-smart's version and the `v` release tag, so it never
 # moves backwards, Cargo.lock carries it for ferrohealth-smart, and
-# crates/ferrohealth-smart/CHANGELOG.md has a section for it. ferrohealth-authz keeps its own version
-# line in its own manifest, released by the `ferrohealth-authz-v` tag: it never
-# moves backwards, Cargo.lock carries it, and once it moves past the 0.0.0 name
-# holder crates/ferrohealth-authz/CHANGELOG.md has a section for it. A change
+# crates/ferrohealth-smart/CHANGELOG.md has a section for it.
+# ferrohealth-authz and ferrohealth-session each keep their own version line in
+# their own manifest, released by their own `<crate>-v` tag: it never moves
+# backwards, Cargo.lock carries it, and once it moves past the 0.0.0 name
+# holder crates/<crate>/CHANGELOG.md has a section for it. A change
 # that moves a version is a release change and moves all three together (no
 # specification governs this: our own design).
 #
@@ -73,31 +74,39 @@ if ! grep -qF "## [$want]" <<< "$smart_changelog_text"; then
   failed=1
 fi
 
-authz_manifest="crates/ferrohealth-authz/Cargo.toml"
-authz_changelog="crates/ferrohealth-authz/CHANGELOG.md"
-authz_head="$(git show "$head:$authz_manifest" 2> /dev/null || true)"
-authz_want="$(package_version <<< "$authz_head")"
-if [[ -n "$authz_want" ]]; then
-  authz_base="$(git show "$base:$authz_manifest" 2> /dev/null || true)"
-  authz_was="$(package_version <<< "$authz_base")"
-  if [[ -n "$authz_was" && "$authz_was" != "$authz_want" ]]; then
-    newest="$(printf '%s\n%s\n' "$authz_was" "$authz_want" | sort -V | tail -1)"
-    if [[ "$newest" != "$authz_want" ]]; then
-      echo "crate-version-guard: ferrohealth-authz moves backwards, $authz_was to $authz_want" >&2
+# own_line CRATE: the rule for a crate on its own version line, read from
+# its own manifest; prints its version when the manifest names one.
+own_line() {
+  local crate="$1" manifest="crates/$1/Cargo.toml" changelog="crates/$1/CHANGELOG.md"
+  local head_text base_text was is locked newest changelog_text
+  head_text="$(git show "$head:$manifest" 2> /dev/null || true)"
+  is="$(package_version <<< "$head_text")"
+  [[ -n "$is" ]] || return 0
+  base_text="$(git show "$base:$manifest" 2> /dev/null || true)"
+  was="$(package_version <<< "$base_text")"
+  if [[ -n "$was" && "$was" != "$is" ]]; then
+    newest="$(printf '%s\n%s\n' "$was" "$is" | sort -V | tail -1)"
+    if [[ "$newest" != "$is" ]]; then
+      echo "crate-version-guard: $crate moves backwards, $was to $is" >&2
       failed=1
     fi
   fi
-  authz_locked="$(locked_version ferrohealth-authz <<< "$head_lock")"
-  if [[ "$authz_locked" != "$authz_want" ]]; then
-    echo "crate-version-guard: Cargo.lock holds ferrohealth-authz ${authz_locked:-<none>}, its manifest $authz_want; run cargo update -w" >&2
+  locked="$(locked_version "$crate" <<< "$head_lock")"
+  if [[ "$locked" != "$is" ]]; then
+    echo "crate-version-guard: Cargo.lock holds $crate ${locked:-<none>}, its manifest $is; run cargo update -w" >&2
     failed=1
   fi
-  authz_changelog_text="$(git show "$head:$authz_changelog" 2> /dev/null || true)"
-  if [[ "$authz_want" != "0.0.0" ]] && ! grep -qF "## [$authz_want]" <<< "$authz_changelog_text"; then
-    echo "crate-version-guard: $authz_changelog has no section for $authz_want" >&2
+  changelog_text="$(git show "$head:$changelog" 2> /dev/null || true)"
+  if [[ "$is" != "0.0.0" ]] && ! grep -qF "## [$is]" <<< "$changelog_text"; then
+    echo "crate-version-guard: $changelog has no section for $is" >&2
     failed=1
   fi
-fi
+  agreed+="; $crate $is agrees"
+}
+
+agreed=""
+own_line ferrohealth-authz
+own_line ferrohealth-session
 
 [[ "$failed" -eq 0 ]] || exit 1
-echo "crate-version-guard: version $want, the lock and the changelog agree${authz_want:+; ferrohealth-authz $authz_want agrees}"
+echo "crate-version-guard: version $want, the lock and the changelog agree$agreed"

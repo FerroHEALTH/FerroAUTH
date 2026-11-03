@@ -3,8 +3,9 @@
 
 # Architecture
 
-FerroAUTH holds two crates: authentication, `ferrohealth-smart`, and the
-policy decision, `ferrohealth-authz` (section 11). Sections 0 to 10 design
+FerroAUTH holds three crates: authentication, `ferrohealth-smart`, the
+policy decision, `ferrohealth-authz` (section 11), and the console sign-in
+and session, `ferrohealth-session` (section 12). Sections 0 to 10 design
 `ferrohealth-smart`, the shared library with which every
 FerroHEALTH product (FerroBRIDGE, FerroEHR, FerroFED, FerroPIX and FerroTERM) acts as an
 OAuth 2.0 and SMART App Launch 2.x resource server, verifies and sends
@@ -1347,3 +1348,52 @@ generalised so FerroFED and FerroPIX use it too (owner decision 2026-10-25).
 |---|---|---|
 | The policy decision is its own crate in this repository, `ferrohealth-authz`, on its own version line, reading `ferrohealth-smart`'s subject | owner decision 2026-10-25; `nist-sp-800-162 §2`, §3 | FerroEHR moves its `authz/` here and deletes its copy |
 | A request with a set attribute is permitted only when every combination is; an engine that cannot decide answers an error the PEP fails closed on | our own design | none |
+
+## 12. `ferrohealth-session`: the console sign-in and session
+
+Every operator console of the family signs its operator in at an OpenID
+Provider and keeps a session the browser holds a cookie to. The relying
+party itself is `ferrohealth_smart::oidc` (#131), which keeps no state
+between calls; `ferrohealth-session` keeps that state, in one crate in place
+of the five copies the consoles of FerroBRIDGE, FerroFED, FerroPIX and
+FerroTERM and the FerroEHR viewer carried (owner decision 2026-11-03, #177).
+
+- **The flow.** `GET /login` mints the `state`, the `nonce` and the PKCE
+  verifier through the relying party and keeps them as a pending sign-in
+  with the page `?return=` names, held to one of the console's own
+  (`rfc3986 §4.2`); `GET /auth/callback` takes it once, and the relying party
+  holds the returned `state` to it (`rfc6749 §10.12`), exchanges the code
+  with the verifier (`rfc7636 §4.5`) and checks the ID Token (OpenID Connect
+  Core 1.0 §3.1.3.7). `POST /logout` ends the session, revokes its refresh
+  token, or its access token when there is none (`rfc7009 §2.1`), and sends
+  the operator to the end-session endpoint (RP-Initiated Logout 1.0 §2).
+  The four paths are the same on every console.
+- **The stores.** `memory` keeps two bounded pools in the process: a full
+  pending pool drops its oldest sign-in, and a full session pool refuses a
+  new session and keeps every live one. `sealed` keeps the whole record in
+  one cookie sealed with AES-256-GCM (the `cookie` crate's private jar), so
+  a console that runs as several instances with no shared store opens it
+  anywhere; a cookie that does not open is no session, and one larger than
+  the 4096 bytes a browser keeps (`rfc6265 §6.1`) is refused when it is
+  sealed. Every cookie is `HttpOnly`, `SameSite=Lax` and, unless turned off,
+  `Secure` with the `__Host-` prefix (RFC 6265bis §4.1.3.2, §5.4.7).
+- **The lifetimes.** The absolute lifetime runs from the sign-in time the
+  session carries and nothing moves it; the idle lifetime runs from the last
+  request that counted as activity and never past the absolute end; an
+  access token no refresh token can replace ends the session when it
+  expires. The session watch (`GET`/`POST /session`) answers FerroUI's wire
+  `{"idle": s, "absolute": s}`: a `GET` never counts as activity, a `POST`
+  does, and `401` says the session is gone.
+- **The refresh.** A memory session that holds a refresh token renews its
+  access token within 60 seconds of its expiry, at most half its lifetime
+  (`rfc6749 §6`), one refresh per session at a time so a rotated refresh
+  token is spent once; a refusal ends the session, and a provider that is
+  not reached is reported, never read as a success.
+
+| Decision | Ground | Owner items |
+|---|---|---|
+| The console sign-in and session is its own crate in this repository, `ferrohealth-session`, on its own version line, over `ferrohealth-smart`'s relying party | owner decision 2026-11-03 | each console moves onto it and deletes its copy |
+| A sealed store refuses `offline_access` when the configuration loads | `rfc6749 §10.4`: a refresh token sealed into a browser cookie outlives a sign-out that cannot reach it (owner decision 2026-11-03) | a console that wants refresh tokens uses the memory store |
+| A sealed store without a key is refused when the configuration loads; there is no per-process key | our own design, fail closed (owner decision 2026-11-03) | the FerroEHR viewer's deployments set `session.key` |
+| One route set, `/login`, `/auth/callback`, `/logout` and `/session`, on every console | our own design (owner decision 2026-11-03) | FerroTERM and the FerroEHR viewer change the redirect URI registered at their provider |
+| The store, the lifetimes and the watch route | no specification governs them: our own design, held to the OWASP Session Management Cheat Sheet | none |

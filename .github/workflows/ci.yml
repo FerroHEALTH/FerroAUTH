@@ -117,11 +117,13 @@ jobs:
           persist-credentials: false
       - run: bash scripts/checks/changelog-structure.sh crates/ferrohealth-smart/CHANGELOG.md
       - run: bash scripts/checks/changelog-structure.sh crates/ferrohealth-authz/CHANGELOG.md
+      - run: bash scripts/checks/changelog-structure.sh crates/ferrohealth-session/CHANGELOG.md
       # Regulation (EU) 2024/2847 Annex I Part II(2), (4) and (8): every
       # Security entry names its GHSA advisory or VEX statement, and a
       # Security section beside other changes opens with its reason.
       - run: VEX_ROOT=. bash scripts/checks/changelog-security.sh --section Unreleased crates/ferrohealth-smart/CHANGELOG.md
       - run: VEX_ROOT=. bash scripts/checks/changelog-security.sh --section Unreleased crates/ferrohealth-authz/CHANGELOG.md
+      - run: VEX_ROOT=. bash scripts/checks/changelog-security.sh --section Unreleased crates/ferrohealth-session/CHANGELOG.md
 
   comment-style:
     name: comment-style

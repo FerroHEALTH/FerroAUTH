@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+[package]
+name = "ferrohealth-session"
+description = "The OpenID Connect sign-in and the session of the FerroHEALTH operator consoles: the authorization code flow with PKCE over ferrohealth-smart, a server-side or sealed-cookie session with idle and absolute lifetimes counted from the sign-in time, and the session-watch route"
+# Its own version line, released by the tag ferrohealth-session-v<version>.
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = true
+readme = "README.md"
+keywords = ["openid-connect", "session", "pkce", "console", "healthcare"]
+categories = ["authentication", "web-programming"]
+include = ["src/**", "tests/**", "README.md", "CHANGELOG.md"]
+
+# docs.rs builds every feature, so each feature-gated module is documented.
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = []
+# The four routes (sign-in, the provider's redirect back, sign-out and the
+# session watch) as an axum router, and the middleware that keeps a session
+# fresh and hands every page what its request holds.
+axum = ["dep:axum"]
+
+[dependencies]
+aws-lc-rs.workspace = true
+base64.workspace = true
+cookie.workspace = true
+ferrohealth-secret.workspace = true
+ferrohealth-smart = { workspace = true, features = ["oidc"] }
+ferrohealth-ui.workspace = true
+http.workspace = true
+jiff.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+tracing.workspace = true
+url.workspace = true
+axum = { workspace = true, optional = true, features = ["query", "json"] }
+
+[dev-dependencies]
+axum = { workspace = true, features = ["query", "json", "tokio"] }
+http-body-util.workspace = true
+jsonwebtoken.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+toml.workspace = true
+tower = { workspace = true, features = ["util"] }
+wiremock.workspace = true
+
+[lints]
+workspace = true

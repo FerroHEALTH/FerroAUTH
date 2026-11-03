@@ -8,11 +8,12 @@
 # scripts/release/preflight.sh runs it on a release branch before the tag is
 # pushed, so the two cannot check different things.
 #
-# Two crates release from this workspace, each on its own version line and
+# Three crates release from this workspace, each on its own version line and
 # its own tag: `ferrohealth-smart-vX.Y.Z` releases ferrohealth-smart (the
 # [workspace.package] version, crates/ferrohealth-smart/CHANGELOG.md), and
-# `ferrohealth-authz-vX.Y.Z` releases ferrohealth-authz (its own [package] version,
-# crates/ferrohealth-authz/CHANGELOG.md). The `vX.Y.Z` tags of
+# `ferrohealth-authz-vX.Y.Z` and `ferrohealth-session-vX.Y.Z` release
+# ferrohealth-authz and ferrohealth-session (each its own [package] version and
+# crates/<crate>/CHANGELOG.md). The `vX.Y.Z` tags of
 # ferrohealth-smart 0.1.0 to 0.6.0 stay as they were and count as its earlier
 # releases.
 #
@@ -43,7 +44,7 @@
 # logged-in gh locally). Exit 2 on a usage error.
 set -euo pipefail
 
-readonly TAG_RE='^ferrohealth-(smart|authz)-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+readonly TAG_RE='^ferrohealth-(smart|authz|session)-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 # The support period in years from the release date: the minimum of
 # Regulation (EU) 2024/2847 Art 13(8), as SECURITY.md states it.
 readonly SUPPORT_YEARS=5
@@ -57,7 +58,7 @@ usage() {
 valid_tag() {
   local tag="$1"
   [[ "$tag" =~ $TAG_RE ]] || {
-    echo "::error::plan: '$tag' is not a ferrohealth-smart-vX.Y.Z or ferrohealth-authz-vX.Y.Z tag" >&2
+    echo "::error::plan: '$tag' is not a ferrohealth-smart-vX.Y.Z, ferrohealth-authz-vX.Y.Z or ferrohealth-session-vX.Y.Z tag" >&2
     exit 2
   }
 }
@@ -66,6 +67,7 @@ valid_tag() {
 tag_prefix() {
   case "$1" in
   ferrohealth-authz-v*) echo "ferrohealth-authz-" ;;
+  ferrohealth-session-v*) echo "ferrohealth-session-" ;;
   ferrohealth-smart-v*) echo "ferrohealth-smart-" ;;
   *) echo "" ;;
   esac
@@ -74,6 +76,7 @@ tag_prefix() {
 crate_of() {
   case "$1" in
   ferrohealth-authz-v*) echo "ferrohealth-authz" ;;
+  ferrohealth-session-v*) echo "ferrohealth-session" ;;
   *) echo "ferrohealth-smart" ;;
   esac
 }
@@ -81,6 +84,7 @@ crate_of() {
 changelog_of() {
   case "$1" in
   ferrohealth-authz-v*) echo "crates/ferrohealth-authz/CHANGELOG.md" ;;
+  ferrohealth-session-v*) echo "crates/ferrohealth-session/CHANGELOG.md" ;;
   *) echo "crates/ferrohealth-smart/CHANGELOG.md" ;;
   esac
 }
@@ -198,12 +202,12 @@ check_milestone() { bash scripts/release/milestone.sh check "$TAG"; }
 
 # The tag names the version of the crate it releases: ferrohealth-smart's is
 # the [workspace.package] version of the root Cargo.toml, ferrohealth-authz's
-# the [package] version of its own manifest.
+# and ferrohealth-session's the [package] version of their own manifests.
 check_version() {
   local manifest table file
   case "$CRATE" in
-  ferrohealth-authz)
-    file="crates/ferrohealth-authz/Cargo.toml"
+  ferrohealth-authz | ferrohealth-session)
+    file="crates/$CRATE/Cargo.toml"
     table="[package]"
     ;;
   *)
@@ -404,6 +408,9 @@ self_test() {
   expect "the crate of an authz tag" "$(crate_of ferrohealth-authz-v0.1.0)" "ferrohealth-authz"
   expect "the version of an authz tag" "$(version_of ferrohealth-authz-v0.1.0-rc.1)" "0.1.0-rc.1"
   expect "the changelog of an authz tag" "$(changelog_of ferrohealth-authz-v0.1.0)" "crates/ferrohealth-authz/CHANGELOG.md"
+  expect "the crate of a session tag" "$(crate_of ferrohealth-session-v0.1.0)" "ferrohealth-session"
+  expect "the prefix of a session tag" "$(tag_prefix ferrohealth-session-v0.1.0)" "ferrohealth-session-"
+  expect "the changelog of a session tag" "$(changelog_of ferrohealth-session-v0.1.0)" "crates/ferrohealth-session/CHANGELOG.md"
   expect "the changelog of a smart tag" "$(changelog_of ferrohealth-smart-v0.8.0)" "crates/ferrohealth-smart/CHANGELOG.md"
   expect "the changelog of a legacy v tag" "$(changelog_of v0.6.0)" "crates/ferrohealth-smart/CHANGELOG.md"
   expect "a plain date" "$(support_end 2026-10-23)" "October 2031"
