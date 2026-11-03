@@ -28,6 +28,9 @@ and this project adheres to
   (`application/problem+json`, `about:blank`, status `401`) whose `detail`
   the console words through the new `routes::Pages::session_gone`, which
   has an English default (#183).
+- `sessions::Sessions::session_preference` writes a preference cookie with
+  no `Max-Age`, which the browser keeps until its session ends
+  (RFC 6265 §4.1.2.2), beside `preference` and its `Max-Age` (#184).
 
 ### Fixed
 

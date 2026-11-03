@@ -466,6 +466,18 @@ impl Sessions {
         )
     }
 
+    /// The `Set-Cookie` value that keeps the operator's preference `name` at
+    /// `value` until the browser session ends: the attributes of every other
+    /// cookie and no `Max-Age`, which makes it a session cookie
+    /// (RFC 6265 §4.1.2.2, §5.3).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SessionError::Header`] when the cookie cannot be written.
+    pub fn session_preference(&self, name: &str, value: &str) -> Result<HeaderValue, SessionError> {
+        self.set(&self.jar().names.preference(name), value.to_owned(), None)
+    }
+
     /// The `Set-Cookie` value that clears the operator's preference `name`.
     ///
     /// # Errors
