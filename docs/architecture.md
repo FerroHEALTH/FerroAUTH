@@ -1366,8 +1366,10 @@ FerroTERM and the FerroEHR viewer carried (owner decision 2026-11-03, #177).
   with the verifier (`rfc7636 §4.5`) and checks the ID Token (OpenID Connect
   Core 1.0 §3.1.3.7). `POST /logout` ends the session, revokes its refresh
   token, or its access token when there is none (`rfc7009 §2.1`), and sends
-  the operator to the end-session endpoint (RP-Initiated Logout 1.0 §2).
-  The four paths are the same on every console.
+  the operator to the end-session endpoint with the session's ID Token as
+  `id_token_hint` (RP-Initiated Logout 1.0 §2); a session that holds no ID
+  Token was never signed in at the provider and lands on the console's
+  signed-out page. The four paths are the same on every console.
 - **The stores.** `memory` keeps two bounded pools in the process: a full
   pending pool drops its oldest sign-in, and a full session pool refuses a
   new session and keeps every live one. `sealed` keeps the whole record in
