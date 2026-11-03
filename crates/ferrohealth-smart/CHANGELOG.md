@@ -11,6 +11,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `client::Reach` names how a connection reaches its server beyond its TLS
+  material (#196). It sets the lowest TLS version the connection negotiates
+  (`client::TlsVersion`, written `"1.2"` or `"1.3"` in a configuration), and
+  the hosts it reaches at a fixed address in place of resolving their names,
+  for a server whose name resolves only inside a private network. The URL's
+  port and the certificate check against the host name stay as the URL names
+  them. `metadata::Http::reaching` builds the engine from a `Tls` and a
+  `Reach`; `Http::with_tls` is `reaching` with the default reach, the TLS 1.2
+  floor and no override.
+
 ## [0.8.7] - 2026-10-31
 
 ### Added
