@@ -16,7 +16,9 @@
 //!   its end-session endpoint (OpenID Connect RP-Initiated Logout 1.0 §2).
 //! - `GET /session` reads what the session has left and never counts as
 //!   activity, `POST /session` extends the idle lifetime, and both answer
-//!   `401` once the session is gone: the wire of FerroUI's session watch.
+//!   `401` once the session is gone, with an RFC 9457 problem whose `detail`
+//!   the console words ([`Pages::session_gone`]): the wire of FerroUI's
+//!   session watch.
 //!
 //! A `POST` is taken only from the console's own pages, which the console's
 //! stack holds (`ferrohealth_server::same_origin`). Every answer is
@@ -31,7 +33,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
 use axum::routing::{get, post};
 use ferrohealth_smart::oidc::{Callback, OidcError, RelyingParty};
-use http::header::{CACHE_CONTROL, LOCATION, SET_COOKIE};
+use http::header::{CACHE_CONTROL, CONTENT_TYPE, LOCATION, SET_COOKIE};
 use http::request::Parts;
 use http::{HeaderValue, Method, StatusCode};
 use serde::Deserialize;
@@ -101,6 +103,13 @@ pub trait Pages: Clone + Send + Sync + 'static {
 
     /// Where a completed sign-in lands with no return path, such as `/`.
     fn home(&self) -> &str;
+
+    /// The `detail` of the problem the session watch answers once the
+    /// session of the request `parts` is gone, in the console's locale; the
+    /// default is English.
+    fn session_gone(&self, _parts: &Parts) -> String {
+        String::from("The session has ended. Sign in again to go on.")
+    }
 }
 
 /// What the routes and the middleware share.
@@ -322,11 +331,12 @@ async fn watch<P: Pages>(
     request: Request,
 ) -> Response {
     let extend = method == Method::POST;
-    match sign_in.sessions.left(request.headers(), extend) {
+    let (parts, _body) = request.into_parts();
+    match sign_in.sessions.left(&parts.headers, extend) {
         Ok(left) => {
             let mut response = match left.value {
                 Some(left) => axum::Json(left).into_response(),
-                None => StatusCode::UNAUTHORIZED.into_response(),
+                None => gone(&sign_in.pages.session_gone(&parts)),
             };
             no_store(&mut response);
             append(&mut response, left.cookies);
@@ -340,6 +350,26 @@ async fn watch<P: Pages>(
         }
     }
 }
+
+/// The `401` of a session that is gone: an `about:blank` problem
+/// (RFC 9457 §3, §4.2.1) whose `detail` is `detail`.
+fn gone(detail: &str) -> Response {
+    let problem = serde_json::json!({
+        "type": "about:blank",
+        "title": "Unauthorized",
+        "status": StatusCode::UNAUTHORIZED.as_u16(),
+        "detail": detail,
+    });
+    (
+        StatusCode::UNAUTHORIZED,
+        [(CONTENT_TYPE, HeaderValue::from_static(PROBLEM_JSON))],
+        problem.to_string(),
+    )
+        .into_response()
+}
+
+/// The media type of a problem document (RFC 9457 §3).
+const PROBLEM_JSON: &str = "application/problem+json";
 
 /// A `303` to `location` that sets `cookies`.
 fn redirect(location: &str, cookies: Vec<HeaderValue>) -> Response {

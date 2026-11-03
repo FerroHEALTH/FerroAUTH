@@ -14,14 +14,6 @@ and this project adheres to
 
 ## [Unreleased]
 
-<<<<<<< HEAD
-### Fixed
-
-- `return_path::ReturnPath::parse` refuses every page under the sign-in
-  page, such as `/sign-in/expired`, as well as the sign-in page itself, so a
-  completed sign-in never lands on the page that says the session ended
-  (#180).
-=======
 ### Added
 
 - `config::OidcSection::check` refuses a section a console cannot sign in
@@ -32,7 +24,17 @@ and this project adheres to
   §3.1.2.1), and `scopes` that list `offline_access`, which
   `offline_access = true` asks for (§11). The refusals are the new
   `ConfigError::UrlShape`, `NoOpenId` and `OfflineAccessScope` (#181).
->>>>>>> 9859940 (feat(session): hold [oidc] to TLS at the provider, a fragment-free redirect and the openid scope)
+- The session watch answers a gone session with an RFC 9457 problem
+  (`application/problem+json`, `about:blank`, status `401`) whose `detail`
+  the console words through the new `routes::Pages::session_gone`, which
+  has an English default (#183).
+
+### Fixed
+
+- `return_path::ReturnPath::parse` refuses every page under the sign-in
+  page, such as `/sign-in/expired`, as well as the sign-in page itself, so a
+  completed sign-in never lands on the page that says the session ended
+  (#180).
 
 ## [0.1.0] - 2026-11-03
 

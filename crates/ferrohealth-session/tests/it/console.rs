@@ -27,6 +27,9 @@ use tower::ServiceExt as _;
 
 use crate::provider::{CLIENT, Provider, REDIRECT, SECRET};
 
+/// The words the test console gives a session that is gone.
+pub(crate) const GONE: &str = "Synthetic session gone";
+
 /// The console's pages: a stopped sign-in answers its status and the name
 /// of why it stopped.
 #[derive(Debug, Clone)]
@@ -45,6 +48,10 @@ impl Pages for TestPages {
 
     fn signed_out(&self) -> &'static str {
         "/signed-out"
+    }
+
+    fn session_gone(&self, _parts: &Parts) -> String {
+        String::from(GONE)
     }
 
     fn home(&self) -> &'static str {
@@ -120,6 +127,7 @@ pub(crate) struct Answer {
     pub(crate) location: Option<String>,
     pub(crate) set_cookies: Vec<String>,
     pub(crate) cache: Option<String>,
+    pub(crate) content_type: Option<String>,
     pub(crate) body: String,
 }
 
@@ -156,6 +164,7 @@ impl Browser {
         };
         let location = header(LOCATION);
         let cache = header(http::header::CACHE_CONTROL);
+        let content_type = header(http::header::CONTENT_TYPE);
         let set_cookies: Vec<String> = response
             .headers()
             .get_all(SET_COOKIE)
@@ -184,6 +193,7 @@ impl Browser {
             location,
             set_cookies,
             cache,
+            content_type,
             body: String::from_utf8_lossy(&body).into_owned(),
         }
     }

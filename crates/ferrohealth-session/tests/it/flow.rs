@@ -162,6 +162,21 @@ async fn an_operator_signs_in_is_watched_and_signs_out() {
         );
         let gone = browser.get(&app, "/session").await;
         assert_eq!(StatusCode::UNAUTHORIZED, gone.status, "{store:?}");
+        assert_eq!(
+            Some("application/problem+json"),
+            gone.content_type.as_deref(),
+            "RFC 9457 §3"
+        );
+        assert_eq!(Some("no-store"), gone.cache.as_deref());
+        let problem: serde_json::Value = serde_json::from_str(&gone.body).expect("JSON");
+        assert_eq!("about:blank", problem["type"], "RFC 9457 §4.2.1");
+        assert_eq!(401, problem["status"]);
+        assert_eq!("Unauthorized", problem["title"]);
+        assert_eq!(
+            crate::console::GONE,
+            problem["detail"],
+            "the console's words"
+        );
         provider.server.verify().await;
     }
 }
