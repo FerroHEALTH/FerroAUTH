@@ -83,7 +83,27 @@ scripts/release/preflight.sh <tag> --notes /tmp/notes.md   # keep the notes
 ```
 
 Run it on `release/<tag>` once the cut is committed, and again on `main`
-after the merge, at the commit you are about to tag. It exits 0 when the
+after the merge, at the commit you are about to tag.
+
+The two runs differ in one check. The milestone check counts every open
+issue and every open pull request of the milestone titled as the tag
+(`scripts/release/milestone.sh check`), and the release pull request is one
+of them once it is opened in that milestone. So run the branch preflight
+before you open the release pull request, or open the pull request without
+the milestone: on the branch, an open release pull request in the milestone
+is refused like any other open item. At the tag the release pull request is
+merged, so it is closed and no longer counts. Every other check reads only
+the tree, and holds alike on the branch and at the merge commit.
+
+At the tag, the `plan` job of `release.yml` runs the same list as the
+preflight, at the tagged commit, before any build or publish: the milestone
+titled as the tag holds no open item, the crate's manifest version is the
+tag's, `cargo-semver-checks` finds no break the version does not allow
+against the newest version on crates.io, the changelog holds Keep a
+Changelog types once each, its links compare from the tag, a Security
+section names its advisories and its reason, the install lines pin the
+version, and the notes are composed from the section with the support
+period appended (`scripts/release/plan.sh list`). It exits 0 when the
 `plan` job would pass, names every check that refuses, and prints the path
 of the release notes it composed, so you read them before they are
 published. You need `gh` logged in, because the milestone check reads the
