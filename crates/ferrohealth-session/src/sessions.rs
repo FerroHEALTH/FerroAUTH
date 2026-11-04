@@ -148,10 +148,13 @@ impl Sessions {
     /// An empty store under `settings`, with the cookie names `names`.
     #[must_use]
     pub fn new(settings: SessionSettings, names: CookieNames) -> Self {
-        Self::with_clock(settings, names, Clock::System)
+        Self::with_clock(settings, names, Clock::system())
     }
 
-    pub(crate) fn with_clock(settings: SessionSettings, names: CookieNames, clock: Clock) -> Self {
+    /// An empty store under `settings`, with the cookie names `names`, that
+    /// counts every lifetime on `clock`.
+    #[must_use]
+    pub fn with_clock(settings: SessionSettings, names: CookieNames, clock: Clock) -> Self {
         let backend = match &settings.storage {
             Storage::Memory {
                 max_sign_ins,
@@ -179,7 +182,7 @@ impl Sessions {
         &self.inner.settings
     }
 
-    fn now(&self) -> i64 {
+    pub(crate) fn now(&self) -> i64 {
         self.inner.clock.now()
     }
 
@@ -508,10 +511,6 @@ impl Sessions {
 
     pub(crate) fn live_at(&self, record: &Record) -> bool {
         self.live(record, self.now())
-    }
-
-    pub(crate) fn clock_now(&self) -> i64 {
-        self.now()
     }
 
     /// The live record a sealed session cookie carries.

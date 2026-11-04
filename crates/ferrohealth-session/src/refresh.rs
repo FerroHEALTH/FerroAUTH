@@ -77,7 +77,7 @@ impl Sessions {
         let (Some(memory), Some(id)) = (self.memory(), self.session_id(headers)) else {
             return Ok(Freshness::Current);
         };
-        let now = self.clock_now();
+        let now = self.now();
         let gate = memory.with(
             &id,
             |record| self.live_at(record),
@@ -87,7 +87,7 @@ impl Sessions {
             return Ok(Freshness::Current);
         };
         let _refreshing = gate.lock().await;
-        let now = self.clock_now();
+        let now = self.now();
         let grant = memory.with(
             &id,
             |record| self.live_at(record),
@@ -102,7 +102,7 @@ impl Sessions {
         };
         match party.refresh(&refresh_token).await {
             Ok(refreshed) => {
-                let now = self.clock_now();
+                let now = self.now();
                 memory.with(
                     &id,
                     |record| self.live_at(record),

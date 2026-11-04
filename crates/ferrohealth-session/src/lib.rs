@@ -15,6 +15,9 @@
 //! - [`sessions::Sessions`]: the store, in process (`memory`, an opaque id in
 //!   the cookie) or in one AES-256-GCM sealed cookie (`sealed`, for a console
 //!   that runs as several instances with no shared store);
+//! - [`clock`]: the clock every lifetime is counted on, the wall clock by
+//!   default, with `clock::ManualClock` (feature `test-clock`) for a
+//!   console's tests;
 //! - [`lifetime`]: the idle and the absolute lifetime, both counted from
 //!   times the session carries, the absolute one from the sign-in time, and
 //!   what is left as FerroUI's session watch reads it;
@@ -30,6 +33,7 @@
 //! design, held to the OWASP Session Management Cheat Sheet (idle and
 //! absolute timeouts).
 
+pub mod clock;
 pub mod config;
 pub mod cookies;
 pub mod lifetime;
@@ -41,5 +45,4 @@ pub mod return_path;
 pub mod routes;
 pub mod sessions;
 
-mod clock;
 mod store;
