@@ -13,6 +13,7 @@ callback, and the session once the sign-in completes.
 |---|---|---|
 | `config` | always | the `[oidc]` and `[session]` sections, `deny_unknown_fields`, every secret through `ferrohealth-secret`'s `<key>` / `<key>_file` rule |
 | `sessions` | always | `Sessions`, the store: `memory` (bounded pools in the process, an opaque id in the cookie) or `sealed` (the whole record in one AES-256-GCM cookie, for a console that runs as several instances) |
+| `clock` | always | `Clock`, what every lifetime is counted on (the wall clock by default), and `ManualClock` behind `test-clock`, a time a console's tests set and move and hand to `Sessions::with_clock` |
 | `lifetime` | always | the idle and the absolute lifetime, the absolute one counted from the sign-in time, and what is left as FerroUI's session watch reads it |
 | `refresh` | always | the renewal of an access token before it expires, one at a time per session |
 | `record` | always | `SignedIn` (from an OpenID Connect sign-in or a Basic one the console checked), `Held`, `Session`, `Ended` |
@@ -20,7 +21,10 @@ callback, and the session once the sign-in completes.
 
 ```toml
 [dependencies]
-ferrohealth-session = { version = "=0.2.1", features = ["axum"] }
+ferrohealth-session = { version = "=0.2.2", features = ["axum"] }
+
+[dev-dependencies]
+ferrohealth-session = { version = "=0.2.2", features = ["axum", "test-clock"] }
 ```
 
 ```toml

@@ -4,7 +4,7 @@
 name = "ferrohealth-session"
 description = "The OpenID Connect sign-in and the session of the FerroHEALTH operator consoles: the authorization code flow with PKCE over ferrohealth-smart, a server-side or sealed-cookie session with idle and absolute lifetimes counted from the sign-in time, and the session-watch route"
 # Its own version line, released by the tag ferrohealth-session-v<version>.
-version = "0.2.1"
+version = "0.2.2"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -27,6 +27,9 @@ default = []
 # session watch) as an axum router, and the middleware that keeps a session
 # fresh and hands every page what its request holds.
 axum = ["dep:axum"]
+# `clock::ManualClock`, a time a console's tests set and move and hand to
+# `Sessions::with_clock`, so a lifetime runs out without waiting for it.
+test-clock = []
 
 [dependencies]
 aws-lc-rs.workspace = true

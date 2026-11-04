@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -12,7 +10,7 @@ use http::header::COOKIE;
 use http::{HeaderMap, HeaderValue};
 
 use super::{SessionError, Sessions};
-use crate::clock;
+use crate::clock::ManualClock;
 use crate::config::{SessionSection, StoreKind};
 use crate::cookies::CookieNames;
 use crate::record::{Credential, Held, SignedIn};
@@ -38,18 +36,18 @@ fn section(store: StoreKind) -> SessionSection {
     }
 }
 
-fn store(store: StoreKind) -> (Sessions, Arc<AtomicI64>) {
+fn store(store: StoreKind) -> (Sessions, ManualClock) {
     store_of(&section(store))
 }
 
-fn store_of(section: &SessionSection) -> (Sessions, Arc<AtomicI64>) {
-    let (clock, now) = clock::manual(START);
+fn store_of(section: &SessionSection) -> (Sessions, ManualClock) {
+    let now = ManualClock::new(START);
     let settings = section.check_with(false).expect("a valid section");
     (
         Sessions::with_clock(
             settings,
             CookieNames::for_console("synthetic_console"),
-            clock,
+            now.clock(),
         ),
         now,
     )
@@ -83,10 +81,6 @@ fn sent(set: &HeaderValue) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert(COOKIE, pair.parse().expect("a header"));
     headers
-}
-
-fn advance(now: &AtomicI64, seconds: i64) {
-    now.fetch_add(seconds, Ordering::SeqCst);
 }
 
 fn is_removal(cookies: &[HeaderValue]) -> bool {
@@ -129,7 +123,7 @@ fn an_expired_sign_in_is_refused() {
         let cookie = sessions
             .begin(PendingSignIn::mint().expect("minted"), None)
             .expect("begun");
-        advance(&now, 60);
+        now.advance(60);
         let taken = sessions.take_pending(&sent(&cookie)).expect("usable");
         assert!(taken.value.is_none(), "{kind:?}");
     }
@@ -166,13 +160,13 @@ fn the_idle_lifetime_ends_a_session_and_activity_moves_it() {
         let mut cookie = sessions
             .establish(&HeaderMap::new(), signed_in())
             .expect("room");
-        advance(&now, 50);
+        now.advance(50);
         let held = sessions.held(&sent(&cookie)).expect("usable");
         assert!(matches!(held.value, Held::SignedIn(_)), "{kind:?}");
         if let Some(resealed) = held.cookies.first() {
             cookie = resealed.clone();
         }
-        advance(&now, 50);
+        now.advance(50);
         assert!(
             matches!(
                 sessions.held(&sent(&cookie)).expect("usable").value,
@@ -180,7 +174,7 @@ fn the_idle_lifetime_ends_a_session_and_activity_moves_it() {
             ),
             "{kind:?}: the read at 50 s started the idle lifetime again"
         );
-        advance(&now, 60);
+        now.advance(60);
         let held = sessions.held(&sent(&cookie)).expect("usable");
         assert!(
             matches!(held.value, Held::Ended),
@@ -201,7 +195,7 @@ fn the_absolute_lifetime_ends_a_session_whatever_the_activity() {
             .establish(&HeaderMap::new(), signed_in())
             .expect("room");
         for _ in 0..12 {
-            advance(&now, 50);
+            now.advance(50);
             let held = sessions.held(&sent(&cookie)).expect("usable");
             if let Some(resealed) = held.cookies.first() {
                 cookie = resealed.clone();
@@ -222,7 +216,7 @@ fn a_watch_read_never_counts_as_activity_and_an_extension_does() {
         let cookie = sessions
             .establish(&HeaderMap::new(), signed_in())
             .expect("room");
-        advance(&now, 30);
+        now.advance(30);
         let read = sessions.left(&sent(&cookie), false).expect("usable");
         assert!(read.cookies.is_empty(), "{kind:?}: a read sets nothing");
         let read = read.value.expect("live");
@@ -322,7 +316,7 @@ fn an_access_token_no_refresh_token_replaces_ends_the_session() {
             .value
             .expect("live");
         assert_eq!((30, 30), (left.idle, left.absolute), "{kind:?}");
-        advance(&now, 30);
+        now.advance(30);
         assert!(
             matches!(
                 sessions.held(&sent(&cookie)).expect("usable").value,
@@ -346,7 +340,7 @@ fn a_sealed_store_keeps_no_refresh_token() {
             },
         )
         .expect("sealed");
-    advance(&now, 30);
+    now.advance(30);
     assert!(
         matches!(
             sessions.held(&sent(&cookie)).expect("usable").value,
@@ -369,7 +363,7 @@ fn a_memory_session_with_a_refresh_token_outlives_its_access_token() {
             },
         )
         .expect("room");
-    advance(&now, 30);
+    now.advance(30);
     assert!(
         matches!(
             sessions.held(&sent(&cookie)).expect("usable").value,
