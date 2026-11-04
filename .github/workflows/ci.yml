@@ -117,9 +117,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: bash scripts/checks/changelog-structure.sh crates/ferrohealth-smart/CHANGELOG.md
-      - run: bash scripts/checks/changelog-structure.sh crates/ferrohealth-authz/CHANGELOG.md
-      - run: bash scripts/checks/changelog-structure.sh crates/ferrohealth-session/CHANGELOG.md
+      - name: The structure guard refuses what it claims to and reads every crate
+        run: bash scripts/checks/changelog-structure.sh --self-test
+      - run: bash scripts/checks/changelog-structure.sh
       # Regulation (EU) 2024/2847 Annex I Part II(2), (4) and (8): every
       # Security entry names its GHSA advisory or VEX statement, and a
       # Security section beside other changes opens with its reason.
