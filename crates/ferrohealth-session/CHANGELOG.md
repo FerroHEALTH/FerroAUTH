@@ -14,6 +14,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- `ferrohealth-session` requires `ferrohealth-ui` 0.6.6, the FerroUI
+  release the consoles pin, in place of 0.6.0. A console on an older
+  FerroUI 0.6 moves its pin to 0.6.6 with this release (#208).
+
 ## [0.2.2] - 2026-11-04
 
 ### Added
