@@ -48,9 +48,9 @@ arc-swap = "1.9.3"
 tempfile = "3.27.0"
 # ferrohealth-session: the private (AES-256-GCM) cookie jar of the sealed
 # store, and the session-watch wire FerroUI's script reads. Verified against
-# crates.io on 2026-11-03.
+# crates.io on 2026-11-04.
 cookie = { version = "0.18.2", default-features = false, features = ["private"] }
-ferrohealth-ui = { version = "0.6.0", default-features = false }
+ferrohealth-ui = { version = "0.6.6", default-features = false }
 # The framework integrations, each behind its feature.
 tower = { version = "0.5.3", default-features = false }
 axum = { version = "0.8.9", default-features = false }
