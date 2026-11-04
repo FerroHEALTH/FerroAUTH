@@ -14,6 +14,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-11-04
+
 ### Changed
 
 - `ferrohealth-session` requires `ferrohealth-ui` 0.6.6, the FerroUI
@@ -130,7 +132,8 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.2...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.3...HEAD
+[0.2.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.2...ferrohealth-session-v0.2.3
 [0.2.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.1...ferrohealth-session-v0.2.2
 [0.2.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.0...ferrohealth-session-v0.2.1
 [0.2.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.1.1...ferrohealth-session-v0.2.0
