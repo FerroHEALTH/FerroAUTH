@@ -741,8 +741,10 @@ impl Via {
 
 /// The identity one valid credential carries.
 ///
-/// Two callers are equal when everything but their extensions is.
-#[derive(Debug, Clone)]
+/// Two callers are equal when everything but their extensions is. Its
+/// `Debug` rendering names the subject, the client, the issuer, the kind and
+/// the scheme alone, never another claim of the token.
+#[derive(Clone)]
 pub struct Caller {
     /// The token's `sub`, or the Basic user-id.
     subject: String,
@@ -803,8 +805,23 @@ impl PartialEq for Caller {
 
 impl Eq for Caller {}
 
+impl std::fmt::Debug for Caller {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Caller")
+            .field("subject", &self.subject)
+            .field("client_id", &self.client_id)
+            .field("issuer", &self.issuer)
+            .field("kind", &self.kind)
+            .field("via", &self.via)
+            .field("cached", &self.cached)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Which resources one permission reaches.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// The `Debug` rendering of a patient compartment leaves out the patient.
+#[derive(Clone, PartialEq, Eq)]
 pub enum Compartment {
     /// Every resource of the type.
     Any,
@@ -813,12 +830,22 @@ pub enum Compartment {
     Patient(String),
 }
 
+impl std::fmt::Debug for Compartment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Any => f.write_str("Any"),
+            Self::Patient(_) => f.debug_tuple("Patient").finish_non_exhaustive(),
+        }
+    }
+}
+
 /// The patient a request of the person's own access is bound to, as its
 /// token names it ([`Caller::person`]).
 ///
 /// Each field is what one source names, `None` when the token carries no
-/// such value; a product reads the one its own identifiers live in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// such value; a product reads the one its own identifiers live in. The
+/// `Debug` rendering carries none of them.
+#[derive(Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct PersonContext<'a> {
     /// The `patient` launch context (SMART App Launch 2.2.0, Scopes and
@@ -829,6 +856,12 @@ pub struct PersonContext<'a> {
     pub ehr_id: Option<&'a str>,
     /// The value of the deployment's [`PatientClaim`].
     pub claim: Option<&'a str>,
+}
+
+impl std::fmt::Debug for PersonContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PersonContext").finish_non_exhaustive()
+    }
 }
 
 /// The claim a deployment names the patient of a person's own token in, a

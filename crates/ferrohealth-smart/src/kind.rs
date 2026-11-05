@@ -109,7 +109,9 @@ impl fmt::Debug for CallerKind {
             Self::Delegated { actor } => f.debug_struct("Delegated").field("actor", actor).finish(),
             Self::Representative { .. } => f.debug_struct("Representative").finish_non_exhaustive(),
             Self::Guest(kind) => f.debug_tuple("Guest").field(kind).finish(),
-            other => f.write_str(other.as_str()),
+            Self::Patient => f.write_str("Patient"),
+            Self::System => f.write_str("System"),
+            Self::Person => f.write_str("Person"),
         }
     }
 }
