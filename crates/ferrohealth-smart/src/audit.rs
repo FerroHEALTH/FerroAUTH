@@ -4,7 +4,8 @@
 //! The one audit line of a request.
 //!
 //! It names who called (the principal, the client, the caller kind, the
-//! scheme and the issuer), what was asked (the method, the matched route, what was
+//! scheme, the issuer, and what the login resolved to with the party
+//! reference, never a name or other attribute of the party), what was asked (the method, the matched route, what was
 //! addressed and the interaction) and how it ended (the status and the duration). It
 //! never carries the token, a claim beyond those three, a scope, a query
 //! string, a header or a body. No specification governs the line: our own
@@ -19,6 +20,7 @@ use std::time::Duration;
 use http::Method;
 use http::StatusCode;
 
+use crate::party::PartyRef;
 use crate::resource::Access;
 use crate::resource::Via;
 
@@ -51,8 +53,17 @@ pub enum Actor<'a> {
         via: Via,
         /// The issuer that signed the token, when one did.
         issuer: Option<&'a str>,
+        /// What the login resolved to ([`crate::party::Outcome::as_str`]),
+        /// `source_unavailable` when the source failed, `-` when it was not
+        /// looked up.
+        binding: &'static str,
+        /// The party the outcome names, when it names one.
+        party: Option<&'a PartyRef>,
     },
 }
+
+/// The binding an audit line records when the party source failed.
+pub const SOURCE_UNAVAILABLE: &str = "source_unavailable";
 
 impl<'a> Actor<'a> {
     /// Returns the actor `access` records, `Unauthenticated` for `None`.
@@ -67,7 +78,35 @@ impl<'a> Actor<'a> {
                 kind: caller.kind().as_str(),
                 via: caller.via(),
                 issuer: caller.issuer(),
+                binding: caller.party().map_or("-", crate::party::Outcome::as_str),
+                party: caller.party().and_then(crate::party::Outcome::party),
             },
+        }
+    }
+
+    /// Returns this actor recording `binding` in place of the outcome its
+    /// caller carries; an actor without a caller is returned as it is.
+    #[must_use]
+    pub const fn with_binding(self, binding: &'static str) -> Self {
+        match self {
+            Self::Caller {
+                principal,
+                client,
+                kind,
+                via,
+                issuer,
+                party,
+                ..
+            } => Self::Caller {
+                principal,
+                client,
+                kind,
+                via,
+                issuer,
+                binding,
+                party,
+            },
+            other => other,
         }
     }
 }
@@ -158,22 +197,34 @@ impl<'a> AuditLine<'a> {
 
     /// Writes the line under [`AUDIT_TARGET`].
     pub fn write(&self) {
-        let (principal, client, kind, via, issuer) = match self.actor {
+        let (principal, client, kind, via, issuer, binding, party) = match self.actor {
             Actor::Caller {
                 principal,
                 client,
                 kind,
                 via,
                 issuer,
+                binding,
+                party,
             } => (
                 principal,
                 client.unwrap_or("-"),
                 kind,
                 via.name(),
                 issuer.unwrap_or("-"),
+                binding,
+                party.map_or_else(|| String::from("-"), ToString::to_string),
             ),
-            Actor::Open => ("-", "-", "-", "open", "-"),
-            Actor::Unauthenticated => ("unauthenticated", "-", "-", "none", "-"),
+            Actor::Open => ("-", "-", "-", "open", "-", "-", String::from("-")),
+            Actor::Unauthenticated => (
+                "unauthenticated",
+                "-",
+                "-",
+                "none",
+                "-",
+                "-",
+                String::from("-"),
+            ),
         };
         let addressed: String = self
             .addressed
@@ -193,6 +244,8 @@ impl<'a> AuditLine<'a> {
                 kind,
                 via,
                 issuer,
+                binding,
+                party,
                 method = self.method.as_str(),
                 route = self.route.unwrap_or("-"),
                 addressed,
@@ -213,6 +266,8 @@ impl<'a> AuditLine<'a> {
             kind,
             via,
             issuer,
+            binding,
+            party,
             method = self.method.as_str(),
             route = self.route.unwrap_or("-"),
             addressed,

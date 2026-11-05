@@ -187,16 +187,16 @@ fn app<C: Classify>(layer: AuthLayer<C>) -> Router {
 
 /// One captured audit line, field by field.
 #[derive(Debug, Clone, Default)]
-struct Line(BTreeMap<String, String>);
+pub(crate) struct Line(BTreeMap<String, String>);
 
 impl Line {
     /// Returns the field `name`, or an empty string.
-    fn field(&self, name: &str) -> &str {
+    pub(crate) fn field(&self, name: &str) -> &str {
         self.0.get(name).map_or("", String::as_str)
     }
 
     /// Returns the names of the fields on the line.
-    fn names(&self) -> Vec<&str> {
+    pub(crate) fn names(&self) -> Vec<&str> {
         self.0.keys().map(String::as_str).collect()
     }
 }
@@ -226,13 +226,14 @@ impl tracing::field::Visit for Line {
 /// A subscriber that keeps every audit line, so a case reads what was
 /// recorded.
 #[derive(Debug, Default)]
-struct Capture {
+pub(crate) struct Capture {
     /// The lines, in order.
     lines: Mutex<Vec<Line>>,
 }
 
 impl Capture {
-    fn lines(&self) -> Vec<Line> {
+    /// Returns the lines kept, in order.
+    pub(crate) fn lines(&self) -> Vec<Line> {
         self.lines.lock().expect("not poisoned").clone()
     }
 }
@@ -351,6 +352,7 @@ async fn a_valid_token_reaches_the_handler_and_is_audited_with_the_fixed_fields(
         vec![
             "addressed",
             "at",
+            "binding",
             "client",
             "duration_ms",
             "interaction",
@@ -358,6 +360,7 @@ async fn a_valid_token_reaches_the_handler_and_is_audited_with_the_fixed_fields(
             "kind",
             "message",
             "method",
+            "party",
             "principal",
             "request_id",
             "route",
@@ -370,6 +373,12 @@ async fn a_valid_token_reaches_the_handler_and_is_audited_with_the_fixed_fields(
     assert_eq!("synthetic-client-sub", line.field("principal"));
     assert_eq!("synthetic-client", line.field("client"));
     assert_eq!("person", line.field("kind"), "the caller kind (#215)");
+    assert_eq!(
+        "-",
+        line.field("binding"),
+        "no party binding looked it up (#216)"
+    );
+    assert_eq!("-", line.field("party"), "no party (#216)");
     assert_eq!("bearer", line.field("via"));
     assert_eq!(case.issuer.uri(), line.field("issuer"));
     assert_eq!("GET", line.field("method"));
