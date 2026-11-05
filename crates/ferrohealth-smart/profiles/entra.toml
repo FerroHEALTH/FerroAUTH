@@ -44,3 +44,17 @@ person_equality = ["oid", "tid"]
 # "Not a durable identifier for the user and shouldn't be used for
 # authorization".
 unstable_claims = ["upn", "unique_name"]
+#
+# The onward grant: Microsoft, "On-behalf-of flow"
+# (v2-oauth2-on-behalf-of-flow.md at the same commit). No lifetime is
+# stated there, so the deployment sets `max_onward_lifetime` itself.
+# "Middle-tier access token request": `grant_type` "must be
+# `urn:ietf:params:oauth:grant-type:jwt-bearer`".
+onward_grant = "jwt_bearer"
+# The same table: `requested_token_use` "must be set to `on_behalf_of`".
+onward_parameters = { requested_token_use = "on_behalf_of" }
+# "Second case": `client_id` is Required beside the client assertion.
+onward_client_id = true
+# The same table, `assertion`: "This token must have an audience (`aud`)
+# claim of the app making this OBO request".
+onward_subject_audience = true

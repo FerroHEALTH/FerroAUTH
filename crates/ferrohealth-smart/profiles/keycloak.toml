@@ -28,3 +28,20 @@ app_only = [{ subjects = [] }]
 # IMPERSONATOR_USERNAME, which are notes, not claims, so the profile names no
 # impersonation marker. A deployment maps IMPERSONATOR_ID into a claim with a
 # User Session Note mapper and names that claim in `impersonation_marker`.
+#
+# The onward grant: docs/specs/keycloak-docs/docs/guides/securing-apps/
+# token-exchange.adoc at tag 26.8.2. No lifetime is stated there, so the
+# deployment sets `max_onward_lifetime` itself.
+# "Keycloak Token exchange does not yet have support for the `resource`
+# parameter"; `audience` "specifies `client_id` of the client".
+onward_grant = "token_exchange"
+onward_indicator = "audience"
+# "Example token exchange request" sends `requested_token_type`, whose
+# default "is `urn:ietf:params:oauth:token-type:access_token`".
+onward_parameters = { requested_token_type = "urn:ietf:params:oauth:token-type:access_token" }
+# "The `subject_token` sent to the token exchange endpoint must have the
+# requester client set as an audience in the `aud` claim".
+onward_subject_audience = true
+# "Token exchange delegation" is Preview ("is not fully supported", the
+# notice of templates/features.adoc), so an `actor_token` is refused.
+onward_preview = ["actor_token"]

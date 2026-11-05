@@ -99,7 +99,7 @@ fn push(roles: &mut Vec<String>, raw: &str) {
 }
 
 /// Returns the value at the dotted `path`, each step a member of an object.
-fn lookup<'a>(claims: &'a Map<String, Value>, path: &str) -> Option<&'a Value> {
+pub(crate) fn lookup<'a>(claims: &'a Map<String, Value>, path: &str) -> Option<&'a Value> {
     let mut steps = path.split('.');
     let mut current = claims.get(steps.next()?)?;
     for step in steps {

@@ -16,12 +16,18 @@
 //! `fetch` feature, fetches on first use, shares one fetch among concurrent callers, hands out the
 //! bearer credential per attempt, and sends a call once more with a new
 //! token when the upstream refuses the held one with `401`.
+//!
+//! `onward`, behind `fetch` as well, obtains a token for another service on behalf of a caller, by
+//! token exchange (RFC 8693 §2.1) or the JWT bearer grant (RFC 7523 §2.1),
+//! and refuses one that fails the onward check.
 
 pub mod assertion;
 #[cfg(feature = "fetch")]
 pub mod cache;
 #[cfg(feature = "fetch")]
 pub(crate) mod endpoint;
+#[cfg(feature = "fetch")]
+pub mod onward;
 
 use std::sync::Arc;
 use std::time::Duration;

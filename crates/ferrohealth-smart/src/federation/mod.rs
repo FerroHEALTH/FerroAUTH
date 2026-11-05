@@ -302,6 +302,12 @@ pub struct FederationSection {
     pub presentations_claim: Option<String>,
     /// The credential types the deployment declares user-authenticated.
     pub user_credential_types: Vec<String>,
+    /// The subject-token issuers whose persons this issuer is trusted to map
+    /// to its own, when it issues onward tokens (`client::onward`).
+    pub exchanges_from: Vec<String>,
+    /// The subject-token claim, a dotted path, whose value an onward token
+    /// of this issuer must carry as `professional.hp_identifier`.
+    pub person_mapping: Option<String>,
 }
 
 /// A `[[auth.federation]]` table that breaks a rule.

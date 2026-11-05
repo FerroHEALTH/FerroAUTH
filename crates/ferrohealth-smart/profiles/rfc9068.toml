@@ -25,3 +25,12 @@
 # tenant_claim, guest, impersonation_marker, expect, user_claims,
 # unstable_claims, first_party_clients, delegates, representation and
 # adapter have no value: a deployment sets the ones its issuer needs.
+#
+# The onward grants (client::onward), each at its default:
+# onward_grant = "token_exchange"
+#   RFC 8693 §2.1.
+# onward_indicator = "resource"
+#   RFC 8693 §2.1 and RFC 8707 §2: an absolute URI naming the target.
+# max_onward_lifetime, onward_parameters, onward_client_id,
+# onward_subject_audience and onward_preview have no value: a deployment
+# that uses the onward grants sets `max_onward_lifetime`.
