@@ -11,7 +11,7 @@ version `docs/VERSIONS.md` pins, and the design of record,
 1. **SMART App Launch 2.2.0** (<https://hl7.org/fhir/smart-app-launch/>):
    the scopes and launch context, the conformance document, the client
    authentication profiles, backend services and token introspection.
-2. **The OAuth 2.0 and JOSE RFCs**: RFC 6749 (the framework), 6750 (bearer
+2. **The IETF RFCs**: RFC 6749 (the framework), 6750 (bearer
    tokens), 7515 (JWS), 7517 (JWK), 7519 (JWT), 7523 (the JWT client
    assertion), 7617 (Basic), 7662 (introspection), 8414 (server metadata),
    8725 (JWT best practices), 9068 (the JWT access token profile), 9700
