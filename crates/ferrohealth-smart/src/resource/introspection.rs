@@ -184,6 +184,7 @@ impl IntrospectionSettings {
             &self.profile,
             self.assurance.as_ref(),
             self.federation.as_ref(),
+            self.sender_constraint,
             &self.scopeless_subjects,
             &self.role_claims,
         )

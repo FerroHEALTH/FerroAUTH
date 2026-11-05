@@ -76,6 +76,12 @@ pub(crate) fn classify(
         fields,
     };
     check_bounds(&external, section)?;
+    // NOTE: MyHealth@EU Requirements Catalogue 10.0.0 requirement 01 has country
+    // B send the HP's information, so a contact point never admits an organisation.
+    if section.contact_point == Some(true) {
+        crate::federation::contact::check(&external, claims)?;
+        return Ok(Outcome::Person(external));
+    }
     if professional {
         check_professional(&external)?;
         check_level(&external, context)?;
@@ -318,6 +324,14 @@ fn check_bounds(external: &External, section: &FederationSection) -> Result<(), 
         let Some(value) = external.field(field).and_then(Attribute::text) else {
             continue;
         };
+        let declared = match bound {
+            Bound::Country => !section.countries.is_empty(),
+            Bound::Authority => !section.issuing_authorities.is_empty(),
+            Bound::Prefix => !section.provider_identifier_prefixes.is_empty(),
+        };
+        if !declared {
+            continue;
+        }
         let allowed = match bound {
             Bound::Country => section.countries.iter().any(|listed| listed == value),
             Bound::Authority => section

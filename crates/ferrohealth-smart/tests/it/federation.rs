@@ -408,7 +408,7 @@ async fn a_professional_below_level_substantial_is_refused() -> Outcome {
 }
 
 #[test]
-fn a_contact_point_or_an_undeclared_one_fails_to_load() {
+fn a_prefixed_contact_point_or_an_undeclared_one_fails_to_load() {
     let contact = FederationSection {
         contact_point: Some(true),
         ..iua()
@@ -417,7 +417,7 @@ fn a_contact_point_or_an_undeclared_one_fails_to_load() {
     assert!(
         refusal
             .as_deref()
-            .is_some_and(|text| text.contains("sender_constraint")),
+            .is_some_and(|text| text.contains("provider_identifier_prefixes")),
         "{refusal:?}"
     );
     let undeclared = FederationSection {

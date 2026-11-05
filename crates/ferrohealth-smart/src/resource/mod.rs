@@ -200,6 +200,7 @@ impl Settings {
             &self.profile,
             self.assurance.as_ref(),
             self.federation.as_ref(),
+            self.sender_constraint,
             &self.scopeless_subjects,
             &self.role_claims,
         )
@@ -247,6 +248,10 @@ pub enum ResourceError {
     /// The issuer's assurance mapping breaks a rule.
     #[error(transparent)]
     Assurance(#[from] AssuranceError),
+    /// A `contact_point = true` issuer without `sender_constraint =
+    /// "required"`.
+    #[error("a contact_point = true issuer requires sender_constraint = \"required\"")]
+    ContactPointSender,
     /// A setting is refused on an issuer of this kind.
     #[error("{key} is refused on a {kind} issuer")]
     Kind {
