@@ -27,6 +27,7 @@ use crate::resource::configuration::SmartOptions;
 use crate::resource::configuration::is_capability;
 use crate::scope::is_extension_scope;
 use crate::scope::is_scope_token;
+use crate::sender::proof::ProofSettings;
 
 /// The replacement each removed section key names.
 const ISSUER_TABLE: &str = "set it on each [[auth.issuer]] table";
@@ -173,6 +174,7 @@ impl AuthSection {
             return Err(ConfigError::Missing { key: "auth.issuer" });
         }
         let basic = self.basic_store()?;
+        let dpop = self.dpop_settings()?;
         Ok(Resolved {
             enabled: self.enabled,
             issuers,
@@ -182,6 +184,7 @@ impl AuthSection {
             capabilities: self.capabilities.clone(),
             scopes_supported: self.scopes_supported.clone(),
             product_scope: (!self.product_scope.is_empty()).then(|| self.product_scope.clone()),
+            dpop,
             #[cfg(feature = "fetch")]
             introspection,
         })
@@ -317,6 +320,25 @@ impl AuthSection {
             .collect()
     }
 
+    /// Returns the `DPoP` proof settings of `[auth.dpop]`, when the section has
+    /// the table.
+    fn dpop_settings(&self) -> Result<Option<ProofSettings>, ConfigError> {
+        let Some(section) = &self.dpop else {
+            return Ok(None);
+        };
+        let mut settings = ProofSettings::new(crate::config::parse_url(
+            &section.external_url,
+            "auth.dpop.external_url",
+        )?);
+        settings.max_age = Duration::from_secs(section.max_age_seconds);
+        settings.clock_skew = Duration::from_secs(section.clock_skew_seconds);
+        settings.algorithms.clone_from(&section.algorithms);
+        settings
+            .validate()
+            .map_err(|source| ConfigError::Dpop { source })?;
+        Ok(Some(settings))
+    }
+
     /// Returns the Basic store of `[auth.basic]`, when the section has one.
     fn basic_store(&self) -> Result<Option<PasswordStore>, ConfigError> {
         let Some(section) = &self.basic else {
@@ -354,6 +376,7 @@ impl AuthSection {
         settings.scopeless_subjects = self.scopeless_of(&entry.issuer);
         settings.role_claims = role_claims_of(entry, kind);
         settings.assurance.clone_from(&entry.assurance);
+        settings.sender_constraint = entry.sender_constraint;
         Ok(settings)
     }
 
@@ -429,6 +452,7 @@ impl AuthSection {
         settings.role_claims = role_claims_of(entry, kind);
         settings.profile = profile_of(entry)?;
         settings.assurance.clone_from(&entry.assurance);
+        settings.sender_constraint = entry.sender_constraint;
         settings
             .validate()
             .map_err(|source| ConfigError::Introspection {

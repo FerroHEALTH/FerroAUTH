@@ -87,7 +87,7 @@ with the matrix.
 | Item | Pin | Ground |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | The registry's `latest` on 2026-10-19 and the current 2.x publication; the 2.x line is where the `cruds` scope grammar, the `.well-known/smart-configuration` document and the asymmetric client profile live. Vendored as the package `hl7.fhir.uv.smart-app-launch` 2.2.0 and the page sources at the release tag. |
-| OAuth 2.0 and JOSE | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5); its certificate-bound tokens stay product-specific (section 9). RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. Two are in the set for reference: RFC 7662, because section 6 says why introspection is not the default, and RFC 9449 (DPoP), the sender-constraining mechanism that stays product-specific (section 9). RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is vendored as the reference for the `authorization_details` claim a later release may read; this release reads none of it (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroAUTH#215, #217). |
+| OAuth 2.0 and JOSE | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is vendored as the reference for the `authorization_details` claim a later release may read; this release reads none of it (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroAUTH#215, #217). |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; the authorization code flow (§3.1) and the ID Token check (§3.1.3.7) of the `oidc` relying party. |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the end-session request (§2) and the `end_session_endpoint` metadata (§2.1) of the `oidc` relying party. |
@@ -313,7 +313,8 @@ as the `scope` claim of RFC 8693), and `patient`. Two of these need a note:
   specification governs the claim: our own design, which FerroBRIDGE runs
   today and FerroFED runs under the name `ehrId` for SMART on openEHR.
 
-`jti` is read and carried but not tracked: see the replay entry of section 8.
+An access token's `jti` is read and carried but not tracked: see the replay
+entry of section 8. A DPoP proof's `jti` is tracked (3.15).
 Every other claim is passed over; a product that needs one (FerroEHR's `acr`,
 FerroFED's IUA extension) reads it from the raw claims the `Access` carries,
 under its own rules.
@@ -594,6 +595,12 @@ the format the request negotiates (the `Accept` header, a FHIR `_format`). The s
   makes the attribute a MAY). The body names no scope either, so a refusal
   teaches a caller nothing about the grants it lacks; no specification
   requires the omission: our own design, FerroBRIDGE's.
+- **A `DPoP` request that does not hold** (3.15): `401` under the `DPoP`
+  scheme, `error="invalid_dpop_proof"` for a proof that fails `rfc9449
+  §4.3`, and `error="invalid_token"` for a token or a key binding that fails
+  (`rfc9449 §7.1`, Figure 16), with no `error_description`. A surface that
+  admits `DPoP` adds a `DPoP realm="<realm>"` challenge to the no-credential
+  answer, after the `Bearer` one (`rfc9449 §7.2`, Figure 17).
 - **Two credentials, or a malformed `Authorization` value:** `400` with
   `error="invalid_request"` (`rfc6750 §3.1`).
 - **The key set or the metadata cannot be read when a token needs it:**
@@ -828,9 +835,10 @@ The response is read under these rules, each refusal the generic `401` of
   optional in `rfc7662 §2.2`, and §4 has the authorization server determine
   whether the token "can be used at the resource server making the
   introspection call", so an absent one is admitted.
-- A `token_type` other than `Bearer` refuses the token: the resource server
-  takes bearer tokens alone (`rfc6750`), and a DPoP-bound token presented
-  as bearer is the misuse sender-constraining exists to stop.
+- A `token_type` is `DPoP` exactly when the response names a `cnf.jkt`,
+  and otherwise absent or `Bearer` (`rfc6750`; `rfc9449 §6.2`); any other
+  value refuses the token. The response's `cnf` is then held to the
+  request's binding on every request, a held response included (3.15).
 - A response without `sub` is the client's: "the value of sub SHOULD
   correspond to an identifier the authorization server uses to indicate
   the client application" when no resource owner is involved (`rfc9068
@@ -979,6 +987,100 @@ How callers are classified is our own design over those sources. The
 eHDSI contact-point profile) refuses its issuer at load in this build; its
 classification follows in the same release.
 
+### 3.15 Sender-constrained tokens
+
+A token may be bound to a key its client proves with a DPoP proof
+(`rfc9449`) or to the client certificate of the mutual-TLS connection
+(`rfc8705 §3`). The token says so in its `cnf` claim, or in the `cnf`
+member of its introspection response: `jkt`, the RFC 7638 SHA-256
+thumbprint of the DPoP key (`rfc9449 §6.1`, `§6.2`), or `x5t#S256`, the
+SHA-256 of the certificate's DER encoding (`rfc8705 §3.1`, `§3.2`). The
+module is `sender` (FerroHEALTH/FerroAUTH#220).
+
+**Per issuer, `sender_constraint`**, `none` (the default) or `required` on
+each `[[auth.issuer]]`. Under `required` a token without `cnf` is refused.
+Whatever the setting, a token that carries `cnf` is held to it on every
+verifier of the crate, and the gate holds every caller a product's own
+verifier returns to it too:
+
+- a `jkt` needs a `DPoP` request whose proof's key has that thumbprint; the
+  same token under the `Bearer` scheme is refused (`rfc9449 §7.2`);
+- an `x5t#S256` needs the certificate it names; a token without one, or
+  with another, is refused with `invalid_token` (`rfc8705 §3`);
+- a `cnf` that is no object, is empty, or names any other member is
+  refused, since nothing here can confirm it (our own design);
+- a `DPoP` request whose token names no `jkt` is refused (`rfc9449 §7.1`).
+
+An introspection response's `token_type` is `DPoP` exactly when it names a
+`jkt` and otherwise absent or `Bearer` (`rfc9449 §6.2`), and a held
+response is checked against the request's binding again on every request.
+
+**The DPoP proof** arrives in the `DPoP` header beside `Authorization: DPoP
+<token>`, and `[auth.dpop]` turns the scheme on: without the table the
+scheme is not admitted. `sender::proof::ProofCheck` runs every check of
+`rfc9449 §4.3`, each refusal its own `sender::Check`: one header (check 1),
+a single well-formed JWT in `token68` (2), `jti`, `htm`, `htu`, `iat` and
+`ath` present (3), `typ` `dpop+jwt`, compared as a media type
+(`rfc7515 §4.1.9`) (4), an asymmetric algorithm of the configured list,
+default the token list of 3.3 (5), the signature verified with the `jwk`
+header (6), a `jwk` of type EC, RSA or OKP with no private member (7),
+`htm` the request's method, case-sensitive (8), `htu` the request's URI
+(9), `iat` within the window (11), and `ath` the hash of the token and the
+`jkt` the token's (12). No resource-server nonce is issued (`rfc9449 §9`
+makes it optional), so check 10 has nothing to compare.
+
+**The `htu` is compared with the configured external URL**, never with the
+URI the server sees: behind a TLS-terminating proxy the client addressed
+the proxy (`rfc9449 §4.3` check 9, "the HTTP request in which the JWT was
+received"). `[auth.dpop] external_url` is the surface's base URL as its
+clients address it, and the expected `htu` is that URL with the request
+path appended. Both sides are normalized first (`rfc3986 §6.2.2`,
+`§6.2.3`, which `rfc9449 §4.3` has a server apply): scheme and host
+lowercased, the default port dropped, dot segments resolved, an
+unreserved percent-encoding decoded and every other one in upper case, the
+query and fragment ignored.
+
+**The window**: a proof is accepted for `max_age_seconds` after its `iat`,
+default 60, at most 300, and an `iat` up to `clock_skew_seconds` ahead,
+default 10 (`rfc9449 §11.1`, "on the order of seconds or minutes"; the
+values are our own design).
+
+**Replay.** The `jti` of every accepted proof is recorded for its window,
+and a proof whose `jti` was recorded is refused (`rfc9449 §11.1`). The
+record is the SHA-256 of the `jti` (`sender::replay::ProofId`), a `jti`
+over 256 bytes is refused, and the record is written after every other
+check, so a refused request spends nothing. The store is the product's,
+`sender::replay::ReplayStore`, supplied as a product supplies a `Verifier`:
+one atomic call that records a proof and answers whether it was unseen. A
+store that fails answers `503` (`Rejection::Upstream`) and never admits a
+proof. The crate ships `MemoryReplayStore`, whose refusal holds **within one
+process only**: a replay to another replica is admitted there, the case
+`rfc9449 §11.1` names ("may not always be feasible in practice, e.g., when
+multiple servers behind a single endpoint have no shared state"). A product
+that runs more than one replica supplies a store all of them share
+(FerroFED's PostgreSQL table, FerroHEALTH/FerroFED#1637). A full in-memory
+store refuses a new proof with `503` rather than forgetting one inside its
+window. Only DPoP proofs are recorded, never a bearer access token, which
+is presented on many requests within its life (`rfc6750 §1.2`).
+
+**The client certificate** is the product's to read from its TLS layer
+(`rfc8705 §3`), as `sender::ClientCertificate` in the request's extensions,
+where the gate reads it; its trust chain is not checked (`rfc8705 §6.2`),
+and behind a TLS-terminating proxy how it reaches the product is the
+deployment's (`rfc8705 §6.5`). A certificate-bound token uses the `Bearer`
+scheme.
+
+**The wire.** A proof that fails is `401` with `DPoP error="invalid_dpop_proof"`,
+a `DPoP` request whose token or binding fails `401` with `DPoP
+error="invalid_token"` (`rfc9449 §7.1`, Figure 16), and a missing credential
+is challenged with `Bearer` and `DPoP` beside each other (Figure 17). No
+`error_description` is sent (3.7), and the `algs` parameter, a SHOULD, is
+left out. Outside the gate, `ResourceServer::authenticate_bound`,
+`Introspector::authenticate_bound` and `Verifier::verify_bound` take the
+`sender::Binding` a request proves, and `ProofCheck::authenticate` runs the
+whole `DPoP` request; a product verifier that does not implement
+`verify_bound` refuses every `DPoP` request (`Check::Unsupported`).
+
 ## 4. The configuration model
 
 Every product embeds the same `[auth]` section, deserialized with
@@ -1015,6 +1117,7 @@ role_claims = ["roles", "groups", "entitlements"]   # this issuer's role paths (
 first_party_clients = ["ferrobridge-console"]       # the clients a person signs in through (3.14)
 delegates = [{ client = "partner-app" }, { sub = "actor-service" }]
 mode = "jwt"                         # or "introspection" (3.10), with the table below
+sender_constraint = "none"           # or "required": a DPoP- or certificate-bound token alone (3.15)
 
 [auth.issuer.assurance]              # the level this issuer's tokens carry (3.12)
 claim = "acr"
@@ -1028,6 +1131,12 @@ cache_capacity = 10000
 [auth.issuer.introspection.client]   # or .bearer: a grant whose token authorizes the call
 client_id = "ferrobridge-rs"         # the fields of [<lane>.credentials.oauth]; the issuer stands in
 client_secret_file = "/run/secrets/introspection-secret"
+
+[auth.dpop]                          # absent: the DPoP scheme is not admitted (3.15)
+external_url = "https://bridge.example.org"     # the base URL clients address; htu = this + the path
+max_age_seconds = 60                 # a proof is accepted this long after its iat; at most 300
+clock_skew_seconds = 10              # an iat this far ahead is accepted; at most 300
+algorithms = ["RS256", "RS384", "PS256", "PS384", "ES256", "ES384"]
 
 [auth.basic]
 cache_ttl_seconds = 0                # how long a verified credential is kept; 0 keeps none
@@ -1224,13 +1333,6 @@ by editing the test.
   and ABAC, Cedar, a remote PDP) belongs to `ferrohealth-authz`, the second
   crate of this repository, and FerroEHR's `authz/` moves there (owner
   decision 2026-10-25).
-- **Sender-constrain tokens.** RFC 9700 §2.2.1 has resource servers "SHOULD
-  use mechanisms for sender-constraining access tokens" (mutual TLS,
-  `rfc8705`; DPoP, `rfc9449`). Both RFCs are vendored for reference, and
-  only FerroFED needs one today, so DPoP and certificate-bound access tokens
-  stay product-specific in FerroFED for now (owner decision 2026-10-19;
-  section 9). The token client's own mutual-TLS client authentication
-  (`rfc8705 §2`) is the crate's (3.5).
 - **Read a token from a query string or a form body** (3.3).
 
 ## 7. Reference: what the products run today and the design changes
@@ -1273,7 +1375,10 @@ four agree on and settles each difference:
   hop, and the rule that a caller's token is never forwarded. `jti` is not
   tracked: a replay inside the lifetime at the same resource server is
   indistinguishable from the client's own retry, and the countermeasure RFC
-  9700 §4.9.3 names is sender-constraining, which stays FerroFED's (section 9).
+  9700 §4.9.3 names is sender-constraining, which an issuer turns on with
+  `sender_constraint = "required"` (3.15). A DPoP proof is single-use within
+  its window, across replicas only when the product supplies a shared
+  replay store.
 - **Clock skew.** `exp` and `nbf` take the configured leeway, at most five
   minutes; a token issued in the future beyond the leeway is refused; the
   skew never widens by configuration beyond the bound (3.3).
@@ -1314,7 +1419,7 @@ four agree on and settles each difference:
 | Under the `rfc9068` profile only `scope` counts; under the `jwt` profile `scp` is read as a fallback when `scope` is absent, for an issuer such as Entra ID that mints the array form | `rfc9068 §2.2.3` names `scope`; `scp` is no specification's, so it is admitted only outside the profile (owner decision 2026-10-19) | none |
 | Product scopes (`ferrobridge.operator`, `ferroterm/admin`) are renamed to a form SMART's Extensibility section admits, a `__` prefix or a full URI, during each product's migration | `smart scopes-and-launch-context`, Extensibility (owner decision 2026-10-19) | each product's migration names the new scope and the deployments that must update their authorization server |
 | Granular scopes grant nothing without a product evaluator | the safe reading of "MAY be ignored" | none |
-| `jti` is read, not tracked; DPoP (`rfc9449`) and mutual TLS (`rfc8705`) stay product-specific, in FerroFED, for now | `rfc9700 §4.9.3` names sender-constraining as the countermeasure; both RFCs are vendored for reference (owner decision 2026-10-19) | none |
+| An access token's `jti` is read, not tracked; DPoP-bound (`rfc9449`) and certificate-bound (`rfc8705 §3`) tokens are verified per issuer, `sender_constraint = "required"` admits a bound token alone, a `cnf` token is never a plain bearer token, the `htu` is compared with the configured external URL, and the proof `jti` is recorded in a product-supplied `ReplayStore` whose in-memory default holds per replica (3.15) | `rfc9700 §4.9.3`; `rfc9449 §4.3`, `§6`, `§7`, `§11.1`; `rfc8705 §3`; the store, the window values and the refusal of an unknown `cnf` method are our own design (FerroHEALTH/FerroAUTH#220, which replaces the owner decision of 2026-10-19 that kept both in FerroFED) | a product with more than one replica supplies a shared `ReplayStore` (FerroHEALTH/FerroFED#1637); a surface admitting `DPoP` sets `[auth.dpop] external_url` |
 | `resource` is the RFC 8707 resource indicator, sent when configured; `audience` has no specification and is sent only when configured | `rfc8707 §2`; FerroBRIDGE sends both today | none |
 | The `kid` of the product's own JWK is configured, or defaults to the RFC 7638 SHA-256 thumbprint | `rfc7638 §3`; the default is our own design | none |
 | A caller's roles are read from the RFC 9068 §2.2.3.1 claims, or the paths a deployment names, and a Basic user's from its configuration; a route table states role requirements beside scope requirements, matched without regard to ASCII case | `rfc9068 §2.2.3.1`, `rfc7643 §2.4`, `§4.1.2`; the matching and the requirement forms are our own design (owner decision 2026-10-25: authentication and the granted subject belong in this crate) | a product that read roles itself (FerroEHR's claim paths and Basic role table) moves them to `[auth] role_claims` and `[[auth.basic.users]] roles` |
@@ -1368,6 +1473,10 @@ Every rule above is a test the crate carries before a product moves:
   forbidden value under a token, a Basic credential and a refusal;
 - the error model: every status and challenge string of 3.7, pinned as the
   contract the products' existing tests already hold.
+- sender-constrained tokens: the RFC 9449 Figure 2, 4, 9, 13 and 14 and
+  RFC 8705 Figure 2 and Appendix A examples, each check of `rfc9449 §4.3`
+  as its own refusal, the replay refusal over a shared and an in-memory
+  store, the certificate binding, and the `cnf` token under `Bearer` (3.15);
 
 The vendored specifications are read by the design and by the tests that
 cite them; `scripts/checks/versions.sh` holds the trees to their provenance,
