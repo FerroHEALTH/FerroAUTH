@@ -21,6 +21,13 @@
 #                        its PROVENANCE.md repeats.
 #   3c. Cedar docs       the PROVENANCE.md names the pinned commit and the
 #                        tree still hashes to the digest it records.
+#   3d. the party        the IHE IUA, Nuts RFC021, Microsoft Entra, SCIM
+#       binding sources  workload identity and Keycloak trees: each
+#                        PROVENANCE.md names its row's commit and the tree
+#                        still hashes to the digest it records.
+#   3e. cache only       the Okta PROVENANCE.md records its row's pin-set
+#                        digest and the directory holds no other file; no
+#                        file under .vendor-cache/ is tracked.
 #   4. the design        the pin table of docs/architecture.md names the
 #                        same SMART App Launch version as the matrix.
 #   5. the licence       no first-party file claims a licence other than
@@ -196,6 +203,46 @@ if [ -f "$cedar/PROVENANCE.md" ]; then
 else
   fail "$cedar/PROVENANCE.md is missing"
 fi
+
+# ---- 3d. the party binding sources ------------------------------------------
+for tree in "ihe-iua:IHE IUA supplement" "nuts-rfc:Nuts RFC021" \
+  "entra-docs:Microsoft Entra documentation" \
+  "scim-workload-identity:SCIM workload identity federation guide" \
+  "keycloak-docs:Keycloak documentation"; do
+  dir="docs/specs/${tree%%:*}"
+  item="${tree#*:}"
+  if [ -f "$dir/PROVENANCE.md" ]; then
+    before="$failures"
+    commit="$(corpus_pin_commit "$(corpus_pin_cell "$item")")"
+    got_commit="$(provenance_line "$dir/PROVENANCE.md" Pin)"
+    case "$got_commit" in
+      *"commit $commit"*) ;;
+      *) fail "$dir/PROVENANCE.md names '$got_commit', docs/VERSIONS.md pins commit $commit" ;;
+    esac
+    want="$(provenance_digest "$dir/PROVENANCE.md" "Tree digest")"
+    got="$(corpus_tree_digest "$dir")"
+    [ "$got" = "$want" ] || fail "$dir hashes to $got, its PROVENANCE.md records ${want:-nothing}"
+    [ "$failures" -ne "$before" ] || ok "$item at $commit"
+  else
+    fail "$dir/PROVENANCE.md is missing"
+  fi
+done
+
+# ---- 3e. the cache-only sources ---------------------------------------------
+okta="docs/specs/okta"
+if [ -f "$okta/PROVENANCE.md" ]; then
+  before="$failures"
+  want="$(grep -oE '[0-9a-f]{64}' <<< "$(corpus_pin_cell "Okta OpenID Connect and OAuth 2.0 API")" | head -n1)"
+  got="$(provenance_digest "$okta/PROVENANCE.md" "Pin-set digest")"
+  [ "$got" = "$want" ] || fail "$okta/PROVENANCE.md records pin-set digest ${got:-nothing}, docs/VERSIONS.md $want"
+  extra="$(corpus_file_count "$okta")"
+  [ "$extra" = "0" ] || fail "$okta holds $extra file(s) besides PROVENANCE.md; its source is cache only"
+  [ "$failures" -ne "$before" ] || ok "the Okta API reference pinned at $want, cache only"
+else
+  fail "$okta/PROVENANCE.md is missing"
+fi
+tracked="$(git ls-files .vendor-cache | head -n1)"
+[ -z "$tracked" ] || fail ".vendor-cache/ is never committed, and $tracked is tracked"
 
 # ---- 4. the design ----------------------------------------------------------
 architecture="docs/architecture.md"

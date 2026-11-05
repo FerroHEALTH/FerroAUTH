@@ -22,7 +22,14 @@ tree with a `PROVENANCE.md`.
   version, the date fetched, the licence, and how to refresh it. Vendored
   material keeps its upstream terms (CC BY 4.0 for SMART App Launch, the
   IETF Trust Legal Provisions for the RFCs, the OpenID Foundation's notice
-  for the OpenID Connect documents).
+  for the OpenID Connect documents, and each vendor document's own grant as
+  its `PROVENANCE.md` quotes it).
+- **A source whose licence forbids redistribution, or states none, is
+  cache only**: its script pins the URL and sha256 (`scripts/vendor/lib/pinned.sh`,
+  mode `cache`), fetches it into the git-ignored `.vendor-cache/`, and
+  commits only its `PROVENANCE.md`, which records the licence as read and
+  that no copy may be committed. `scripts/checks/versions.sh` fails when a
+  copy reaches the tree.
 - **A new corpus or RFC** is a row in `docs/VERSIONS.md`, a fetch by the
   script and the citation that needs it, in one change.
 - **Bumping a pin** is a deliberate change: rerun the script, read what

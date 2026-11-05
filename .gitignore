@@ -13,3 +13,7 @@
 
 # Finder metadata.
 .DS_Store
+
+# Vendored material whose licence forbids a committed copy, fetched by
+# scripts/vendor/*.sh and read locally only.
+/.vendor-cache/

@@ -100,7 +100,11 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   Provider, a `wiremock` stub with a key generated when the case runs).
 - `docs/`: `architecture.md`, `VERSIONS.md`, `release.md`, `specs/` (the
   vendored SMART App Launch, RFC, OpenID Connect Discovery, Core and
-  RP-Initiated Logout, NIST SP 800-162 and Cedar language corpora, each with a `PROVENANCE.md`).
+  RP-Initiated Logout, NIST SP 800-162 and Cedar language corpora, the
+  IHE IUA supplement, Nuts RFC021, and the Microsoft Entra, SCIM workload
+  identity and Keycloak documents the issuer profiles cite, each with a
+  `PROVENANCE.md`; `okta/` holds only the provenance of a cache-only page,
+  fetched into the ignored `.vendor-cache/`).
 - `scripts/`: `vendor/` (the corpus fetchers), `checks/` (the committed
   guards), `release/` (the crate publish), `gh/` (the tracker helpers).
 - `.github/`: CI with a single required `conclusion` job, the vendored
@@ -114,8 +118,9 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 - **The specifications are the authority**: SMART App Launch 2.2.0, the
   SMART on openEHR draft (DEVELOPMENT, pinned by commit and read weekly
   upstream), RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725,
-  9068, 9700, 8707, 7638, 8705, 9449, 9470, 8259, 6454, 7636 and 7009, and
-  OpenID Connect Discovery 1.0, Core 1.0 and RP-Initiated Logout 1.0, as
+  9068, 9700, 8707, 7638, 8705, 9449, 9470, 8259, 6454, 7636, 7009, 7521,
+  7522 and 8693, OpenID Connect Discovery 1.0, Core 1.0 and RP-Initiated
+  Logout 1.0, and IHE IUA and Nuts RFC021 for federation tokens, as
   vendored under `docs/specs/`. Cite the section in every `// NOTE:`; never resolve a
   question from memory or from another implementation's behaviour. Where
   none governs a decision, say so: "no specification governs this: our own

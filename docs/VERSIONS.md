@@ -43,6 +43,12 @@ hashes the vendored bytes again, failing when either disagrees with its row.
 | OpenID Connect RP-Initiated Logout 1.0 document | `openid-connect-rpinitiated-1_0-final.html` sha256 `246432dafaa5556d896fa9b9ae4284b213ff6921b33478ed3b46bd6bd4aab804` (the edition `openid-connect-rpinitiated-1_0.html` serves) | `scripts/vendor/openid-connect-rpinitiated.sh`, `docs/specs/openid-connect-rpinitiated/PROVENANCE.md` |
 | NIST SP 800-162 document | `NIST.SP.800-162.pdf` sha256 `ea90ee967a7011c8de5cfaffe0820d157167edefdea5fc2a84af730af4295cd7` (January 2014, with the updates of 2019-08-02) | `scripts/vendor/nist-sp-800-162.sh`, `docs/specs/nist-sp-800-162/PROVENANCE.md` |
 | Cedar language documentation | `cedar-policy/cedar-docs` commit `5d8a02fda9ddf629b9989b0e0e2fb16215d394e4` (the default branch head on 2026-10-25) paths `docs/collections/_policies`, `_auth` and `_schema` | `scripts/vendor/cedar-docs.sh`, `docs/specs/cedar-docs/PROVENANCE.md` |
+| IHE IUA supplement | `IHE/ITI.IUA` tag `2.5` commit `a8e20c92928b7560ee07a410922187757248c8b9`, the Revision 2.5 Trial Implementation supplement text (ITI-71, ITI-72, ITI-102, ITI-103) and its figures, the edition FerroHEALTH/FerroFED vendors (CC-BY-4.0) | `scripts/vendor/ihe-iua.sh`, `docs/specs/ihe-iua/PROVENANCE.md` |
+| Nuts RFC021 | `nuts-foundation/nuts-specification` commit `7c0de533b8cce537812b6647542e5719c93433a8`, RFC021 (VP Token Grant Type), the commit FerroHEALTH/FerroFED vendors (CC-BY-SA-4.0, per the document's Copyright Notice) | `scripts/vendor/nuts-rfc.sh`, `docs/specs/nuts-rfc/PROVENANCE.md` |
+| Microsoft Entra documentation | `MicrosoftDocs/entra-docs` commit `219d8d57b01779e72e6d5449dc9341334c1fb906` (the default branch head on 2026-11-05), the access token claims reference, the optional claims reference and the on-behalf-of flow (CC-BY-4.0 per the README, MIT per the LICENSE file) | `scripts/vendor/entra-docs.sh`, `docs/specs/entra-docs/PROVENANCE.md` |
+| SCIM workload identity federation guide | `AzureAD/SCIMReferenceCode` commit `21b92c8f28383e30f8c304908b126682af2370d7` (the default branch head on 2026-11-05), `Workload-Identity-Federation-for-SCIM-Provisioning.md` and its figures (MIT) | `scripts/vendor/scim-workload-identity.sh`, `docs/specs/scim-workload-identity/PROVENANCE.md` |
+| Keycloak documentation | `keycloak/keycloak` tag `26.8.2` commit `e514445f9dcdabc5bdcf67cab56c1e49655de067`, the token exchange chapter and the server administration guide's service account, protocol mapper and identity brokering sections (Apache-2.0) | `scripts/vendor/keycloak-docs.sh`, `docs/specs/keycloak-docs/PROVENANCE.md` |
+| Okta OpenID Connect and OAuth 2.0 API | pin-set digest `bda8b2583cfad62b58669f2bba0214d7aabb33ab9c37d99b55d608cbc6171b82` over the one page the script pins by URL and sha256; cache only, never committed ("All rights reserved") | `scripts/vendor/okta.sh`, `docs/specs/okta/PROVENANCE.md` |
 
 ### The RFCs
 
@@ -76,6 +82,9 @@ RFC Editor reports obsoleted, and records what updates it.
 | RFC 9396 | OAuth 2.0 Rich Authorization Requests, sha256 `d6a8f032d8a585daae1c33a8c7b6e539d199f886ec8cc1c7898436f7f2eed29c` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 7636 | Proof Key for Code Exchange by OAuth Public Clients, sha256 `1972e5d81cbaba7066cfd46374207bc2b4546b085ed5dd9b034e79e023e0ca31` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 7009 | OAuth 2.0 Token Revocation, sha256 `b2f346d5a87ba9d7f09047901257a65f7ac0b26352095969c25821afab447829` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 7521 | Assertion Framework for OAuth 2.0 Client Authentication and Authorization Grants, sha256 `d5d97b3e691c9bbc495c277cc2cd79316b82486991468fc346a96ab59ba4b3c8` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 7522 | Security Assertion Markup Language (SAML) 2.0 Profile for OAuth 2.0 Client Authentication and Authorization Grants, sha256 `87656a015c74b2cce4ed74fdf785ea2cf824e8d13cc53860d40fac3e57569afd` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 8693 | OAuth 2.0 Token Exchange, sha256 `358d658014738bf4dc56c8aae2094ce716ede23b6d5a80488a7dc8e8d72da609` | `docs/specs/rfc/PROVENANCE.md` |
 
 ## Licence
 
@@ -95,8 +104,15 @@ Vendored material keeps its upstream terms, recorded beside each vendored tree
 in its `PROVENANCE.md`: CC BY 4.0 for the SMART App Launch package and page
 sources, the IETF Trust Legal Provisions for the RFCs, Apache License 2.0
 for the SMART on openEHR source and the Cedar language documentation, the
-OpenID Foundation's notice for the three OpenID Connect specifications, and
-the public domain of a United States Government work for NIST SP 800-162.
+OpenID Foundation's notice for the three OpenID Connect specifications, the
+public domain of a United States Government work for NIST SP 800-162, CC BY
+4.0 for the IHE IUA supplement, CC BY-SA 4.0 for Nuts RFC021, the README's
+CC BY 4.0 grant and the LICENSE file's MIT text for the Microsoft Entra
+documents, MIT for the SCIM workload identity federation guide and Apache
+License 2.0 for the Keycloak documentation. The Okta API reference states
+"All rights reserved" and grants no licence, so `scripts/vendor/okta.sh`
+fetches it into the git-ignored `.vendor-cache/okta/` and only its
+`PROVENANCE.md` is committed.
 
 ## The toolchain and the crate
 

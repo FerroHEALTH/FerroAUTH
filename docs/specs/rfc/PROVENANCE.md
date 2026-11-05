@@ -7,10 +7,10 @@ Vendored verbatim by `scripts/vendor/rfcs.sh` from the RFC Editor
 (<https://www.rfc-editor.org/rfc/>), the text form of each, as published. Never edit a file here:
 change the pin in docs/VERSIONS.md and re-run the script.
 
-- Fetched: 2026-10-26
-- Files: 23
+- Fetched: 2026-11-05
+- Files: 26
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `4c51f6f4916b7a3edad5d765a5b86c9e2098508d8229ea4ea1364192f7bc6b61`
+  `PROVENANCE.md` excluded): `ac886cb38712a643bc06aae9a81eed2f280dadb5dff000bbe9122826b562e067`
 - Upstream licence: each RFC is "Copyright (c) <year> IETF Trust and the
   persons identified as the document authors. All rights reserved." and is
   "subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF
@@ -55,6 +55,9 @@ change the pin in docs/VERSIONS.md and re-run the script.
 | RFC 9396 | OAuth 2.0 Rich Authorization Requests | May 2023 | PROPOSED STANDARD | none | `d6a8f032d8a585daae1c33a8c7b6e539d199f886ec8cc1c7898436f7f2eed29c` |
 | RFC 7636 | Proof Key for Code Exchange by OAuth Public Clients | September 2015 | PROPOSED STANDARD | none | `1972e5d81cbaba7066cfd46374207bc2b4546b085ed5dd9b034e79e023e0ca31` |
 | RFC 7009 | OAuth 2.0 Token Revocation | August 2013 | PROPOSED STANDARD | none | `b2f346d5a87ba9d7f09047901257a65f7ac0b26352095969c25821afab447829` |
+| RFC 7521 | Assertion Framework for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | none | `d5d97b3e691c9bbc495c277cc2cd79316b82486991468fc346a96ab59ba4b3c8` |
+| RFC 7522 | Security Assertion Markup Language (SAML) 2.0 Profile for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | none | `87656a015c74b2cce4ed74fdf785ea2cf824e8d13cc53860d40fac3e57569afd` |
+| RFC 8693 | OAuth 2.0 Token Exchange | January 2020 | PROPOSED STANDARD | none | `358d658014738bf4dc56c8aae2094ce716ede23b6d5a80488a7dc8e8d72da609` |
 
 An "Updated by" entry names an RFC that changes the document without
 replacing it; the design reads each update that bears on the resource
