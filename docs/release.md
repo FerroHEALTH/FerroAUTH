@@ -27,30 +27,50 @@ On the branch `release/<tag>`:
 1. **The milestone is empty.** Every issue and pull request of the milestone
    titled as the tag is closed or moved; the release refuses the tag
    otherwise (`scripts/release/milestone.sh check <tag>`).
-2. **Bump the version.** Set the crate's version and run `cargo update -w`.
-   A `ferrohealth-smart` release that `ferrohealth-authz` or
+2. **Bump the version.** Set the crate's version and run `cargo update -w`,
+   unless a breaking pull request already moved it (§ When the version
+   moves). A `ferrohealth-smart` release that `ferrohealth-authz` or
    `ferrohealth-session` must follow also moves the `ferrohealth-smart`
    requirement in `[workspace.dependencies]`.
    Move the crate's install line in `crates/<crate>/README.md`, its
    crates.io page, and any `cargo add <crate>@=` line of the repository
-   `README.md` to the new version.
+   `README.md` to the new version. The install lines move here and in no
+   earlier pull request, since they name a version a product can install.
 3. **Cut the changelog.** Rename `## [Unreleased]` to
    `## [X.Y.Z] - YYYY-MM-DD` and open a fresh, empty `## [Unreleased]` above
-   it. The date is the day of the cut: the release notes count the support
-   period from it. Refresh the link references at the foot: `[Unreleased]`
+   it. When a pending `## [X.Y.Z] - Unreleased` section stands, move any
+   entries of `[Unreleased]` into it and replace its `Unreleased` with the
+   date instead. The date is the day of the cut: the release notes count
+   the support period from it, and the plan refuses a heading without one.
+   Refresh the link references at the foot: `[Unreleased]`
    compares from the new tag, and `[X.Y.Z]` compares the previous tag with
    it. Read the section as the release notes, and reread the reason of a
    Security section (§ Security entries).
 4. **The gates pass.** The crate-version guard checks that the version, the
    lock and the changelog section agree.
 
+## When the version moves
+
+A version moves in the pull request that first needs it. The first change
+after a release that breaks a public API moves the minor version (`0.x.y`
+to `0.(x+1).0`) in its own pull request, because
+`scripts/checks/semver.sh` refuses the break otherwise, and opens the
+pending section `## [X.Y.Z] - Unreleased` under an empty `## [Unreleased]`.
+Later pull requests add their entries to that section, and the release pull
+request dates it (step 3). Every other release moves its version in the
+release pull request. `scripts/checks/crate-version-guard.sh` requires a
+section for the manifest version and reads a pending one and a dated one
+alike; `scripts/checks/changelog-security.sh` reads a pending section with
+`[Unreleased]` on every pull request; and the release plan refuses a
+section whose heading carries no date.
+
 ## Security entries
 
 Two rules of Regulation (EU) 2024/2847 hold every Security section, and
 `scripts/checks/changelog-security.sh` checks both: CI runs it on every pull
-request over `[Unreleased]`, and the release `plan` job over the section it
-cuts (`scripts/release/plan.sh`). A section released before the rules is
-never checked again.
+request over `[Unreleased]` and a pending section, and the release `plan`
+job over the section it cuts (`scripts/release/plan.sh`). A section
+released before the rules is never checked again.
 
 - **Every entry names its advisory** (Annex I Part II(4), (8)). A Security
   entry carries the `GHSA-` id of the FerroAUTH security advisory drafted

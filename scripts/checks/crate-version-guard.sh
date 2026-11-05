@@ -2,21 +2,36 @@
 # SPDX-FileCopyrightText: Cadasto B.V.
 # SPDX-License-Identifier: BUSL-1.1
 # The crate version rule (.claude/rules/crates-publishing.md): the workspace
-# version is ferrohealth-smart's version and the `v` release tag, so it never
+# version is ferrohealth-smart's version and its release tag, so it never
 # moves backwards, Cargo.lock carries it for ferrohealth-smart, and
 # crates/ferrohealth-smart/CHANGELOG.md has a section for it.
 # ferrohealth-authz and ferrohealth-session each keep their own version line in
 # their own manifest, released by their own `<crate>-v` tag: it never moves
 # backwards, Cargo.lock carries it, and once it moves past the 0.0.0 name
-# holder crates/<crate>/CHANGELOG.md has a section for it. A change
-# that moves a version is a release change and moves all three together (no
-# specification governs this: our own design).
+# holder crates/<crate>/CHANGELOG.md has a section for it.
+#
+# A version moves in the pull request that first needs it: the first breaking
+# change after a release moves the minor version, as scripts/checks/semver.sh
+# requires, and opens the pending section `## [X.Y.Z] - Unreleased`, which
+# the release pull request dates; any other release moves it in the release
+# pull request (docs/release.md). Either way the section exists, so this guard
+# reads a pending section and a dated one alike (no specification governs
+# this: our own design).
 #
 # Usage: scripts/checks/crate-version-guard.sh <base-ref> [head-ref]
+# Exit 0 when the versions, the lock and the changelogs agree, 1 on a
+# finding, 2 on a usage error.
 set -euo pipefail
+
+# shellcheck source=scripts/lib/guard-args.sh
+. "$(dirname "$0")/../lib/guard-args.sh"
+readonly GRAMMAR="<base-ref> [head-ref]"
+guard_known_flags "$GRAMMAR" "" "$@"
+[[ "$#" -ge 1 && "$#" -le 2 && -n "${1:-}" ]] || guard_usage "$GRAMMAR"
+
 cd "$(dirname "$0")/../.."
 
-base="${1:?usage: crate-version-guard.sh <base-ref> [head-ref]}"
+base="$1"
 head="${2:-HEAD}"
 
 # The `version` key of `[workspace.package]` in a Cargo.toml read on stdin.

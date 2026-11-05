@@ -55,7 +55,9 @@ records, and it does not decide the work is done on your behalf.
    results you saw, never a green you assumed.
 7. **Changelog check:** a change with user-visible effect has an entry under
    `[Unreleased]` in the changelog of the crate it ships in
-   (`crates/<crate>/CHANGELOG.md`). Add it if it is missing.
+   (`crates/<crate>/CHANGELOG.md`), or under its pending
+   `[X.Y.Z] - Unreleased` section when one stands (`docs/release.md`, When
+   the version moves). Add it if it is missing.
 8. **Write the close narrative into the PR description:** what shipped, the key
    decisions with their citations, the gate results, and what was deliberately
    left out (with follow-up issue numbers). The PR description plus the issue
@@ -67,7 +69,8 @@ records, and it does not decide the work is done on your behalf.
     so the merge into `main` auto-closes the issue; never close the issue by
     hand when a PR carries the work. One `Closes` keyword per issue. Confirm
     auto-merge is armed (`gh pr view --json autoMergeRequest`); arm it if not,
-    as its own command (`.claude/memory/pr-auto-merge.md`).
+    as its own command, `gh pr merge <n> --auto`
+    (`.claude/memory/merge-queue-signed.md`).
 11. **Milestone check:** FerroAUTH has no roadmap board
     (`.claude/rules/project-board.md`). After the merge, confirm the issue is
     closed in its milestone (`gh issue view <n> --json state,milestone`).

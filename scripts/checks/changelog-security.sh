@@ -4,8 +4,10 @@
 # The Security rules of a changelog section (Keep a Changelog 1.1.0 plus the
 # Cyber Resilience Act, Regulation (EU) 2024/2847).
 #
-# Two rules, for the one section named (the release being cut, or
-# [Unreleased] on every pull request):
+# Two rules, for the section named: the release being cut, or on every pull
+# request [Unreleased] together with any version section still headed
+# `## [X.Y.Z] - Unreleased`, the pending release a breaking change opened
+# (docs/release.md):
 #   1. A `### Security` subsection beside any other change subsection opens
 #      with the line `Shipped with functional changes because: <reason>`, with
 #      a reason on that line. Annex I Part II(2) has security updates
@@ -21,13 +23,17 @@
 # never checked retroactively.
 #
 # Usage:
-#   scripts/checks/changelog-security.sh [--section <X.Y.Z|Unreleased>] [<file>]
+#   scripts/checks/changelog-security.sh [--section <X.Y.Z|Unreleased>]          every crates/*/CHANGELOG.md
+#   scripts/checks/changelog-security.sh [--section <X.Y.Z|Unreleased>] <file>   the file named
 #   scripts/checks/changelog-security.sh --self-test
 #
-# <file> defaults to CHANGELOG.md, --section to Unreleased. A VEX path is
-# resolved against VEX_ROOT, by default the directory that holds <file>, so a
-# crate changelog under crates/<name>/ names the repository's VEX statements
-# with VEX_ROOT=. ; VEX_DIR names the VEX directory relative to it (default
+# --section defaults to Unreleased. Each crate keeps its own changelog and
+# the workspace has none at its root, so the run with no file reads every
+# crate's, as scripts/checks/changelog-structure.sh does. A VEX path is
+# resolved against VEX_ROOT, by default the directory that holds <file>, or
+# the repository root for the run with no file, so a crate changelog under
+# crates/<name>/ names the repository's VEX statements with VEX_ROOT=. ;
+# VEX_DIR names the VEX directory relative to it (default
 # security/vex). CHANGELOG_RULE names the
 # document a refusal points at (default: the Security entries section of
 # docs/release.md).
@@ -43,7 +49,8 @@ guard_known_flags "$GRAMMAR" "--section --self-test" "$@"
 readonly REASON_PREFIX="Shipped with functional changes because: "
 
 # check FILE SECTION: prints the findings, one per line, and returns 1 when
-# there is any; returns 2 when the section is absent.
+# there is any; returns 2 when the section is absent. SECTION Unreleased also
+# reads every version section headed `## [X.Y.Z] - Unreleased`.
 check() {
   local file="$1" section="$2" vex_dir="${VEX_DIR:-security/vex}" root
   [[ -f "$file" ]] || { echo "error: $0: no changelog at $file" >&2; return 2; }
@@ -69,15 +76,29 @@ check() {
         print "finding\t" path ":" item_line ": the Security item \"" summary "\" names no GHSA id and no " vexdir "/ path"
       item = ""
     }
+    # The reason rule is per section: a Security subsection beside another
+    # change subsection of the same section opens with the reason.
+    function close_section() {
+      flush_item()
+      if (security_line && others > 0 && !has_reason) {
+        if (reason_line)
+          print "finding\t" path ":" reason_line ": the [" cur "] Security subsection gives no reason after \"" prefix "\""
+        else
+          print "finding\t" path ":" security_line ": the [" cur "] Security subsection sits beside other change subsections but does not open with \"" prefix "<reason>\" (CRA Annex I Part II(2))"
+      }
+      in_section = 0; in_security = 0; first = 0
+      security_line = 0; others = 0; has_reason = 0; reason_line = 0
+    }
     BEGIN {
       vexre = vexdir
       gsub(/\./, "\\.", vexre)
       vexre = vexre "/[A-Za-z0-9._/#-]+"
     }
     /^## \[/ {
-      if (in_section) { flush_item(); in_section = 0; done = 1 }
+      if (in_section) { close_section(); if (want != "Unreleased") done = 1 }
       name = $0; sub(/^## \[/, "", name); sub(/\].*$/, "", name)
-      if (name == want && !done) { in_section = 1; found = 1 }
+      pending = (want == "Unreleased" && $0 ~ /^## \[[^]]+\] - Unreleased[[:space:]]*$/)
+      if ((name == want || pending) && !done) { in_section = 1; found = 1; cur = name }
       next
     }
     !in_section { next }
@@ -109,14 +130,8 @@ check() {
     /^[[:space:]]/ { if (item != "") item = item " " $0; next }
     { flush_item() }
     END {
-      if (in_section) flush_item()
-      if (!found) { print "missing"; exit }
-      if (security_line && others > 0 && !has_reason) {
-        if (reason_line)
-          print "finding\t" path ":" reason_line ": the [" want "] Security subsection gives no reason after \"" prefix "\""
-        else
-          print "finding\t" path ":" security_line ": the [" want "] Security subsection sits beside other change subsections but does not open with \"" prefix "<reason>\" (CRA Annex I Part II(2))"
-      }
+      if (in_section) close_section()
+      if (!found) print "missing"
     }
   ' "$file")"
 
@@ -152,8 +167,50 @@ check() {
   fi
 }
 
+# report FILE SECTION: checks one changelog and prints its verdict; returns
+# what `check` returns.
+report() {
+  local file="$1" section="$2" out rc
+  set +e
+  out="$(check "$file" "$section")"
+  rc=$?
+  set -e
+  case "$rc" in
+  0) echo "changelog security OK ([$section] of $file)" ;;
+  1)
+    echo "changelog security check FAILED ([$section] of $file):" >&2
+    # In line order, so the subsection's own finding precedes its items.
+    printf '%s\n' "$out" | sort -t: -k2,2n >&2
+    echo "(the rule: ${CHANGELOG_RULE:-docs/release.md, Security entries})" >&2
+    ;;
+  *) ;;
+  esac
+  return "$rc"
+}
+
+# check_workspace ROOT SECTION: reports every crates/*/CHANGELOG.md under
+# ROOT, each even after a refusal, with VEX paths resolved against ROOT
+# unless VEX_ROOT says otherwise; returns the highest code, and 2 when no
+# crate has a changelog.
+check_workspace() {
+  local root="$1" section="$2" files=() file rc worst=0
+  shopt -s nullglob
+  files=("$root"/crates/*/CHANGELOG.md)
+  shopt -u nullglob
+  if [[ "${#files[@]}" -eq 0 ]]; then
+    echo "error: $0: no crates/*/CHANGELOG.md under $root" >&2
+    return 2
+  fi
+  for file in "${files[@]}"; do
+    rc=0
+    VEX_ROOT="${VEX_ROOT:-$root}" report "$file" "$section" || rc=$?
+    if ((rc > worst)); then worst=$rc; fi
+  done
+  return "$worst"
+}
+
 run() {
-  local section="Unreleased" file="CHANGELOG.md" out rc
+  local section="Unreleased" file="" rc
   while [[ "$#" -gt 0 ]]; do
     case "$1" in
     --section)
@@ -169,21 +226,13 @@ run() {
       ;;
     esac
   done
-  set +e
-  out="$(check "$file" "$section")"
-  rc=$?
-  set -e
-  case "$rc" in
-  0) echo "changelog security OK ([$section] of $file)" ;;
-  1)
-    echo "changelog security check FAILED ([$section] of $file):" >&2
-    # In line order, so the subsection's own finding precedes its items.
-    printf '%s\n' "$out" | sort -t: -k2,2n >&2
-    echo "(the rule: ${CHANGELOG_RULE:-docs/release.md, Security entries})" >&2
-    exit 1
-    ;;
-  *) exit 2 ;;
-  esac
+  rc=0
+  if [[ -n "$file" ]]; then
+    report "$file" "$section" || rc=$?
+  else
+    check_workspace "$(cd "$(dirname "$0")/../.." && pwd)" "$section" || rc=$?
+  fi
+  exit "$rc"
 }
 
 # The self-test: one fixture per rule, each proven to pass and to fail.
@@ -270,6 +319,53 @@ self_test() {
   set -e
   [[ "$rc" == 0 ]] || {
     echo "self-test: VEX_ROOT was not honoured: exit $rc, output: $out" >&2
+    fails=$((fails + 1))
+  }
+
+  # pending NAME WANT_RC NEEDLE BODY: checks [Unreleased] of a changelog
+  # whose BODY follows an `## [Unreleased]` heading.
+  pending() {
+    local name="$1" want="$2" needle="$3" body="$4"
+    printf '# Changelog\n\n## [Unreleased]\n\n%s\n\n## [1.0.0] - 2020-01-01\n\n### Security\n\n- an old entry with nothing\n' \
+      "$body" >"$work/CHANGELOG.md"
+    set +e
+    out="$(check "$work/CHANGELOG.md" Unreleased 2>&1)"
+    rc=$?
+    set -e
+    if [[ "$rc" != "$want" || "$out" != *"$needle"* ]]; then
+      echo "self-test: $name: exit $rc (want $want), output: $out" >&2
+      fails=$((fails + 1))
+    fi
+  }
+  pending "a pending section with an advisory" 0 "" \
+    "$(printf '## [2.0.0] - Unreleased\n\n### Security\n\n- dep (GHSA-abcd-2345-wxyz)')"
+  pending "an item of a pending section with no advisory" 1 '"dep bump" names no GHSA id' \
+    "$(printf '## [2.0.0] - Unreleased\n\n### Security\n\n- dep bump')"
+  pending "a mixed pending section without a reason" 1 "the [2.0.0] Security subsection sits beside" \
+    "$(printf '## [2.0.0] - Unreleased\n\n### Added\n\n- a feature\n\n### Security\n\n- dep (GHSA-abcd-2345-wxyz)')"
+  pending "the reason rule held per section" 0 "" \
+    "$(printf '### Added\n\n- a feature\n\n## [2.0.0] - Unreleased\n\n### Security\n\n- dep (GHSA-abcd-2345-wxyz)')"
+  # The run with no file reads every crate changelog, each even after a
+  # refusal, and refuses a workspace with none.
+  mkdir -p "$work/ws/crates/one" "$work/ws/crates/two" "$work/ws/security/vex" "$work/bare"
+  echo '{}' >"$work/ws/security/vex/z.json"
+  printf '## [Unreleased]\n\n### Security\n\n- dep (security/vex/z.json)\n' >"$work/ws/crates/one/CHANGELOG.md"
+  printf '## [Unreleased]\n\n### Security\n\n- dep bump\n' >"$work/ws/crates/two/CHANGELOG.md"
+  set +e
+  out="$(VEX_ROOT="" check_workspace "$work/ws" Unreleased 2>&1)"
+  rc=$?
+  set -e
+  [[ "$rc" == 1 && "$out" == *"OK ([Unreleased] of $work/ws/crates/one/CHANGELOG.md)"* \
+    && "$out" == *"crates/two/CHANGELOG.md:5"* ]] || {
+    echo "self-test: the workspace run: exit $rc (want 1), output: $out" >&2
+    fails=$((fails + 1))
+  }
+  set +e
+  out="$(check_workspace "$work/bare" Unreleased 2>&1)"
+  rc=$?
+  set -e
+  [[ "$rc" == 2 && "$out" == *"no crates/*/CHANGELOG.md"* ]] || {
+    echo "self-test: a workspace with no changelog: exit $rc (want 2), output: $out" >&2
     fails=$((fails + 1))
   }
 
