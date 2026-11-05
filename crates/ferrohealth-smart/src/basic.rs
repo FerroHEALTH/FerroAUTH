@@ -349,6 +349,11 @@ impl PasswordStore {
         self.users.len()
     }
 
+    /// Returns the user-ids the store admits, in order.
+    pub fn users(&self) -> impl Iterator<Item = &str> {
+        self.users.keys().map(String::as_str)
+    }
+
     /// Returns whether the store admits no one.
     #[must_use]
     pub fn is_empty(&self) -> bool {

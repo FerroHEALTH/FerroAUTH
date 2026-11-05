@@ -94,7 +94,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   presets under `profiles/`), `federation`
   (what a `federation` issuer asserts), `sender` (sender-constrained tokens,
   with `proof`, the DPoP proof check, and `replay`, the proof replay store),
-  `assurance`,
+  `party` (the login's party through a product `PartySource`, with
+  `binding`, `source`, `config` and `adapter`), `assurance`,
   `audit`, `refusal`, `config`, `oidc` behind `oidc`, and `guard` and
   `extract` behind `axum`), `tests/it/` (one binary: the token check, the
   classification against each preset, the client credentials, Basic, the guard, every upstream a
