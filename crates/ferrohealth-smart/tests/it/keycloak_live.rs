@@ -82,7 +82,7 @@ async fn token(
     base: &str,
     form: &[(&str, &str)],
 ) -> Result<String, Box<dyn StdError>> {
-    let response: serde_json::Value = http
+    let answer = http
         .post(format!(
             "{base}/realms/{REALM}/protocol/openid-connect/token"
         ))
@@ -93,10 +93,17 @@ async fn token(
                 .finish(),
         )
         .send()
-        .await?
-        .error_for_status()?
-        .json()
         .await?;
+    let status = answer.status();
+    let body = answer.text().await?;
+    if !status.is_success() {
+        let grant = form
+            .iter()
+            .find(|(name, _)| *name == "grant_type")
+            .map_or("", |(_, grant)| *grant);
+        return Err(format!("the {grant} grant answered {status}: {body}").into());
+    }
+    let response: serde_json::Value = serde_json::from_str(&body)?;
     Ok(response
         .get("access_token")
         .and_then(serde_json::Value::as_str)
