@@ -621,3 +621,34 @@ fn trust_also(tls: &mut Tls, roots: Option<&[u8]>) {
     merged.extend_from_slice(roots);
     tls.root_certificates = Some(merged);
 }
+
+impl Default for AuthSection {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            issuer: IssuerKey::List(Vec::new()),
+            scopeless_subjects: Vec::new(),
+            realm: String::new(),
+            capabilities: Vec::new(),
+            scopes_supported: Vec::new(),
+            product_scope: String::new(),
+            basic: None,
+            dpop: None,
+            ca_file: None,
+            federation: Vec::new(),
+            audience: None,
+            algorithms: None,
+            token_profile: None,
+            clock_skew_seconds: None,
+            jwks_max_age_seconds: None,
+            jwks_refresh_interval_seconds: None,
+            jwks_file: None,
+            timeout_ms: None,
+            role_claims: None,
+            mode: None,
+            introspection: None,
+            acting_for_claim: None,
+            client_tokens: None,
+        }
+    }
+}

@@ -407,6 +407,41 @@ impl Onward {
                 variant: PreviewVariant::ActorToken,
             });
         }
+        if grant == OnwardGrant::JwtBearer && actor.is_some() {
+            return Err(OnwardError::ActorToken);
+        }
+        self.check_target(target)?;
+        if profile.onward_subject_audience
+            && !names(subject.claims(), &self.inner.credentials.client_id)
+        {
+            return Err(OnwardError::SubjectAudience);
+        }
+        if let Some(section) = issuer.federation.as_ref()
+            && !section
+                .exchanges_from
+                .iter()
+                .any(|listed| listed == subject.issuer())
+        {
+            return Err(Rejected::NotMapped.into());
+        }
+        Ok(())
+    }
+
+    /// Checks that `target` is one this issuer's grant can ask for: it
+    /// names an audience, never asks `offline_access`, names its target in
+    /// `scope` alone under the JWT bearer grant, and names a `resource` as
+    /// an absolute URI without a fragment.
+    ///
+    /// [`Onward::token`] runs it before every request; a product runs it at
+    /// load on the targets it declares.
+    ///
+    /// # Errors
+    ///
+    /// [`OnwardError::NoAudience`], [`OnwardError::OfflineAccess`],
+    /// [`OnwardError::Indicator`], [`OnwardError::NoScope`] and
+    /// [`OnwardError::Resource`].
+    pub fn check_target(&self, target: &Target) -> Result<(), OnwardError> {
+        let profile = &self.inner.issuer.profile;
         if target.audiences().is_empty() {
             return Err(OnwardError::NoAudience);
         }
@@ -416,8 +451,7 @@ impl Onward {
         {
             return Err(OnwardError::OfflineAccess);
         }
-        match grant {
-            OnwardGrant::JwtBearer if actor.is_some() => return Err(OnwardError::ActorToken),
+        match profile.onward_grant {
             OnwardGrant::JwtBearer if !target.indicators().is_empty() => {
                 return Err(OnwardError::Indicator);
             }
@@ -437,19 +471,6 @@ impl Onward {
                 }
             }
             OnwardGrant::JwtBearer | OnwardGrant::TokenExchange => {}
-        }
-        if profile.onward_subject_audience
-            && !names(subject.claims(), &self.inner.credentials.client_id)
-        {
-            return Err(OnwardError::SubjectAudience);
-        }
-        if let Some(section) = issuer.federation.as_ref()
-            && !section
-                .exchanges_from
-                .iter()
-                .any(|listed| listed == subject.issuer())
-        {
-            return Err(Rejected::NotMapped.into());
         }
         Ok(())
     }

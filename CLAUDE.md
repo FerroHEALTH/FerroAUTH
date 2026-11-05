@@ -71,7 +71,8 @@ assertion to the token endpoint (RFC 7523 §2.2), never an access token.
   `docs/architecture.md` §3.6 and never the token or any content.
 
 `config` holds the `[auth]` and `[<lane>.credentials]` sections every
-product embeds. The `axum` feature adds `guard` (the tower layer with the
+product embeds, the latter with the `onward` table of a lane that reaches
+its upstream on a caller's behalf. The `axum` feature adds `guard` (the tower layer with the
 credential check, the scope check and the audit line) and `extract` (the
 `Access` extractor); the core stays framework-neutral.
 
