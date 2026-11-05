@@ -16,9 +16,9 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   reproducing and distributing copies of the work in any medium, with a
   copy of the licence given to every recipient. The files are unmodified.
 - Layout: the upstream paths, unchanged
-- Files: 41
+- Files: 43
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `0a21c4c27d4d40cad6ead9e3a3272c698ca5c2d324fad3dfb70e912e1acfa23f`
+  `PROVENANCE.md` excluded): `0ad45371c7bf31303c04ff39d18cf699d2941c32e483034a3b87c3daf2044936`
 - Read by: the `keycloak` issuer profile of #215, the token exchange
   grant of #217 and the live Keycloak case of #239, vendored by #222 and #239
 
@@ -56,6 +56,12 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   `included.custom.audience` key and the `access.token.claim` key, which
   no guide states. The source files carry the same Apache License 2.0
   header.
+- `docs/documentation/server_admin/topics/users/user-profile.adoc`: "Managing user attributes", whose
+  "Enabling Progressive Profiling" states that the `VerifyProfile`
+  required action "is enabled by default", and
+  `services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json`,
+  the default configuration it names, in which `email`, `firstName` and
+  `lastName` are required for the `user` role.
 
 The guides' images, and the other chapters the `include::` lines of an
 index name, are not taken.
@@ -98,8 +104,10 @@ index name, are not taken.
 | `docs/documentation/server_admin/topics/identity-broker/spiffe.adoc` | `8891801ec1a324697c7d73068b6ebc509b48d8613d542445e18f1b688a4516fb` | `cb89eb8f59507d4778ebad4e5cb3d7da113fe674` |
 | `docs/documentation/server_admin/topics/identity-broker/suggested.adoc` | `430a657dd585dd18df658d812805004068257626e379bd4beb976c8299783113` | `74bf35226645a23f7d5d19b9b13b1aa9cc2bc92c` |
 | `docs/documentation/server_admin/topics/identity-broker/tokens.adoc` | `2ece6b41b216450282d991d6322bb7aee6a5e29347649dc8ab2da5b8af562b74` | `99be93b8fb8be5907ee3fa42bb2695817ddcdd78` |
+| `docs/documentation/server_admin/topics/users/user-profile.adoc` | `b843b85be43466a960a1096d2fb7b81ddf473791f94a1c551b93d5b9ac502ed2` | `baed489702ad183b64b5a913ec59cf97e8275421` |
 | `docs/guides/securing-apps/token-exchange.adoc` | `99d6d660675f2d4d35cbdc0825ffab7f5aeeb39d970c580340b1d472a72d7afa` | `8b6b4f866dbfe084d062723687eadd2ec71e5abe` |
 | `docs/guides/server/containers.adoc` | `2c9fa7ff5e2017b5ea316248bdf3bacee792178ab463de7fc0feee1aa81a9699` | `daccd5b809cf9c1826e3172cbe6bf52ef33e3825` |
 | `docs/guides/templates/features.adoc` | `46d92510c4e2cafc8780518f1932784d29359a1c8088a8b643bc63c044d0dc03` | `9a6a96620d13ee8a9ba715240f3607e02e1e1576` |
 | `services/src/main/java/org/keycloak/protocol/oidc/mappers/AudienceProtocolMapper.java` | `706653e426b063601795c1047e6b0f61cf04f378da24569fbb6ab6ff2c25341a` | `64d67834343c5726a630c708d6594664b0a776fd` |
 | `services/src/main/java/org/keycloak/protocol/oidc/mappers/OIDCAttributeMapperHelper.java` | `bd4be995ef4a84026472aa33dea151eba444cd9af68011a5a2165e07805c9b52` | `06af33df0a1a31b4727761d53e8b1fbae6da4f88` |
+| `services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json` | `9273aa73df4809754d5f1c1887492cdaa1616a3625d7ed01446c7c167e9b0cb0` | `ae5f62c5c5ebc07748665806bfff93faf1285e7e` |

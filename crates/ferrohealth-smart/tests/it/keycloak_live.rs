@@ -213,6 +213,8 @@ fn configure(
         &app_secret,
     )?;
     let user_password = random();
+    // NOTE: Keycloak 26.8.2 `users/user-profile.adoc`: `VerifyProfile` is on by default,
+    // and `keycloak-default-user-profile.json` requires `email` and both names for users.
     kcadm(
         container,
         &[
@@ -224,6 +226,10 @@ fn configure(
             "username=synthetic-person",
             "-s",
             "enabled=true",
+            "-s",
+            "email=synthetic-person@example.org",
+            "-s",
+            "emailVerified=true",
             "-s",
             "firstName=Synthetic",
             "-s",

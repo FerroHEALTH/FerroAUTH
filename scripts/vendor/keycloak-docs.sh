@@ -11,7 +11,8 @@
 # protocol mappers, audience support and identity brokering, the server
 # guide's container chapter the live Keycloak case starts the image by, and
 # the two sources that name the audience mapper's provider id and config
-# keys (#239), with the repository's LICENSE.txt,
+# keys, and the user profile chapter with the default configuration it
+# describes (#239), with the repository's LICENSE.txt,
 # from keycloak/keycloak at the release tag the "Keycloak documentation" row
 # of docs/VERSIONS.md pins. A tag is mutable, so the script resolves it to a
 # commit and records the commit. The repository is large, so each file is
@@ -50,10 +51,12 @@ paths=(
   "$admin/clients/con-protocol-mappers.adoc"
   "$admin/clients/proc-creating-mappers.adoc"
   "$admin/clients/oidc/con-audience.adoc"
+  "$admin/users/user-profile.adoc"
   "$admin/identity-broker.adoc"
   "$admin/identity-broker/"
   "$mappers/AudienceProtocolMapper.java"
   "$mappers/OIDCAttributeMapperHelper.java"
+  services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json
 )
 
 pin="$(corpus_pin_cell "Keycloak documentation")"
@@ -148,6 +151,12 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   \`included.custom.audience\` key and the \`access.token.claim\` key, which
   no guide states. The source files carry the same Apache License 2.0
   header.
+- \`$admin/users/user-profile.adoc\`: "Managing user attributes", whose
+  "Enabling Progressive Profiling" states that the \`VerifyProfile\`
+  required action "is enabled by default", and
+  \`services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json\`,
+  the default configuration it names, in which \`email\`, \`firstName\` and
+  \`lastName\` are required for the \`user\` role.
 
 The guides' images, and the other chapters the \`include::\` lines of an
 index name, are not taken.
