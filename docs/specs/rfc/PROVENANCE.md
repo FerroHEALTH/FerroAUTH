@@ -1,17 +1,17 @@
 <!-- This file describes vendored third-party material; the bytes beside it
      keep their upstream licence, not the licence of this repository. -->
 
-# Provenance: the OAuth 2.0 and JOSE RFCs
+# Provenance: the IETF RFCs
 
 Vendored verbatim by `scripts/vendor/rfcs.sh` from the RFC Editor
 (<https://www.rfc-editor.org/rfc/>), the text form of each, as published. Never edit a file here:
 change the pin in docs/VERSIONS.md and re-run the script.
 
 - Fetched: 2026-11-05
-- Files: 26
+- Files: 27
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `ac886cb38712a643bc06aae9a81eed2f280dadb5dff000bbe9122826b562e067`
-- Upstream licence: each RFC is "Copyright (c) <year> IETF Trust and the
+  `PROVENANCE.md` excluded): `54a1bb42007645a35e385c23a11f190cfd251de2dd8c02a9c15be00f1b056034`
+- Upstream licence: each RFC but RFC 3986 is "Copyright (c) <year> IETF Trust and the
   persons identified as the document authors. All rights reserved." and is
   "subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF
   Documents (<https://trustee.ietf.org/license-info>) in effect on the date
@@ -29,6 +29,16 @@ change the pin in docs/VERSIONS.md and re-run the script.
   whole document, unmodified, with
   every legend and notice it carries, which is what that grant covers. The
   BSD licence of section 4 covers only Code Components and is not relied on.
+- RFC 3986, published in 2005 before the Trust Legal Provisions, is
+  "Copyright (C) The Internet Society (2005)" and "subject to the rights,
+  licenses and restrictions contained in BCP 78", as its Full Copyright
+  Statement states. TLP 5.0 section 2.c keeps such a document under "the
+  licensing provisions of the IETF copyright policy document in effect at
+  the time of their contribution or publication", here RFC 3978 as RFC 4748
+  updates it. RFC 3978 section 7.1 names among the rights the IETF obtains
+  "the right to let the document be freely reproduced in the formats that
+  the IETF publishes it in", and the file here is the RFC Editor's text
+  form, unmodified, with the notices section 5 requires reproduced.
 
 | Document | Title | Published | Status | Updated by | sha256 |
 |---|---|---|---|---|---|
@@ -58,6 +68,7 @@ change the pin in docs/VERSIONS.md and re-run the script.
 | RFC 7521 | Assertion Framework for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | none | `d5d97b3e691c9bbc495c277cc2cd79316b82486991468fc346a96ab59ba4b3c8` |
 | RFC 7522 | Security Assertion Markup Language (SAML) 2.0 Profile for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | none | `87656a015c74b2cce4ed74fdf785ea2cf824e8d13cc53860d40fac3e57569afd` |
 | RFC 8693 | OAuth 2.0 Token Exchange | January 2020 | PROPOSED STANDARD | none | `358d658014738bf4dc56c8aae2094ce716ede23b6d5a80488a7dc8e8d72da609` |
+| RFC 3986 | Uniform Resource Identifier (URI): Generic Syntax | January 2005 | INTERNET STANDARD | RFC7320, RFC8820 | `3102dae4b68cebe40337730312fcb612297b8928547267e8b3d1ee6002b2d683` |
 
 An "Updated by" entry names an RFC that changes the document without
 replacing it; the design reads each update that bears on the resource

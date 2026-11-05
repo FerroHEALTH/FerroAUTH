@@ -11,7 +11,7 @@ version `docs/VERSIONS.md` pins, and the design of record,
 1. **SMART App Launch 2.2.0** (<https://hl7.org/fhir/smart-app-launch/>):
    the scopes and launch context, the conformance document, the client
    authentication profiles, backend services and token introspection.
-2. **The OAuth 2.0 and JOSE RFCs**: RFC 6749 (the framework), 6750 (bearer
+2. **The IETF RFCs**: RFC 6749 (the framework), 6750 (bearer
    tokens), 7515 (JWS), 7517 (JWK), 7519 (JWT), 7523 (the JWT client
    assertion), 7617 (Basic), 7662 (introspection), 8414 (server metadata),
    8725 (JWT best practices), 9068 (the JWT access token profile), 9700
@@ -22,7 +22,9 @@ version `docs/VERSIONS.md` pins, and the design of record,
    and 6454 (the web origin, §4 and §5), 7636 (PKCE) and 7009 (token
    revocation), the last two for the `oidc` relying party; 7521 (the
    assertion framework), 7522 (its SAML 2.0 profile) and 8693 (token
-   exchange) for the onward grants and delegation.
+   exchange) for the onward grants and delegation; 3986 (URI syntax, §6.2.2
+   and §6.2.3 for the DPoP `htu` comparison, §4.2 for the console's return
+   path).
 3. **OpenID Connect Discovery 1.0** (incorporating errata set 2): the
    fallback metadata location and the `issuer` and `jwks_uri` rules. For
    the `oidc` relying party, **OpenID Connect Core 1.0** (incorporating

@@ -20,6 +20,8 @@ use crate::config::ConfigError;
 use crate::config::CredentialsSection;
 use crate::config::OauthSection;
 use crate::config::Outbound;
+use crate::config::REDACTED;
+use crate::config::mask_userinfo;
 use crate::config::parse_url;
 use crate::config::secret;
 use crate::scope::is_scope_token;
@@ -313,5 +315,51 @@ impl OauthSection {
             },
         )?;
         Ok(tls)
+    }
+}
+
+impl Default for OauthSection {
+    fn default() -> Self {
+        Self {
+            issuer: String::new(),
+            token_endpoint: String::new(),
+            client_id: String::new(),
+            client_auth: ClientAuth::ClientSecretBasic,
+            client_secret: None,
+            client_secret_file: None,
+            private_key_file: None,
+            kid: String::new(),
+            assertion_alg: None,
+            scope: String::new(),
+            resource: String::new(),
+            audience: String::new(),
+            refresh_margin_ms: 30_000,
+            timeout_ms: 10_000,
+            assertion_audience: AssertionAudience::TokenEndpoint,
+            ca_file: None,
+            client_certificate_file: None,
+            client_key_file: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for OauthSection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OauthSection")
+            .field("issuer", &mask_userinfo(&self.issuer))
+            .field("token_endpoint", &mask_userinfo(&self.token_endpoint))
+            .field("client_id", &self.client_id)
+            .field("client_auth", &self.client_auth)
+            .field(
+                "client_secret",
+                &self.client_secret.as_ref().map(|_set| REDACTED),
+            )
+            .field("client_secret_file", &self.client_secret_file)
+            .field("private_key_file", &self.private_key_file)
+            .field("kid", &self.kid)
+            .field("scope", &self.scope)
+            .field("resource", &self.resource)
+            .field("audience", &self.audience)
+            .finish_non_exhaustive()
     }
 }

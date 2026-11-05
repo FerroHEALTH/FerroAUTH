@@ -14,6 +14,7 @@ mod config;
 mod examples;
 mod federation;
 mod harness;
+mod lanes;
 mod refusals;
 mod vendors;
 

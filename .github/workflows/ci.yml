@@ -97,6 +97,8 @@ jobs:
         run: bash scripts/release/plan.sh --self-test
       - name: The changelog Security check passes and refuses what it claims to
         run: bash scripts/checks/changelog-security.sh --self-test
+      - name: The crate-version guard refuses a dated section that has no tag
+        run: bash scripts/checks/crate-version-guard.sh --self-test
       - name: The attribution hook reads only the commit and pull request text
         run: bash .claude/hooks/no_attribution_guard.sh --self-test
       - name: The manual crate publish refuses a run off its release tag
@@ -123,9 +125,9 @@ jobs:
       # Regulation (EU) 2024/2847 Annex I Part II(2), (4) and (8): every
       # Security entry names its GHSA advisory or VEX statement, and a
       # Security section beside other changes opens with its reason.
-      - run: VEX_ROOT=. bash scripts/checks/changelog-security.sh --section Unreleased crates/ferrohealth-smart/CHANGELOG.md
-      - run: VEX_ROOT=. bash scripts/checks/changelog-security.sh --section Unreleased crates/ferrohealth-authz/CHANGELOG.md
-      - run: VEX_ROOT=. bash scripts/checks/changelog-security.sh --section Unreleased crates/ferrohealth-session/CHANGELOG.md
+      # With no file the check reads every crates/*/CHANGELOG.md, with VEX
+      # paths resolved against the repository root.
+      - run: bash scripts/checks/changelog-security.sh --section Unreleased
 
   # No tracked file keeps an unresolved merge conflict (#191; no
   # specification governs the guard: our own design).
@@ -376,6 +378,7 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD_BRANCH: ${{ github.head_ref }}
         run: bash scripts/checks/crate-version-guard.sh "$BASE" "$HEAD"
 
   dependency-review:
@@ -398,11 +401,12 @@ jobs:
   # The `keycloak` profile against the Keycloak image docs/VERSIONS.md pins
   # (#239): tests/it/keycloak_live.rs starts it, obtains tokens and classifies
   # them. It runs on a pull request that touches the profiles, the resource
-  # server, the case itself or the pins, and on a manual run.
+  # server, the case itself or the pins, on a manual run, and on every push to
+  # main, which saves the build cache a pull request run restores (#243).
   keycloak-live:
     name: keycloak-live
     needs: detect
-    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.detect.outputs.cargo == 'true'
+    if: github.event_name != 'merge_group' && needs.detect.outputs.cargo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -444,7 +448,7 @@ jobs:
       - if: steps.paths.outputs.live == 'true'
         uses: ./.github/actions/setup-rust
         with:
-          cache-save-if: "false"
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - if: steps.paths.outputs.live == 'true'
         uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:

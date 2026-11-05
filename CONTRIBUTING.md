@@ -42,7 +42,7 @@ to its provenance.
 
 ## The specifications are the authority
 
-SMART App Launch 2.2.0, the OAuth 2.0 and JOSE RFCs and OpenID Connect
+SMART App Launch 2.2.0, the IETF RFCs and OpenID Connect
 Discovery 1.0, as vendored under `docs/specs/`, decide every check,
 challenge, claim rule and grant; the docs.rs pages of the pinned crates
 decide how the tools are used. Cite the section in the pull request and in
@@ -64,7 +64,11 @@ governs this: our own design".
 - Never weaken, skip, or delete a test to make a build pass; every refusal
   you add has an asserted negative test.
 - Add an entry under `[Unreleased]` in the changed crate's
-  `crates/<crate>/CHANGELOG.md` for any change a product sees, and name what a product must change when an API breaks.
+  `crates/<crate>/CHANGELOG.md` for any change a product sees, or under its
+  pending `[X.Y.Z] - Unreleased` section when one stands, and name what a
+  product must change when an API breaks. The first breaking change after a
+  release moves the minor version and opens that section
+  (`docs/release.md`, When the version moves).
 - Write prose to `.claude/rules/writing-style.md`.
 
 ## Using AI tools

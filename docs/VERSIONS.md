@@ -19,7 +19,7 @@ records why the value is what it is.
 | Item | Pin | Repeated in |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | `docs/architecture.md` §2, `docs/specs/smart-app-launch/PROVENANCE.md` |
-| OAuth 2.0 and JOSE | the RFCs of the table below | `docs/architecture.md` §2, `docs/specs/rfc/PROVENANCE.md` |
+| IETF RFCs | the RFCs of the table below | `docs/architecture.md` §2, `docs/specs/rfc/PROVENANCE.md` |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | `docs/architecture.md` §2, `docs/specs/openid-connect-discovery/PROVENANCE.md` |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | `docs/architecture.md` §2, `docs/specs/openid-connect-core/PROVENANCE.md` |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | `docs/architecture.md` §2, `docs/specs/openid-connect-rpinitiated/PROVENANCE.md` |
@@ -89,6 +89,7 @@ RFC Editor reports obsoleted, and records what updates it.
 | RFC 7521 | Assertion Framework for OAuth 2.0 Client Authentication and Authorization Grants, sha256 `d5d97b3e691c9bbc495c277cc2cd79316b82486991468fc346a96ab59ba4b3c8` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 7522 | Security Assertion Markup Language (SAML) 2.0 Profile for OAuth 2.0 Client Authentication and Authorization Grants, sha256 `87656a015c74b2cce4ed74fdf785ea2cf824e8d13cc53860d40fac3e57569afd` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 8693 | OAuth 2.0 Token Exchange, sha256 `358d658014738bf4dc56c8aae2094ce716ede23b6d5a80488a7dc8e8d72da609` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 3986 | Uniform Resource Identifier (URI): Generic Syntax, sha256 `3102dae4b68cebe40337730312fcb612297b8928547267e8b3d1ee6002b2d683` | `docs/specs/rfc/PROVENANCE.md` |
 
 ## Licence
 

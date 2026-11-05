@@ -22,8 +22,11 @@ the changelog section always agree (`scripts/checks/crate-version-guard.sh`,
 
 ## The bump rule
 
-- **A release bumps the crate's version, its changelog section and the lock
-  together** (`cargo update -w`), in the release pull request. A
+- **A version, its changelog section and the lock move together**
+  (`cargo update -w`): in the release pull request, or, for the first
+  breaking change after a release, in the pull request that breaks, which
+  opens the pending section `## [X.Y.Z] - Unreleased` that the release pull
+  request dates (`docs/release.md`, When the version moves). A
   release that moves the `ferrohealth-smart` requirement of
   `[workspace.dependencies]` releases `ferrohealth-authz` with it.
 - A **product** pins the crate exactly (`=X.Y.Z`) and moves its pin

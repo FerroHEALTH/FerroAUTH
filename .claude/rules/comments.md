@@ -64,7 +64,7 @@ A comment describes the code as it IS.
   links (`[`Type`]`) and reference-style links; bare URLs in `<…>`.
 - Doc comments state the CURRENT contract only, with no history and no
   adjudication trail. Citations follow `spec-adherence.md` (SMART App Launch,
-  the OAuth 2.0 and JOSE RFCs and OpenID Connect Discovery, plus official external
+  the IETF RFCs and OpenID Connect Discovery, plus official external
   docs only).
 
 ## Annotation vocabulary (the only sanctioned markers)

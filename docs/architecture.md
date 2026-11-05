@@ -87,7 +87,7 @@ with the matrix.
 | Item | Pin | Ground |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | The registry's `latest` on 2026-10-19 and the current 2.x publication; the 2.x line is where the `cruds` scope grammar, the `.well-known/smart-configuration` document and the asymmetric client profile live. Vendored as the package `hl7.fhir.uv.smart-app-launch` 2.2.0 and the page sources at the release tag. |
-| OAuth 2.0 and JOSE | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is vendored as the reference for the `authorization_details` claim a later release may read; this release reads none of it (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroAUTH#215, #217). |
+| IETF RFCs | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693, 3986 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is vendored as the reference for the `authorization_details` claim a later release may read; this release reads none of it (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroAUTH#215, #217). RFC 3986 §6.2.2 and §6.2.3 are the normalizations RFC 9449 §4.3 has a server apply before it compares the `htu` (3.15), and §4.2 the network-path reference the session's return path refuses (FerroHEALTH/FerroAUTH#235). |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; the authorization code flow (§3.1) and the ID Token check (§3.1.3.7) of the `oidc` relying party. |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the end-session request (§2) and the `end_session_endpoint` metadata (§2.1) of the `oidc` relying party. |
@@ -1190,6 +1190,10 @@ behind the default `fetch` feature (FerroHEALTH/FerroAUTH#217). The
 caller's token travels to the token endpoint only, never to the service,
 as 3.5 requires.
 
+A lane declares its onward target in `[<lane>.credentials.onward]` (4),
+which `CredentialsSection::onward` resolves into the client and its
+`Target`.
+
 **The two grants**, chosen by the issuer's `onward_grant` profile key:
 
 - `token_exchange` (`rfc8693 §2.1`), the default: the caller's token as
@@ -1518,6 +1522,41 @@ refresh_margin_ms = 30000
 its own refuses an `oauth` table at load (FerroBRIDGE's `NoGrant` shape). The
 `resource` key is the `rfc8707 §2` resource indicator and `audience` the
 parameter without a specification, both sent only when set (3.5).
+
+A lane that reaches its upstream on a caller's behalf declares its onward
+target beside its `oauth` table, which the onward client authenticates
+with (3.16):
+
+```toml
+[cdr.credentials.onward]             # resolved by CredentialsSection::onward
+issuer = "https://login.microsoftonline.com/<tenant>/v2.0"   # issues the onward tokens
+kind = "persons"                     # persons (a delegated exchange) or federation
+profile = "entra"                    # the preset: rfc9068, entra, keycloak, okta, nl
+# token_endpoint = "https://…/token" # empty: discovered from issuer
+# client_id = "…"                    # empty: the oauth table's client id
+audiences = ["<cdr app id>"]         # what an onward token's aud may name
+scope = "api://<cdr app id>/.default"
+# indicators = ["…"]                 # resource or audience, as the profile names
+# correlation_claim = "txn"          # a chained federation route
+
+[cdr.credentials.onward.keys]        # any profile key over the preset
+max_onward_lifetime = 5400           # required: no preset states one
+
+# [cdr.credentials.onward.federation]  # a federation issuer: exchanges_from and
+# [cdr.credentials.onward.assurance]   # person_mapping required, over the preset's table
+```
+
+The issuer is described in the table, never borrowed from `[[auth.issuer]]`,
+because the issuer of onward tokens is not always one whose tokens the
+surface admits. The table refuses the start when `issuer`, `kind` or
+`audiences` is unset, beside a Basic `user`, without the lane's `oauth`
+table, for a profile or federation table its issuer's rules refuse, for an
+issuer the onward client refuses (`ConfigError::Onward`: another kind, no
+`max_onward_lifetime`, a federation table without `exchanges_from` or
+`person_mapping`), and for a target its grant cannot ask for
+(`Onward::check_target`: no audience, `offline_access`, a JWT bearer target
+without `scope` or with an indicator, a `resource` that is not an absolute
+URI without a fragment).
 
 Validation at load, refusing the start: an enabled section that admits no
 credential (no issuer and no Basic user), the issuer URL rule of 3.1, at

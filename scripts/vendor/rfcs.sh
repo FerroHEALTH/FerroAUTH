@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # scripts/vendor/rfcs.sh
 #
-# Vendors the OAuth 2.0 and JOSE RFCs into docs/specs/rfc/, one text file
+# Vendors the IETF RFCs into docs/specs/rfc/, one text file
 # each, from the RFC Editor. Every `RFC NNNN` row of docs/VERSIONS.md names
 # the pin: the sha256 of the published text, which the script verifies. The
 # RFC Editor's metadata for each is read too, and an RFC it reports obsoleted
@@ -66,7 +66,7 @@ cat > "$dest/PROVENANCE.md" << PROV
 <!-- This file describes vendored third-party material; the bytes beside it
      keep their upstream licence, not the licence of this repository. -->
 
-# Provenance: the OAuth 2.0 and JOSE RFCs
+# Provenance: the IETF RFCs
 
 Vendored verbatim by \`scripts/vendor/rfcs.sh\` from the RFC Editor
 (<$editor/>), the text form of each, as published. Never edit a file here:
@@ -76,7 +76,7 @@ change the pin in docs/VERSIONS.md and re-run the script.
 - Files: $count
 - Tree digest (sha256 over the sorted per-file \`sha256  path\` listing,
   \`PROVENANCE.md\` excluded): \`$digest\`
-- Upstream licence: each RFC is "Copyright (c) <year> IETF Trust and the
+- Upstream licence: each RFC but RFC 3986 is "Copyright (c) <year> IETF Trust and the
   persons identified as the document authors. All rights reserved." and is
   "subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF
   Documents (<https://trustee.ietf.org/license-info>) in effect on the date
@@ -94,6 +94,16 @@ change the pin in docs/VERSIONS.md and re-run the script.
   whole document, unmodified, with
   every legend and notice it carries, which is what that grant covers. The
   BSD licence of section 4 covers only Code Components and is not relied on.
+- RFC 3986, published in 2005 before the Trust Legal Provisions, is
+  "Copyright (C) The Internet Society (2005)" and "subject to the rights,
+  licenses and restrictions contained in BCP 78", as its Full Copyright
+  Statement states. TLP 5.0 section 2.c keeps such a document under "the
+  licensing provisions of the IETF copyright policy document in effect at
+  the time of their contribution or publication", here RFC 3978 as RFC 4748
+  updates it. RFC 3978 section 7.1 names among the rights the IETF obtains
+  "the right to let the document be freely reproduced in the formats that
+  the IETF publishes it in", and the file here is the RFC Editor's text
+  form, unmodified, with the notices section 5 requires reproduced.
 
 | Document | Title | Published | Status | Updated by | sha256 |
 |---|---|---|---|---|---|
