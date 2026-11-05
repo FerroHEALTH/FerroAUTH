@@ -14,6 +14,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.0] - Unreleased
+
+Releases beside `ferrohealth-smart` 0.9.0, whose `oidc::SignedIn` this
+crate carries in its public API (#219).
+
+### Changed
+
+- Requires `ferrohealth-smart` 0.9.0 (caret `0.9.0`) in place of `0.8.8`.
+  `record::SignedIn::from_oidc` takes the 0.9.0
+  `ferrohealth_smart::oidc::SignedIn`, and
+  `config::OidcSettings::relying_party` and `routes` hand out its
+  `oidc::RelyingParty`, so a console on 0.8 that moves
+  `ferrohealth-smart` to 0.9.0 alone builds two copies of it and fails on
+  the type. Upgrade:
+  move `ferrohealth-smart` to 0.9.0 (its changelog lists the `[auth]`
+  changes) and `ferrohealth-session` to 0.3.0 in one change; nothing else
+  this crate offers changes.
+
 ## [0.2.3] - 2026-11-04
 
 ### Changed
