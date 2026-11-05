@@ -137,7 +137,7 @@ async fn a_person_token_reaches_the_handler_bound_and_the_line_names_the_party()
 -> Result<(), Box<dyn StdError>> {
     let source = FakeSource::answering(Lookup::Parties(vec![
         record("p-1", Markers::PROFESSIONAL).with_memberships(vec![Membership::new(
-            PartyRef::new("ferro-demographic", "GROUP", "g-secret"),
+            PartyRef::new("ferro-demographic", "GROUP", "g-hidden"),
             "group-1",
         )]),
     ]));
@@ -151,7 +151,7 @@ async fn a_person_token_reaches_the_handler_bound_and_the_line_names_the_party()
     assert_eq!("party", line.field("binding"));
     assert_eq!("ferro-demographic/PERSON/p-1", line.field("party"));
     let text = format!("{line:?}");
-    assert!(!text.contains("g-secret"), "no group on the line: {text}");
+    assert!(!text.contains("g-hidden"), "no group on the line: {text}");
     assert!(
         !text.contains("group-1"),
         "no group claim on the line: {text}"

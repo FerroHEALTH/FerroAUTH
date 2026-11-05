@@ -626,16 +626,22 @@ fn every_basic_user_maps_to_a_key_and_only_under_a_bound_table() -> Outcome2 {
 async fn no_debug_rendering_carries_the_key_a_group_or_a_represented_subject() -> Outcome2 {
     let source = FakeSource::answering(Lookup::Parties(vec![
         record("p-1", Markers::BOTH)
-            .with_memberships(vec![Membership::new(group_ref("g-secret"), "group-1")])
-            .with_represents(vec![Represented::new(person_ref("subject-secret"))]),
+            .with_memberships(vec![Membership::new(group_ref("g-hidden"), "group-1")])
+            .with_represents(vec![Represented::new(person_ref("subject-hidden"))]),
     ]));
     let outcome = binding(&source)
         .resolve(&person(&json!({ "groups": ["group-1"] })))
         .await?
         .ok_or("looked up")?;
     let text = format!("{outcome:?}");
-    for secret in [LOGIN, "g-secret", "subject-secret", "group-1"] {
-        assert!(!text.contains(secret), "{secret} in {text}");
+    for (position, hidden) in [LOGIN, "g-hidden", "subject-hidden", "group-1"]
+        .iter()
+        .enumerate()
+    {
+        assert!(
+            !text.contains(hidden),
+            "value {position} reaches the Debug rendering"
+        );
     }
     Ok(())
 }

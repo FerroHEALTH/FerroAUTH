@@ -196,11 +196,14 @@ mod tests {
         let query = Query {
             identifier_issuer: "urn:example:login",
             identifier_type: "guid",
-            value: "5ba552d6-secret",
+            value: "5ba552d6-hidden",
             group_identifier_issuer: None,
         };
         let text = format!("{query:?}");
-        assert!(!text.contains("5ba552d6-secret"), "{text}");
+        assert!(
+            !text.contains("5ba552d6-hidden"),
+            "the key value reaches the Debug rendering"
+        );
         assert!(text.contains("urn:example:login"), "{text}");
     }
 }
