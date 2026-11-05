@@ -47,7 +47,7 @@ that is a separate step the caller takes after seeing the plan.
      tested increments.
    - **Which specifications govern it:** for any spec-facing task, name the
      authoritative source the work must be read against (SMART App Launch,
-     the OAuth 2.0 and JOSE RFCs, or OpenID Connect Discovery, as vendored under
+     the IETF RFCs, or OpenID Connect Discovery, as vendored under
      `docs/specs/`), per `.claude/rules/spec-adherence.md` and
      the `spec-researcher` agent. Doing the work starts by reading those.
    - **What "done" looks like** for this task specifically: the issue's
