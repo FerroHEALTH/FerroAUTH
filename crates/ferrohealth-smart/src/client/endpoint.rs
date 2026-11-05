@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The two calls to the authorization server: the metadata read that finds
-//! the token endpoint, and the client credentials token request.
+//! The calls to the authorization server: the metadata read that finds
+//! the token endpoint, and the token requests of every grant.
 
 use http::StatusCode;
 use secrecy::ExposeSecret;
@@ -70,10 +70,7 @@ pub(super) async fn request_token(
     config: &ClientCredentials,
 ) -> Result<TokenResponse, TokenError> {
     config.validate()?;
-    // NOTE: no specification governs this: our own design; the form encoder
-    // is not `Sync`, so it is finished and dropped before the request awaits.
-    let (request, body) = {
-        let mut form = url::form_urlencoded::Serializer::new(String::new());
+    let answer = post(http, endpoint, config, |form| {
         form.append_pair("grant_type", "client_credentials");
         if let Some(scope) = config.scope.as_deref() {
             form.append_pair("scope", scope);
@@ -84,6 +81,58 @@ pub(super) async fn request_token(
         if let Some(resource) = config.resource.as_ref() {
             form.append_pair("resource", resource.as_str());
         }
+    })
+    .await?;
+    if answer.status != StatusCode::OK {
+        return Err(answer.refused());
+    }
+    serde_json::from_str(&answer.body).map_err(|source| TokenError::Malformed { source })
+}
+
+/// What a token endpoint answered: its status and its body, as received.
+pub(super) struct Answer {
+    /// The status.
+    pub(super) status: StatusCode,
+    /// The body.
+    pub(super) body: String,
+}
+
+impl std::fmt::Debug for Answer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Answer")
+            .field("status", &self.status)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Answer {
+    /// Returns the refusal a status other than `200` is, with the OAuth
+    /// error when the body is one (RFC 6749 §5.2).
+    pub(super) fn refused(self) -> TokenError {
+        // NOTE: RFC 6749 §5.2 makes the error body JSON with `error`; a body
+        // that is not one is legitimately absent, and the raw body stays.
+        let error = serde_json::from_str::<OAuthError>(&self.body).ok();
+        TokenError::Refused {
+            status: self.status,
+            error,
+            body: self.body,
+        }
+    }
+}
+
+/// Returns what `endpoint` answers a form-encoded token request whose grant
+/// parameters `fill` writes, authenticated as the client of `config`.
+pub(super) async fn post(
+    http: &Http,
+    endpoint: &Url,
+    config: &ClientCredentials,
+    fill: impl FnOnce(&mut url::form_urlencoded::Serializer<'_, String>),
+) -> Result<Answer, TokenError> {
+    // NOTE: no specification governs this: our own design; the form encoder
+    // is not `Sync`, so it is finished and dropped before the request awaits.
+    let (request, body) = {
+        let mut form = url::form_urlencoded::Serializer::new(String::new());
+        fill(&mut form);
         let request = http
             .client()
             .post(endpoint.clone())
@@ -111,17 +160,7 @@ pub(super) async fn request_token(
             url: endpoint.clone(),
             source,
         })?;
-    if status != StatusCode::OK {
-        // NOTE: RFC 6749 §5.2 makes the error body JSON with `error`; a body
-        // that is not one is legitimately absent, and the raw body stays.
-        let error = serde_json::from_str::<OAuthError>(&body).ok();
-        return Err(TokenError::Refused {
-            status,
-            error,
-            body,
-        });
-    }
-    serde_json::from_str(&body).map_err(|source| TokenError::Malformed { source })
+    Ok(Answer { status, body })
 }
 
 /// Returns `request`, posted to `endpoint`, authenticated as the client of

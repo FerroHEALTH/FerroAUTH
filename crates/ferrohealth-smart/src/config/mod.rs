@@ -39,15 +39,18 @@ use crate::metadata::DiscoveryError;
 use crate::profile::Delegate;
 use crate::profile::Marker;
 use crate::profile::Preset;
-use crate::profile::ProfileKeys;
 use crate::profile::Representation;
 use crate::profile::ScopeClaim;
+use crate::profile::onward::OnwardGrant;
+use crate::profile::onward::OnwardIndicator;
+use crate::profile::onward::PreviewVariant;
 use crate::resource::ResourceError;
 use crate::resource::Settings;
 use crate::sender::SenderConstraint;
 
 mod auth;
 mod credentials;
+mod issuer;
 
 /// A section that breaks a rule, named by its key.
 #[derive(Debug, thiserror::Error)]
@@ -523,63 +526,84 @@ pub struct IssuerEntry {
     /// default `roles`, `groups` and `entitlements` (RFC 9068 §2.2.3.1), and
     /// none, never settable, on a `federation` issuer.
     pub role_claims: Option<Vec<String>>,
-    /// [`ProfileKeys::person_key`].
+    /// [`ProfileKeys::person_key`](crate::profile::ProfileKeys::person_key).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub person_key: Option<String>,
-    /// [`ProfileKeys::tenant_claim`].
+    /// [`ProfileKeys::tenant_claim`](crate::profile::ProfileKeys::tenant_claim).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tenant_claim: Option<String>,
-    /// [`ProfileKeys::client_claims`].
+    /// [`ProfileKeys::client_claims`](crate::profile::ProfileKeys::client_claims).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_claims: Option<Vec<String>>,
-    /// [`ProfileKeys::app_only`].
+    /// [`ProfileKeys::app_only`](crate::profile::ProfileKeys::app_only).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_only: Option<Vec<Marker>>,
-    /// [`ProfileKeys::guest`].
+    /// [`ProfileKeys::guest`](crate::profile::ProfileKeys::guest).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub guest: Option<Vec<Marker>>,
-    /// [`ProfileKeys::impersonation_marker`].
+    /// [`ProfileKeys::impersonation_marker`](crate::profile::ProfileKeys::impersonation_marker).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impersonation_marker: Option<String>,
-    /// [`ProfileKeys::expect`].
+    /// [`ProfileKeys::expect`](crate::profile::ProfileKeys::expect).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expect: Option<BTreeMap<String, String>>,
-    /// [`ProfileKeys::user_claims`].
+    /// [`ProfileKeys::user_claims`](crate::profile::ProfileKeys::user_claims).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_claims: Option<Vec<String>>,
-    /// [`ProfileKeys::person_equality`].
+    /// [`ProfileKeys::person_equality`](crate::profile::ProfileKeys::person_equality).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub person_equality: Option<Vec<String>>,
-    /// [`ProfileKeys::unstable_claims`].
+    /// [`ProfileKeys::unstable_claims`](crate::profile::ProfileKeys::unstable_claims).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unstable_claims: Option<Vec<String>>,
-    /// [`ProfileKeys::first_party_clients`].
+    /// [`ProfileKeys::first_party_clients`](crate::profile::ProfileKeys::first_party_clients).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_party_clients: Option<Vec<String>>,
-    /// [`ProfileKeys::delegates`].
+    /// [`ProfileKeys::delegates`](crate::profile::ProfileKeys::delegates).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delegates: Option<Vec<Delegate>>,
-    /// [`ProfileKeys::max_actor_chain`].
+    /// [`ProfileKeys::max_actor_chain`](crate::profile::ProfileKeys::max_actor_chain).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_actor_chain: Option<usize>,
-    /// [`ProfileKeys::representation`].
+    /// [`ProfileKeys::representation`](crate::profile::ProfileKeys::representation).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub representation: Option<Representation>,
-    /// [`ProfileKeys::token_types`].
+    /// [`ProfileKeys::token_types`](crate::profile::ProfileKeys::token_types).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_types: Option<Vec<String>>,
-    /// [`ProfileKeys::required_claims`].
+    /// [`ProfileKeys::required_claims`](crate::profile::ProfileKeys::required_claims).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required_claims: Option<Vec<String>>,
-    /// [`ProfileKeys::scope_claim`].
+    /// [`ProfileKeys::scope_claim`](crate::profile::ProfileKeys::scope_claim).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope_claim: Option<ScopeClaim>,
-    /// [`ProfileKeys::app_only_scope_claim`].
+    /// [`ProfileKeys::app_only_scope_claim`](crate::profile::ProfileKeys::app_only_scope_claim).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub app_only_scope_claim: Option<ScopeClaim>,
-    /// [`ProfileKeys::adapter`].
+    /// [`ProfileKeys::adapter`](crate::profile::ProfileKeys::adapter).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapter: Option<String>,
+    /// [`ProfileKeys::max_onward_lifetime`](crate::profile::ProfileKeys::max_onward_lifetime).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_onward_lifetime: Option<u64>,
+    /// [`ProfileKeys::onward_grant`](crate::profile::ProfileKeys::onward_grant).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_grant: Option<OnwardGrant>,
+    /// [`ProfileKeys::onward_indicator`](crate::profile::ProfileKeys::onward_indicator).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_indicator: Option<OnwardIndicator>,
+    /// [`ProfileKeys::onward_parameters`](crate::profile::ProfileKeys::onward_parameters).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_parameters: Option<BTreeMap<String, String>>,
+    /// [`ProfileKeys::onward_client_id`](crate::profile::ProfileKeys::onward_client_id).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_client_id: Option<bool>,
+    /// [`ProfileKeys::onward_subject_audience`](crate::profile::ProfileKeys::onward_subject_audience).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_subject_audience: Option<bool>,
+    /// [`ProfileKeys::onward_preview`](crate::profile::ProfileKeys::onward_preview).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_preview: Option<Vec<PreviewVariant>>,
     /// Removed: the profile keys replace it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_profile: Removed,
@@ -589,85 +613,6 @@ pub struct IssuerEntry {
     /// Removed: the caller classification replaces it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_tokens: Removed,
-}
-
-impl Default for IssuerEntry {
-    fn default() -> Self {
-        Self {
-            issuer: String::new(),
-            kind: None,
-            profile: Preset::Rfc9068,
-            audience: Vec::new(),
-            algorithms: vec![
-                Algorithm::RS256,
-                Algorithm::RS384,
-                Algorithm::PS256,
-                Algorithm::PS384,
-                Algorithm::ES256,
-                Algorithm::ES384,
-            ],
-            clock_skew_seconds: 60,
-            jwks_max_age_seconds: 600,
-            jwks_refresh_interval_seconds: 60,
-            jwks_file: String::new(),
-            timeout_ms: 10_000,
-            mode: AuthMode::Jwt,
-            introspection: None,
-            assurance: None,
-            sender_constraint: SenderConstraint::None,
-            role_claims: None,
-            person_key: None,
-            tenant_claim: None,
-            client_claims: None,
-            app_only: None,
-            guest: None,
-            impersonation_marker: None,
-            expect: None,
-            user_claims: None,
-            person_equality: None,
-            unstable_claims: None,
-            first_party_clients: None,
-            delegates: None,
-            max_actor_chain: None,
-            representation: None,
-            token_types: None,
-            required_claims: None,
-            scope_claim: None,
-            app_only_scope_claim: None,
-            adapter: None,
-            token_profile: None,
-            acting_for_claim: None,
-            client_tokens: None,
-        }
-    }
-}
-
-impl IssuerEntry {
-    /// Returns the profile keys this table sets over its preset.
-    #[must_use]
-    pub fn profile_keys(&self) -> ProfileKeys {
-        ProfileKeys {
-            person_key: self.person_key.clone(),
-            tenant_claim: self.tenant_claim.clone(),
-            client_claims: self.client_claims.clone(),
-            app_only: self.app_only.clone(),
-            guest: self.guest.clone(),
-            impersonation_marker: self.impersonation_marker.clone(),
-            expect: self.expect.clone(),
-            user_claims: self.user_claims.clone(),
-            person_equality: self.person_equality.clone(),
-            unstable_claims: self.unstable_claims.clone(),
-            first_party_clients: self.first_party_clients.clone(),
-            delegates: self.delegates.clone(),
-            max_actor_chain: self.max_actor_chain,
-            representation: self.representation.clone(),
-            token_types: self.token_types.clone(),
-            required_claims: self.required_claims.clone(),
-            scope_claim: self.scope_claim.clone(),
-            app_only_scope_claim: self.app_only_scope_claim.clone(),
-            adapter: self.adapter.clone(),
-        }
-    }
 }
 
 /// The `[auth.basic]` table.

@@ -866,7 +866,7 @@ fn no_core_module_names_a_vendor() -> Outcome {
             }
             // NOTE: the preset selector is data naming the shipped files, the
             // one place a vendor's name stands (no specification governs this).
-            if path.ends_with("profile.rs") {
+            if path.ends_with("profile/mod.rs") {
                 continue;
             }
             let text = std::fs::read_to_string(&path)?.to_lowercase();

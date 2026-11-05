@@ -427,6 +427,12 @@ pub struct FederationSection {
     /// Whether the issuer's tokens must be sender-constrained, so the issuer
     /// fails to load without `sender_constraint = "required"`.
     pub requires_sender_constraint: bool,
+    /// The subject-token issuers whose persons this issuer is trusted to map
+    /// to its own, when it issues onward tokens (`client::onward`).
+    pub exchanges_from: Vec<String>,
+    /// The subject-token claim, a dotted path, whose value an onward token
+    /// of this issuer must carry as `professional.hp_identifier`.
+    pub person_mapping: Option<String>,
 }
 
 /// A `[[auth.federation]]` table that breaks a rule.
@@ -505,6 +511,8 @@ impl FederationSection {
             required_fields: or_default(self.required_fields, defaults.required_fields),
             requires_sender_constraint: self.requires_sender_constraint
                 || defaults.requires_sender_constraint,
+            exchanges_from: or_default(self.exchanges_from, defaults.exchanges_from),
+            person_mapping: self.person_mapping.or(defaults.person_mapping),
         }
     }
 

@@ -122,6 +122,33 @@ issuer tables below and reads who called from `Caller::kind`.
   `Verifier::verify_bound`, `ResourceServer::authenticate_bound`,
   `LazyResourceServer::authenticate_bound`,
   `Introspector::authenticate_bound` and `Gate::authenticate_request`.
+- `client::onward`, the onward grants (#217): `exchange::Onward` obtains a
+  token for another service on behalf of a verified caller, by RFC 8693
+  token exchange (`subject_token`, an optional `actor_token`, the target as
+  `resource` or `audience`) or the RFC 7523 JWT bearer grant (`assertion`
+  and `scope`), as the issuer's profile names, authenticating as its
+  `ClientCredentials` say. The issued token is refused unless its `iss` is
+  the issuer asked, its `aud` lies inside the `Target`'s audiences, its
+  `exp` is within `max_onward_lifetime` of its `iat`, it carries the
+  profile's `expect`, it names the requesting client as its actor, and it
+  names the caller's person: by `person_equality` on a `persons` issuer, by
+  the attested `person_mapping` on a `federation` issuer. Every refusal is
+  a typed `OnwardError`, an upstream refusal with its status and
+  `interaction_required` with its claims challenge; a JWT bearer grant for
+  a `System` caller is refused before sending (`UserPrincipalRequired`),
+  `offline_access` is never sent and a refresh token never accepted. The
+  token is cached by issuer, grant, subject and actor token, target, scope
+  and extra parameters until a margin before the earlier of its own and the
+  subject token's `exp`, and the check runs again on every hit.
+- The profile keys `max_onward_lifetime`, `onward_grant`,
+  `onward_indicator`, `onward_parameters`, `onward_client_id`,
+  `onward_subject_audience` and `onward_preview` (`profile::onward`), on
+  `[[auth.issuer]]` as on every preset: `entra` is the on-behalf-of flow,
+  `keycloak` the standard token exchange with delegation refused as
+  Preview. A parameter the client writes itself, a `requested_token_type`
+  naming a refresh token and a lifetime of 0 refuse the issuer at load.
+- `exchanges_from` and `person_mapping` on `[[auth.federation]]`, which a
+  federation issuer of onward tokens requires.
 
 ### Changed
 

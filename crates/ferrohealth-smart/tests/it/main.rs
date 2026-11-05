@@ -44,6 +44,8 @@ mod metadata;
 mod nl_profile;
 #[cfg(feature = "oidc")]
 mod oidc;
+#[cfg(feature = "fetch")]
+mod onward;
 #[cfg(all(feature = "openehr", feature = "fetch"))]
 mod openehr;
 #[cfg(feature = "fetch")]

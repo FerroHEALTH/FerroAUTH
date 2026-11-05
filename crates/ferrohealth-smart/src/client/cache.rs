@@ -323,7 +323,7 @@ impl Inner {
 
 /// Returns the `Authorization` field value of `token` as an RFC 6750 §2.1
 /// bearer credential, marked sensitive.
-fn bearer(token: &str) -> Result<HeaderValue, TokenError> {
+pub(crate) fn bearer(token: &str) -> Result<HeaderValue, TokenError> {
     // NOTE: RFC 6750 §2.1, b64token is 1*( ALPHA / DIGIT / "-" / "." / "_" /
     // "~" / "+" / "/" ) *"=", so anything else cannot travel.
     let b64token = !token.is_empty()
