@@ -97,6 +97,10 @@ jobs:
         run: bash scripts/release/plan.sh --self-test
       - name: The changelog Security check passes and refuses what it claims to
         run: bash scripts/checks/changelog-security.sh --self-test
+      - name: The caller kind guard refuses what it claims to
+        run: bash scripts/checks/caller-kinds.sh --self-test
+      - name: The architecture and the README list every caller kind
+        run: bash scripts/checks/caller-kinds.sh
       - name: The attribution hook reads only the commit and pull request text
         run: bash .claude/hooks/no_attribution_guard.sh --self-test
       - name: The manual crate publish refuses a run off its release tag

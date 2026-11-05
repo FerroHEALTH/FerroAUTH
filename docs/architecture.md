@@ -22,7 +22,9 @@ Citation style: `rfc6749 §4.4` is `docs/specs/rfc/rfc6749.txt` section 4.4;
 `smart conformance` is `docs/specs/smart-app-launch/repository/input/pages/conformance.md`
 (rendered as `conformance.html` under the STU 2.2 publication); `discovery
 §4.3` is section 4.3 of `docs/specs/openid-connect-discovery/`; `soe
-master08` is `docs/specs/smart-on-openehr/docs/smart_app_launch/master08-scopes.adoc`.
+master08` is `docs/specs/smart-on-openehr/docs/smart_app_launch/master08-scopes.adoc`;
+`rm-common master06` is
+`docs/specs/openehr-rm/development/docs/common/master06-change_control_package.adoc`.
 
 ## 0. The picture
 
@@ -540,7 +542,7 @@ from it, so the four products' records read the same:
 | `request_id` | the request id the product minted or echoed, `-` when none |
 | `principal` | the token's `sub`, the Basic user-id, `-` for an open route, `unauthenticated` for a refused credential |
 | `client` | the client the issuer profile's client claims name, `-` when none |
-| `kind` | the caller kind (3.14): `patient`, `system`, `delegated`, `representative`, `person` or `guest`, `-` for an open route or a refused credential |
+| `kind` | the caller kind (3.14): `patient`, `system`, `delegated`, `representative`, `person`, `guest`, `external_person` or `external_organisation`, `-` for an open route or a refused credential; `scripts/checks/caller-kinds.sh` holds this list to `CallerKind::as_str` |
 | `via` | `bearer`, `basic`, `open` or `none` |
 | `issuer` | the issuer that signed the token, `-` otherwise |
 | `binding` | what the login resolved to (3.17): `party`, `wrong_marker`, `unbound`, `ambiguous`, `inactive`, `abandoned`, `deprovisioned`, `key_claim_missing` or `groups_unavailable`, `source_unavailable` when the party source failed, `-` when no party binding looked the caller up |
@@ -1317,7 +1319,8 @@ deleted one, and never chooses between two.
 - `Unbound`, `Ambiguous` (two or more parties, never resolved to either),
   `Deprovisioned` (the tombstone);
 - `Inactive` and `Abandoned`: the state the product reports (openEHR
-  `800|inactive|` and `801|abandoned|`), with the reference;
+  `800|inactive|` and `801|abandoned|`, `rm-common master06` §Abandoned
+  and Inactive States), with the reference;
 - `KeyClaimMissing`: the token lacks its `person_key` claim (claims "are
   present only if a value exists", Microsoft, "Access token claims
   reference"), or a Basic user maps to no key;
