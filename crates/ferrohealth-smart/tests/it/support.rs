@@ -279,11 +279,34 @@ pub(crate) async fn server(settings: Settings) -> Arc<ResourceServer> {
     )
 }
 
-/// Returns a file under the temporary directory holding `content`, named
-/// uniquely for the case.
+/// Returns a new file under the temporary directory holding `content`, its
+/// name ending in `name`.
+///
+/// Each call creates its own file, so two calls with one `name` in one
+/// process never share a path; the file outlives the case.
 pub(crate) fn temp_file(name: &str, content: &[u8]) -> std::path::PathBuf {
-    let unique = format!("ferrohealth-smart-{}-{}-{name}", std::process::id(), now());
-    let path = std::env::temp_dir().join(unique);
-    std::fs::write(&path, content).expect("the temporary file is written");
+    let mut file = tempfile::Builder::new()
+        .prefix("ferrohealth-smart-")
+        .suffix(&format!("-{name}"))
+        .tempfile()
+        .expect("the temporary file is created");
+    std::io::Write::write_all(&mut file, content).expect("the temporary file is written");
+    let (_, path) = file.keep().expect("the temporary file is kept");
     path
+}
+
+#[test]
+fn two_temporary_files_of_one_name_are_two_files() {
+    let first = temp_file("same.pem", b"first");
+    let second = temp_file("same.pem", b"second");
+    assert_ne!(first, second);
+    assert!(first.to_string_lossy().ends_with("-same.pem"));
+    assert_eq!(
+        std::fs::read(&first).expect("the first file reads"),
+        b"first"
+    );
+    assert_eq!(
+        std::fs::read(&second).expect("the second file reads"),
+        b"second"
+    );
 }
