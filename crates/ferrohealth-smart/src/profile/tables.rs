@@ -2,11 +2,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 //! The table forms a [`Marker`] and a [`Delegate`] are written in, the
-//! conversions that hold each table to exactly one form, and the helpers a
-//! profile overlay sets its keys with.
+//! conversions that hold each table to exactly one form, the test a marker
+//! runs, and the helpers a profile overlay sets its keys with.
 
 use serde::Deserialize;
 use serde::Serialize;
+use serde_json::Map;
+use serde_json::Value;
 
 use crate::profile::Delegate;
 use crate::profile::Marker;
@@ -180,5 +182,44 @@ pub(super) fn set<T>(slot: &mut T, value: Option<T>) {
 pub(super) fn set_some<T>(slot: &mut Option<T>, value: Option<T>) {
     if value.is_some() {
         *slot = value;
+    }
+}
+
+impl Marker {
+    /// Returns whether `claims`, whose client claim reads `client`, pass
+    /// this test.
+    #[must_use]
+    pub fn matches(&self, claims: &Map<String, Value>, client: Option<&str>) -> bool {
+        match self {
+            Self::Claim { claim, value } => claims
+                .get(claim)
+                .is_some_and(|found| text_of(found).as_deref() == Some(value.as_str())),
+            Self::Absent { claim } => !claims.contains_key(claim),
+            Self::Subjects(subjects) => claims
+                .get("sub")
+                .and_then(Value::as_str)
+                .is_some_and(|sub| subjects.iter().any(|listed| listed == sub)),
+            Self::SubIsClient => {
+                client.is_some() && claims.get("sub").and_then(Value::as_str) == client
+            }
+            Self::DiffersFromIssuer { claim } => {
+                let issuer = claims.get("iss").and_then(Value::as_str);
+                claims
+                    .get(claim)
+                    .and_then(Value::as_str)
+                    .is_some_and(|found| Some(found) != issuer)
+            }
+        }
+    }
+}
+
+/// Returns the text a marker value is compared with: a string's own text,
+/// or a number's or boolean's JSON text.
+fn text_of(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        _ => None,
     }
 }

@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# The `nl` issuer profile: the harmonised BgZ and eOverdracht authentication
+# of the openEHR Federation Tier specification 1.0.1, Informative Annex B
+# "Dutch Generic Functions binding", §B.4a, which attributes it to the VWS
+# memo concept v0.9 of 13 July 2026
+# (docs/specs/federation-spec/modules/ROOT/pages/annex-b-dutch-gf.adoc,
+# syntaric/openehr-federation-spec at b4242c29). The issuer is one requesting
+# care provider, whose tokens arrive on a `federation` issuer. Each value
+# cites its section; every profile key can be set on the issuer table, and
+# every key of the `federation` table below on the issuer's own
+# `[[auth.federation]]` table, which wins over this file.
+#
+# §B.4a "is a national track distinct from, and not a refinement of, the
+# Nuts Generic-Functions profile of §B.4", and "A Dutch deployment SHOULD
+# establish which of the two applies to it". This profile is §B.4a only; a
+# §B.4 token is read through the `presentations` sources of the federation
+# table, which Annex B names no credential paths for.
+
+# §B.4a.2 names no `typ` header, so the profile accepts none: an `nl` issuer
+# fails to load until the deployment sets `token_types` itself.
+token_types = []
+# §B.4a.2: FAPI 2.0's "strict token/request validation (`iss`, `aud`, `exp`,
+# and a unique `jti` against replay)". `sub` is the claim the resource
+# server identifies the caller by, and `client_id` names the client of "The
+# client-credentials flow" (RFC 9068 §2.2). §B.4a.3: "the healthcare
+# attributes travel in an RFC 9396 Rich Authorization Requests
+# `authorization_details` object".
+required_claims = ["iss", "sub", "aud", "exp", "jti", "client_id", "authorization_details"]
+
+[federation]
+# Annex B is a "regional alternative" for a Dutch deployment, not a
+# MyHealth@EU contact point.
+contact_point = false
+# Annex B binds "Netherlands - Generic Functions for data exchange".
+countries = ["NL"]
+# §B.3: the care provider is identified "by URA number (CIBG URA-register)"
+# and the practitioner "by UZI/DEZI number (CIBG Dezi-register)".
+issuing_authorities = ["CIBG"]
+# §B.4a.3 example: an organisation is
+# "urn:oid:2.16.528.1.1007.3.3.12345678", the URA 12345678 of §B.7's table.
+provider_identifier_prefixes = ["urn:oid:2.16.528.1.1007.3.3."]
+# §B.4a.2: "Both the token request and the access token are signed by the
+# issuing organization"; §B.4a.3: the purpose "travels as a declaration by
+# the requesting organization, which is responsible and liable for it".
+attests_authorization_details = true
+# §B.4a.3 example: `"type": "nl-gis-v1"`.
+authorization_details_type = "nl-gis-v1"
+# §B.4a.2: "there is no interactive user in the exchange", which is
+# "system-to-system"; §B.4a.1: "only the counterpart organization's identity
+# is verified". The entry is the organisation's access statement, and the
+# profile maps no professional field.
+organisation_types = ["nl-gis-v1"]
+# §B.4a.2: FAPI 2.0 brings "sender-constrained access tokens", so the issuer
+# fails to load without `sender_constraint = "required"`.
+requires_sender_constraint = true
+# §B.4a.3: the purpose travels in every entry. §B.4a.4: for "the query use
+# case", which a federated query is, the "Organization type must travel".
+# §B.4a.1: the URA is "the system-wide unique organization identifier".
+required_fields = ["purpose_of_use", "nl.organisation_type", "nl.ura"]
+
+# §B.4a.3 example entries. The access token is signed by the requesting
+# organisation itself (§B.4a.2), so its URA is the issuer's identity: the
+# deployment sets `"nl.ura" = [{ constant = "…" }]` on the issuer's table.
+# Annex B does not define the entry's `locations_organization_id`; read
+# with RFC 9396 §2.2 `locations` it names the organisation at the resource
+# server, this node's (our own reading), so it is not read as the
+# requester's.
+[federation.fields]
+"purpose_of_use" = [{ authorization_details = "purpose_of_use" }]
+"nl.organisation_type" = [{ authorization_details = "subject_organisation_type" }]

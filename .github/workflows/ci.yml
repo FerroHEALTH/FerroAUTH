@@ -392,6 +392,66 @@ jobs:
           fail-on-severity: high
           comment-summary-in-pr: on-failure
 
+  # The `keycloak` profile against the Keycloak image docs/VERSIONS.md pins
+  # (#239): tests/it/keycloak_live.rs starts it, obtains tokens and classifies
+  # them. It runs on a pull request that touches the profiles, the resource
+  # server, the case itself or the pins, and on a manual run.
+  keycloak-live:
+    name: keycloak-live
+    needs: detect
+    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.detect.outputs.cargo == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: paths
+        name: Does the change reach the profiles or the resource server
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "live=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          live=false
+          while IFS= read -r path; do
+            case "$path" in
+              crates/ferrohealth-smart/profiles/* | \
+                crates/ferrohealth-smart/src/profile.rs | \
+                crates/ferrohealth-smart/src/kind.rs | \
+                crates/ferrohealth-smart/src/resource/* | \
+                crates/ferrohealth-smart/src/sender/* | \
+                crates/ferrohealth-smart/tests/it/keycloak_live.rs | \
+                .github/workflows/ci.yml | docs/VERSIONS.md | Cargo.lock)
+                echo "reaches the live case: $path"
+                live=true
+                ;;
+              *) ;;
+            esac
+          done < <(git diff --name-only "$BASE...$HEAD")
+          echo "live=$live" >> "$GITHUB_OUTPUT"
+      - if: steps.paths.outputs.live == 'true'
+        uses: ./.github/actions/setup-rust
+        with:
+          cache-save-if: "false"
+      - if: steps.paths.outputs.live == 'true'
+        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
+        with:
+          tool: cargo-nextest
+      - if: steps.paths.outputs.live == 'true'
+        name: The live Keycloak case
+        env:
+          FERROHEALTH_KEYCLOAK_E2E: "1"
+        run: cargo nextest run -p ferrohealth-smart --locked --no-tests=fail -E 'test(/^keycloak_live::/)'
+
   # ---- The single required check --------------------------------------------
   # It needs every other job and runs on always(), so it reports even when a
   # gated tier is skipped; it fails when a needed job failed or was cancelled.
@@ -415,6 +475,7 @@ jobs:
       - semver
       - crate-version-guard
       - dependency-review
+      - keycloak-live
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5

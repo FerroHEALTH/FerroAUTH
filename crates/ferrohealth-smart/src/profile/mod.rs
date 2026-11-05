@@ -20,6 +20,7 @@ use serde::Serialize;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
 use crate::profile::onward::OnwardGrant;
 use crate::profile::onward::OnwardIndicator;
@@ -48,6 +49,10 @@ pub enum Preset {
     Keycloak,
     /// Okta access tokens.
     Okta,
+    /// The Dutch harmonised `BgZ` and `eOverdracht` authentication of the
+    /// openEHR Federation Tier specification 1.0.1 Annex B §B.4a, with the
+    /// `[[auth.federation]]` defaults of a `federation` issuer.
+    Nl,
 }
 
 impl Preset {
@@ -59,6 +64,7 @@ impl Preset {
             Self::Entra => include_str!("../../profiles/entra.toml"),
             Self::Keycloak => include_str!("../../profiles/keycloak.toml"),
             Self::Okta => include_str!("../../profiles/okta.toml"),
+            Self::Nl => include_str!("../../profiles/nl.toml"),
         }
     }
 
@@ -69,12 +75,44 @@ impl Preset {
     /// [`ProfileError::Preset`] when the shipped file does not read, which
     /// the crate's own tests rule out for every preset.
     pub fn keys(self) -> Result<ProfileKeys, ProfileError> {
-        toml::from_str(self.source()).map_err(|source| ProfileError::Preset {
+        let mut table = self.table()?;
+        drop(table.remove(FEDERATION));
+        table.try_into().map_err(|source| self.unreadable(source))
+    }
+
+    /// Returns the `[[auth.federation]]` defaults the preset's `federation`
+    /// table declares, which the issuer's own table is set over; none when
+    /// the preset declares none.
+    ///
+    /// # Errors
+    ///
+    /// [`ProfileError::Preset`] when the shipped file does not read, which
+    /// the crate's own tests rule out for every preset.
+    pub fn federation(self) -> Result<Option<FederationSection>, ProfileError> {
+        self.table()?
+            .remove(FEDERATION)
+            .map(|table| table.try_into().map_err(|source| self.unreadable(source)))
+            .transpose()
+    }
+
+    /// Returns the preset's file as a table.
+    fn table(self) -> Result<toml::Table, ProfileError> {
+        self.source()
+            .parse()
+            .map_err(|source| self.unreadable(source))
+    }
+
+    /// Returns the error of a shipped file that does not read.
+    fn unreadable(self, source: toml::de::Error) -> ProfileError {
+        ProfileError::Preset {
             preset: self,
             source: Box::new(source),
-        })
+        }
     }
 }
+
+/// The table of a preset file that holds its `[[auth.federation]]` defaults.
+const FEDERATION: &str = "federation";
 
 /// How a scope claim carries its scopes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -160,45 +198,6 @@ pub enum Marker {
         /// The claim.
         claim: String,
     },
-}
-
-impl Marker {
-    /// Returns whether `claims`, whose client claim reads `client`, pass
-    /// this test.
-    #[must_use]
-    pub fn matches(&self, claims: &Map<String, Value>, client: Option<&str>) -> bool {
-        match self {
-            Self::Claim { claim, value } => claims
-                .get(claim)
-                .is_some_and(|found| text_of(found).as_deref() == Some(value.as_str())),
-            Self::Absent { claim } => !claims.contains_key(claim),
-            Self::Subjects(subjects) => claims
-                .get("sub")
-                .and_then(Value::as_str)
-                .is_some_and(|sub| subjects.iter().any(|listed| listed == sub)),
-            Self::SubIsClient => {
-                client.is_some() && claims.get("sub").and_then(Value::as_str) == client
-            }
-            Self::DiffersFromIssuer { claim } => {
-                let issuer = claims.get("iss").and_then(Value::as_str);
-                claims
-                    .get(claim)
-                    .and_then(Value::as_str)
-                    .is_some_and(|found| Some(found) != issuer)
-            }
-        }
-    }
-}
-
-/// Returns the text a marker value is compared with: a string's own text,
-/// or a number's or boolean's JSON text.
-fn text_of(value: &Value) -> Option<String> {
-    match value {
-        Value::String(text) => Some(text.clone()),
-        Value::Number(number) => Some(number.to_string()),
-        Value::Bool(flag) => Some(flag.to_string()),
-        _ => None,
-    }
 }
 
 /// An actor or a client the issuer declares may act for a person.
@@ -649,6 +648,7 @@ mod tests {
             Preset::Entra,
             Preset::Keycloak,
             Preset::Okta,
+            Preset::Nl,
         ] {
             assert!(preset.keys().is_ok(), "{preset:?} reads");
         }
@@ -698,6 +698,7 @@ mod tests {
             Preset::Entra,
             Preset::Keycloak,
             Preset::Okta,
+            Preset::Nl,
         ] {
             let profile = Profile::resolve(preset, &keys).expect("the preset reads");
             let back = ProfileKeys {
