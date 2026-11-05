@@ -64,7 +64,11 @@ governs this: our own design".
 - Never weaken, skip, or delete a test to make a build pass; every refusal
   you add has an asserted negative test.
 - Add an entry under `[Unreleased]` in the changed crate's
-  `crates/<crate>/CHANGELOG.md` for any change a product sees, and name what a product must change when an API breaks.
+  `crates/<crate>/CHANGELOG.md` for any change a product sees, or under its
+  pending `[X.Y.Z] - Unreleased` section when one stands, and name what a
+  product must change when an API breaks. The first breaking change after a
+  release moves the minor version and opens that section
+  (`docs/release.md`, When the version moves).
 - Write prose to `.claude/rules/writing-style.md`.
 
 ## Using AI tools

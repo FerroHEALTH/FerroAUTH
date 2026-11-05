@@ -55,9 +55,10 @@ that this repository has no roadmap board.
    `main` auto-closes the issue (never close by hand when a PR carries the
    work). One `Closes` keyword closes one issue: "Closes #1, #2" closes only
    #1, so repeat the keyword per issue and verify after the merge. Arm
-   auto-merge the moment the PR is open, as its own command
-   (`gh pr merge <n> --auto --squash --delete-branch`,
-   `.claude/memory/pr-auto-merge.md`).
+   auto-merge the moment the PR is open, as its own command:
+   `gh pr merge <n> --auto`. The merge queue sets the merge method, and gh
+   refuses `--delete-branch` while the queue is on
+   (`.claude/memory/merge-queue-signed.md`).
 6. **Close out** with `/phase-done`: verify the acceptance criteria are met,
    write the close narrative into the PR description, and post the handoff
    comment on the issue.
