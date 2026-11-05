@@ -47,6 +47,8 @@ use serde_json::Value;
 use serde_json::json;
 
 mod config;
+#[cfg(feature = "idp-entra")]
+mod entra;
 mod federation;
 mod groups;
 #[cfg(all(feature = "axum", feature = "fetch"))]

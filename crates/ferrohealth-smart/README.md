@@ -62,6 +62,17 @@ ferrohealth-smart = { version = "=0.8.9", features = ["axum", "openehr"] }
   `Outcome`: `Party`, `WrongMarker`, `Unbound`, `Ambiguous`, `Inactive`,
   `Abandoned`, `Deprovisioned`, `KeyClaimMissing` or `GroupsUnavailable`. A
   source failure is a `SourceError`, never no match.
+- **`idp::entra`** (feature `idp-entra`): the vendor adapter for a
+  Microsoft Entra ID groups overage. An `entra` issuer with
+  `adapter = "idp-entra"` reads the groups of a token carrying
+  `_claim_names` or `hasgroups` from Microsoft Graph `getMemberObjects` at
+  a URL built from its `oid` and `idtyp`, never from `_claim_sources`. The
+  product builds a `GraphAdapter` from a `GraphSection` and registers it
+  with `PartyBinding::with_adapter`. Every Graph failure is
+  `GroupsUnavailable` with the status, the `Retry-After` of a `429` or the
+  timeout (2 s by default); nothing is cached, so every request of a user
+  above the overage limit costs one Graph round trip and draws on the
+  application's Graph throttling allowance.
 - **The person's own access**: `Caller::is_the_person`, a `Patient` caller
   of a `patients` issuer, with `Caller::person` naming the patient the request is bound to and a
   deployment's patient claim attached as a `resource::PatientClaim`.

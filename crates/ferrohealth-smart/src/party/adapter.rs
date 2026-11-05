@@ -42,6 +42,13 @@ pub enum AdapterError {
         /// The time allowed.
         timeout: Duration,
     },
+    /// The token lacks a claim the adapter reads, or carries it in a form the
+    /// adapter refuses; nothing was called.
+    #[error("the token carries no usable {claim:?} claim for the adapter")]
+    Claim {
+        /// The claim.
+        claim: String,
+    },
     /// The identity provider could not be reached, or its answer does not
     /// read.
     #[error("the identity provider could not be read")]

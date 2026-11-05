@@ -201,6 +201,25 @@ release breaks the public configuration and API: every product moves its
   (with the profile's `person_key`), names no trusted `persons` issuer,
   shares its issuer or its `identifier_issuer` with another table (naming
   both), or sets `group_claim` without `group_identifier_issuer`.
+- The `idp-entra` feature and `idp::entra::GraphAdapter` (#221): an Entra
+  ID groups overage (`_claim_names` naming `groups`, or `hasgroups`) is
+  resolved through Microsoft Graph at
+  `{base_url}/users/{oid}/getMemberObjects`, or
+  `/servicePrincipals/{oid}/getMemberObjects` for an `idtyp` of `app`,
+  built from the token's `oid` and `idtyp` and never from
+  `_claim_sources`, under a client-credentials token. An issuer turns it on
+  with `adapter = "idp-entra"`; the product builds it from an
+  `idp::entra::GraphSection` (`base_url`, `timeout_ms` of 2000 by default,
+  `max_response_bytes`, `security_enabled_only`, `credentials`) and
+  registers it under `idp::entra::NAME`. Every Graph failure is
+  `GroupsUnavailable` with the status and the `Retry-After` of a `429`,
+  the timeout, or the unreadable cause; nothing is cached, and each
+  request of a user above the overage limit costs one Graph round trip
+  outside the product's lookup budget. `idp::COMPILED` lists the adapters
+  a build compiles in, and a profile naming any other adapter fails to
+  load, naming it (`ProfileError::Adapter`).
+- `AdapterError::Claim`: the token lacks or misforms a claim the adapter
+  reads, and nothing was called.
 
 ### Changed
 
