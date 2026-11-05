@@ -4,7 +4,12 @@
 //! The `keycloak` profile against a live Keycloak: the image pinned in
 //! `docs/VERSIONS.md` is started, a realm, two clients and a user are
 //! created with the admin CLI (Keycloak 26.8.2 `admin-cli.adoc`), and the
-//! tokens it issues are classified. Nothing is committed: every token, key
+//! tokens it issues are classified. The container is started as
+//! `guides/server/containers.adoc` runs it in development mode, and each
+//! client's audience mapper is the one `clients/oidc/con-audience.adoc`
+//! describes, by the provider id and keys `AudienceProtocolMapper.java` and
+//! `OIDCAttributeMapperHelper.java` define, all vendored under
+//! `docs/specs/keycloak-docs/` at the tag. Nothing is committed: every token, key
 //! and password exists only while the case runs. The case is gated on
 //! `FERROHEALTH_KEYCLOAK_E2E=1`, because it needs a container runtime.
 
@@ -77,7 +82,7 @@ async fn token(
     base: &str,
     form: &[(&str, &str)],
 ) -> Result<String, Box<dyn StdError>> {
-    let response: serde_json::Value = http
+    let answer = http
         .post(format!(
             "{base}/realms/{REALM}/protocol/openid-connect/token"
         ))
@@ -88,10 +93,17 @@ async fn token(
                 .finish(),
         )
         .send()
-        .await?
-        .error_for_status()?
-        .json()
         .await?;
+    let status = answer.status();
+    let body = answer.text().await?;
+    if !status.is_success() {
+        let grant = form
+            .iter()
+            .find(|(name, _)| *name == "grant_type")
+            .map_or("", |(_, grant)| *grant);
+        return Err(format!("the {grant} grant answered {status}: {body}").into());
+    }
+    let response: serde_json::Value = serde_json::from_str(&body)?;
     Ok(response
         .get("access_token")
         .and_then(serde_json::Value::as_str)
@@ -117,6 +129,8 @@ struct Realm {
 /// administrator password, once it answers.
 async fn start() -> Result<(Container, String, String), Box<dyn StdError>> {
     let admin_password = random();
+    // NOTE: Keycloak 26.8.2 `guides/server/containers.adoc`, "Trying Keycloak in
+    // development mode": the image runs `start-dev` with the two bootstrap variables.
     let id = docker(&[
         "run",
         "-d",
@@ -199,6 +213,8 @@ fn configure(
         &app_secret,
     )?;
     let user_password = random();
+    // NOTE: Keycloak 26.8.2 `users/user-profile.adoc`: `VerifyProfile` is on by default,
+    // and `keycloak-default-user-profile.json` requires `email` and both names for users.
     kcadm(
         container,
         &[
@@ -210,6 +226,10 @@ fn configure(
             "username=synthetic-person",
             "-s",
             "enabled=true",
+            "-s",
+            "email=synthetic-person@example.org",
+            "-s",
+            "emailVerified=true",
             "-s",
             "firstName=Synthetic",
             "-s",
@@ -348,6 +368,9 @@ fn client(
             "-i",
         ],
     )?;
+    // NOTE: Keycloak 26.8.2 `clients/oidc/con-audience.adoc` and
+    // `AudienceProtocolMapper.java`: the Audience mapper is `oidc-audience-mapper`,
+    // configured by `included.custom.audience` and `access.token.claim`.
     kcadm(
         container,
         &[

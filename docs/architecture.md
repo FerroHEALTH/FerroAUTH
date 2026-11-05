@@ -954,7 +954,8 @@ layers, all in `ferrohealth-smart`:
    mapper and names that claim in `impersonation_marker`. A live case behind
    `FERROHEALTH_KEYCLOAK_E2E=1` starts the Keycloak image `docs/VERSIONS.md`
    pins, obtains its tokens at test time and classifies them; no token is
-   committed.
+   committed. CI's `keycloak-live` job runs it on every pull request that
+   touches the profiles or the resource server.
 3. **Vendor adapters as code**, only where data cannot express the
    behaviour, each an optional Cargo feature. This build compiles none, so a
    profile naming an adapter refuses its issuer at load.
