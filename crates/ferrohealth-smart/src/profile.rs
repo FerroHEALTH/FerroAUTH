@@ -20,6 +20,7 @@ use serde::Serialize;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
 
 /// The claims OpenID Connect Core 1.0 §5.7 says "MUST NOT be used as unique
@@ -40,6 +41,10 @@ pub enum Preset {
     Keycloak,
     /// Okta access tokens.
     Okta,
+    /// The Dutch harmonised `BgZ` and `eOverdracht` authentication of the
+    /// openEHR Federation Tier specification 1.0.1 Annex B §B.4a, with the
+    /// `[[auth.federation]]` defaults of a `federation` issuer.
+    Nl,
 }
 
 impl Preset {
@@ -51,6 +56,7 @@ impl Preset {
             Self::Entra => include_str!("../profiles/entra.toml"),
             Self::Keycloak => include_str!("../profiles/keycloak.toml"),
             Self::Okta => include_str!("../profiles/okta.toml"),
+            Self::Nl => include_str!("../profiles/nl.toml"),
         }
     }
 
@@ -61,12 +67,44 @@ impl Preset {
     /// [`ProfileError::Preset`] when the shipped file does not read, which
     /// the crate's own tests rule out for every preset.
     pub fn keys(self) -> Result<ProfileKeys, ProfileError> {
-        toml::from_str(self.source()).map_err(|source| ProfileError::Preset {
+        let mut table = self.table()?;
+        drop(table.remove(FEDERATION));
+        table.try_into().map_err(|source| self.unreadable(source))
+    }
+
+    /// Returns the `[[auth.federation]]` defaults the preset's `federation`
+    /// table declares, which the issuer's own table is set over; none when
+    /// the preset declares none.
+    ///
+    /// # Errors
+    ///
+    /// [`ProfileError::Preset`] when the shipped file does not read, which
+    /// the crate's own tests rule out for every preset.
+    pub fn federation(self) -> Result<Option<FederationSection>, ProfileError> {
+        self.table()?
+            .remove(FEDERATION)
+            .map(|table| table.try_into().map_err(|source| self.unreadable(source)))
+            .transpose()
+    }
+
+    /// Returns the preset's file as a table.
+    fn table(self) -> Result<toml::Table, ProfileError> {
+        self.source()
+            .parse()
+            .map_err(|source| self.unreadable(source))
+    }
+
+    /// Returns the error of a shipped file that does not read.
+    fn unreadable(self, source: toml::de::Error) -> ProfileError {
+        ProfileError::Preset {
             preset: self,
             source: Box::new(source),
-        })
+        }
     }
 }
+
+/// The table of a preset file that holds its `[[auth.federation]]` defaults.
+const FEDERATION: &str = "federation";
 
 /// How a scope claim carries its scopes.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
@@ -742,6 +780,7 @@ mod tests {
             Preset::Entra,
             Preset::Keycloak,
             Preset::Okta,
+            Preset::Nl,
         ] {
             assert!(preset.keys().is_ok(), "{preset:?} reads");
         }
@@ -781,6 +820,7 @@ mod tests {
             Preset::Entra,
             Preset::Keycloak,
             Preset::Okta,
+            Preset::Nl,
         ] {
             let profile = Profile::resolve(preset, &keys).expect("the preset reads");
             let back = ProfileKeys {

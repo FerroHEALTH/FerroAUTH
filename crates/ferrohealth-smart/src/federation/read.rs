@@ -76,6 +76,15 @@ pub(crate) fn classify(
         fields,
     };
     check_bounds(&external, section)?;
+    let missing: Vec<&'static str> = section
+        .required_fields
+        .iter()
+        .filter(|field| external.field(**field).is_none())
+        .map(|field| field.as_str())
+        .collect();
+    if !missing.is_empty() {
+        return Err(Unclassified::RequiredFields { missing });
+    }
     // NOTE: MyHealth@EU Requirements Catalogue 10.0.0 requirement 01 has country
     // B send the HP's information, so a contact point never admits an organisation.
     if section.contact_point == Some(true) {
