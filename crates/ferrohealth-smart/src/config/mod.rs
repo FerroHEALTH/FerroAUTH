@@ -22,7 +22,6 @@ use secrecy::ExposeSecret;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde::Serialize;
-use serde::Serializer;
 use url::Url;
 
 use crate::assurance::AssuranceSection;
@@ -36,6 +35,8 @@ use crate::client::assertion::AssertionError;
 use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
 use crate::metadata::DiscoveryError;
+use crate::party::config::PartyError;
+use crate::party::config::PartySection;
 use crate::profile::Delegate;
 use crate::profile::Marker;
 use crate::profile::Preset;
@@ -51,6 +52,8 @@ use crate::sender::SenderConstraint;
 mod auth;
 mod credentials;
 mod issuer;
+pub mod onward;
+mod shapes;
 
 /// A section that breaks a rule, named by its key.
 #[derive(Debug, thiserror::Error)]
@@ -177,6 +180,15 @@ pub enum ConfigError {
         #[source]
         source: Box<DiscoveryError>,
     },
+    /// The `credentials.onward` table names an issuer or a target the onward
+    /// client refuses.
+    #[cfg(feature = "fetch")]
+    #[error("credentials.onward is refused")]
+    Onward {
+        /// Why.
+        #[source]
+        source: Box<crate::client::onward::OnwardError>,
+    },
     /// A key was removed; the error names what replaces it.
     #[error("{key} is removed: {replacement}")]
     Removed {
@@ -204,6 +216,13 @@ pub enum ConfigError {
         issuer: String,
         /// Which rule.
         reason: &'static str,
+    },
+    /// An `[[auth.party]]` table breaks a rule.
+    #[error("an [[auth.party]] table is refused")]
+    Party {
+        /// The rule.
+        #[source]
+        source: PartyError,
     },
     /// An entry of a list read per issuer names an issuer the section does
     /// not trust.
@@ -265,6 +284,9 @@ pub struct AuthSection {
     pub ca_file: Option<PathBuf>,
     /// The `[[auth.federation]]` tables, one per `federation` issuer.
     pub federation: Vec<FederationSection>,
+    /// The `[[auth.party]]` tables, one per `persons` issuer whose logins
+    /// are bound to a party.
+    pub party: Vec<PartySection>,
     /// Removed: set `audience` on each `[[auth.issuer]]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audience: Removed,
@@ -356,37 +378,6 @@ impl Default for IntrospectionSection {
     }
 }
 
-impl Default for AuthSection {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            issuer: IssuerKey::List(Vec::new()),
-            scopeless_subjects: Vec::new(),
-            realm: String::new(),
-            capabilities: Vec::new(),
-            scopes_supported: Vec::new(),
-            product_scope: String::new(),
-            basic: None,
-            dpop: None,
-            ca_file: None,
-            federation: Vec::new(),
-            audience: None,
-            algorithms: None,
-            token_profile: None,
-            clock_skew_seconds: None,
-            jwks_max_age_seconds: None,
-            jwks_refresh_interval_seconds: None,
-            jwks_file: None,
-            timeout_ms: None,
-            role_claims: None,
-            mode: None,
-            introspection: None,
-            acting_for_claim: None,
-            client_tokens: None,
-        }
-    }
-}
-
 /// The `issuer` key: the `[[auth.issuer]]` list, or the flat identifier,
 /// which [`AuthSection::resolve`] refuses naming the table form.
 #[derive(Debug, Clone, Serialize)]
@@ -396,38 +387,6 @@ pub enum IssuerKey {
     Flat(String),
     /// The issuers, each with its own settings.
     List(Vec<IssuerEntry>),
-}
-
-impl<'de> Deserialize<'de> for IssuerKey {
-    // NOTE: serde's `untagged` drops each variant's own error, so the form is chosen
-    // by the value's shape and an entry's refusal, naming its key, reaches the caller.
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(IssuerKeyVisitor)
-    }
-}
-
-/// Reads [`IssuerKey`] by the shape of the value: a string or a list.
-struct IssuerKeyVisitor;
-
-impl<'de> serde::de::Visitor<'de> for IssuerKeyVisitor {
-    type Value = IssuerKey;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("a list of issuer tables")
-    }
-
-    fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<IssuerKey, E> {
-        Ok(IssuerKey::Flat(value.to_owned()))
-    }
-
-    fn visit_string<E: serde::de::Error>(self, value: String) -> Result<IssuerKey, E> {
-        Ok(IssuerKey::Flat(value))
-    }
-
-    fn visit_seq<A: serde::de::SeqAccess<'de>>(self, seq: A) -> Result<IssuerKey, A::Error> {
-        Vec::<IssuerEntry>::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))
-            .map(IssuerKey::List)
-    }
 }
 
 /// One `scopeless_subjects` entry: `{ issuer, sub }`, or the removed string
@@ -444,47 +403,6 @@ pub enum ScopelessSubject {
     },
     /// The removed string form, bare or `<issuer>#<sub>`.
     Text(String),
-}
-
-impl<'de> Deserialize<'de> for ScopelessSubject {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        deserializer.deserialize_any(ScopelessVisitor)
-    }
-}
-
-/// The table form of a [`ScopelessSubject`].
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ScopelessTable {
-    /// The issuer.
-    issuer: String,
-    /// The `sub`.
-    sub: String,
-}
-
-/// Reads [`ScopelessSubject`] by the shape of the value: a string or a
-/// table.
-struct ScopelessVisitor;
-
-impl<'de> serde::de::Visitor<'de> for ScopelessVisitor {
-    type Value = ScopelessSubject;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("a table { issuer, sub }")
-    }
-
-    fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<ScopelessSubject, E> {
-        Ok(ScopelessSubject::Text(value.to_owned()))
-    }
-
-    fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<ScopelessSubject, A::Error> {
-        ScopelessTable::deserialize(serde::de::value::MapAccessDeserializer::new(map)).map(
-            |table| ScopelessSubject::Qualified {
-                issuer: table.issuer,
-                sub: table.sub,
-            },
-        )
-    }
 }
 
 /// One `[[auth.issuer]]` table: the issuer, its kind, how its tokens are
@@ -645,7 +563,10 @@ pub struct BasicUser {
     /// The user-id.
     pub user: String,
     /// The Argon2id PHC string of the password, rendered redacted.
-    #[serde(serialize_with = "redact", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        serialize_with = "shapes::redact",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub password_hash: Option<SecretString>,
     /// The file holding that PHC string.
     pub password_hash_file: Option<PathBuf>,
@@ -683,6 +604,8 @@ pub struct Resolved {
     /// the order written.
     #[cfg(feature = "fetch")]
     pub introspection: Vec<crate::resource::introspection::IntrospectionSettings>,
+    /// The `[[auth.party]]` tables, each checked against its issuer.
+    pub party: Vec<PartySection>,
 }
 
 /// The `[<lane>.credentials]` table: HTTP Basic with `user` and `password`,
@@ -694,12 +617,18 @@ pub struct CredentialsSection {
     /// The Basic user-id.
     pub user: String,
     /// The Basic password, rendered redacted.
-    #[serde(serialize_with = "redact", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        serialize_with = "shapes::redact",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub password: Option<SecretString>,
     /// The file holding the Basic password.
     pub password_file: Option<PathBuf>,
     /// The client credentials grant.
     pub oauth: Option<OauthSection>,
+    /// The onward target the lane reaches on a caller's behalf, authenticating
+    /// with `oauth`.
+    pub onward: Option<onward::OnwardSection>,
 }
 
 /// The `[<lane>.credentials.oauth]` table.
@@ -712,17 +641,20 @@ pub struct CredentialsSection {
 pub struct OauthSection {
     /// The issuer whose metadata names the token endpoint; exclusive with
     /// `token_endpoint`.
-    #[serde(serialize_with = "masked_url")]
+    #[serde(serialize_with = "shapes::masked_url")]
     pub issuer: String,
     /// The token endpoint itself; exclusive with `issuer`.
-    #[serde(serialize_with = "masked_url")]
+    #[serde(serialize_with = "shapes::masked_url")]
     pub token_endpoint: String,
     /// The client identifier.
     pub client_id: String,
     /// How the client authenticates.
     pub client_auth: ClientAuth,
     /// The client secret, rendered redacted.
-    #[serde(serialize_with = "redact", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        serialize_with = "shapes::redact",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub client_secret: Option<SecretString>,
     /// The file holding the client secret.
     pub client_secret_file: Option<PathBuf>,
@@ -754,52 +686,6 @@ pub struct OauthSection {
     /// The PEM file of the client certificate's private key; set with
     /// `client_certificate_file`.
     pub client_key_file: Option<PathBuf>,
-}
-
-impl Default for OauthSection {
-    fn default() -> Self {
-        Self {
-            issuer: String::new(),
-            token_endpoint: String::new(),
-            client_id: String::new(),
-            client_auth: ClientAuth::ClientSecretBasic,
-            client_secret: None,
-            client_secret_file: None,
-            private_key_file: None,
-            kid: String::new(),
-            assertion_alg: None,
-            scope: String::new(),
-            resource: String::new(),
-            audience: String::new(),
-            refresh_margin_ms: 30_000,
-            timeout_ms: 10_000,
-            assertion_audience: AssertionAudience::TokenEndpoint,
-            ca_file: None,
-            client_certificate_file: None,
-            client_key_file: None,
-        }
-    }
-}
-
-impl std::fmt::Debug for OauthSection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("OauthSection")
-            .field("issuer", &mask_userinfo(&self.issuer))
-            .field("token_endpoint", &mask_userinfo(&self.token_endpoint))
-            .field("client_id", &self.client_id)
-            .field("client_auth", &self.client_auth)
-            .field(
-                "client_secret",
-                &self.client_secret.as_ref().map(|_set| REDACTED),
-            )
-            .field("client_secret_file", &self.client_secret_file)
-            .field("private_key_file", &self.private_key_file)
-            .field("kid", &self.kid)
-            .field("scope", &self.scope)
-            .field("resource", &self.resource)
-            .field("audience", &self.audience)
-            .finish_non_exhaustive()
-    }
 }
 
 /// The outbound credential a `[<lane>.credentials]` table resolves to.
@@ -871,28 +757,5 @@ pub fn mask_userinfo(text: &str) -> String {
         RedactedUrl(text).to_string()
     } else {
         text.to_owned()
-    }
-}
-
-/// Writes a URL with its userinfo masked ([`mask_userinfo`]).
-#[expect(
-    clippy::ptr_arg,
-    reason = "serde's serialize_with hands the field over as its own type"
-)]
-fn masked_url<S: Serializer>(text: &String, serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(&mask_userinfo(text))
-}
-
-/// Writes a set secret as [`REDACTED`], never its value, so a product can
-/// render its running configuration (no specification governs the
-/// rendering: our own design).
-#[expect(
-    clippy::ref_option,
-    reason = "serde's serialize_with hands the field over by reference"
-)]
-fn redact<S: Serializer>(secret: &Option<SecretString>, serializer: S) -> Result<S::Ok, S::Error> {
-    match secret {
-        Some(_) => serializer.serialize_str(REDACTED),
-        None => serializer.serialize_none(),
     }
 }

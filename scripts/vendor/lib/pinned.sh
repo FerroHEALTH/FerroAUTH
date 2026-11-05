@@ -54,6 +54,13 @@ pinned_cache_root=".vendor-cache"
 pinned_browser_ua="Mozilla/5.0"
 pinned_table=""
 
+# The prefix that names corpus $1 in a message: empty when the script is named
+# for the corpus, since `say` and `die` already print the script name.
+pinned_at() {
+  # shellcheck disable=SC2154 # corpus_script is set by corpus.sh, sourced first
+  [ "$1" = "$corpus_script" ] || printf '%s: ' "$1"
+}
+
 # The scratch directory every download of this run lands in, removed when the
 # script exits.
 pinned_begin() {
@@ -114,8 +121,9 @@ pinned_md() {
 # by the owner or withheld (empty otherwise), and READ_BY the issues and code
 # that read the corpus.
 pinned_corpus() {
-  local dir="$1" item="$2" title="$3" about="$4" agent="${5:-}" read_by="${6:-}"
-  [ -n "$read_by" ] || die "$dir: no reader is named"
+  local dir="$1" item="$2" title="$3" about="$4" agent="${5:-}" read_by="${6:-}" at
+  at="$(pinned_at "$dir")"
+  [ -n "$read_by" ] || die "${at}no reader is named"
   local pins="$pinned_table"
   local dest="docs/specs/$dir" cache="$pinned_cache_root/$dir"
   # shellcheck disable=SC2154 # corpus_ua is set by corpus.sh, sourced first
@@ -125,7 +133,7 @@ pinned_corpus() {
   [ "$agent" = "browser" ] && ua="$pinned_browser_ua"
   [ "$agent" = "none" ] && ua=""
   [ -d "${pinned_scratch:-}" ] || die "pinned_begin was not called"
-  [ -n "$pins" ] || die "$dir: no artefact is pinned"
+  [ -n "$pins" ] || die "${at}no artefact is pinned"
 
   digest="$(pinned_digest "$pins")"
   # A re-pin reads the new digest for docs/VERSIONS.md here, with nothing
@@ -140,13 +148,13 @@ pinned_corpus() {
   # shellcheck disable=SC2154 # corpus_matrix is set by corpus.sh, sourced first
   [ -n "$want" ] || die "the '$item' row of $corpus_matrix names no pin-set digest"
   [ "$digest" = "$want" ] \
-    || die "$dir: the pins have pin-set digest $digest, $corpus_matrix records $want"
+    || die "${at}the pins have pin-set digest $digest, $corpus_matrix records $want"
   if [ "${PINNED_CHECK:-}" = "1" ]; then
     pinned_check_tree "$dir" "$pins"
     return 0
   fi
   if [ -n "${PINNED_ONLY:-}" ] && ! grep -qxF "$dir" <<< "${PINNED_ONLY// /$'\n'}"; then
-    say "$dir: not in PINNED_ONLY, left as it is"
+    say "${at}not in PINNED_ONLY, left as it is"
     return 0
   fi
 
@@ -162,18 +170,18 @@ pinned_corpus() {
         ;;
       *) continue ;;
     esac
-    say "$dir: fetching $file"
+    say "${at}fetching $file"
     curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -m 300 -A "$ua" -o "$tmp/$file" "$url" \
-      || die "$dir: the download of $file from $url failed"
+      || die "${at}the download of $file from $url failed"
     got="$(corpus_sha256 "$tmp/$file")"
     if [ "$got" != "$sha" ]; then
       # shellcheck disable=SC2154 # corpus_script is set by corpus.sh, sourced first
-      printf '%s: %s: %s has sha256 %s, the pin records %s\n' \
-        "$corpus_script" "$dir" "$file" "$got" "$sha" >&2
+      printf '%s: %s%s has sha256 %s, the pin records %s\n' \
+        "$corpus_script" "$at" "$file" "$got" "$sha" >&2
       bad=1
     fi
   done <<< "$pins"
-  [ "$bad" -eq 0 ] || die "$dir: an upstream hash moved; the tree is unchanged"
+  [ "$bad" -eq 0 ] || die "${at}an upstream hash moved; the tree is unchanged"
 
   rm -rf "$dest" "$cache"
   mkdir -p "$dest"
@@ -197,10 +205,11 @@ pinned_corpus() {
 # SHA256 to OUT, so the owner's file name never matters; fails when no file
 # there has it. Nothing is downloaded.
 pinned_take_supplied() {
-  local dir="$1" file="$2" sha="$3" out="$4" found="" candidate
+  local dir="$1" file="$2" sha="$3" out="$4" found="" candidate at
+  at="$(pinned_at "$dir")"
   [ -n "${PINNED_SUPPLIED:-}" ] \
-    || die "$dir: $file is supplied by the owner; set PINNED_SUPPLIED to the directory that holds it"
-  [ -d "$PINNED_SUPPLIED" ] || die "$dir: PINNED_SUPPLIED '$PINNED_SUPPLIED' is not a directory"
+    || die "${at}$file is supplied by the owner; set PINNED_SUPPLIED to the directory that holds it"
+  [ -d "$PINNED_SUPPLIED" ] || die "${at}PINNED_SUPPLIED '$PINNED_SUPPLIED' is not a directory"
   for candidate in "$PINNED_SUPPLIED"/*; do
     [ -f "$candidate" ] || continue
     if [ "$(corpus_sha256 "$candidate")" = "$sha" ]; then
@@ -208,8 +217,8 @@ pinned_take_supplied() {
       break
     fi
   done
-  [ -n "$found" ] || die "$dir: no file in $PINNED_SUPPLIED has the sha256 $sha that $file pins"
-  say "$dir: taking $file from $found"
+  [ -n "$found" ] || die "${at}no file in $PINNED_SUPPLIED has the sha256 $sha that $file pins"
+  say "${at}taking $file from $found"
   cp "$found" "$out"
 }
 
@@ -219,28 +228,29 @@ pinned_take_supplied() {
 # supplied file is there with its pinned sha256, no withheld file is, and no
 # file but PROVENANCE.md is there unpinned.
 pinned_check_tree() {
-  local dir="$1" pins="$2" dest="docs/specs/$1" bad=0 named="" path base got
+  local dir="$1" pins="$2" dest="docs/specs/$1" bad=0 named="" path base got at
+  at="$(pinned_at "$dir")"
   local mode file version url sha licence note
-  [ -f "$dest/PROVENANCE.md" ] || die "$dir: $dest/PROVENANCE.md is missing"
+  [ -f "$dest/PROVENANCE.md" ] || die "${at}$dest/PROVENANCE.md is missing"
   while IFS=$'\t' read -r mode file version url sha licence note; do
     case "$mode" in
       commit | supplied)
         named="$named$file"$'\n'
         if [ ! -f "$dest/$file" ]; then
-          printf '%s: %s: %s is missing\n' "$corpus_script" "$dir" "$file" >&2
+          printf '%s: %s%s is missing\n' "$corpus_script" "$at" "$file" >&2
           bad=1
           continue
         fi
         got="$(corpus_sha256 "$dest/$file")"
         if [ "$got" != "$sha" ]; then
-          printf '%s: %s: %s has sha256 %s, the pin records %s\n' \
-            "$corpus_script" "$dir" "$file" "$got" "$sha" >&2
+          printf '%s: %s%s has sha256 %s, the pin records %s\n' \
+            "$corpus_script" "$at" "$file" "$got" "$sha" >&2
           bad=1
         fi
         ;;
       withheld)
         if [ -e "$dest/$file" ]; then
-          printf '%s: %s: %s is withheld and must not be committed\n' "$corpus_script" "$dir" "$file" >&2
+          printf '%s: %s%s is withheld and must not be committed\n' "$corpus_script" "$at" "$file" >&2
           bad=1
         fi
         ;;
@@ -252,17 +262,18 @@ pinned_check_tree() {
     base="${path##*/}"
     [ "$base" = "PROVENANCE.md" ] && continue
     if ! grep -qxF "$base" <<< "$named"; then
-      printf '%s: %s: %s is not pinned\n' "$corpus_script" "$dir" "$base" >&2
+      printf '%s: %s%s is not pinned\n' "$corpus_script" "$at" "$base" >&2
       bad=1
     fi
   done
-  [ "$bad" -eq 0 ] || die "$dir: the committed tree does not match its pins"
-  say "$dir: the committed tree matches its pins"
+  [ "$bad" -eq 0 ] || die "${at}the committed tree does not match its pins"
+  say "${at}the committed tree matches its pins"
 }
 
 # Writes the PROVENANCE.md of one corpus.
 pinned_provenance() {
-  local dir="$1" title="$2" about="$3" pins="$4" digest="$5" ua="$6" read_by="$7"
+  local dir="$1" title="$2" about="$3" pins="$4" digest="$5" ua="$6" read_by="$7" at
+  at="$(pinned_at "$dir")"
   local dest="docs/specs/$dir" cache="$pinned_cache_root/$dir"
   local mode file version url sha licence note heading
   local n_commit=0 n_cache=0 n_manual=0 n_withheld=0 fetched files tree body="" withheld_count=""
@@ -376,5 +387,5 @@ $about
 ## Artefacts$body
 PROV
 
-  say "$dir: $n_commit committed, $n_cache cache only, $n_manual manual"
+  say "${at}$n_commit committed, $n_cache cache only, $n_manual manual"
 }

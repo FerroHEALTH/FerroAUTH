@@ -6,6 +6,7 @@
 
 use crate::assurance::Assessment;
 use crate::kind::CallerKind;
+use crate::party::Outcome;
 use crate::resource::Access;
 use crate::resource::Caller;
 use crate::resource::Compartment;
@@ -55,6 +56,7 @@ impl Caller {
             roles: Vec::new(),
             cached: false,
             extensions: http::Extensions::new(),
+            party: None,
         }
     }
 
@@ -200,6 +202,21 @@ impl Caller {
     #[must_use]
     pub fn extension<T: Send + Sync + 'static>(&self) -> Option<&T> {
         self.extensions.get::<T>()
+    }
+
+    /// Returns this caller carrying `outcome`, what its login resolved to
+    /// ([`crate::party::binding::PartyBinding::resolve`]).
+    #[must_use]
+    pub fn with_party(mut self, outcome: Outcome) -> Self {
+        self.party = Some(outcome);
+        self
+    }
+
+    /// Returns what the caller's login resolved to, or `None` when no party
+    /// binding looked it up.
+    #[must_use]
+    pub const fn party(&self) -> Option<&Outcome> {
+        self.party.as_ref()
     }
 
     /// Returns whether the caller was admitted from a cache: a Basic
@@ -486,6 +503,13 @@ impl Access {
     #[must_use]
     pub fn basic_user_in<S: AsRef<str>>(&self, users: &[S]) -> Option<&str> {
         self.caller().and_then(|caller| caller.basic_user_in(users))
+    }
+
+    /// Returns what the caller's login resolved to, or `None` on an open
+    /// surface or when no party binding looked it up.
+    #[must_use]
+    pub fn party(&self) -> Option<&Outcome> {
+        self.caller().and_then(Caller::party)
     }
 
     /// Returns the caller's roles; none on an open surface.

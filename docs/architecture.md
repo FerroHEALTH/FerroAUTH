@@ -543,6 +543,8 @@ from it, so the four products' records read the same:
 | `kind` | the caller kind (3.14): `patient`, `system`, `delegated`, `representative`, `person` or `guest`, `-` for an open route or a refused credential |
 | `via` | `bearer`, `basic`, `open` or `none` |
 | `issuer` | the issuer that signed the token, `-` otherwise |
+| `binding` | what the login resolved to (3.17): `party`, `wrong_marker`, `unbound`, `ambiguous`, `inactive`, `abandoned`, `deprovisioned`, `key_claim_missing` or `groups_unavailable`, `source_unavailable` when the party source failed, `-` when no party binding looked the caller up |
+| `party` | the party the outcome names, as `<namespace>/<type>/<id>`, `-` when it names none; never a name or another attribute of the party |
 | `method` | the HTTP method |
 | `route` | the matched route template, never the raw path |
 | `addressed` | the product's name for what was addressed (`Condition/c-1`, `ehr/…/composition`), at most 64 characters, `-` when none |
@@ -553,7 +555,7 @@ from it, so the four products' records read the same:
 
 No field is named `target`, `level` or after another key a `tracing`
 formatter writes from the event's metadata, so a JSON log that flattens the
-event fields beside the metadata keeps all fourteen; the field was `target`
+event fields beside the metadata keeps all sixteen; the field was `target`
 in 0.1.0 and is `addressed` from 0.1.1.
 
 Never on the line: the token or any part of it, a claim beyond `sub`,
@@ -957,7 +959,8 @@ layers, all in `ferrohealth-smart`:
    committed. CI's `keycloak-live` job runs it on every pull request that
    touches the profiles or the resource server.
 3. **Vendor adapters as code**, only where data cannot express the
-   behaviour, each an optional Cargo feature. This build compiles none, so a
+   behaviour, each an optional Cargo feature behind the
+   `party::adapter::IdpAdapter` trait (3.17). This build compiles none, so a
    profile naming an adapter refuses its issuer at load.
 
 Each `[[auth.issuer]]` declares its `kind`, with no default: `persons`,
@@ -1184,6 +1187,10 @@ behind the default `fetch` feature (FerroHEALTH/FerroAUTH#217). The
 caller's token travels to the token endpoint only, never to the service,
 as 3.5 requires.
 
+A lane declares its onward target in `[<lane>.credentials.onward]` (4),
+which `CredentialsSection::onward` resolves into the client and its
+`Target`.
+
 **The two grants**, chosen by the issuer's `onward_grant` profile key:
 
 - `token_exchange` (`rfc8693 §2.1`), the default: the caller's token as
@@ -1263,6 +1270,98 @@ at most 4096 entries. No token reaches a log line or a `Debug` rendering.
 
 The check, the cache and the profile keys are our own design over
 `rfc8693`, `rfc7523` and `rfc8707`.
+
+### 3.17 The party binding
+
+Every product attributes a request to the token's issuer and subject, and
+FerroEHR binds every request of a professional or a representative to their
+own demographic `PERSON`. The rules of that lookup live in `party`, beside
+the classification (3.14), and each product supplies only its store, a
+`party::source::PartySource` it implements over an indexed table of its
+own. The library never issues a token and never provisions a party. No
+specification governs resolving a login to a party: our own design, over
+the sources cited here.
+
+**Who is looked up.** A `Person`, `Delegated` or `Representative` caller of
+a `persons` issuer that has an `[[auth.party]]` table, and a Basic user,
+whose credential is always a person's (3.14). A representative is looked
+up by their own login, never by the subject they represent. `Patient`,
+`System`, `ExternalPerson` and `ExternalOrganisation` callers are never
+looked up: a `federation` token's `sub` names a user in another issuer's
+namespace (`rfc7519 §4.1.2`, "locally unique in the context of the
+issuer"). A guest is looked up only when its table sets `guests = true`, and
+binds with the guest mark. A caller of a `persons` issuer with no table is
+`Unbound`.
+
+**The match.** The value of the issuer profile's `person_key` (`oid` under
+`entra`), which the classification and `person_equality` read too, is put
+in the canonical form the table's `identifier_type` declares (`guid` and
+`uuid` in lower case, any other type exactly) and handed to the source with
+the table's `identifier_issuer`, which compares it exactly. A Basic user is
+looked up by the key the product maps it to
+(`PartyBinding::with_basic_user`), and `PartyBinding::check_basic` refuses a
+store with an unmapped user. The source reports every party carrying the
+value (with its state, its `professional` and `representative` markers, its
+memberships and its representation relationships) or the tombstone of a
+deleted one, and never chooses between two.
+
+**The outcomes.** `party::Outcome`, left on the caller (`Caller::party`):
+
+- `Party`: one party, with the marker the caller's kind needs (`professional`
+  for `Person` and `Delegated`, `representative` for `Representative`; a
+  party with both binds either), the identifier that matched, the groups the
+  token names that the party belongs to, its representation relationships
+  (whether one covers the request is the product's check), and whether its
+  record is incomplete (`provisional`) or its caller a guest;
+- `WrongMarker`: one party without the marker, with its reference;
+- `Unbound`, `Ambiguous` (two or more parties, never resolved to either),
+  `Deprovisioned` (the tombstone);
+- `Inactive` and `Abandoned`: the state the product reports (openEHR
+  `800|inactive|` and `801|abandoned|`), with the reference;
+- `KeyClaimMissing`: the token lacks its `person_key` claim (claims "are
+  present only if a value exists", Microsoft, "Access token claims
+  reference"), or a Basic user maps to no key;
+- `GroupsUnavailable`: a groups overage marker in place of the group claim
+  (`_claim_names` naming it, or `hasgroups = true`, the "Groups overage
+  claim" of the same reference) with no adapter, an adapter failure carrying
+  the upstream status and `Retry-After`, or a group claim that is no array
+  of strings. Where the profile names an adapter, the adapter registered
+  under that name (`PartyBinding::with_adapter`) is called before the
+  outcome is decided, and its groups stand in for the claim. An absent group
+  claim is the empty set.
+
+The groups are the source's memberships intersected with the token's group
+claim on each request, so a person in two groups has two. A source that
+fails is a `party::source::SourceError`, never `Unbound`; behind the guard
+(`Gate::with_party`) it answers `503`, and every other outcome reaches the
+handler, which decides what it means. The library calls the source once
+per request and holds no cache, no expiry and no invalidation hook (owner
+ruling 2026-11-05): a source meets its product's latency budget by indexed
+reads, and a cache is proposed only with measurements and an owner ruling.
+
+**The configuration.** One `[[auth.party]]` table per bound `persons`
+issuer, with `deny_unknown_fields`, checked when the section resolves:
+
+```toml
+[[auth.party]]
+issuer = "https://login.example.org/tenant/v2.0"   # a trusted persons issuer
+identifier_issuer = "urn:example:ferroehr:login"   # never shared by two tables
+identifier_type = "guid"                           # declares the canonical form
+group_claim = "groups"                             # empty: no group is read
+group_identifier_issuer = "urn:example:ferroehr:groups"   # set with group_claim
+guests = false                                     # whether a guest is looked up
+```
+
+A table has no `claim` key: one that sets it fails to load naming the
+issuer profile's `person_key` (`PartyError::Claim`). A table naming no
+trusted `persons` issuer, two tables naming one issuer or sharing an
+`identifier_issuer` (two subject spaces would merge, naming both), a
+`group_claim` without its `group_identifier_issuer`, and a `person_key` on
+the banned list of 3.14 (`oidc-core §5.7`) fail too, as
+`ConfigError::Party`. `PartyBinding::with_resolved` builds the binding from
+`Resolved`. The audit line records the outcome and the party reference
+(3.6), and no `Debug` rendering carries the key value, a group or a
+represented subject.
 
 ## 4. The configuration model
 
@@ -1376,6 +1475,41 @@ refresh_margin_ms = 30000
 its own refuses an `oauth` table at load (FerroBRIDGE's `NoGrant` shape). The
 `resource` key is the `rfc8707 §2` resource indicator and `audience` the
 parameter without a specification, both sent only when set (3.5).
+
+A lane that reaches its upstream on a caller's behalf declares its onward
+target beside its `oauth` table, which the onward client authenticates
+with (3.16):
+
+```toml
+[cdr.credentials.onward]             # resolved by CredentialsSection::onward
+issuer = "https://login.microsoftonline.com/<tenant>/v2.0"   # issues the onward tokens
+kind = "persons"                     # persons (a delegated exchange) or federation
+profile = "entra"                    # the preset: rfc9068, entra, keycloak, okta, nl
+# token_endpoint = "https://…/token" # empty: discovered from issuer
+# client_id = "…"                    # empty: the oauth table's client id
+audiences = ["<cdr app id>"]         # what an onward token's aud may name
+scope = "api://<cdr app id>/.default"
+# indicators = ["…"]                 # resource or audience, as the profile names
+# correlation_claim = "txn"          # a chained federation route
+
+[cdr.credentials.onward.keys]        # any profile key over the preset
+max_onward_lifetime = 5400           # required: no preset states one
+
+# [cdr.credentials.onward.federation]  # a federation issuer: exchanges_from and
+# [cdr.credentials.onward.assurance]   # person_mapping required, over the preset's table
+```
+
+The issuer is described in the table, never borrowed from `[[auth.issuer]]`,
+because the issuer of onward tokens is not always one whose tokens the
+surface admits. The table refuses the start when `issuer`, `kind` or
+`audiences` is unset, beside a Basic `user`, without the lane's `oauth`
+table, for a profile or federation table its issuer's rules refuse, for an
+issuer the onward client refuses (`ConfigError::Onward`: another kind, no
+`max_onward_lifetime`, a federation table without `exchanges_from` or
+`person_mapping`), and for a target its grant cannot ask for
+(`Onward::check_target`: no audience, `offline_access`, a JWT bearer target
+without `scope` or with an indicator, a `resource` that is not an absolute
+URI without a fragment).
 
 Validation at load, refusing the start: an enabled section that admits no
 credential (no issuer and no Basic user), the issuer URL rule of 3.1, at
@@ -1631,6 +1765,7 @@ four agree on and settles each difference:
 | Token introspection is a deployment's opt-in (`mode = "introspection"`), under client authentication or a grant's bearer token, with `scope`, `client_id` and `exp` required, `iss` and `aud` checked when present, and a response without `sub` read as the client's | `rfc7662 §2.1`, `§2.2`, `§4`; `smart token-introspection`; `rfc9068 §2.2` | none |
 | A `scopeless_subjects` entry is `{ issuer, sub }` and admits a `System` caller of that issuer alone; `role_claims` sit on each issuer table; the string forms, bare or `<issuer>#<value>`, are refused at load | `rfc7519 §4.1.2` (a `sub` is unique within its issuer); our own design (#215, after GHSA-pfgx-xq28-2629) | a deployment rewrites each entry as a table and moves `role_claims` onto its issuer tables |
 | Every issuer declares its `kind` and a profile (a preset with keys over it), every issuer setting lives on its table, and a valid token is classified as `Patient`, `System`, `Delegated`, `Representative`, `Person` or `Guest`, or refused as `Rejection::Unclassified`; a Basic credential is always a `Person` (3.14) | `rfc9068 §2.2`, `§4`, `§5`; `rfc8693 §4.1`; `oidc-core §5.7`; the vendor documents each preset cites; the classification is our own design (#215, owner ruling 2026-11-05 on Basic) | a deployment writes `[[auth.issuer]]` tables with `kind`, lists its `first_party_clients`, and drops `token_profile`, `acting_for_claim` and `client_tokens` |
+| A `persons` login is resolved to its party through a `PartySource` the product supplies, once per request with no cache, keyed by the issuer profile's `person_key` in the canonical form of its `identifier_type`, against the identifiers of one `[[auth.party]]` table's `identifier_issuer`; two matches are `Ambiguous`, a source failure is an error and never `Unbound`, and the outcome is the product's to answer (3.17) | `oidc-core §5.7`; `rfc7519 §4.1.2`; Microsoft, "Access token claims reference" (the overage markers); the binding is our own design (#216, owner ruling 2026-11-05 on the cache) | a product binds its `persons` issuers with `[[auth.party]]` tables, implements `PartySource`, maps each Basic user to a key, and answers each outcome |
 | An active introspection response is held until its `exp` and at most `cache_max_age_seconds`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
 | Onward tokens are obtained by token exchange or the JWT bearer grant as the issuer's profile names, refused unless they pass the onward check of 3.16, cached by issuer, grant, subject and actor token, target, scope and extra parameters until the earlier `exp`, and never refreshed; only a `persons` or `federation` issuer issues them | `rfc8693 §2.1`, `§2.2`, `§4.1`; `rfc7523 §2.1`, `§2.2`; `rfc8707 §2`; the check, the cache and the profile keys are our own design (#217) | a deployment sets `max_onward_lifetime` on each onward issuer, and `exchanges_from` and `person_mapping` on a federation issuer's table |
 

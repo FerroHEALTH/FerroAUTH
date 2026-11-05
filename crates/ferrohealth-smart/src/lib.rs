@@ -35,6 +35,8 @@
 //!   with any key set over it, and every valid token is classified as a
 //!   patient, a system, a delegated person, a representative, a person or a
 //!   guest, or refused naming the step it matched none of.
+//! - [`party`]: the party a person's login belongs to, looked up on every
+//!   request through a source the product supplies, with one typed outcome.
 //! - [`assurance`]: the assurance level of the authentication behind a
 //!   token, with the RFC 9470 step-up refusal below a minimum.
 //! - [`sender`]: sender-constrained tokens, bound by a `DPoP` proof (RFC 9449)
@@ -91,6 +93,8 @@ pub mod metadata;
 pub mod oidc;
 #[cfg(feature = "openehr-scopes")]
 pub mod openehr;
+#[cfg(resource_server)]
+pub mod party;
 #[cfg(resource_server)]
 pub mod profile;
 #[cfg(resource_server)]
