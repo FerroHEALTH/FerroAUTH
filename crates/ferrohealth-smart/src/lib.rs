@@ -37,6 +37,9 @@
 //!   guest, or refused naming the step it matched none of.
 //! - [`assurance`]: the assurance level of the authentication behind a
 //!   token, with the RFC 9470 step-up refusal below a minimum.
+//! - [`sender`]: sender-constrained tokens, bound by a `DPoP` proof (RFC 9449)
+//!   or by the client certificate of a mutual-TLS connection (RFC 8705 §3),
+//!   checked per issuer, with the proof replay store the product supplies.
 //! - [`roles`]: the roles a caller holds, read from the claims RFC 9068
 //!   §2.2.3.1 names or granted to a Basic user, which a route requirement
 //!   checks beside its scopes.
@@ -96,3 +99,5 @@ pub mod resource;
 pub mod roles;
 #[cfg(resource_server)]
 pub mod scope;
+#[cfg(resource_server)]
+pub mod sender;

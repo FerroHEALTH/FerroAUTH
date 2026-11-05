@@ -21,6 +21,7 @@ use crate::resource::ResourceError;
 use crate::resource::ResourceServer;
 use crate::resource::Settings;
 use crate::resource::Verifier;
+use crate::sender::Binding;
 
 impl LazyResourceServer {
     /// Returns this server reading a clinical scope's resource type against
@@ -109,6 +110,25 @@ impl LazyResourceServer {
     pub async fn authenticate(&self, token: &str) -> Result<Caller, Rejection> {
         self.server().await?.authenticate(token).await
     }
+
+    /// Returns the caller `token` authenticates under `binding`, as
+    /// [`ResourceServer::authenticate_bound`] does, reading the issuer first
+    /// when no read has succeeded yet.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`Rejection`] of [`ResourceServer::authenticate_bound`],
+    /// and [`Rejection::Unavailable`] when the issuer cannot be read.
+    pub async fn authenticate_bound(
+        &self,
+        token: &str,
+        binding: &Binding,
+    ) -> Result<Caller, Rejection> {
+        self.server()
+            .await?
+            .authenticate_bound(token, binding)
+            .await
+    }
 }
 
 impl Verifier for LazyResourceServer {
@@ -117,6 +137,14 @@ impl Verifier for LazyResourceServer {
         token: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
         Box::pin(self.authenticate(token))
+    }
+
+    fn verify_bound<'a>(
+        &'a self,
+        token: &'a str,
+        binding: &'a Binding,
+    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
+        Box::pin(self.authenticate_bound(token, binding))
     }
 }
 
@@ -228,22 +256,38 @@ impl Verifier for IssuerSet {
         &'a self,
         token: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
-        Box::pin(async move {
-            let server = match unverified_issuer(token) {
-                Some(issuer) => self.servers.get(&issuer).ok_or(Rejection::Invalid {
-                    reason: Reason::UntrustedIssuer,
-                })?,
-                None => self.opaque().ok_or(Rejection::Invalid {
-                    reason: Reason::Malformed,
-                })?,
-            };
-            match server {
-                Trusted::Ready(server) => server.authenticate(token).await,
-                Trusted::Lazy(lazy) => lazy.authenticate(token).await,
-                #[cfg(feature = "fetch")]
-                Trusted::Introspected(introspector) => introspector.authenticate(token).await,
+        Box::pin(async move { self.route(token, &Binding::bearer()).await })
+    }
+
+    fn verify_bound<'a>(
+        &'a self,
+        token: &'a str,
+        binding: &'a Binding,
+    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
+        Box::pin(self.route(token, binding))
+    }
+}
+
+impl IssuerSet {
+    /// Returns the caller `token` authenticates under `binding` at the
+    /// issuer its `iss` names, or the one introspected issuer.
+    async fn route(&self, token: &str, binding: &Binding) -> Result<Caller, Rejection> {
+        let server = match unverified_issuer(token) {
+            Some(issuer) => self.servers.get(&issuer).ok_or(Rejection::Invalid {
+                reason: Reason::UntrustedIssuer,
+            })?,
+            None => self.opaque().ok_or(Rejection::Invalid {
+                reason: Reason::Malformed,
+            })?,
+        };
+        match server {
+            Trusted::Ready(server) => server.authenticate_bound(token, binding).await,
+            Trusted::Lazy(lazy) => lazy.authenticate_bound(token, binding).await,
+            #[cfg(feature = "fetch")]
+            Trusted::Introspected(introspector) => {
+                introspector.authenticate_bound(token, binding).await
             }
-        })
+        }
     }
 }
 

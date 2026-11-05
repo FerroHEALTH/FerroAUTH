@@ -50,6 +50,34 @@ issuer tables below and reads who called from `Caller::kind`.
 - `config::Resolved::check_role_issuers`, which refuses a product's
   administrator, emergency or identifier-reader role list naming an
   issuer that is not a trusted `persons` issuer.
+- `sender`: sender-constrained tokens (#220), bound to a DPoP key
+  (RFC 9449) or to the client certificate of the mutual-TLS connection
+  (RFC 8705 §3). Each `[[auth.issuer]]` takes `sender_constraint`,
+  `"none"` by default or `"required"`, under which only a token whose
+  `cnf` names a `jkt` or an `x5t#S256` is admitted. On every issuer a
+  token that carries `cnf` is held to it and is never accepted as a plain
+  bearer token, and a `cnf` naming any other method is refused. Each
+  refusal is a `Rejection::Invalid` whose `Reason::Sender` names the
+  failed `sender::Check`.
+- `sender::proof::ProofCheck`, every check of RFC 9449 §4.3 over the
+  `DPoP` header of a `DPoP` request, with the `htu` compared with the
+  configured external base URL plus the request path. The `[auth.dpop]`
+  table (`external_url`, `max_age_seconds` 60, `clock_skew_seconds` 10,
+  `algorithms`) resolves to `Resolved::dpop`, and `Gate::with_dpop`
+  admits the `DPoP` scheme. A refused proof answers
+  `DPoP error="invalid_dpop_proof"`, a refused `DPoP` token
+  `DPoP error="invalid_token"`, and a missing credential is challenged
+  with `DPoP` beside `Bearer`.
+- `sender::replay::ReplayStore`, the product's store of accepted proof
+  `jti`s (RFC 9449 §11.1), and `MemoryReplayStore`, its in-memory
+  default, which refuses a replay to the process that saw the proof
+  alone. A product that runs more than one replica supplies a store they
+  share. A store that fails answers `503`.
+- `sender::ClientCertificate`, which a product puts in a request's
+  extensions for the gate to hold a certificate-bound token to;
+  `Verifier::verify_bound`, `ResourceServer::authenticate_bound`,
+  `LazyResourceServer::authenticate_bound`,
+  `Introspector::authenticate_bound` and `Gate::authenticate_request`.
 
 ### Changed
 
@@ -84,6 +112,17 @@ issuer tables below and reads who called from `Caller::kind`.
   authentication; `Resolved::introspection` is a list, one entry per
   introspected issuer; `assurance::AssuranceSection::assess` reads a
   token's claims, and `meets` the caller's assessment.
+- An introspection response with `token_type = "DPoP"` is admitted when
+  it names a `cnf.jkt`, and checked against the `DPoP` request's proof;
+  one that names a `jkt` under `Bearer`, or `DPoP` without a `jkt`, is
+  refused. A held response is checked against each request's binding.
+- `refusal::Schemes` has a `dpop` field and `Refusal` the
+  `InvalidDpopToken` and `InvalidDpopProof` variants. Upgrade: a product
+  that builds `Schemes` sets `dpop: false`, and a product that matches
+  `Refusal` exhaustively answers both with the challenge the crate
+  renders. `Gate::authenticate` reads no request line, so it refuses a
+  `DPoP` request and a certificate-bound token; the layer uses
+  `Gate::authenticate_request`.
 - The workspace requirement on `ferrohealth-smart` moves to 0.9.0.
 
 ### Removed
