@@ -60,9 +60,11 @@ Later pull requests add their entries to that section, and the release pull
 request dates it (step 3). Every other release moves its version in the
 release pull request. `scripts/checks/crate-version-guard.sh` requires a
 section for the manifest version and reads a pending one and a dated one
-alike; `scripts/checks/changelog-security.sh` reads a pending section with
-`[Unreleased]` on every pull request; and the release plan refuses a
-section whose heading carries no date.
+alike, and refuses a section a pull request dates or adds with a date
+unless its tag exists or the pull request is on that tag's
+`release/<tag>` branch. `scripts/checks/changelog-security.sh` reads a
+pending section with `[Unreleased]` on every pull request, and the release
+plan refuses a section whose heading carries no date.
 
 ## Security entries
 

@@ -42,7 +42,7 @@ to its provenance.
 
 ## The specifications are the authority
 
-SMART App Launch 2.2.0, the OAuth 2.0 and JOSE RFCs and OpenID Connect
+SMART App Launch 2.2.0, the IETF RFCs and OpenID Connect
 Discovery 1.0, as vendored under `docs/specs/`, decide every check,
 challenge, claim rule and grant; the docs.rs pages of the pinned crates
 decide how the tools are used. Cite the section in the pull request and in

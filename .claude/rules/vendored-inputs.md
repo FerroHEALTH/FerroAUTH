@@ -4,7 +4,7 @@
 # Vendored inputs: fetched by a committed script, verbatim, with provenance
 
 FerroAUTH vendors the specifications it implements under `docs/specs/`: the
-SMART App Launch package and page sources, the OAuth 2.0 and JOSE RFCs, and
+SMART App Launch package and page sources, the IETF RFCs, and
 the OpenID Connect Discovery, Core and RP-Initiated Logout documents, each
 tree with a `PROVENANCE.md`.
 
