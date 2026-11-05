@@ -938,7 +938,7 @@ layers, all in `ferrohealth-smart`:
    never a key). No core rule names a vendor, and an integration test scans
    the core modules for a vendor's name.
 2. **Vendor profiles as data**, `profile`: each issuer's `Profile` is a
-   `Preset` (`rfc9068`, `entra`, `keycloak`, `okta`, shipped as
+   `Preset` (`rfc9068`, `entra`, `keycloak`, `okta`, `nl`, shipped as
    `profiles/*.toml` with each value labelled by its source) with any key set
    over it on the issuer table. The keys: `person_key`, `tenant_claim`,
    `client_claims`, `app_only` and `guest` (markers), `impersonation_marker`,
@@ -1048,13 +1048,38 @@ Catalogue 10.0.0 §1.25 code name (`contact::EhdsiCode`, `Unclassified::ContactP
   the TRC (2 h) window, with 60 s of drift:
   `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED` (requirement 11.01.02).
 
-`EhdsiCode::of` names any other invalid token `ERROR_SEC_GENERIC` and an
-unreadable key set `ERROR_REGISTRY_NOT_AVAILABLE`. Nothing is refused on
+`EhdsiCode::of` names any other invalid token, and an unreadable key set or
+upstream, `ERROR_SEC_GENERIC` (requirement 11): §1.25 has no code for an
+unreadable key set, and its `ERROR_REGISTRY_NOT_AVAILABLE` belongs to
+requirement 05, the Patient Summary. Nothing is refused on
 the description of the HP, the role or the point of care (requirements 01
 and 01.02), and no level is judged (Interoperability Specifications 8.0.1
 §2.4.3): the class is recorded as received. A contact point never admits
 an organisation. Whether a request is a patient-data request, which needs
 `patient.id`, is the product's to check.
+
+**The `nl` profile** (`profile = "nl"`, `profiles/nl.toml`). The harmonised
+BgZ and eOverdracht authentication of the openEHR Federation Tier
+specification 1.0.1 Annex B §B.4a: a requesting care provider signs its own
+client-credentials access token (§B.4a.2), and the healthcare attributes
+travel in an `authorization_details` entry of type `nl-gis-v1` (§B.4a.3).
+A preset file may carry a `federation` table (`Preset::federation`), which
+the issuer's own `[[auth.federation]]` table is set over
+(`FederationSection::over`) and which an issuer of another kind refuses.
+The `nl` table declares the issuer domestic in `NL`, with the CIBG as the
+issuing authority (§B.3), the URA prefix `urn:oid:2.16.528.1.1007.3.3.`
+(the §B.4a.3 example), the attested entry of type `nl-gis-v1` as the
+organisation's access statement (§B.4a.1 verifies only the organisation),
+`purpose_of_use` and `nl.organisation_type` read from the entry, and
+`required_fields` (`purpose_of_use`, `nl.organisation_type`, `nl.ura`): a
+federated query is the query use case, for which "Organization type must
+travel" (§B.4a.4), and a token missing one is refused as
+`Unclassified::RequiredFields`. The URA is the signing organisation's own,
+so the deployment configures it as a constant. `requires_sender_constraint`
+holds the issuer to `sender_constraint = "required"` (§B.4a.2, FAPI 2.0's
+sender-constrained tokens), and with no `typ` in §B.4a.2 the issuer fails
+to load until it sets `token_types`. The §B.4 Nuts Generic Functions track
+is not this profile: Annex B calls the two "not silently mergeable".
 
 ### 3.15 Sender-constrained tokens
 
@@ -1174,7 +1199,7 @@ scopeless_subjects = [               # app-only subjects granted system-wide acc
 [[auth.issuer]]                      # one table per issuer; none with Basic users: a Basic-only surface
 issuer = "https://as.example.org/realms/ferro"
 kind = "persons"                     # required: persons, patients, machines or federation (3.14)
-profile = "rfc9068"                  # or "entra", "keycloak", "okta"; any profile key below overrides it
+profile = "rfc9068"                  # or "entra", "keycloak", "okta", "nl"; any profile key below overrides it
 audience = ["https://bridge.example.org/fhir"]   # at least one; `aud` must contain one
 algorithms = ["RS256", "RS384", "PS256", "PS384", "ES256", "ES384"]
 clock_skew_seconds = 60              # at most 300

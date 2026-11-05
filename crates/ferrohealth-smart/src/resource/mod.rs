@@ -252,6 +252,11 @@ pub enum ResourceError {
     /// "required"`.
     #[error("a contact_point = true issuer requires sender_constraint = \"required\"")]
     ContactPointSender,
+    /// A `federation` issuer whose table declares
+    /// `requires_sender_constraint = true` without `sender_constraint =
+    /// "required"`.
+    #[error("the issuer's [[auth.federation]] table requires sender_constraint = \"required\"")]
+    SenderConstraintRequired,
     /// A setting is refused on an issuer of this kind.
     #[error("{key} is refused on a {kind} issuer")]
     Kind {
