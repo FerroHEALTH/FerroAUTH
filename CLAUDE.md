@@ -118,9 +118,10 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   identity and Keycloak documents the issuer profiles cite, the eHDSI
   specifications the owner supplied, Implementing Regulation (EU)
   2026/2099, the GDPR and Commission Decision 2011/833/EU, and the
-  Federation Tier Annex B, each with a `PROVENANCE.md`; `okta/` and
-  `microsoft-graph/` hold only the provenance of cache-only pages, fetched
-  into the ignored `.vendor-cache/`, and the MyHealth@EU Requirements Catalogue is recorded
+  Federation Tier Annex B, and the openEHR RM Common chapter the party
+  states cite, each with a `PROVENANCE.md`; `okta/` and `microsoft-graph/`
+  hold only the provenance of cache-only pages, fetched into the ignored
+  `.vendor-cache/`, and the MyHealth@EU Requirements Catalogue is recorded
   by sha256 and never copied).
 - `scripts/`: `vendor/` (the corpus fetchers), `checks/` (the committed
   guards), `release/` (the crate publish), `gh/` (the tracker helpers).

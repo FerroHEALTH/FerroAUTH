@@ -324,8 +324,9 @@ async fn no_party_is_unbound_and_a_tombstone_is_deprovisioned() -> Outcome2 {
     Ok(())
 }
 
-// NOTE: openEHR RM Common §Abandoned and Inactive States names `800|inactive|` and
-// `801|abandoned|`; the product reports the state and the outcome keeps the party.
+// NOTE: openEHR RM Common §Abandoned and Inactive States (`rm-common master06`, vendored
+// under docs/specs/openehr-rm/development/) names `800|inactive|` and `801|abandoned|`;
+// the product reports the state and the outcome keeps the party.
 #[tokio::test]
 async fn an_inactive_or_abandoned_party_is_refused_with_its_reference_and_incomplete_binds()
 -> Outcome2 {
