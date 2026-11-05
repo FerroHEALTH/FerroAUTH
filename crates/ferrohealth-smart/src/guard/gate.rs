@@ -126,6 +126,9 @@ async fn bearer(verifier: &dyn Verifier, token: &str) -> Result<Caller, Denied> 
                 Rejection::Invalid { reason } => {
                     tracing::debug!(reason = %reason, "an access token was refused");
                 }
+                Rejection::Unclassified { reason } => {
+                    tracing::debug!(reason = %reason, "an access token names no caller kind");
+                }
                 Rejection::Unavailable { source } => {
                     tracing::error!(
                         error = %source,

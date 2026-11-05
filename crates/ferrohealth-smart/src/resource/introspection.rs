@@ -31,17 +31,20 @@ use serde_json::Map;
 use serde_json::Value;
 use url::Url;
 
+use crate::assurance::AssuranceSection;
 use crate::client::ClientCredentials;
 use crate::client::TokenError;
 use crate::client::cache::TokenSource;
+use crate::kind::IssuerKind;
 use crate::metadata::DiscoveryError;
 use crate::metadata::Http;
 use crate::metadata::ServerMetadata;
+use crate::profile::Profile;
 use crate::refusal::Reason;
 use crate::resource::Caller;
 use crate::resource::Rejection;
+use crate::resource::ResourceError;
 use crate::resource::ResourceTypes;
-use crate::resource::TokenProfile;
 use crate::resource::Verifier;
 use crate::resource::configuration;
 use crate::resource::token::Admission;
@@ -99,11 +102,19 @@ pub struct IntrospectionSettings {
     /// The members of a response the caller's roles are read from, each a
     /// dotted path (RFC 9068 §2.2.3.1; [`crate::roles`]).
     pub role_claims: Vec<String>,
+    /// Whose tokens the issuer signs.
+    pub kind: IssuerKind,
+    /// How the response's caller is classified and its scope read.
+    pub profile: Profile,
+    /// The assurance level a response carries, when the deployment maps
+    /// its authentication context values.
+    pub assurance: Option<AssuranceSection>,
 }
 
 impl IntrospectionSettings {
-    /// Returns settings for tokens of `issuer` addressed to `audience`,
-    /// introspected under `auth`.
+    /// Returns settings for tokens of `issuer`, an issuer of `kind`,
+    /// addressed to `audience` and introspected under `auth`, read under
+    /// the `rfc9068` profile.
     ///
     /// The introspection endpoint is the one the issuer's metadata names,
     /// the clock skew is 60 seconds, an active response is held for at most
@@ -114,6 +125,7 @@ impl IntrospectionSettings {
         issuer: impl Into<String>,
         audience: impl Into<String>,
         auth: IntrospectionAuth,
+        kind: IssuerKind,
     ) -> Self {
         Self {
             issuer: issuer.into(),
@@ -126,6 +138,9 @@ impl IntrospectionSettings {
             timeout: Duration::from_secs(10),
             scopeless_subjects: BTreeSet::new(),
             role_claims: crate::roles::default_claims(),
+            kind,
+            profile: Profile::default(),
+            assurance: None,
         }
     }
 
@@ -149,6 +164,16 @@ impl IntrospectionSettings {
                 skew: self.clock_skew,
             });
         }
+        super::check_issuer_rules(
+            self.kind,
+            &self.profile,
+            self.assurance.as_ref(),
+            &self.scopeless_subjects,
+            &self.role_claims,
+        )
+        .map_err(|source| IntrospectionError::Rules {
+            source: Box::new(source),
+        })?;
         if let IntrospectionAuth::Client(credentials) = &self.auth {
             credentials
                 .validate()
@@ -171,6 +196,14 @@ pub enum IntrospectionError {
     /// outside the URL rule, or the call never completed.
     #[error(transparent)]
     Discovery(#[from] DiscoveryError),
+    /// The issuer's profile, assurance mapping or a kind-bound setting
+    /// breaks a rule.
+    #[error("the issuer settings are refused")]
+    Rules {
+        /// The rule.
+        #[source]
+        source: Box<ResourceError>,
+    },
     /// The product's credential could not be used: a missing secret or
     /// key, an assertion that could not be signed, or a bearer token that
     /// could not be obtained.
@@ -560,7 +593,9 @@ impl Introspector {
             subject,
             &Admission {
                 issuer: &self.settings.issuer,
-                profile: TokenProfile::Rfc9068,
+                kind: self.settings.kind,
+                profile: &self.settings.profile,
+                assurance: self.settings.assurance.as_ref(),
                 clock_skew: self.settings.clock_skew,
                 scopeless_subjects: &self.settings.scopeless_subjects,
                 role_claims: &self.settings.role_claims,

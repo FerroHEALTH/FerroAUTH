@@ -1,0 +1,318 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The `[auth]` schema of the caller classification: every issuer a
+//! `[[auth.issuer]]` table with a required `kind` and its own settings, the
+//! profile a preset with keys set over it, and every removed key refused
+//! naming its replacement.
+
+use std::error::Error as StdError;
+
+use ferrohealth_smart::config::AuthSection;
+use ferrohealth_smart::config::ConfigError;
+use ferrohealth_smart::kind::IssuerKind;
+use ferrohealth_smart::profile::Marker;
+use ferrohealth_smart::profile::ScopeForm;
+
+type Outcome = Result<(), Box<dyn StdError>>;
+
+/// An issuer table of `kind` with `extra` keys.
+fn issuer(kind: &str, extra: &str) -> String {
+    format!(
+        "[[issuer]]\nissuer = \"https://as.example.org\"\nkind = \"{kind}\"\naudience = [\"a\"]\n{extra}\n"
+    )
+}
+
+/// Returns the section `text` reads to.
+fn section(text: &str) -> AuthSection {
+    toml::from_str(text).expect("the section parses")
+}
+
+#[test]
+fn an_issuer_without_kind_fails_to_load() {
+    let refused =
+        section("[[issuer]]\nissuer = \"https://as.example.org\"\naudience = [\"a\"]\n").resolve();
+    assert!(
+        matches!(
+            refused,
+            Err(ConfigError::Missing {
+                key: "auth.issuer.kind"
+            })
+        ),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn the_flat_issuer_form_fails_to_load_naming_the_table_form() {
+    let refused = section("issuer = \"https://as.example.org\"").resolve();
+    assert!(
+        matches!(&refused, Err(ConfigError::Removed { replacement, .. }) if replacement.contains("[[auth.issuer]]")),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn every_section_level_issuer_setting_fails_to_load_naming_the_issuer_table() {
+    for key in [
+        "audience = [\"a\"]",
+        "algorithms = [\"ES256\"]",
+        "clock_skew_seconds = 30",
+        "jwks_max_age_seconds = 60",
+        "jwks_refresh_interval_seconds = 60",
+        "jwks_file = \"/keys.json\"",
+        "timeout_ms = 500",
+        "mode = \"jwt\"",
+        "role_claims = []",
+    ] {
+        let refused = section(&format!("{key}\n{}", issuer("persons", ""))).resolve();
+        assert!(
+            matches!(&refused, Err(ConfigError::Removed { replacement, .. }) if replacement.contains("[[auth.issuer]]")),
+            "{key}: {refused:?}"
+        );
+    }
+}
+
+#[test]
+fn token_profile_fails_to_load_naming_the_profile_keys() {
+    for text in [
+        format!("token_profile = \"jwt\"\n{}", issuer("persons", "")),
+        issuer("persons", "token_profile = \"rfc9068\""),
+    ] {
+        let refused = section(&text).resolve();
+        assert!(
+            matches!(&refused, Err(ConfigError::Removed { replacement, .. })
+                if replacement.contains("token_types") && replacement.contains("required_claims")),
+            "{text}: {refused:?}"
+        );
+    }
+}
+
+#[test]
+fn acting_for_claim_and_client_tokens_fail_to_load_naming_the_delegated_token() {
+    for text in [
+        format!("acting_for_claim = \"act.sub\"\n{}", issuer("persons", "")),
+        format!(
+            "client_tokens = \"sub_is_client\"\n{}",
+            issuer("persons", "")
+        ),
+        issuer("persons", "acting_for_claim = \"act.sub\""),
+        issuer("persons", "client_tokens = \"claim_absent\""),
+    ] {
+        let refused = section(&text).resolve();
+        assert!(
+            matches!(&refused, Err(ConfigError::Removed { replacement, .. })
+                if replacement.contains("delegated token whose subject is the person")),
+            "{text}: {refused:?}"
+        );
+    }
+}
+
+#[test]
+fn an_issuer_qualified_string_entry_fails_to_load() {
+    let refused = section(&format!(
+        "scopeless_subjects = [\"https://as.example.org#svc\"]\n{}",
+        issuer("machines", "")
+    ))
+    .resolve();
+    assert!(
+        matches!(refused, Err(ConfigError::Removed { .. })),
+        "{refused:?}"
+    );
+}
+
+// NOTE: OpenID Connect Core 1.0 §5.7: "email, phone_number, preferred_username,
+// and name MUST NOT be used as unique identifiers for the End-User".
+#[test]
+fn a_banned_key_fails_to_load() {
+    for text in [
+        issuer("persons", "person_key = \"email\""),
+        issuer("persons", "person_key = \"preferred_username\""),
+        issuer("persons", "client_claims = [\"name\"]"),
+        issuer("persons", "profile = \"entra\"\nperson_key = \"upn\""),
+        issuer(
+            "persons",
+            "person_key = \"login\"\nunstable_claims = [\"login\"]",
+        ),
+    ] {
+        let refused = section(&text).resolve();
+        assert!(
+            matches!(refused, Err(ConfigError::Issuer { .. })),
+            "{text}: {refused:?}"
+        );
+    }
+}
+
+#[test]
+fn a_federation_issuer_fails_to_load_in_this_build() {
+    let refused = section(&issuer("federation", "")).resolve();
+    assert!(
+        matches!(refused, Err(ConfigError::FederationUnavailable { .. })),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_preset_is_selected_and_every_key_is_set_over_it() -> Outcome {
+    let resolved = section(&issuer(
+        "persons",
+        r#"profile = "entra"
+person_key = "sub"
+client_claims = ["appid", "azp"]
+guest = [{ claim = "acct", value = "1" }]
+first_party_clients = ["first-party-app"]
+delegates = [{ sub = "actor-1" }, { client = "third-party-app" }]
+scope_claim = { claim = "scp", form = "array" }"#,
+    ))
+    .resolve()?;
+    let profile = &resolved.issuers.first().ok_or("one issuer")?.profile;
+    assert_eq!("sub", profile.person_key, "the issuer's key wins");
+    assert_eq!(
+        Some(String::from("tid")),
+        profile.tenant_claim,
+        "the preset's stays"
+    );
+    assert_eq!(
+        vec![String::from("appid"), String::from("azp")],
+        profile.client_claims
+    );
+    assert_eq!(
+        vec![Marker::Claim {
+            claim: String::from("acct"),
+            value: String::from("1")
+        }],
+        profile.guest
+    );
+    assert_eq!(ScopeForm::Array, profile.scope_claim.form);
+    assert_eq!(vec![String::from("JWT")], profile.token_types);
+    Ok(())
+}
+
+#[test]
+fn the_okta_and_keycloak_presets_fail_to_load_until_the_deployment_sets_their_gaps() {
+    for text in [
+        issuer("persons", "profile = \"okta\""),
+        issuer("machines", "profile = \"keycloak\""),
+    ] {
+        assert!(
+            matches!(section(&text).resolve(), Err(ConfigError::Issuer { .. })),
+            "{text}"
+        );
+    }
+    assert!(
+        section(&issuer(
+            "persons",
+            "profile = \"okta\"\ntoken_types = [\"JWT\"]"
+        ))
+        .resolve()
+        .is_ok(),
+        "okta with its token types"
+    );
+    assert!(
+        section(&issuer(
+            "machines",
+            "profile = \"keycloak\"\napp_only = [{ subjects = [\"service-account-sub\"] }]"
+        ))
+        .resolve()
+        .is_ok(),
+        "keycloak with its service accounts"
+    );
+}
+
+#[test]
+fn an_adapter_whose_feature_is_not_compiled_in_fails_to_load() {
+    let refused = section(&issuer(
+        "persons",
+        "profile = \"entra\"\nadapter = \"idp-entra\"",
+    ))
+    .resolve();
+    assert!(
+        matches!(refused, Err(ConfigError::Issuer { .. })),
+        "{refused:?}"
+    );
+}
+
+#[test]
+fn a_marker_or_a_delegate_in_two_forms_fails_to_parse() {
+    for extra in [
+        "app_only = [{ absent_claim = \"uid\", sub_is_client = true }]",
+        "delegates = [{ sub = \"a\", client = \"b\" }]",
+    ] {
+        assert!(
+            toml::from_str::<AuthSection>(&issuer("persons", extra)).is_err(),
+            "{extra}"
+        );
+    }
+}
+
+#[test]
+fn a_product_role_list_names_persons_issuers_only() -> Outcome {
+    let resolved = section(&format!(
+        "{}{}",
+        issuer("persons", ""),
+        "[[issuer]]\nissuer = \"https://machines.example.org\"\nkind = \"machines\"\naudience = [\"a\"]\n"
+    ))
+    .resolve()?;
+    resolved.check_role_issuers("authz.admin_issuers", &["https://as.example.org"])?;
+    let refused =
+        resolved.check_role_issuers("authz.admin_issuers", &["https://machines.example.org"]);
+    assert!(
+        matches!(
+            &refused,
+            Err(ConfigError::RoleIssuer {
+                kind: Some(IssuerKind::Machines),
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
+    let unknown =
+        resolved.check_role_issuers("authz.admin_issuers", &["https://other.example.org"]);
+    assert!(
+        matches!(unknown, Err(ConfigError::RoleIssuer { kind: None, .. })),
+        "an issuer the section does not trust"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_federation_issuer_contributes_no_role_by_default() {
+    let settings = ferrohealth_smart::resource::Settings::new(
+        "https://fed.example.org",
+        "a",
+        IssuerKind::Federation,
+    );
+    assert!(settings.role_claims.is_empty(), "no role claim");
+    let mut refused = settings;
+    refused.role_claims = vec![String::from("roles")];
+    assert!(
+        refused.validate().is_err(),
+        "a role claim on a federation issuer"
+    );
+}
+
+#[cfg(feature = "fetch")]
+#[test]
+fn one_jwt_issuer_and_one_introspection_issuer_load_together() -> Outcome {
+    let resolved = section(&format!(
+        "{}{}",
+        issuer("persons", ""),
+        r#"[[issuer]]
+issuer = "https://introspected.example.org"
+kind = "machines"
+audience = ["a"]
+mode = "introspection"
+[issuer.introspection.client]
+client_id = "ferro-rs"
+client_secret = "synthetic-secret"
+"#
+    ))
+    .resolve()?;
+    assert_eq!(1, resolved.issuers.len(), "the JWT issuer");
+    assert_eq!(1, resolved.introspection.len(), "the introspection issuer");
+    assert_eq!(
+        Some(IssuerKind::Machines),
+        resolved.introspection.first().map(|settings| settings.kind)
+    );
+    Ok(())
+}

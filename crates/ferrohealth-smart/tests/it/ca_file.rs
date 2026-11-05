@@ -9,8 +9,10 @@ use ferrohealth_smart::config::AuthMode;
 use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::IntrospectionSection;
+use ferrohealth_smart::config::IssuerEntry;
 use ferrohealth_smart::config::IssuerKey;
 use ferrohealth_smart::config::OauthSection;
+use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::resource::ResourceServer;
 use ferrohealth_smart::resource::introspection::Introspector;
 use jsonwebtoken::Algorithm;
@@ -24,10 +26,19 @@ use crate::tls::start_issuer;
 /// An `[auth]` section trusting `issuer`, with `ca_file` when given.
 fn section(issuer: &str, ca_file: Option<std::path::PathBuf>) -> AuthSection {
     AuthSection {
-        issuer: IssuerKey::Flat(issuer.to_owned()),
-        audience: vec![AUDIENCE.to_owned()],
+        issuer: IssuerKey::List(vec![entry(issuer)]),
         ca_file,
         ..AuthSection::default()
+    }
+}
+
+/// The `persons` issuer table of `issuer`.
+fn entry(issuer: &str) -> IssuerEntry {
+    IssuerEntry {
+        issuer: issuer.to_owned(),
+        kind: Some(IssuerKind::Persons),
+        audience: vec![AUDIENCE.to_owned()],
+        ..IssuerEntry::default()
     }
 }
 
@@ -83,13 +94,16 @@ fn introspecting(
         Credential::Bearer => (None, Some(grant)),
     };
     AuthSection {
-        mode: AuthMode::Introspection,
-        introspection: Some(IntrospectionSection {
-            endpoint: format!("{issuer}/introspect"),
-            client,
-            bearer,
-            ..IntrospectionSection::default()
-        }),
+        issuer: IssuerKey::List(vec![IssuerEntry {
+            mode: AuthMode::Introspection,
+            introspection: Some(IntrospectionSection {
+                endpoint: format!("{issuer}/introspect"),
+                client,
+                bearer,
+                ..IntrospectionSection::default()
+            }),
+            ..entry(issuer)
+        }]),
         ..section(issuer, ca_file)
     }
 }
@@ -106,7 +120,13 @@ async fn introspection_reads_an_issuer_behind_a_private_authority_with_its_ca_fi
             let resolved = introspecting(&issuer.issuer, credential, ca_file, grant_ca_file)
                 .resolve()
                 .expect("resolves");
-            Introspector::discover(resolved.introspection.expect("introspection settings"))
+            Introspector::discover(
+                resolved
+                    .introspection
+                    .into_iter()
+                    .next()
+                    .expect("introspection settings"),
+            )
         };
         read(Some(ca.clone()), None).await.unwrap_or_else(|e| {
             panic!("{credential:?}: the metadata is read trusting auth.ca_file: {e}")

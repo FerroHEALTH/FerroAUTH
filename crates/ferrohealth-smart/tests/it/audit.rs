@@ -65,3 +65,46 @@ fn a_flattened_json_line_keeps_the_tracing_target_and_what_was_addressed()
     assert_eq!("read", line["interaction"]);
     Ok(())
 }
+
+#[test]
+fn the_line_carries_the_caller_kind_and_the_client_and_never_a_claim()
+-> Result<(), Box<dyn StdError>> {
+    use ferrohealth_smart::audit::Actor;
+    use ferrohealth_smart::kind::CallerKind;
+    use ferrohealth_smart::resource::Access;
+    use ferrohealth_smart::resource::Caller;
+
+    let buffer = Buffer::default();
+    let subscriber = tracing_subscriber::fmt()
+        .json()
+        .flatten_event(true)
+        .with_writer(buffer.clone())
+        .finish();
+    let mut claims = serde_json::Map::new();
+    claims.insert(String::from("email"), serde_json::json!("NEVER-LOGGED"));
+    let caller = Caller::new(
+        String::from("synthetic-sub"),
+        Some(String::from("partner-app")),
+        "user/Observation.rs",
+        None,
+        false,
+        CallerKind::Delegated { actor: None },
+    )
+    .with_claims(claims);
+    let access = Access::Caller(Arc::new(caller));
+    tracing::subscriber::with_default(subscriber, || {
+        AuditLine::new(&Method::GET, "read", StatusCode::OK)
+            .by(Actor::of(Some(&access)))
+            .write();
+    });
+    let bytes = buffer.0.lock().expect("not poisoned").clone();
+    let text = String::from_utf8(bytes)?;
+    let line: serde_json::Value = serde_json::from_str(&text)?;
+    assert_eq!("delegated", line["kind"], "the caller kind: {text}");
+    assert_eq!("partner-app", line["client"], "the client");
+    assert!(
+        !text.contains("NEVER-LOGGED"),
+        "no claim beyond sub, client and iss"
+    );
+    Ok(())
+}

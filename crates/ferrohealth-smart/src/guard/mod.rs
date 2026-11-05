@@ -699,6 +699,7 @@ async fn admit(
 #[cfg(test)]
 mod tests {
     use super::{Requirement, Target};
+    use crate::kind::CallerKind;
     use crate::resource::{Access, Caller, Honoured};
     use crate::scope::Permission;
     use std::sync::Arc;
@@ -710,6 +711,7 @@ mod tests {
             scope,
             None,
             false,
+            CallerKind::Person,
         )))
     }
 
@@ -746,8 +748,15 @@ mod tests {
 
     fn holding(roles: &[&str]) -> Access {
         Access::Caller(Arc::new(
-            Caller::new(String::from("sub"), None, "", None, false)
-                .with_roles(roles.iter().map(|role| (*role).to_owned()).collect()),
+            Caller::new(
+                String::from("sub"),
+                None,
+                "",
+                None,
+                false,
+                CallerKind::Person,
+            )
+            .with_roles(roles.iter().map(|role| (*role).to_owned()).collect()),
         ))
     }
 
@@ -829,6 +838,7 @@ mod tests {
                 scope,
                 None,
                 scopeless,
+                CallerKind::System,
             )))
         };
         assert!(read.met_by(&caller("openid", true), none), "allowlisted");

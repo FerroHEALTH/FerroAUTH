@@ -26,6 +26,7 @@ pub mod configuration;
 #[cfg(feature = "fetch")]
 pub mod introspection;
 mod jwks;
+mod set;
 mod token;
 
 use std::collections::BTreeMap;
@@ -35,22 +36,26 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::PoisonError;
 use std::time::Duration;
 use std::time::Instant;
 
-use base64::Engine as _;
 use http::Extensions;
 use http::StatusCode;
 use jsonwebtoken::Algorithm;
-use serde::Deserialize;
-use serde::Serialize;
 use url::Url;
 
+use crate::assurance::Assessment;
+use crate::assurance::AssuranceError;
+use crate::assurance::AssuranceSection;
+use crate::kind::CallerKind;
+use crate::kind::IssuerKind;
+use crate::kind::Unclassified;
 use crate::metadata::DiscoveryError;
 #[cfg(feature = "fetch")]
 use crate::metadata::Http;
 use crate::metadata::ServerMetadata;
+use crate::profile::Profile;
+use crate::profile::ProfileError;
 use crate::refusal::Reason;
 use crate::resource::jwks::KeySet;
 use crate::resource::jwks::KeySource;
@@ -59,22 +64,6 @@ use crate::scope::Scopes;
 /// The longest clock skew a deployment may configure: RFC 7519 §4.1.4
 /// allows "some small leeway, usually no more than a few minutes".
 pub const MAX_CLOCK_SKEW: Duration = Duration::from_secs(300);
-
-/// The claims a token must carry, by profile.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum TokenProfile {
-    /// The JWT access token profile of RFC 9068: `typ` is `at+jwt` and `iss`,
-    /// `exp`, `aud`, `sub`, `client_id`, `iat` and `jti` are present (§2.1,
-    /// §2.2, §4).
-    #[default]
-    Rfc9068,
-    /// A JWT bearer token outside that profile: `typ` absent or `JWT`, and
-    /// `iss`, `exp`, `aud` and `sub` present. For an authorization server
-    /// that does not issue RFC 9068 tokens; no specification governs the
-    /// choice: our own design.
-    Jwt,
-}
 
 /// What one deployment configured its resource server with.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -87,8 +76,11 @@ pub struct Settings {
     /// The signature algorithms a token may use; asymmetric only (RFC 8725
     /// §3.1, §3.2), which [`Settings::validate`] checks.
     pub algorithms: Vec<Algorithm>,
-    /// The claims a token must carry.
-    pub profile: TokenProfile,
+    /// Whose tokens the issuer signs.
+    pub kind: IssuerKind,
+    /// What the issuer's tokens look like and how their callers are
+    /// classified.
+    pub profile: Profile,
     /// The clock skew `exp`, `nbf` and `iat` are checked with, at most
     /// [`MAX_CLOCK_SKEW`].
     pub clock_skew: Duration,
@@ -109,6 +101,9 @@ pub struct Settings {
     /// The claims a token's roles are read from, each a dotted path
     /// (RFC 9068 §2.2.3.1; [`crate::roles`]).
     pub role_claims: Vec<String>,
+    /// The assurance level the issuer's tokens carry, when the deployment
+    /// maps its authentication context values.
+    pub assurance: Option<AssuranceSection>,
     /// PEM trust roots added to the platform's for the discovery document
     /// and the key set, for an issuer behind a private certificate
     /// authority; none trusts the platform roots alone.
@@ -116,15 +111,16 @@ pub struct Settings {
 }
 
 impl Settings {
-    /// Returns settings for tokens of `issuer` addressed to `audience`.
+    /// Returns settings for tokens of `issuer`, an issuer of `kind`,
+    /// addressed to `audience`.
     ///
     /// RS256, RS384, PS256, PS384, ES256 and ES384 are accepted under the
-    /// RFC 9068 profile, the clock skew is 60 seconds, the key set is used
+    /// `rfc9068` profile, the clock skew is 60 seconds, the key set is used
     /// for 600 seconds and read again at most once a minute, a call to the
     /// authorization server may take 10 seconds, and no subject is granted
     /// scopeless access.
     #[must_use]
-    pub fn new(issuer: impl Into<String>, audience: impl Into<String>) -> Self {
+    pub fn new(issuer: impl Into<String>, audience: impl Into<String>, kind: IssuerKind) -> Self {
         Self {
             issuer: issuer.into(),
             audience: vec![audience.into()],
@@ -136,14 +132,22 @@ impl Settings {
                 Algorithm::ES256,
                 Algorithm::ES384,
             ],
-            profile: TokenProfile::Rfc9068,
+            kind,
+            profile: Profile::default(),
             clock_skew: Duration::from_secs(60),
             jwks_max_age: Duration::from_secs(600),
             jwks_refresh_interval: Duration::from_secs(60),
             jwks_file: None,
             timeout: Duration::from_secs(10),
             scopeless_subjects: BTreeSet::new(),
-            role_claims: crate::roles::default_claims(),
+            // NOTE: no specification governs this: our own design; another party's
+            // issuer asserts no role of this deployment.
+            role_claims: if kind == IssuerKind::Federation {
+                Vec::new()
+            } else {
+                crate::roles::default_claims()
+            },
+            assurance: None,
             trust_roots: None,
         }
     }
@@ -177,8 +181,48 @@ impl Settings {
                 skew: self.clock_skew,
             });
         }
-        Ok(())
+        check_issuer_rules(
+            self.kind,
+            &self.profile,
+            self.assurance.as_ref(),
+            &self.scopeless_subjects,
+            &self.role_claims,
+        )
     }
+}
+
+/// Checks what an issuer of `kind` is configured with beside its keys: its
+/// profile, its assurance mapping, and the settings its kind refuses.
+fn check_issuer_rules(
+    kind: IssuerKind,
+    profile: &Profile,
+    assurance: Option<&AssuranceSection>,
+    scopeless_subjects: &BTreeSet<String>,
+    role_claims: &[String],
+) -> Result<(), ResourceError> {
+    profile.validate(kind)?;
+    if let Some(assurance) = assurance {
+        assurance.validate()?;
+    }
+    // NOTE: no specification governs the allowlist: our own design; a patient
+    // or another party is never granted system-wide access.
+    if !scopeless_subjects.is_empty()
+        && matches!(kind, IssuerKind::Patients | IssuerKind::Federation)
+    {
+        return Err(ResourceError::Kind {
+            key: "scopeless_subjects",
+            kind,
+        });
+    }
+    // NOTE: no specification governs this: our own design; another party's
+    // issuer asserts no role of this deployment.
+    if !role_claims.is_empty() && kind == IssuerKind::Federation {
+        return Err(ResourceError::Kind {
+            key: "role_claims",
+            kind,
+        });
+    }
+    Ok(())
 }
 
 /// A failure to reach or read the authorization server, or settings that
@@ -212,6 +256,20 @@ pub enum ResourceError {
     ClockSkew {
         /// The skew configured.
         skew: Duration,
+    },
+    /// The issuer's profile breaks a rule.
+    #[error(transparent)]
+    Profile(#[from] ProfileError),
+    /// The issuer's assurance mapping breaks a rule.
+    #[error(transparent)]
+    Assurance(#[from] AssuranceError),
+    /// A setting is refused on an issuer of this kind.
+    #[error("{key} is refused on a {kind} issuer")]
+    Kind {
+        /// The setting.
+        key: &'static str,
+        /// The issuer's kind.
+        kind: IssuerKind,
     },
     /// The metadata names no member the resource server needs.
     #[error("the authorization server metadata names no {member}")]
@@ -576,113 +634,6 @@ impl std::fmt::Debug for LazyResourceServer {
     }
 }
 
-impl LazyResourceServer {
-    /// Returns this server reading a clinical scope's resource type against
-    /// `known`, as [`ResourceServer::with_resource_types`] does.
-    #[must_use]
-    pub fn with_resource_types(
-        mut self,
-        known: impl Fn(&str) -> bool + Send + Sync + 'static,
-    ) -> Self {
-        self.resource_types = Some(Arc::new(known));
-        self
-    }
-
-    /// Returns this server copying `value` onto every caller it admits, as
-    /// [`ResourceServer::with_extension`] does.
-    #[must_use]
-    pub fn with_extension<T: Clone + Send + Sync + 'static>(mut self, value: T) -> Self {
-        self.extensions.insert(value);
-        self
-    }
-
-    /// Returns what the deployment configured.
-    #[must_use]
-    pub const fn settings(&self) -> &Settings {
-        &self.settings
-    }
-
-    /// Returns the resource server, when a read has succeeded.
-    #[must_use]
-    pub fn get(&self) -> Option<&Arc<ResourceServer>> {
-        self.server.get()
-    }
-
-    /// Returns the resource server, reading the issuer's metadata and key
-    /// set when no read has succeeded yet.
-    ///
-    /// Concurrent first tokens share one read.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Rejection::Unavailable`] when the read fails, or failed
-    /// within the refresh interval.
-    pub async fn server(&self) -> Result<&Arc<ResourceServer>, Rejection> {
-        if let Some(server) = self.server.get() {
-            return Ok(server);
-        }
-        let interval = self.settings.jwks_refresh_interval;
-        let recent = self
-            .failed
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .as_ref()
-            .filter(|(at, _)| at.elapsed() < interval)
-            .map(|(_, source)| Arc::clone(source));
-        if let Some(source) = recent {
-            return Err(Rejection::Unavailable { source });
-        }
-        self.server
-            .get_or_try_init(|| async {
-                let mut server = ResourceServer::discover(self.settings.clone()).await?;
-                server.resource_types.clone_from(&self.resource_types);
-                server.extensions = self.extensions.clone();
-                Ok(Arc::new(server))
-            })
-            .await
-            .map_err(|source: ResourceError| {
-                let source = Arc::new(source);
-                tracing::warn!(
-                    issuer = %self.settings.issuer,
-                    error = %source,
-                    "the issuer's metadata or key set could not be read; its tokens answer 503"
-                );
-                *self.failed.lock().unwrap_or_else(PoisonError::into_inner) =
-                    Some((Instant::now(), Arc::clone(&source)));
-                Rejection::Unavailable { source }
-            })
-    }
-
-    /// Returns the caller `token` authenticates, reading the issuer first
-    /// when no read has succeeded yet.
-    ///
-    /// # Errors
-    ///
-    /// Returns the [`Rejection`] of [`ResourceServer::authenticate`], and
-    /// [`Rejection::Unavailable`] when the issuer cannot be read.
-    pub async fn authenticate(&self, token: &str) -> Result<Caller, Rejection> {
-        self.server().await?.authenticate(token).await
-    }
-}
-
-impl Verifier for LazyResourceServer {
-    fn verify<'a>(
-        &'a self,
-        token: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
-        Box::pin(self.authenticate(token))
-    }
-}
-
-/// One issuer of an [`IssuerSet`].
-#[derive(Debug)]
-enum Trusted {
-    /// A resource server that read its issuer at boot.
-    Ready(Arc<ResourceServer>),
-    /// A resource server that reads its issuer on the first token.
-    Lazy(Arc<LazyResourceServer>),
-}
-
 /// The resource servers of several trusted issuers, each token routed to
 /// the one its `iss` names.
 ///
@@ -692,87 +643,7 @@ enum Trusted {
 #[derive(Debug, Default)]
 pub struct IssuerSet {
     /// The servers, by issuer identifier.
-    servers: BTreeMap<String, Trusted>,
-}
-
-impl IssuerSet {
-    /// Returns an empty set, which admits no token.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Returns this set trusting `server`'s issuer.
-    #[must_use]
-    pub fn with(mut self, server: Arc<ResourceServer>) -> Self {
-        self.servers
-            .insert(server.settings().issuer.clone(), Trusted::Ready(server));
-        self
-    }
-
-    /// Returns this set trusting the issuer of `server`, read on its first
-    /// token.
-    #[must_use]
-    pub fn with_lazy(mut self, server: Arc<LazyResourceServer>) -> Self {
-        self.servers
-            .insert(server.settings().issuer.clone(), Trusted::Lazy(server));
-        self
-    }
-
-    /// Returns the server of `issuer`, when the set trusts it and its
-    /// metadata and key set have been read.
-    #[must_use]
-    pub fn server(&self, issuer: &str) -> Option<&Arc<ResourceServer>> {
-        match self.servers.get(issuer)? {
-            Trusted::Ready(server) => Some(server),
-            Trusted::Lazy(lazy) => lazy.get(),
-        }
-    }
-
-    /// Returns how many issuers the set trusts.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.servers.len()
-    }
-
-    /// Returns whether the set trusts no issuer.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.servers.is_empty()
-    }
-}
-
-impl Verifier for IssuerSet {
-    fn verify<'a>(
-        &'a self,
-        token: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
-        Box::pin(async move {
-            let issuer = unverified_issuer(token).ok_or(Rejection::Invalid {
-                reason: Reason::Malformed,
-            })?;
-            let server = self.servers.get(&issuer).ok_or(Rejection::Invalid {
-                reason: Reason::UntrustedIssuer,
-            })?;
-            match server {
-                Trusted::Ready(server) => server.authenticate(token).await,
-                Trusted::Lazy(lazy) => lazy.authenticate(token).await,
-            }
-        })
-    }
-}
-
-/// Returns the `iss` claim of `token` without checking anything.
-fn unverified_issuer(token: &str) -> Option<String> {
-    let payload = token.split('.').nth(1)?;
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .ok()?;
-    let claims: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(&bytes).ok()?;
-    claims
-        .get("iss")
-        .and_then(serde_json::Value::as_str)
-        .map(str::to_owned)
+    servers: BTreeMap<String, set::Trusted>,
 }
 
 /// Why a request carries no usable identity.
@@ -787,6 +658,13 @@ pub enum Rejection {
     Invalid {
         /// Which check failed, for the log; never a claim value.
         reason: Reason,
+    },
+    /// The token is valid and matches no step of the caller classification
+    /// for its issuer's kind ([`crate::kind`]); answered as an invalid token.
+    #[error("the access token names no caller this issuer may: {reason}")]
+    Unclassified {
+        /// Which step refused it, for the log; never a claim value.
+        reason: Unclassified,
     },
     /// The key set could not be read to check the token.
     #[error("the authorization server's key set could not be read")]
@@ -868,8 +746,17 @@ impl Via {
 pub struct Caller {
     /// The token's `sub`, or the Basic user-id.
     subject: String,
-    /// The token's `client_id`, when it carries one.
+    /// The client the issuer profile's client claims name, when the token
+    /// names one.
     client_id: Option<String>,
+    /// Who stands behind the credential.
+    kind: CallerKind,
+    /// The value of the issuer profile's person key and tenant claim, when
+    /// the token carries them.
+    person_key: (Option<String>, Option<String>),
+    /// What the token says about the authentication behind it, under the
+    /// issuer's assurance mapping.
+    assurance: Assessment,
     /// Every token of the `scope` claim, as granted.
     scope: Vec<String>,
     /// The clinical scopes among them.
@@ -899,6 +786,9 @@ impl PartialEq for Caller {
     fn eq(&self, other: &Self) -> bool {
         self.subject == other.subject
             && self.client_id == other.client_id
+            && self.kind == other.kind
+            && self.person_key == other.person_key
+            && self.assurance == other.assurance
             && self.scope == other.scope
             && self.scopes == other.scopes
             && self.patient == other.patient
@@ -946,7 +836,7 @@ pub struct PersonContext<'a> {
 ///
 /// A product attaches it to its resource server with `with_extension`, so
 /// every caller that server admits carries it, and
-/// [`Caller::acts_for_the_person`] reads it. No specification names such a
+/// [`Caller::person`] reads it. No specification names such a
 /// claim: our own design, FerroEHR's ABAC patient claim moved here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PatientClaim(String);
@@ -994,18 +884,19 @@ pub enum Access {
 #[cfg(test)]
 mod tests {
     use super::{MAX_CLOCK_SKEW, ResourceError, Settings};
+    use crate::kind::IssuerKind;
     use std::time::Duration;
 
     #[test]
     fn the_settings_rules_refuse_the_start() {
-        let mut settings = Settings::new("https://as.example.org", "aud");
+        let mut settings = Settings::new("https://as.example.org", "aud", IssuerKind::Persons);
         assert!(settings.validate().is_ok());
         settings.clock_skew = MAX_CLOCK_SKEW + Duration::from_secs(1);
         assert!(matches!(
             settings.validate(),
             Err(ResourceError::ClockSkew { .. })
         ));
-        let mut settings = Settings::new("https://as.example.org", "");
+        let mut settings = Settings::new("https://as.example.org", "", IssuerKind::Persons);
         assert!(matches!(
             settings.validate(),
             Err(ResourceError::NoAudience)

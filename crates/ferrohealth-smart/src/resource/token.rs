@@ -20,16 +20,17 @@ use jsonwebtoken::errors::ErrorKind;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::assurance::AssuranceSection;
+use crate::kind::IssuerKind;
+use crate::kind::Unclassified;
+use crate::kind::classify;
+use crate::profile::Profile;
 use crate::refusal::Reason;
 use crate::resource::Caller;
 use crate::resource::Rejection;
 use crate::resource::ResourceServer;
 use crate::resource::ResourceTypes;
-use crate::resource::TokenProfile;
 use crate::scope::Scopes;
-
-/// The `typ` values RFC 9068 §4 accepts.
-const ACCESS_TOKEN_TYPES: [&str; 2] = ["at+jwt", "application/at+jwt"];
 
 /// Returns the caller `token` authenticates under `server`.
 pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Caller, Rejection> {
@@ -39,28 +40,10 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
     if !settings.algorithms.contains(&header.alg) {
         return Err(invalid(Reason::Algorithm));
     }
-    let access_token_type = header.typ.as_deref().is_some_and(|typ| {
-        ACCESS_TOKEN_TYPES
-            .iter()
-            .any(|accepted| typ.eq_ignore_ascii_case(accepted))
-    });
-    match settings.profile {
-        TokenProfile::Rfc9068 if !access_token_type => {
-            return Err(invalid(Reason::Type));
-        }
-        // NOTE: no specification governs the `jwt` profile: our own design,
-        // `typ` absent or `JWT` (RFC 7519 §5.1) or the access token type, and
-        // a `typ` naming another kind refused (RFC 8725 §3.11).
-        TokenProfile::Jwt
-            if !access_token_type
-                && !header
-                    .typ
-                    .as_deref()
-                    .is_none_or(|typ| typ.eq_ignore_ascii_case("JWT")) =>
-        {
-            return Err(invalid(Reason::Type));
-        }
-        TokenProfile::Rfc9068 | TokenProfile::Jwt => {}
+    // NOTE: RFC 9068 §4 has the `typ` header checked; which values an issuer
+    // writes is its profile's (`token_types`), compared without regard to case.
+    if !settings.profile.accepts_type(header.typ.as_deref()) {
+        return Err(invalid(Reason::Type));
     }
     let key = server
         .keys
@@ -79,10 +62,11 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
     let data = jsonwebtoken::decode::<Map<String, Value>>(token, &key, &validation)
         .map_err(|error| invalid(reason(error.kind())))?;
     let claims = data.claims;
-    if settings.profile == TokenProfile::Rfc9068
-        && ["iat", "jti", "client_id"]
-            .iter()
-            .any(|name| !claims.contains_key(*name))
+    if settings
+        .profile
+        .required_claims
+        .iter()
+        .any(|name| !claims.contains_key(name))
     {
         return Err(invalid(Reason::MissingClaim));
     }
@@ -92,7 +76,9 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
         subject,
         &Admission {
             issuer: &settings.issuer,
-            profile: settings.profile,
+            kind: settings.kind,
+            profile: &settings.profile,
+            assurance: settings.assurance.as_ref(),
             clock_skew: settings.clock_skew,
             scopeless_subjects: &settings.scopeless_subjects,
             role_claims: &settings.role_claims,
@@ -107,8 +93,13 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
 pub(super) struct Admission<'a> {
     /// The issuer the caller is attributed to.
     pub(super) issuer: &'a str,
-    /// The profile the scope is read under.
-    pub(super) profile: TokenProfile,
+    /// Whose tokens the issuer signs.
+    pub(super) kind: IssuerKind,
+    /// The issuer's profile the caller is classified and its scope read
+    /// under.
+    pub(super) profile: &'a Profile,
+    /// The issuer's assurance mapping, when it has one.
+    pub(super) assurance: Option<&'a AssuranceSection>,
     /// The clock skew `iat` is checked with.
     pub(super) clock_skew: Duration,
     /// The subjects granted system-wide access without a clinical scope.
@@ -124,8 +115,9 @@ pub(super) struct Admission<'a> {
 
 /// Returns the caller the verified `claims` of `subject` describe, the step
 /// the JWT check and the introspection check share: `iat` within the clock
-/// skew, a subject that is not blank, and the scope, the client and the
-/// `patient` launch context read the same way.
+/// skew, a subject that is not blank, the caller's kind by the issuer's
+/// profile, and the scope, the client and the `patient` launch context
+/// read the same way.
 pub(super) fn admit(
     claims: Map<String, Value>,
     subject: String,
@@ -144,53 +136,62 @@ pub(super) fn admit(
     if subject.trim().is_empty() {
         return Err(invalid(Reason::BlankSubject));
     }
-    let client_id = text(&claims, "client_id");
+    let classified = classify(admission.kind, admission.profile, &claims)
+        .map_err(|reason| Rejection::Unclassified { reason })?;
+    let scope_claim = if classified.app_only {
+        admission
+            .profile
+            .app_only_scope_claim
+            .as_ref()
+            .unwrap_or(&admission.profile.scope_claim)
+    } else {
+        &admission.profile.scope_claim
+    };
+    let scope = scope_claim
+        .read(&claims)
+        .map_err(|_form| Rejection::Unclassified {
+            reason: Unclassified::ScopeForm {
+                claim: scope_claim.claim.clone(),
+            },
+        })?;
     let patient = text(&claims, "patient");
-    let scope = scope_of(&claims, admission.profile);
     let scopeless = admission.scopeless_subjects.contains(&subject);
     let scopes = match admission.resource_types {
         Some(known) => Scopes::parse_known(&scope, |name| known(name)),
         None => Scopes::parse(&scope),
     };
     let roles = crate::roles::from_claims(&claims, admission.role_claims);
-    Ok(Caller::new(subject, client_id, &scope, patient, scopeless)
-        .with_scopes(scopes)
-        .with_roles(roles)
-        .with_issuer(admission.issuer.to_owned())
-        .with_claims(claims)
-        .with_extensions(admission.extensions.clone()))
+    let assurance = admission
+        .assurance
+        .map(|section| section.assess(&claims))
+        .unwrap_or_default();
+    Ok(Caller::new(
+        subject,
+        classified.client,
+        &scope,
+        patient,
+        scopeless,
+        classified.kind,
+    )
+    .with_scopes(scopes)
+    .with_roles(roles)
+    .with_assurance(assurance)
+    .with_person_key(
+        text(&claims, &admission.profile.person_key),
+        admission
+            .profile
+            .tenant_claim
+            .as_deref()
+            .and_then(|claim| text(&claims, claim)),
+    )
+    .with_issuer(admission.issuer.to_owned())
+    .with_claims(claims)
+    .with_extensions(admission.extensions.clone()))
 }
 
 /// Returns the string claim `name` of `claims`.
 pub(super) fn text(claims: &Map<String, Value>, name: &str) -> Option<String> {
     claims.get(name).and_then(Value::as_str).map(str::to_owned)
-}
-
-/// Returns the space-delimited scope of `claims`.
-///
-/// The `scope` claim is the RFC 9068 §2.2.3 form and the only one read
-/// under that profile. Under the `jwt` profile an issuer that mints the
-/// grant as the `scp` array instead (Entra ID) is read when `scope` is
-/// absent (no specification governs `scp`: our own design, admitted only
-/// outside the RFC 9068 profile).
-fn scope_of(claims: &Map<String, Value>, profile: TokenProfile) -> String {
-    if let Some(scope) = claims.get("scope").and_then(Value::as_str) {
-        return scope.to_owned();
-    }
-    if profile == TokenProfile::Rfc9068 {
-        return String::new();
-    }
-    claims
-        .get("scp")
-        .and_then(Value::as_array)
-        .map(|tokens| {
-            tokens
-                .iter()
-                .filter_map(Value::as_str)
-                .collect::<Vec<_>>()
-                .join(" ")
-        })
-        .unwrap_or_default()
 }
 
 /// Returns the rejection of a token that does not hold for `reason`.
@@ -209,29 +210,5 @@ const fn reason(kind: &ErrorKind) -> Reason {
         ErrorKind::MissingRequiredClaim(_) => Reason::MissingClaim,
         ErrorKind::InvalidAlgorithm => Reason::Algorithm,
         _ => Reason::Malformed,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::scope_of;
-    use crate::resource::TokenProfile;
-    use serde_json::json;
-
-    #[test]
-    fn scope_wins_and_scp_is_the_fallback_under_the_jwt_profile_alone() {
-        let scope = json!({ "scope": "openid system/*.r", "scp": ["ignored"] });
-        let claims = scope.as_object().expect("an object");
-        assert_eq!("openid system/*.r", scope_of(claims, TokenProfile::Rfc9068));
-        assert_eq!("openid system/*.r", scope_of(claims, TokenProfile::Jwt));
-        let scp = json!({ "scp": ["openid", "system/*.r"] });
-        let claims = scp.as_object().expect("an object");
-        assert_eq!("", scope_of(claims, TokenProfile::Rfc9068));
-        assert_eq!("openid system/*.r", scope_of(claims, TokenProfile::Jwt));
-        let none = json!({});
-        assert_eq!(
-            "",
-            scope_of(none.as_object().expect("an object"), TokenProfile::Jwt)
-        );
     }
 }

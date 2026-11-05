@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# The `entra` issuer profile: Microsoft Entra ID v2.0 access tokens. Each
+# value is Entra ID's deviation from the `rfc9068` profile, with its source:
+# Microsoft, "Access token claims reference" (claims) and "Optional claims
+# reference" (optional), docs/specs/entra-docs/docs/identity-platform/ at
+# MicrosoftDocs/entra-docs 219d8d57. Every key can be set on the issuer
+# table, which wins over this file.
+
+# claims, `oid`: "The immutable identifier for the requestor"; `sub` is "a
+# pairwise identifier that's unique to a particular application ID".
+person_key = "oid"
+# claims, `tid`: "Represents the tenant that the user is signing in to".
+tenant_claim = "tid"
+# claims, header `typ`: "String - always `JWT`".
+token_types = ["JWT"]
+# claims, the payload table: `azp` "only present in v2.0 tokens", `uti`
+# "equivalent to `jti`", `ver` "Indicates the version of the access token".
+required_claims = ["iss", "sub", "aud", "exp", "iat", "tid", "azp", "uti", "ver"]
+# claims, `scp`: "a space separated list of scopes", "Only included for user
+# tokens".
+scope_claim = { claim = "scp", form = "string" }
+# claims, `roles`: "The client credential flow uses this set of permission in
+# place of user scopes for application tokens", an "Array of strings".
+app_only_scope_claim = { claim = "roles", form = "array" }
+# claims, `azp`: "The application ID of the client using the token".
+client_claims = ["azp"]
+# optional, `idtyp`: "The value is `app` when the token is an app-only
+# token"; claims, `scp` is "Only included for user tokens", the cross-check.
+app_only = [{ claim = "idtyp", value = "app" }, { absent_claim = "scp" }]
+# claims, `idp`: "identical to the value of the Issuer claim unless the user
+# account isn't in the same tenant as the issuer, such as guests";
+# optional, `acct`: "If they're a guest, the value is `1`".
+guest = [{ differs_from_iss = "idp" }, { claim = "acct", value = "1" }]
+# claims, `ver`: v2.0 tokens carry `azp`, which v1.0 tokens do not.
+expect = { ver = "2.0" }
+# optional, `acct`: emitted only when the app registration asks for it, so a
+# user token without it names the missing configuration.
+user_claims = ["acct"]
+# claims, `oid` "does remain the same across applications within a tenant".
+person_equality = ["oid", "tid"]
+# claims, `unique_name`: "use it only for display purposes"; optional, `upn`:
+# "Not a durable identifier for the user and shouldn't be used for
+# authorization".
+unstable_claims = ["upn", "unique_name"]

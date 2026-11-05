@@ -6,7 +6,7 @@ resolver = "3"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.8.9"
+version = "0.9.0"
 edition = "2024"
 rust-version = "1.98"
 license = "BUSL-1.1"
@@ -38,7 +38,7 @@ jiff = { version = "0.2.38", default-features = false, features = ["std"] }
 ferrohealth-secret = "0.2.0"
 # ferrohealth-authz reads the subject ferrohealth-smart authenticates; the
 # path is the workspace member, the version the one it publishes.
-ferrohealth-smart = { path = "crates/ferrohealth-smart", version = "0.8.8", default-features = false }
+ferrohealth-smart = { path = "crates/ferrohealth-smart", version = "0.9.0", default-features = false }
 # ferrohealth-authz: the engine seam, the embedded Cedar engine and its
 # hot-swapped policy set. Verified against crates.io on 2026-10-25.
 async-trait = "0.1.92"
@@ -59,10 +59,11 @@ axum = { version = "0.8.9", default-features = false }
 # crypto provider jsonwebtoken already links.
 aws-lc-rs = { version = "1.18.2", default-features = false, features = ["aws-lc-sys"] }
 # Test-only: the stub authorization server, the body reader of the
-# framework tests, the TOML reader and writer of the configuration cases,
-# and the JSON formatter the audit line is read back through.
+# framework tests, and the JSON formatter the audit line is read back through.
 wiremock = "0.6.5"
 http-body-util = "0.1.5"
+# The reader of the issuer profile presets ferrohealth-smart ships under
+# profiles/, and of the configuration cases.
 toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "display", "serde"] }
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["std", "fmt", "json"] }
 # Test-only: the mutual-TLS token endpoint of the RFC 8705 cases, a

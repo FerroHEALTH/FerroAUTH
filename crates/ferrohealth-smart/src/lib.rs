@@ -30,9 +30,13 @@
 //!   a token client with a cache and one renewal on a `401`, authenticating
 //!   with a secret or a `private_key_jwt` assertion). A static bearer token
 //!   or an API key is not a mode.
+//! - [`kind`] and [`profile`]: who stands behind a token. Each issuer
+//!   declares its kind and a profile, a preset of what its tokens look like
+//!   with any key set over it, and every valid token is classified as a
+//!   patient, a system, a delegated person, a representative, a person or a
+//!   guest, or refused naming the step it matched none of.
 //! - [`assurance`]: the assurance level of the authentication behind a
-//!   token, with the RFC 9470 step-up refusal below a minimum, and the
-//!   natural person the token names or the client acts for.
+//!   token, with the RFC 9470 step-up refusal below a minimum.
 //! - [`roles`]: the roles a caller holds, read from the claims RFC 9068
 //!   §2.2.3.1 names or granted to a Basic user, which a route requirement
 //!   checks beside its scopes.
@@ -75,11 +79,15 @@ pub mod extract;
 #[cfg(all(feature = "axum", resource_server))]
 pub mod guard;
 #[cfg(resource_server)]
+pub mod kind;
+#[cfg(resource_server)]
 pub mod metadata;
 #[cfg(all(feature = "oidc", resource_server))]
 pub mod oidc;
 #[cfg(feature = "openehr-scopes")]
 pub mod openehr;
+#[cfg(resource_server)]
+pub mod profile;
 #[cfg(resource_server)]
 pub mod refusal;
 #[cfg(resource_server)]

@@ -11,6 +11,9 @@ use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::BasicSection;
 use ferrohealth_smart::config::BasicUser;
 use ferrohealth_smart::config::ConfigError;
+use ferrohealth_smart::config::IssuerEntry;
+use ferrohealth_smart::config::IssuerKey;
+use ferrohealth_smart::kind::IssuerKind;
 use jsonwebtoken::Algorithm;
 use secrecy::SecretString;
 
@@ -91,11 +94,17 @@ fn a_basic_user_role_must_be_one_word() {
 #[test]
 fn a_blank_role_claim_path_is_refused() {
     let mut auth = section(Vec::new());
-    auth.role_claims = vec![String::from("realm_access..roles")];
+    auth.issuer = IssuerKey::List(vec![IssuerEntry {
+        issuer: String::from("https://as.example.org"),
+        kind: Some(IssuerKind::Persons),
+        audience: vec![String::from("a")],
+        role_claims: Some(vec![String::from("realm_access..roles")]),
+        ..IssuerEntry::default()
+    }]);
     assert!(matches!(
         auth.resolve(),
         Err(ConfigError::Missing {
-            key: "auth.role_claims"
+            key: "auth.issuer.role_claims"
         })
     ));
 }
