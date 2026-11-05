@@ -947,6 +947,14 @@ layers, all in `ferrohealth-smart`:
    `delegates` (actors by `{ sub, issuer }` and clients by `{ client }`),
    `max_actor_chain`, `representation`, `token_types`, `required_claims`,
    `scope_claim` and `app_only_scope_claim`, and `adapter`.
+   The `keycloak` preset names no impersonation marker: Keycloak 26.8.2
+   (`con-protocol-mappers.adoc`) carries an impersonation as the session
+   notes `IMPERSONATOR_ID` and `IMPERSONATOR_USERNAME`, not as a claim, so
+   the operator maps `IMPERSONATOR_ID` into a claim with a User Session Note
+   mapper and names that claim in `impersonation_marker`. A live case behind
+   `FERROHEALTH_KEYCLOAK_E2E=1` starts the Keycloak image `docs/VERSIONS.md`
+   pins, obtains its tokens at test time and classifies them; no token is
+   committed.
 3. **Vendor adapters as code**, only where data cannot express the
    behaviour, each an optional Cargo feature. This build compiles none, so a
    profile naming an adapter refuses its issuer at load.

@@ -41,10 +41,10 @@ pinned_begin
 reserved='Copyright © 2026 Okta. All rights reserved. (the page footer and <https://developer.okta.com/copyright/>, which adds "See Okta'"'"'s Terms of Service for its Intellectual Property"); okta/okta-developer-docs carries no licence file and GitHub reports no licence for it'
 
 pin cache okta-oauth-overview.html \
-  "no version stated; the page as served on 2026-11-05" \
+  "no version stated; the page as served on 2026-11-05, re-pinned the same day after the first pin's bytes moved" \
   "https://developer.okta.com/docs/api/openapi/okta-oauth/guides/overview/" \
-  572ba6a714905712e698ccabf09fc25edfda704a0c66996fe793ef3385d29ff8 "$reserved" \
-  "The reserved claims of the access token: uid (\"A unique identifier for the user\", absent when no user is bound to the token) and cid (\"Client ID of the client that requested the access token\")"
+  c278d86c510d60d27ffe073a068d6ac8763358749a6017f449e9bc21f0d39ea9 "$reserved" \
+  "The reserved claims of the access token: uid (\"A unique identifier for the user\", absent when no user is bound to the token), cid (\"Client ID of the client that requested the access token\"), scp (\"Array of scopes\"), and a header whose only reserved claims are alg and kid"
 pinned_corpus okta "Okta OpenID Connect and OAuth 2.0 API" \
   "the Okta OpenID Connect and OAuth 2.0 API reference" \
   "The \"OpenID Connect & OAuth 2.0\" API reference of Okta's developer

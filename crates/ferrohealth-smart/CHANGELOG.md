@@ -57,6 +57,10 @@ issuer tables below and reads who called from `Caller::kind`.
   compiles none. `email`, `phone_number`, `preferred_username` and `name`
   are never accepted as an identifier (OpenID Connect Core 1.0 §5.7).
 - `Caller::person_key`, `Caller::tenant` and `Caller::assurance`.
+- The `keycloak` preset documents how to mark an impersonation: map the
+  `IMPERSONATOR_ID` session note into a claim with a User Session Note
+  mapper and name that claim in `impersonation_marker`; the preset names
+  none. The `okta` preset cites the page as re-pinned on 2026-11-05.
 - `IssuerSet::with_introspector`: one set verifies JWT and introspected
   issuers together, routing a token with a readable `iss` to its issuer
   and an opaque token to the one introspected issuer.

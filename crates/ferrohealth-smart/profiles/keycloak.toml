@@ -23,3 +23,8 @@ client_claims = ["azp"]
 # client's. The deployment lists its service accounts' subjects; the empty
 # list refuses the issuer at load until it does.
 app_only = [{ subjects = [] }]
+# clients/con-protocol-mappers.adoc, "OIDC user session note mappers": an
+# impersonated session carries the notes IMPERSONATOR_ID and
+# IMPERSONATOR_USERNAME, which are notes, not claims, so the profile names no
+# impersonation marker. A deployment maps IMPERSONATOR_ID into a claim with a
+# User Session Note mapper and names that claim in `impersonation_marker`.

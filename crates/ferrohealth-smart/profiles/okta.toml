@@ -4,7 +4,9 @@
 # The `okta` issuer profile: Okta access tokens. Each value is Okta's
 # deviation from the `rfc9068` profile, with its source: Okta, "OpenID
 # Connect & OAuth 2.0 API", the reserved claims of the access token (cache
-# only, pinned by URL and sha256 in docs/specs/okta/PROVENANCE.md). Every key
+# only: the page as served on 2026-11-05, sha256
+# c278d86c510d60d27ffe073a068d6ac8763358749a6017f449e9bc21f0d39ea9, pinned
+# in docs/specs/okta/PROVENANCE.md). Every key
 # can be set on the issuer table, which wins over this file.
 
 # The page lists `alg` and `kid` as the header's only reserved claims and
