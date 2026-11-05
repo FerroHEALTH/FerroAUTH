@@ -79,12 +79,22 @@ impl Default for AssuranceSection {
 }
 
 /// What a token says about the authentication behind it.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+///
+/// The `Debug` rendering names the level alone, never the claim's value.
+#[derive(Clone, Default, PartialEq, Eq)]
 pub struct Assessment {
     /// The claim's value, trimmed.
     pub value: Option<String>,
     /// The level the value stands for.
     pub level: Option<AssuranceLevel>,
+}
+
+impl std::fmt::Debug for Assessment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Assessment")
+            .field("level", &self.level)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Why an [`AssuranceSection`] is refused at boot.

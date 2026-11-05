@@ -45,6 +45,7 @@ mod openehr;
 mod person;
 #[cfg(feature = "fetch")]
 mod reach;
+mod redaction;
 #[cfg(feature = "fetch")]
 mod roles;
 mod schema;

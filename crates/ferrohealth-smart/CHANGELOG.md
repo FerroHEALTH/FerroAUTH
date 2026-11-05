@@ -103,6 +103,16 @@ issuer tables below and reads who called from `Caller::kind`.
 - `ConfigError::Unqualified`, with the string forms of `scopeless_subjects`
   and `role_claims` it named.
 
+### Fixed
+
+- No `Debug` rendering carries a token claim beyond `sub`, `client_id` and
+  `iss` (#229). `resource::Caller` renders the subject, the client, the
+  issuer, the kind and the scheme alone, where it rendered every claim, the
+  scope, the roles and the `patient` launch context;
+  `assurance::Assessment` renders the level alone, and
+  `resource::Compartment::Patient` and `resource::PersonContext` leave out
+  the patient.
+
 ## [0.8.9] - 2026-11-05
 
 ### Security
