@@ -16,13 +16,13 @@ version `docs/VERSIONS.md` pins, and the design of record,
    assertion), 7617 (Basic), 7662 (introspection), 8414 (server metadata),
    8725 (JWT best practices), 9068 (the JWT access token profile), 9700
    (the security best practice), 8707 (resource indicators), 7638 (the
-   JWK thumbprint), 8705 (mutual TLS client authentication, §2 and §5) and
+   JWK thumbprint), 8705 (mutual TLS client authentication, §2 and §5,
+   and certificate-bound tokens, §3), 9449 (DPoP-bound tokens) and
    9470 (the step-up challenge), 8259 (JSON, §4 on repeated member names)
    and 6454 (the web origin, §4 and §5), 7636 (PKCE) and 7009 (token
    revocation), the last two for the `oidc` relying party; 7521 (the
    assertion framework), 7522 (its SAML 2.0 profile) and 8693 (token
-   exchange) for the onward grants and delegation; 9449 (DPoP) is
-   vendored for reference.
+   exchange) for the onward grants and delegation.
 3. **OpenID Connect Discovery 1.0** (incorporating errata set 2): the
    fallback metadata location and the `issuer` and `jwks_uri` rules. For
    the `oidc` relying party, **OpenID Connect Core 1.0** (incorporating

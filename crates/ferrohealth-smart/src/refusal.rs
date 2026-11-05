@@ -28,6 +28,8 @@ pub struct Schemes {
     pub bearer: bool,
     /// Whether a `Basic` credential is admitted (RFC 7617).
     pub basic: bool,
+    /// Whether a `DPoP`-bound token is admitted (RFC 9449 §7.1).
+    pub dpop: bool,
 }
 
 /// Why a request was refused.
@@ -41,6 +43,11 @@ pub enum Refusal {
     InvalidRequest,
     /// The bearer token does not hold (RFC 6750 §3.1, `invalid_token`).
     InvalidToken,
+    /// The token of a `DPoP` request does not hold, or is not bound to the
+    /// proof's key (RFC 9449 §7.1, `invalid_token` under the `DPoP` scheme).
+    InvalidDpopToken,
+    /// The `DPoP` proof does not hold (RFC 9449 §7.1, `invalid_dpop_proof`).
+    InvalidDpopProof,
     /// The Basic credential does not hold.
     InvalidBasic,
     /// The credential holds, and it grants no permission for the request
@@ -63,9 +70,12 @@ impl Refusal {
     #[must_use]
     pub const fn status(&self) -> StatusCode {
         match self {
-            Self::Missing(_) | Self::InvalidToken | Self::InvalidBasic | Self::StepUp(_) => {
-                StatusCode::UNAUTHORIZED
-            }
+            Self::Missing(_)
+            | Self::InvalidToken
+            | Self::InvalidDpopToken
+            | Self::InvalidDpopProof
+            | Self::InvalidBasic
+            | Self::StepUp(_) => StatusCode::UNAUTHORIZED,
             Self::InvalidRequest => StatusCode::BAD_REQUEST,
             Self::Forbidden | Self::Unclassified => StatusCode::FORBIDDEN,
             Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
@@ -83,7 +93,7 @@ impl Refusal {
         let quoted = realm.map(quote);
         // NOTE: RFC 9110 §11.3, auth-params follow the scheme after one
         // space and are comma-separated; RFC 6750 §3 puts realm before error.
-        let bearer_with = |error: Option<&str>, extra: Vec<String>| {
+        let challenge = |scheme: &str, error: Option<&str>, extra: Vec<String>| {
             let mut params: Vec<String> = Vec::new();
             if let Some(realm) = &quoted {
                 params.push(format!("realm={realm}"));
@@ -93,12 +103,16 @@ impl Refusal {
             }
             params.extend(extra);
             if params.is_empty() {
-                String::from("Bearer")
+                scheme.to_owned()
             } else {
-                format!("Bearer {}", params.join(", "))
+                format!("{scheme} {}", params.join(", "))
             }
         };
+        let bearer_with = |error: Option<&str>, extra| challenge("Bearer", error, extra);
         let bearer = |error: Option<&str>| bearer_with(error, Vec::new());
+        // NOTE: RFC 9449 §7.1, the `DPoP` challenge takes `realm` and `error` as
+        // the `Bearer` one does; `algs` is a SHOULD this challenge leaves out.
+        let dpop = |error: Option<&str>| challenge("DPoP", error, Vec::new());
         let basic = || {
             let realm = quoted.as_deref().unwrap_or("\"\"");
             format!("Basic realm={realm}, charset=\"UTF-8\"")
@@ -108,6 +122,9 @@ impl Refusal {
                 let mut challenges = Vec::new();
                 if schemes.bearer {
                     challenges.push(bearer(None));
+                }
+                if schemes.bearer && schemes.dpop {
+                    challenges.push(dpop(None));
                 }
                 if schemes.basic {
                     challenges.push(basic());
@@ -120,6 +137,8 @@ impl Refusal {
             }
             Self::InvalidRequest => Some(bearer(Some("invalid_request"))),
             Self::InvalidToken => Some(bearer(Some("invalid_token"))),
+            Self::InvalidDpopToken => Some(dpop(Some("invalid_token"))),
+            Self::InvalidDpopProof => Some(dpop(Some("invalid_dpop_proof"))),
             Self::InvalidBasic => Some(basic()),
             Self::Forbidden => Some(bearer(Some("insufficient_scope"))),
             // NOTE: RFC 9470 §3, the error code with `acr_values` and `max_age` as
@@ -145,6 +164,8 @@ impl Refusal {
             Self::Missing(_) => "missing",
             Self::InvalidRequest => "invalid_request",
             Self::InvalidToken => "invalid_token",
+            Self::InvalidDpopToken => "invalid_dpop_token",
+            Self::InvalidDpopProof => "invalid_dpop_proof",
             Self::InvalidBasic => "invalid_basic",
             Self::Forbidden => "insufficient_scope",
             Self::Unavailable => "unavailable",
@@ -323,6 +344,9 @@ pub enum Reason {
     /// The token matches no step of the caller classification for its
     /// issuer's kind; the rejection names the step.
     Unclassified,
+    /// A sender-constrained token or its `DPoP` proof failed a check
+    /// ([`crate::sender`]).
+    Sender(crate::sender::Check),
     /// A reason a product's own [`crate::resource::Verifier`] names.
     Other(&'static str),
 }
@@ -355,6 +379,7 @@ impl Reason {
             Self::BasicMalformed => "malformed basic credential",
             Self::BasicRejected => "basic credential rejected",
             Self::Unclassified => "no caller kind",
+            Self::Sender(check) => check.as_str(),
             Self::Other(reason) => reason,
         }
     }
@@ -437,7 +462,11 @@ impl From<&Rejection> for Refusal {
             Rejection::Missing => Self::Missing(Schemes {
                 bearer: true,
                 basic: false,
+                dpop: false,
             }),
+            Rejection::Invalid {
+                reason: Reason::Sender(check),
+            } if check.is_proof() => Self::InvalidDpopProof,
             Rejection::Invalid { .. } | Rejection::Unclassified { .. } => Self::InvalidToken,
             Rejection::Unavailable { .. } | Rejection::Upstream { .. } => Self::Unavailable,
         }
@@ -574,6 +603,7 @@ mod tests {
         let both = Refusal::Missing(Schemes {
             bearer: true,
             basic: true,
+            dpop: false,
         });
         assert_eq!(StatusCode::UNAUTHORIZED, both.status());
         assert_eq!(

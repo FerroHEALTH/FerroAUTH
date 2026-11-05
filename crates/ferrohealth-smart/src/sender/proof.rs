@@ -1,0 +1,644 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The check of a `DPoP` proof presented to a protected resource (RFC 9449
+//! §4.3, §7.1), and the authentication of a `DPoP` request through it.
+//!
+//! The proof is held to the request it arrived with: its method, and its
+//! URI as the client addressed it, which is the surface's configured
+//! external base URL plus the request path, never the URI the server sees
+//! behind a TLS-terminating proxy. Its `jti` is recorded in the product's
+//! [`ReplayStore`] for the window the proof is accepted in, so a replay is
+//! refused (RFC 9449 §11.1).
+
+use std::sync::Arc;
+use std::time::Duration;
+use std::time::SystemTime;
+
+use base64::Engine as _;
+use http::HeaderMap;
+use http::Method;
+use jsonwebtoken::Algorithm;
+use jsonwebtoken::DecodingKey;
+use jsonwebtoken::Validation;
+use jsonwebtoken::jwk::Jwk;
+use serde_json::Map;
+use serde_json::Value;
+use url::Url;
+
+use crate::refusal::Reason;
+use crate::resource::Caller;
+use crate::resource::MAX_CLOCK_SKEW;
+use crate::resource::Rejection;
+use crate::resource::Verifier;
+use crate::sender::Binding;
+use crate::sender::Check;
+use crate::sender::ClientCertificate;
+use crate::sender::ProvenKey;
+use crate::sender::replay::ProofId;
+use crate::sender::replay::ReplayStore;
+
+/// The longest proof window a deployment may configure; RFC 9449 §11.1
+/// prefers "a relatively brief period on the order of seconds or minutes".
+pub const MAX_PROOF_AGE: Duration = Duration::from_secs(300);
+
+/// The longest `jti` a proof may carry; RFC 9449 §11.1 has a server "reject
+/// `DPoP` proof JWTs with unnecessarily large jti values".
+pub const MAX_JTI_LENGTH: usize = 256;
+
+/// The name of the header a `DPoP` proof travels in (RFC 9449 §4.1).
+pub const DPOP: http::HeaderName = http::HeaderName::from_static("dpop");
+
+/// What one surface checks a `DPoP` proof against.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProofSettings {
+    /// The surface's base URL as its clients address it: the `htu` of a
+    /// proof is this URL with the request path appended (RFC 9449 §4.3,
+    /// check 9).
+    pub external_url: Url,
+    /// How long after its `iat` a proof is accepted (RFC 9449 §11.1), at
+    /// most [`MAX_PROOF_AGE`].
+    pub max_age: Duration,
+    /// How far a proof's `iat` may lie in the future, at most
+    /// [`MAX_CLOCK_SKEW`] (RFC 9449 §11.1).
+    pub clock_skew: Duration,
+    /// The signature algorithms a proof may use; asymmetric only (RFC 9449
+    /// §4.2, §11.6).
+    pub algorithms: Vec<Algorithm>,
+}
+
+impl ProofSettings {
+    /// Returns settings for proofs addressed to `external_url`.
+    ///
+    /// A proof is accepted for 60 seconds after its `iat`, an `iat` up to
+    /// 10 seconds ahead is accepted, and RS256, RS384, PS256, PS384, ES256
+    /// and ES384 are accepted, the defaults of [`DpopSection`].
+    #[must_use]
+    pub fn new(external_url: Url) -> Self {
+        let defaults = DpopSection::default();
+        Self {
+            external_url,
+            max_age: Duration::from_secs(defaults.max_age_seconds),
+            clock_skew: Duration::from_secs(defaults.clock_skew_seconds),
+            algorithms: defaults.algorithms,
+        }
+    }
+
+    /// Checks the settings: an `http` or `https` base URL with a host and
+    /// no query or fragment, a window within its bound, and at least one
+    /// algorithm and none symmetric.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ProofSettingsError`] naming the first rule broken.
+    pub fn validate(&self) -> Result<(), ProofSettingsError> {
+        let url = &self.external_url;
+        if !matches!(url.scheme(), "https" | "http")
+            || url.host_str().is_none()
+            || url.query().is_some()
+            || url.fragment().is_some()
+            || !url.username().is_empty()
+            || url.password().is_some()
+        {
+            return Err(ProofSettingsError::ExternalUrl);
+        }
+        if self.max_age.is_zero() || self.max_age > MAX_PROOF_AGE {
+            return Err(ProofSettingsError::MaxAge {
+                max_age: self.max_age,
+            });
+        }
+        if self.clock_skew > MAX_CLOCK_SKEW {
+            return Err(ProofSettingsError::ClockSkew {
+                skew: self.clock_skew,
+            });
+        }
+        if self.algorithms.is_empty() {
+            return Err(ProofSettingsError::NoAlgorithm);
+        }
+        if let Some(algorithm) = self.algorithms.iter().find(|algorithm| {
+            matches!(
+                algorithm,
+                Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512
+            )
+        }) {
+            return Err(ProofSettingsError::SymmetricAlgorithm {
+                algorithm: *algorithm,
+            });
+        }
+        Ok(())
+    }
+}
+
+/// The `[auth.dpop]` table: how the surface checks the `DPoP` proof of a
+/// `DPoP` request (RFC 9449 §4.3, §7.1).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DpopSection {
+    /// The surface's base URL as its clients address it, which a proof's
+    /// `htu` is compared with, the request path appended; required.
+    pub external_url: String,
+    /// How long after its `iat` a proof is accepted, at most 300.
+    pub max_age_seconds: u64,
+    /// How far a proof's `iat` may lie ahead, at most 300.
+    pub clock_skew_seconds: u64,
+    /// The signature algorithms a proof may use; asymmetric only.
+    pub algorithms: Vec<Algorithm>,
+}
+
+impl Default for DpopSection {
+    fn default() -> Self {
+        Self {
+            external_url: String::new(),
+            // NOTE: RFC 9449 §11.1 prefers a window "on the order of seconds or
+            // minutes"; the values are our own design.
+            max_age_seconds: 60,
+            clock_skew_seconds: 10,
+            algorithms: vec![
+                Algorithm::RS256,
+                Algorithm::RS384,
+                Algorithm::PS256,
+                Algorithm::PS384,
+                Algorithm::ES256,
+                Algorithm::ES384,
+            ],
+        }
+    }
+}
+
+/// Proof settings that break a rule.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum ProofSettingsError {
+    /// The external base URL is not `http` or `https`, names no host, or
+    /// carries a query, a fragment or user information.
+    #[error(
+        "the DPoP external URL is not an http or https URL with a host and nothing after its path"
+    )]
+    ExternalUrl,
+    /// The proof window is zero or longer than [`MAX_PROOF_AGE`].
+    #[error("the DPoP proof window of {max_age:?} is zero or longer than {MAX_PROOF_AGE:?}")]
+    MaxAge {
+        /// The window configured.
+        max_age: Duration,
+    },
+    /// The clock skew is longer than [`MAX_CLOCK_SKEW`].
+    #[error("the DPoP clock skew of {skew:?} is longer than {MAX_CLOCK_SKEW:?}")]
+    ClockSkew {
+        /// The skew configured.
+        skew: Duration,
+    },
+    /// No algorithm is admitted.
+    #[error("the DPoP settings admit no signature algorithm")]
+    NoAlgorithm,
+    /// A symmetric algorithm is admitted, which RFC 9449 §4.2 forbids.
+    #[error("the DPoP settings admit the symmetric algorithm {algorithm:?}")]
+    SymmetricAlgorithm {
+        /// The algorithm admitted.
+        algorithm: Algorithm,
+    },
+}
+
+/// What a request presents to a `DPoP`-protected resource.
+#[derive(Debug, Clone, Copy)]
+pub struct Presented<'a> {
+    /// The request's method.
+    pub method: &'a Method,
+    /// The request's path as the server received it, without its query.
+    pub path: &'a str,
+    /// The request's headers, which carry the `DPoP` proof.
+    pub headers: &'a HeaderMap,
+    /// The access token of the `DPoP` authorization scheme.
+    pub token: &'a str,
+    /// The client certificate of the connection, when there was one.
+    pub certificate: Option<&'a ClientCertificate>,
+}
+
+/// A `DPoP` proof that passed every check of RFC 9449 §4.3, whose `jti` is
+/// yet to be recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Proof {
+    /// The key the proof was signed with.
+    key: ProvenKey,
+    /// The digest of the proof's `jti`.
+    id: ProofId,
+    /// The end of the window the proof is accepted in.
+    until: SystemTime,
+}
+
+impl Proof {
+    /// Returns the key the proof was signed with.
+    #[must_use]
+    pub const fn key(&self) -> &ProvenKey {
+        &self.key
+    }
+
+    /// Returns the digest the proof's `jti` is recorded under.
+    #[must_use]
+    pub const fn id(&self) -> &ProofId {
+        &self.id
+    }
+
+    /// Returns the end of the window the proof is accepted in, until which
+    /// its `jti` is kept.
+    #[must_use]
+    pub const fn until(&self) -> SystemTime {
+        self.until
+    }
+}
+
+/// The check of the `DPoP` proofs one surface receives.
+pub struct ProofCheck {
+    /// What the proofs are checked against.
+    settings: ProofSettings,
+    /// Where each accepted proof's `jti` is recorded.
+    store: Arc<dyn ReplayStore>,
+}
+
+impl std::fmt::Debug for ProofCheck {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProofCheck")
+            .field("settings", &self.settings)
+            .finish_non_exhaustive()
+    }
+}
+
+impl ProofCheck {
+    /// Returns the check of proofs under `settings`, recording each
+    /// accepted proof in `store`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ProofSettingsError`] of [`ProofSettings::validate`].
+    pub fn new(
+        settings: ProofSettings,
+        store: Arc<dyn ReplayStore>,
+    ) -> Result<Self, ProofSettingsError> {
+        settings.validate()?;
+        Ok(Self { settings, store })
+    }
+
+    /// Returns what the proofs are checked against.
+    #[must_use]
+    pub const fn settings(&self) -> &ProofSettings {
+        &self.settings
+    }
+
+    /// Returns the caller a `DPoP` request authenticates under `verifier`:
+    /// the proof checked, the token checked and held to the proof's key and
+    /// the connection's certificate, and the proof's `jti` recorded last,
+    /// so only a request that passed every check spends it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Rejection::Invalid`] naming the failed [`Check`] for a
+    /// proof or a binding that does not hold, every [`Rejection`] of the
+    /// verifier, and [`Rejection::Upstream`] (`503`) when the replay store
+    /// fails.
+    pub async fn authenticate(
+        &self,
+        verifier: &dyn Verifier,
+        presented: &Presented<'_>,
+    ) -> Result<Caller, Rejection> {
+        let proof = self.check(presented)?;
+        let mut binding = Binding::dpop(proof.key.clone());
+        if let Some(certificate) = presented.certificate {
+            binding = binding.with_certificate(certificate);
+        }
+        let caller = verifier.verify_bound(presented.token, &binding).await?;
+        crate::sender::confirm(
+            crate::sender::SenderConstraint::None,
+            caller.claims(),
+            &binding,
+        )
+        .map_err(sender)?;
+        self.consume(&proof).await?;
+        Ok(caller)
+    }
+
+    /// Returns the proof `presented` carries, after every check of RFC 9449
+    /// §4.3 but the replay check, which [`ProofCheck::consume`] makes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Rejection::Invalid`] naming the failed [`Check`].
+    pub fn check(&self, presented: &Presented<'_>) -> Result<Proof, Rejection> {
+        let mut values = presented.headers.get_all(DPOP).iter();
+        let value = match (values.next(), values.next()) {
+            (None, _) => return Err(sender(Check::ProofMissing)),
+            (Some(_), Some(_)) => return Err(sender(Check::ProofRepeated)),
+            (Some(value), None) => value,
+        };
+        let jwt = value
+            .to_str()
+            .map_err(|_opaque| sender(Check::ProofMalformed))?;
+        let header = read_header(jwt)?;
+        // NOTE: RFC 9449 §4.3 check 5, the algorithm is "supported by the
+        // application, and is acceptable per local policy".
+        if !self.settings.algorithms.contains(&header.alg) {
+            return Err(sender(Check::ProofAlgorithm));
+        }
+        let decoding =
+            DecodingKey::from_jwk(&header.jwk).map_err(|_key| sender(Check::ProofKey))?;
+        let mut validation = Validation::new(header.alg);
+        validation.required_spec_claims.clear();
+        validation.validate_exp = false;
+        validation.validate_nbf = false;
+        validation.validate_aud = false;
+        let claims = jsonwebtoken::decode::<Map<String, Value>>(jwt, &decoding, &validation)
+            .map_err(|error| match error.kind() {
+                jsonwebtoken::errors::ErrorKind::InvalidSignature => sender(Check::ProofSignature),
+                jsonwebtoken::errors::ErrorKind::InvalidAlgorithm
+                | jsonwebtoken::errors::ErrorKind::InvalidAlgorithmName => {
+                    sender(Check::ProofAlgorithm)
+                }
+                jsonwebtoken::errors::ErrorKind::InvalidKeyFormat
+                | jsonwebtoken::errors::ErrorKind::InvalidEcdsaKey
+                | jsonwebtoken::errors::ErrorKind::InvalidRsaKey(_) => sender(Check::ProofKey),
+                _ => sender(Check::ProofMalformed),
+            })?
+            .claims;
+        let text = |name: &str| claims.get(name).and_then(Value::as_str);
+        let (Some(jti), Some(htm), Some(htu), Some(iat), Some(ath)) = (
+            text("jti"),
+            text("htm"),
+            text("htu"),
+            claims.get("iat").and_then(Value::as_i64),
+            text("ath"),
+        ) else {
+            return Err(sender(Check::ProofClaim));
+        };
+        if jti.is_empty() {
+            return Err(sender(Check::ProofClaim));
+        }
+        if jti.len() > MAX_JTI_LENGTH {
+            return Err(sender(Check::ProofJti));
+        }
+        // NOTE: RFC 9110 §9.1, the method token is case-sensitive.
+        if htm != presented.method.as_str() {
+            return Err(sender(Check::ProofMethod));
+        }
+        let expected = self.target(presented.path)?;
+        if normalized(htu).as_deref() != Some(expected.as_str()) {
+            return Err(sender(Check::ProofUri));
+        }
+        // NOTE: RFC 9449 §4.2, `ath` is the base64url SHA-256 of the ASCII
+        // access token; §4.3 check 12 holds it to the token presented.
+        if ath != crate::sender::sha256(presented.token.as_bytes()) {
+            return Err(sender(Check::ProofTokenHash));
+        }
+        let until = self.window(iat)?;
+        Ok(Proof {
+            key: ProvenKey {
+                jkt: crate::client::assertion::thumbprint(&header.jwk),
+            },
+            id: ProofId::of(jti),
+            until,
+        })
+    }
+
+    /// Records `proof`'s `jti` for its window, refusing a proof whose `jti`
+    /// was recorded before (RFC 9449 §11.1).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Rejection::Invalid`] with [`Check::ProofReplayed`] for a
+    /// replay, and [`Rejection::Upstream`] (`503`) when the store fails, so
+    /// a store that cannot answer never admits a proof.
+    pub async fn consume(&self, proof: &Proof) -> Result<(), Rejection> {
+        match self.store.first_use(&proof.id, proof.until).await {
+            Ok(true) => Ok(()),
+            Ok(false) => Err(sender(Check::ProofReplayed)),
+            Err(error) => Err(Rejection::upstream("DPoP replay store", error)),
+        }
+    }
+
+    /// Returns the normalized target URI of a request for `path`: the
+    /// external base URL's path followed by `path`.
+    fn target(&self, path: &str) -> Result<String, Rejection> {
+        let mut url = self.settings.external_url.clone();
+        let base = url.path().trim_end_matches('/');
+        let path = if path.starts_with('/') {
+            path.to_owned()
+        } else {
+            format!("/{path}")
+        };
+        let joined = format!("{base}{path}");
+        url.set_path(&joined);
+        url.set_query(None);
+        url.set_fragment(None);
+        normalized(url.as_str()).ok_or_else(|| sender(Check::ProofRequestUnknown))
+    }
+
+    /// Returns the end of the window a proof issued at `iat` is accepted
+    /// in, or the refusal of a proof outside it.
+    fn window(&self, iat: i64) -> Result<SystemTime, Rejection> {
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map_err(|_before| sender(Check::ProofStale))?;
+        let now = i64::try_from(now.as_secs()).unwrap_or(i64::MAX);
+        let skew = i64::try_from(self.settings.clock_skew.as_secs()).unwrap_or(i64::MAX);
+        let age = i64::try_from(self.settings.max_age.as_secs()).unwrap_or(i64::MAX);
+        if iat > now.saturating_add(skew) {
+            return Err(sender(Check::ProofFuture));
+        }
+        let last = iat.saturating_add(age).saturating_add(skew);
+        if last < now {
+            return Err(sender(Check::ProofStale));
+        }
+        let last = u64::try_from(last).map_err(|_negative| sender(Check::ProofStale))?;
+        SystemTime::UNIX_EPOCH
+            .checked_add(Duration::from_secs(last))
+            .ok_or_else(|| sender(Check::ProofStale))
+    }
+}
+
+/// The header of a `DPoP` proof, after checks 2, 4, 5 and 7 of RFC 9449 §4.3.
+struct ProofHeader {
+    /// The signature algorithm.
+    alg: Algorithm,
+    /// The public key the proof is signed with.
+    jwk: Jwk,
+}
+
+/// Returns the header of the proof `jwt`.
+fn read_header(jwt: &str) -> Result<ProofHeader, Rejection> {
+    // NOTE: RFC 9449 §4.1, the header value is `token68`, and §4.3 check 2
+    // has it a single well-formed JWT: three segments, a JWS.
+    let body = jwt.trim_end_matches('=');
+    let token68 = !body.is_empty()
+        && body.bytes().all(|byte| {
+            byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~' | b'+' | b'/')
+        });
+    if !token68 || jwt.split('.').count() != 3 {
+        return Err(sender(Check::ProofMalformed));
+    }
+    let raw = jwt
+        .split('.')
+        .next()
+        .and_then(|segment| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(segment)
+                .ok()
+        })
+        .and_then(|bytes| serde_json::from_slice::<Map<String, Value>>(&bytes).ok())
+        .ok_or_else(|| sender(Check::ProofMalformed))?;
+    // NOTE: RFC 9449 §4.3 check 5, an `alg` the JOSE reader knows no
+    // asymmetric algorithm by (`none` among them) is refused as the algorithm.
+    let header = jsonwebtoken::decode_header(jwt).map_err(|_malformed| {
+        match raw.get("alg").and_then(Value::as_str) {
+            Some(alg) if alg.parse::<Algorithm>().is_err() => sender(Check::ProofAlgorithm),
+            _ => sender(Check::ProofMalformed),
+        }
+    })?;
+    // NOTE: RFC 7515 §4.1.9 reads a `typ` without a `/` as if `application/`
+    // led it, and media types compare without regard to case.
+    let typed = header.typ.as_deref().is_some_and(|typ| {
+        typ.eq_ignore_ascii_case("dpop+jwt") || typ.eq_ignore_ascii_case("application/dpop+jwt")
+    });
+    if !typed {
+        return Err(sender(Check::ProofType));
+    }
+    let Some(jwk) = header.jwk else {
+        return Err(sender(Check::ProofKey));
+    };
+    // NOTE: RFC 9449 §4.2, the `jwk` "MUST NOT contain a private key"; the
+    // members are those of the RFC 7517 Appendix A.2 private keys, and an
+    // `oct` key is symmetric.
+    let private = raw
+        .get("jwk")
+        .and_then(Value::as_object)
+        .is_none_or(|members| {
+            ["d", "p", "q", "dp", "dq", "qi", "oth", "k"]
+                .iter()
+                .any(|name| members.contains_key(*name))
+                || !matches!(
+                    members.get("kty").and_then(Value::as_str),
+                    Some("EC" | "RSA" | "OKP")
+                )
+        });
+    if private {
+        return Err(sender(Check::ProofKey));
+    }
+    Ok(ProofHeader {
+        alg: header.alg,
+        jwk,
+    })
+}
+
+/// Returns `uri` normalized for the `htu` comparison, without its query
+/// and fragment, or `None` when it is no absolute `http` or `https` URI.
+///
+/// The URL parser lowercases the scheme and host, drops the default port,
+/// resolves dot segments and gives an empty path `/`; the path's
+/// percent-encodings are then normalized: an unreserved character decoded
+/// and every other octet in upper-case hexadecimal (RFC 3986 §6.2.2,
+/// §6.2.3, which RFC 9449 §4.3 has a server apply).
+fn normalized(uri: &str) -> Option<String> {
+    let url = Url::parse(uri).ok()?;
+    if !matches!(url.scheme(), "https" | "http")
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return None;
+    }
+    let host = url.host_str()?;
+    let port = url
+        .port()
+        .map(|port| format!(":{port}"))
+        .unwrap_or_default();
+    Some(format!(
+        "{}://{host}{port}{}",
+        url.scheme(),
+        normalize_percent(url.path())
+    ))
+}
+
+/// Returns `path` with each percent-encoded unreserved character decoded
+/// and every other percent-encoding in upper case (RFC 3986 §2.3, §6.2.2.1,
+/// §6.2.2.2).
+fn normalize_percent(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut chars = path.chars();
+    while let Some(character) = chars.next() {
+        if character != '%' {
+            out.push(character);
+            continue;
+        }
+        let mut lookahead = chars.clone();
+        let decoded = match (lookahead.next(), lookahead.next()) {
+            (Some(high), Some(low)) => {
+                high.to_digit(16)
+                    .zip(low.to_digit(16))
+                    .and_then(|(high, low)| {
+                        u8::try_from(high.saturating_mul(16).saturating_add(low)).ok()
+                    })
+            }
+            _ => None,
+        };
+        match decoded {
+            Some(byte)
+                if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') =>
+            {
+                out.push(char::from(byte));
+                chars = lookahead;
+            }
+            Some(byte) => {
+                out.push('%');
+                out.push_str(&hex(byte));
+                chars = lookahead;
+            }
+            None => out.push('%'),
+        }
+    }
+    out
+}
+
+/// Returns `byte` as two upper-case hexadecimal digits.
+fn hex(byte: u8) -> String {
+    format!("{byte:02X}")
+}
+
+/// Returns the rejection of a request that fails `check`.
+const fn sender(check: Check) -> Rejection {
+    Rejection::Invalid {
+        reason: Reason::Sender(check),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_percent, normalized};
+
+    #[test]
+    fn the_htu_comparison_normalizes_syntax_and_scheme() {
+        // NOTE: RFC 3986 §6.2.2 and §6.2.3, the normalizations RFC 9449 §4.3
+        // has a server apply before it compares `htu`.
+        let expected = normalized("https://resource.example.org/protectedresource");
+        for same in [
+            "HTTPS://Resource.Example.ORG/protectedresource",
+            "https://resource.example.org:443/protectedresource",
+            "https://resource.example.org/a/../protectedresource",
+            "https://resource.example.org/%70rotectedresource",
+            "https://resource.example.org/protectedresource?query#fragment",
+        ] {
+            assert_eq!(expected, normalized(same), "{same}");
+        }
+        for other in [
+            "http://resource.example.org/protectedresource",
+            "https://resource.example.org:8443/protectedresource",
+            "https://resource.example.org/protectedresource/",
+            "https://user@resource.example.org/protectedresource",
+        ] {
+            assert_ne!(expected, normalized(other), "{other}");
+        }
+        assert_eq!(None, normalized("urn:example:resource"));
+    }
+
+    #[test]
+    fn a_percent_encoding_keeps_a_reserved_octet_in_upper_case() {
+        assert_eq!("/a%2Fb", normalize_percent("/a%2fb"));
+        assert_eq!("/~x", normalize_percent("/%7Ex"));
+        assert_eq!("/%", normalize_percent("/%"));
+        assert_eq!("/%zz", normalize_percent("/%zz"));
+    }
+}

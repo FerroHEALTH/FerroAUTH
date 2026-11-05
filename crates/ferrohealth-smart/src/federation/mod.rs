@@ -363,7 +363,7 @@ impl FederationSection {
                     key: "contact_point",
                 });
             }
-            // TODO(#220): admit a contact point once sender-constrained tokens are verified.
+            // TODO(#215): admit a contact point under the eHDSI contact-point profile.
             Some(true) => return Err(FederationError::ContactPoint),
             Some(false) => {}
         }

@@ -26,6 +26,7 @@ pub mod configuration;
 #[cfg(feature = "fetch")]
 pub mod introspection;
 mod jwks;
+mod rules;
 mod set;
 mod token;
 
@@ -62,6 +63,9 @@ use crate::refusal::Reason;
 use crate::resource::jwks::KeySet;
 use crate::resource::jwks::KeySource;
 use crate::scope::Scopes;
+use crate::sender::Binding;
+use crate::sender::Check;
+use crate::sender::SenderConstraint;
 
 /// The longest clock skew a deployment may configure: RFC 7519 §4.1.4
 /// allows "some small leeway, usually no more than a few minutes".
@@ -109,6 +113,9 @@ pub struct Settings {
     /// What a `federation` issuer asserts and the bounds it is held to;
     /// required on a `federation` issuer and refused on any other.
     pub federation: Option<FederationSection>,
+    /// Whether the issuer's tokens must be bound to a `DPoP` key or a client
+    /// certificate ([`crate::sender`]).
+    pub sender_constraint: SenderConstraint,
     /// PEM trust roots added to the platform's for the discovery document
     /// and the key set, for an issuer behind a private certificate
     /// authority; none trusts the platform roots alone.
@@ -154,6 +161,7 @@ impl Settings {
             },
             assurance: None,
             federation: None,
+            sender_constraint: SenderConstraint::None,
             trust_roots: None,
         }
     }
@@ -187,7 +195,7 @@ impl Settings {
                 skew: self.clock_skew,
             });
         }
-        check_issuer_rules(
+        rules::check_issuer_rules(
             self.kind,
             &self.profile,
             self.assurance.as_ref(),
@@ -196,51 +204,6 @@ impl Settings {
             &self.role_claims,
         )
     }
-}
-
-/// Checks what an issuer of `kind` is configured with beside its keys: its
-/// profile, its assurance mapping, and the settings its kind refuses.
-fn check_issuer_rules(
-    kind: IssuerKind,
-    profile: &Profile,
-    assurance: Option<&AssuranceSection>,
-    federation: Option<&FederationSection>,
-    scopeless_subjects: &BTreeSet<String>,
-    role_claims: &[String],
-) -> Result<(), ResourceError> {
-    profile.validate(kind)?;
-    match (kind, federation) {
-        (IssuerKind::Federation, Some(section)) => section.validate()?,
-        (IssuerKind::Federation, None) | (_, Some(_)) => {
-            return Err(ResourceError::Kind {
-                key: "federation",
-                kind,
-            });
-        }
-        (_, None) => {}
-    }
-    if let Some(assurance) = assurance {
-        assurance.validate()?;
-    }
-    // NOTE: no specification governs the allowlist: our own design; a patient
-    // or another party is never granted system-wide access.
-    if !scopeless_subjects.is_empty()
-        && matches!(kind, IssuerKind::Patients | IssuerKind::Federation)
-    {
-        return Err(ResourceError::Kind {
-            key: "scopeless_subjects",
-            kind,
-        });
-    }
-    // NOTE: no specification governs this: our own design; another party's
-    // issuer asserts no role of this deployment.
-    if !role_claims.is_empty() && kind == IssuerKind::Federation {
-        return Err(ResourceError::Kind {
-            key: "role_claims",
-            kind,
-        });
-    }
-    Ok(())
 }
 
 /// A failure to reach or read the authorization server, or settings that
@@ -594,7 +557,24 @@ impl ResourceServer {
     /// audience, lifetime or claims do not hold, and
     /// [`Rejection::Unavailable`] when the key set could not be read again.
     pub async fn authenticate(&self, token: &str) -> Result<Caller, Rejection> {
-        token::validate(self, token).await
+        token::validate(self, token, &Binding::bearer()).await
+    }
+
+    /// Returns the caller `token` authenticates, its `cnf` held to what
+    /// `binding` proves and to the issuer's sender constraint
+    /// ([`crate::sender`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns every [`Rejection`] of [`ResourceServer::authenticate`], and
+    /// [`Rejection::Invalid`] naming the [`Check`] for a token whose binding
+    /// does not hold.
+    pub async fn authenticate_bound(
+        &self,
+        token: &str,
+        binding: &Binding,
+    ) -> Result<Caller, Rejection> {
+        token::validate(self, token, binding).await
     }
 
     /// Returns the SMART discovery document of this resource server under
@@ -613,11 +593,33 @@ impl ResourceServer {
 /// it, so the gate, the [`Access`] and the audit line are shared and only
 /// the check differs.
 pub trait Verifier: Send + Sync + 'static {
-    /// Returns the caller `token` authenticates, or why it does not.
+    /// Returns the caller `token`, presented as a plain bearer token,
+    /// authenticates, or why it does not.
     fn verify<'a>(
         &'a self,
         token: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>>;
+
+    /// Returns the caller `token` authenticates when the request proves
+    /// what `binding` carries: the key of a verified `DPoP` proof, the client
+    /// certificate of its connection, or neither ([`crate::sender`]).
+    ///
+    /// The default checks a request that proves no key with
+    /// [`Verifier::verify`] and refuses a `DPoP` request as
+    /// [`Check::Unsupported`], so a verifier that does not read `cnf` never
+    /// admits one; the gate holds every caller's `cnf` to the binding after.
+    fn verify_bound<'a>(
+        &'a self,
+        token: &'a str,
+        binding: &'a Binding,
+    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
+        if binding.proven_key().is_some() {
+            return Box::pin(std::future::ready(Err(Rejection::Invalid {
+                reason: Reason::Sender(Check::Unsupported),
+            })));
+        }
+        self.verify(token)
+    }
 }
 
 impl Verifier for ResourceServer {
@@ -626,6 +628,14 @@ impl Verifier for ResourceServer {
         token: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
         Box::pin(self.authenticate(token))
+    }
+
+    fn verify_bound<'a>(
+        &'a self,
+        token: &'a str,
+        binding: &'a Binding,
+    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
+        Box::pin(self.authenticate_bound(token, binding))
     }
 }
 

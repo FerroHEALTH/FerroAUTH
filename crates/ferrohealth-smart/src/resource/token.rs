@@ -33,9 +33,14 @@ use crate::resource::Rejection;
 use crate::resource::ResourceServer;
 use crate::resource::ResourceTypes;
 use crate::scope::Scopes;
+use crate::sender::Binding;
 
 /// Returns the caller `token` authenticates under `server`.
-pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Caller, Rejection> {
+pub(super) async fn validate(
+    server: &ResourceServer,
+    token: &str,
+    binding: &Binding,
+) -> Result<Caller, Rejection> {
     let settings = server.settings();
     let header =
         jsonwebtoken::decode_header(token).map_err(|_malformed| invalid(Reason::Malformed))?;
@@ -72,6 +77,8 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
     {
         return Err(invalid(Reason::MissingClaim));
     }
+    crate::sender::confirm(settings.sender_constraint, &claims, binding)
+        .map_err(|check| invalid(Reason::Sender(check)))?;
     let subject = text(&claims, "sub").ok_or_else(|| invalid(Reason::Subject))?;
     admit(
         claims,

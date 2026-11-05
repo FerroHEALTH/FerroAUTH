@@ -51,6 +51,8 @@ use crate::resource::token::Admission;
 use crate::resource::token::admit;
 use crate::resource::token::invalid;
 use crate::resource::token::text;
+use crate::sender::Binding;
+use crate::sender::SenderConstraint;
 
 /// What the log names the introspection endpoint as.
 const UPSTREAM: &str = "introspection endpoint";
@@ -111,6 +113,9 @@ pub struct IntrospectionSettings {
     pub assurance: Option<AssuranceSection>,
     /// What a `federation` issuer asserts, required on one.
     pub federation: Option<crate::federation::FederationSection>,
+    /// Whether the issuer's tokens must be bound to a `DPoP` key or a client
+    /// certificate ([`crate::sender`]).
+    pub sender_constraint: SenderConstraint,
 }
 
 impl IntrospectionSettings {
@@ -150,6 +155,7 @@ impl IntrospectionSettings {
             profile: Profile::default(),
             assurance: None,
             federation: None,
+            sender_constraint: SenderConstraint::None,
         }
     }
 
@@ -173,7 +179,7 @@ impl IntrospectionSettings {
                 skew: self.clock_skew,
             });
         }
-        super::check_issuer_rules(
+        super::rules::check_issuer_rules(
             self.kind,
             &self.profile,
             self.assurance.as_ref(),
@@ -446,6 +452,32 @@ impl Introspector {
     /// endpoint could not be called or answered anything but an
     /// introspection response.
     pub async fn authenticate(&self, token: &str) -> Result<Caller, Rejection> {
+        self.authenticate_bound(token, &Binding::bearer()).await
+    }
+
+    /// Returns the caller `token` authenticates, the response's `cnf` held
+    /// to what `binding` proves and to the issuer's sender constraint on
+    /// every request, a held response included ([`crate::sender`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns every [`Rejection`] of [`Introspector::authenticate`], and
+    /// [`Rejection::Invalid`] naming the [`crate::sender::Check`] for a
+    /// token whose binding does not hold.
+    pub async fn authenticate_bound(
+        &self,
+        token: &str,
+        binding: &Binding,
+    ) -> Result<Caller, Rejection> {
+        let caller = self.lookup(token).await?;
+        crate::sender::confirm(self.settings.sender_constraint, caller.claims(), binding)
+            .map_err(|check| invalid(Reason::Sender(check)))?;
+        Ok(caller)
+    }
+
+    /// Returns the caller of `token`, from the cache while its response is
+    /// held.
+    async fn lookup(&self, token: &str) -> Result<Caller, Rejection> {
         let key = digest(token);
         if let Some(caller) = self.cached(&key) {
             return Ok(caller.with_cached(true));
@@ -582,13 +614,9 @@ impl Introspector {
         if claims.contains_key("aud") && !audience_holds(&claims, &self.settings.audience) {
             return Err(invalid(Reason::Audience));
         }
-        // NOTE: RFC 6749 §7.1 and RFC 6750, the resource server accepts bearer
-        // tokens alone, so a response naming another `token_type` refuses it.
-        if let Some(token_type) = claims.get("token_type")
-            && !token_type
-                .as_str()
-                .is_some_and(|token_type| token_type.eq_ignore_ascii_case("bearer"))
-        {
+        // NOTE: RFC 6750 and RFC 9449 §6.2, a `token_type` is `Bearer`, or `DPoP`
+        // exactly when the response binds the token to a key.
+        if !crate::sender::token_type_holds(&claims) {
             return Err(invalid(Reason::Type));
         }
         // NOTE: RFC 9068 §2.2, a token no resource owner is involved in names
@@ -672,6 +700,14 @@ impl Verifier for Introspector {
         token: &'a str,
     ) -> std::pin::Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
         Box::pin(self.authenticate(token))
+    }
+
+    fn verify_bound<'a>(
+        &'a self,
+        token: &'a str,
+        binding: &'a Binding,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
+        Box::pin(self.authenticate_bound(token, binding))
     }
 }
 

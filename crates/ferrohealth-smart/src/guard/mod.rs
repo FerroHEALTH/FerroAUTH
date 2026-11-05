@@ -27,7 +27,6 @@ use std::time::Instant;
 use axum::body::Body;
 use axum::response::Response;
 use http::Extensions;
-use http::HeaderMap;
 use http::HeaderName;
 use http::Method;
 use http::Request;
@@ -48,6 +47,7 @@ use crate::resource::Honoured;
 use crate::resource::Verifier;
 use crate::resource::Via;
 use crate::scope::Permission;
+use crate::sender::proof::ProofCheck;
 
 /// What a route requires of the caller.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -376,6 +376,8 @@ pub struct Gate {
     honours: Honours,
     /// The header the credential is read from.
     credential: CredentialHeader,
+    /// The `DPoP` proof check, when `DPoP`-bound tokens are admitted.
+    proof: Option<Arc<ProofCheck>>,
 }
 
 impl Default for Gate {
@@ -386,6 +388,7 @@ impl Default for Gate {
             realm: None,
             honours: Arc::new(|_caller| Honoured::default()),
             credential: CredentialHeader::default(),
+            proof: None,
         }
     }
 }
@@ -397,6 +400,7 @@ impl std::fmt::Debug for Gate {
             .field("basic", &self.basic)
             .field("realm", &self.realm)
             .field("credential", &self.credential)
+            .field("proof", &self.proof)
             .finish_non_exhaustive()
     }
 }
@@ -412,6 +416,15 @@ impl Gate {
     #[must_use]
     pub fn with_bearer(mut self, verifier: Arc<dyn Verifier>) -> Self {
         self.bearer = Some(verifier);
+        self
+    }
+
+    /// Returns this gate also admitting `DPoP`-bound tokens (RFC 9449 §7.1),
+    /// each proof checked by `check` before the bearer verifier checks the
+    /// token and its binding.
+    #[must_use]
+    pub fn with_dpop(mut self, check: Arc<ProofCheck>) -> Self {
+        self.proof = Some(check);
         self
     }
 
@@ -472,6 +485,7 @@ impl Gate {
         Schemes {
             bearer: self.bearer.is_some(),
             basic: self.basic.is_some(),
+            dpop: self.bearer.is_some() && self.proof.is_some(),
         }
     }
 
@@ -645,7 +659,7 @@ where
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_owned);
             let (mut parts, body) = request.into_parts();
-            let (access, response) = match admit(&gate, &target, &parts.headers).await {
+            let (access, response) = match admit(&gate, &target, &parts).await {
                 Err((access, refusal)) => (access, render.render(&refusal, &parts)),
                 Ok(access) => {
                     parts.extensions.insert(access.clone());
@@ -668,7 +682,7 @@ where
     }
 }
 
-/// Returns the access of a request with `headers` to `target`, or the
+/// Returns the access of the request `parts` to `target`, or the
 /// refusal with the access it was refused under, so the audit line names a
 /// caller whose credential held and whose grant did not.
 ///
@@ -677,7 +691,7 @@ where
 async fn admit(
     gate: &Gate,
     target: &Target,
-    headers: &HeaderMap,
+    parts: &Parts,
 ) -> Result<Access, (Option<Access>, Refusal)> {
     match target.requirement() {
         Requirement::Refused => return Err((None, Refusal::Unclassified)),
@@ -685,7 +699,7 @@ async fn admit(
         _ => {}
     }
     let access = gate
-        .authenticate(headers)
+        .authenticate_request(parts)
         .await
         .map_err(|denied| (None, denied.into_refusal()))?;
     let honoured = gate.honoured(&access);

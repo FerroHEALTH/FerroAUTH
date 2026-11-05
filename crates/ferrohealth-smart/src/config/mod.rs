@@ -44,6 +44,7 @@ use crate::profile::Representation;
 use crate::profile::ScopeClaim;
 use crate::resource::ResourceError;
 use crate::resource::Settings;
+use crate::sender::SenderConstraint;
 
 mod auth;
 mod credentials;
@@ -52,6 +53,13 @@ mod credentials;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ConfigError {
+    /// The `[auth.dpop]` settings break a rule.
+    #[error("auth.dpop is refused")]
+    Dpop {
+        /// The rule.
+        #[source]
+        source: crate::sender::proof::ProofSettingsError,
+    },
     /// A key the section needs is not set, or does not parse.
     #[error("{key} is not set or does not parse")]
     Missing {
@@ -245,6 +253,9 @@ pub struct AuthSection {
     pub product_scope: String,
     /// The Basic users of the surface; absent for no Basic.
     pub basic: Option<BasicSection>,
+    /// The `DPoP` proof check of the surface; absent for none, so a `DPoP`
+    /// request is refused as carrying no admitted credential.
+    pub dpop: Option<crate::sender::proof::DpopSection>,
     /// A PEM file of trust roots added to the platform's, for an issuer
     /// behind a private certificate authority: the discovery document and
     /// the key set of every issuer are read trusting it. Read once at start.
@@ -353,6 +364,7 @@ impl Default for AuthSection {
             scopes_supported: Vec::new(),
             product_scope: String::new(),
             basic: None,
+            dpop: None,
             ca_file: None,
             federation: Vec::new(),
             audience: None,
@@ -504,6 +516,9 @@ pub struct IssuerEntry {
     pub introspection: Option<IntrospectionSection>,
     /// The assurance level the issuer's tokens carry.
     pub assurance: Option<AssuranceSection>,
+    /// Whether the issuer's tokens must be bound to a `DPoP` key or a client
+    /// certificate: `none` (the default) or `required` ([`crate::sender`]).
+    pub sender_constraint: SenderConstraint,
     /// The claims the issuer's roles are read from, each a dotted path; by
     /// default `roles`, `groups` and `entitlements` (RFC 9068 §2.2.3.1), and
     /// none, never settable, on a `federation` issuer.
@@ -599,6 +614,7 @@ impl Default for IssuerEntry {
             mode: AuthMode::Jwt,
             introspection: None,
             assurance: None,
+            sender_constraint: SenderConstraint::None,
             role_claims: None,
             person_key: None,
             tenant_claim: None,
@@ -714,6 +730,10 @@ pub struct Resolved {
     pub scopes_supported: Vec<String>,
     /// The product's own scope, when one is set.
     pub product_scope: Option<String>,
+    /// The `DPoP` proof settings of the surface, when `[auth.dpop]` is set; a
+    /// product builds its [`crate::sender::proof::ProofCheck`] from them with
+    /// its replay store.
+    pub dpop: Option<crate::sender::proof::ProofSettings>,
     /// The introspection check of each `mode = "introspection"` issuer, in
     /// the order written.
     #[cfg(feature = "fetch")]

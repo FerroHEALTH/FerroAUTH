@@ -11,6 +11,8 @@ use std::sync::Arc;
 
 use http::HeaderMap;
 use http::HeaderValue;
+use http::Method;
+use http::request::Parts;
 
 use crate::basic::PasswordStore;
 use crate::guard::Gate;
@@ -21,9 +23,42 @@ use crate::resource::Access;
 use crate::resource::Caller;
 use crate::resource::Rejection;
 use crate::resource::Verifier;
+use crate::sender::Binding;
+use crate::sender::Check;
+use crate::sender::ClientCertificate;
+use crate::sender::SenderConstraint;
+use crate::sender::proof::Presented;
+use crate::sender::proof::ProofCheck;
+
+/// The request line a credential is held to: what a `DPoP` proof's `htm` and
+/// `htu` name, and the client certificate of the connection.
+#[derive(Clone, Copy)]
+struct Line<'a> {
+    /// The request's method.
+    method: &'a Method,
+    /// The request's path.
+    path: &'a str,
+    /// The client certificate the product's TLS layer read.
+    certificate: Option<&'a ClientCertificate>,
+}
 
 impl Gate {
-    /// Returns who calls with `headers`, or the denial.
+    /// Returns who calls with `headers`, or the denial, for a request whose
+    /// method, path and connection the gate is not given.
+    ///
+    /// A `DPoP` request is then refused, since its proof cannot be held to
+    /// the request ([`Check::ProofRequestUnknown`]), and a certificate-bound
+    /// token for want of the certificate; [`Gate::authenticate_request`]
+    /// reads all three. Every other rule is that method's.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`Denied`] of [`Gate::authenticate_request`].
+    pub async fn authenticate(&self, headers: &HeaderMap) -> Result<Access, Denied> {
+        self.authenticate_with(headers, None).await
+    }
+
+    /// Returns who calls with the request `parts`, or the denial.
     ///
     /// The token is read from the `Authorization` header, or the header
     /// [`Gate::with_credential_header`] names, never from
@@ -31,17 +66,36 @@ impl Gate {
     /// case-insensitively (RFC 9110 §11.1); a scheme the gate does not admit
     /// is a missing credential. A bearer token outside the `b64token` syntax
     /// of RFC 6750 §2.1, and a caller whose subject is blank (RFC 9068
-    /// §2.2), are refused as a token that does not hold.
+    /// §2.2), are refused as a token that does not hold. The `DPoP` scheme
+    /// is admitted when [`Gate::with_dpop`] names a proof check, and every
+    /// caller's `cnf` is held to what the request proves: the `DPoP` proof's
+    /// key and the [`ClientCertificate`] the product put in the request's
+    /// extensions ([`crate::sender`]).
     ///
     /// # Errors
     ///
     /// Returns a [`Denied`] whose refusal is [`Refusal::Missing`] for no
     /// admitted credential, [`Refusal::InvalidRequest`] for two credentials
-    /// or a value that is no credential, [`Refusal::InvalidToken`] or
+    /// or a value that is no credential, [`Refusal::InvalidToken`],
+    /// [`Refusal::InvalidDpopToken`], [`Refusal::InvalidDpopProof`] or
     /// [`Refusal::InvalidBasic`] for one that does not hold, and
     /// [`Refusal::Unavailable`] when a token could not be checked; its
     /// [`Denied::reason`] names the check for the product's log.
-    pub async fn authenticate(&self, headers: &HeaderMap) -> Result<Access, Denied> {
+    pub async fn authenticate_request(&self, parts: &Parts) -> Result<Access, Denied> {
+        let line = Line {
+            method: &parts.method,
+            path: parts.uri.path(),
+            certificate: parts.extensions.get::<ClientCertificate>(),
+        };
+        self.authenticate_with(&parts.headers, Some(line)).await
+    }
+
+    /// Returns who calls with `headers` on the request `line`, when known.
+    async fn authenticate_with(
+        &self,
+        headers: &HeaderMap,
+        line: Option<Line<'_>>,
+    ) -> Result<Access, Denied> {
         if self.is_open() {
             return Ok(Access::Open);
         }
@@ -56,13 +110,17 @@ impl Gate {
         let text = value
             .to_str()
             .map_err(|_opaque| malformed(Reason::MalformedHeader))?;
+        let mut binding = Binding::bearer();
+        if let Some(certificate) = line.and_then(|line| line.certificate) {
+            binding = binding.with_certificate(certificate);
+        }
         if self.credential.is_bare() {
             let token = text.trim();
             if token.is_empty() {
                 return Err(malformed(Reason::MalformedHeader));
             }
             let verifier = self.bearer.as_ref().ok_or_else(missing)?;
-            let caller = bearer(verifier.as_ref(), token).await?;
+            let caller = bearer(verifier.as_ref(), token, &binding).await?;
             return Ok(Access::Caller(Arc::new(caller)));
         }
         let (scheme, credential) = text
@@ -74,7 +132,11 @@ impl Gate {
         }
         let caller = if scheme.eq_ignore_ascii_case("Bearer") {
             let verifier = self.bearer.as_ref().ok_or_else(missing)?;
-            bearer(verifier.as_ref(), credential).await?
+            bearer(verifier.as_ref(), credential, &binding).await?
+        } else if scheme.eq_ignore_ascii_case("DPoP") {
+            let verifier = self.bearer.as_ref().ok_or_else(missing)?;
+            let check = self.proof.as_ref().ok_or_else(missing)?;
+            dpop(check, verifier.as_ref(), credential, headers, line).await?
         } else if scheme.eq_ignore_ascii_case("Basic") {
             let store = Arc::clone(self.basic.as_ref().ok_or_else(missing)?);
             basic(store, value.clone()).await?
@@ -108,14 +170,81 @@ impl Gate {
     }
 }
 
-/// Returns the caller `token` authenticates under `verifier`.
-async fn bearer(verifier: &dyn Verifier, token: &str) -> Result<Caller, Denied> {
+/// Returns the caller `token` authenticates under `verifier` with what the
+/// request proves, `binding`.
+async fn bearer(verifier: &dyn Verifier, token: &str, binding: &Binding) -> Result<Caller, Denied> {
     // NOTE: RFC 6750 §2.1 fixes the `b64token` syntax, and §3.1 answers a
     // token that is "malformed" with `invalid_token`.
     if !is_b64token(token) {
         return Err(invalid_token(Reason::NotB64Token));
     }
-    match verifier.verify(token).await {
+    let outcome = verifier.verify_bound(token, binding).await;
+    held(outcome.and_then(|caller| confirmed(caller, binding)))
+}
+
+/// Returns the caller the `DPoP` request carrying `token` authenticates:
+/// the proof in `headers` checked against the request `line` by `check`,
+/// the token by `verifier`.
+async fn dpop(
+    check: &ProofCheck,
+    verifier: &dyn Verifier,
+    token: &str,
+    headers: &HeaderMap,
+    line: Option<Line<'_>>,
+) -> Result<Caller, Denied> {
+    // NOTE: RFC 9449 §7.1, the `DPoP` credentials are `token68`, the
+    // `b64token` alphabet of RFC 6750 §2.1.
+    if !is_b64token(token) {
+        return Err(dpop_denied(&Rejection::Invalid {
+            reason: Reason::NotB64Token,
+        }));
+    }
+    let Some(line) = line else {
+        return Err(dpop_denied(&Rejection::Invalid {
+            reason: Reason::Sender(Check::ProofRequestUnknown),
+        }));
+    };
+    let presented = Presented {
+        method: line.method,
+        path: line.path,
+        headers,
+        token,
+        certificate: line.certificate,
+    };
+    held(check.authenticate(verifier, &presented).await).map_err(|denied| {
+        match denied.refusal() {
+            // NOTE: RFC 9449 §7.2, the challenge of a request whose scheme is
+            // known is that scheme's.
+            Refusal::InvalidToken => Denied::new(Refusal::InvalidDpopToken, denied.reason()),
+            _ => denied,
+        }
+    })
+}
+
+/// Returns `caller` once its `cnf` holds to `binding`, the check of
+/// [`crate::sender`] held over every verifier.
+fn confirmed(caller: Caller, binding: &Binding) -> Result<Caller, Rejection> {
+    crate::sender::confirm(SenderConstraint::None, caller.claims(), binding)
+        .map(|()| caller)
+        .map_err(|check| Rejection::Invalid {
+            reason: Reason::Sender(check),
+        })
+}
+
+/// Returns the denial of a `DPoP` request refused with `rejection`.
+fn dpop_denied(rejection: &Rejection) -> Denied {
+    let denied = Denied::from(rejection);
+    tracing::debug!(reason = ?denied.reason(), "a DPoP request was refused");
+    match denied.refusal() {
+        Refusal::InvalidToken => Denied::new(Refusal::InvalidDpopToken, denied.reason()),
+        _ => denied,
+    }
+}
+
+/// Returns the verifier's `outcome` as the gate answers it, logging a
+/// refusal's reason and holding the blank-subject rule.
+fn held(outcome: Result<Caller, Rejection>) -> Result<Caller, Denied> {
+    match outcome {
         // NOTE: RFC 9068 §2.2 requires `sub`, held here over every verifier.
         Ok(caller) if caller.subject().trim().is_empty() => {
             Err(invalid_token(Reason::BlankSubject))

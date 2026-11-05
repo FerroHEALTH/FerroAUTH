@@ -51,6 +51,8 @@ mod redaction;
 mod roles;
 mod schema;
 #[cfg(feature = "fetch")]
+mod sender;
+#[cfg(feature = "fetch")]
 mod shape;
 #[cfg_attr(
     not(feature = "fetch"),
