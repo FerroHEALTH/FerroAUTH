@@ -37,6 +37,9 @@
 //!   guest, or refused naming the step it matched none of.
 //! - [`party`]: the party a person's login belongs to, looked up on every
 //!   request through a source the product supplies, with one typed outcome.
+//!   Where a token references its groups in place of carrying them, the
+//!   [`idp`] adapter its issuer's profile names reads them, each adapter
+//!   behind its own feature.
 //! - [`assurance`]: the assurance level of the authentication behind a
 //!   token, with the RFC 9470 step-up refusal below a minimum.
 //! - [`sender`]: sender-constrained tokens, bound by a `DPoP` proof (RFC 9449)
@@ -85,6 +88,8 @@ pub mod extract;
 pub mod federation;
 #[cfg(all(feature = "axum", resource_server))]
 pub mod guard;
+#[cfg(resource_server)]
+pub mod idp;
 #[cfg(resource_server)]
 pub mod kind;
 #[cfg(resource_server)]

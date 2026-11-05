@@ -18,6 +18,7 @@ use ferrohealth_smart::profile::Delegate;
 use ferrohealth_smart::profile::Marker;
 use ferrohealth_smart::profile::Preset;
 use ferrohealth_smart::profile::Profile;
+use ferrohealth_smart::profile::ProfileError;
 use ferrohealth_smart::profile::ProfileKeys;
 use ferrohealth_smart::profile::Representation;
 use ferrohealth_smart::profile::ScopeForm;
@@ -840,6 +841,9 @@ async fn every_preset_key_is_overridable_on_the_issuer() -> Outcome {
     Ok(())
 }
 
+// NOTE: no specification governs adapters: our own design, in which a profile naming an
+// adapter whose feature this build leaves out fails to load.
+#[cfg(not(feature = "idp-entra"))]
 #[tokio::test]
 async fn a_profile_naming_an_adapter_this_build_lacks_fails_to_load() -> Outcome {
     let h = Harness::new(entra())?;
@@ -864,9 +868,9 @@ fn no_core_module_names_a_vendor() -> Outcome {
                 stack.push(path);
                 continue;
             }
-            // NOTE: the preset selector is data naming the shipped files, the
-            // one place a vendor's name stands (no specification governs this).
-            if path.ends_with("profile/mod.rs") {
+            // NOTE: the preset selector is data naming the shipped files, and `idp` holds the
+            // adapters, the two places a vendor's name stands (no specification governs this).
+            if path.ends_with("profile/mod.rs") || path.starts_with(root.join("idp")) {
                 continue;
             }
             let text = std::fs::read_to_string(&path)?.to_lowercase();
@@ -880,5 +884,37 @@ fn no_core_module_names_a_vendor() -> Outcome {
             }
         }
     }
+    Ok(())
+}
+
+// NOTE: no specification governs adapters: our own design, in which a name no feature
+// compiles in refuses the issuer in every build, and the error names it.
+#[tokio::test]
+async fn a_profile_naming_an_unknown_adapter_fails_to_load_naming_it() -> Outcome {
+    let h = Harness::new(entra())?;
+    let settings = h.settings(IssuerKind::Persons, |profile| {
+        profile.adapter = Some(String::from("idp-unknown"));
+    });
+    let refused = ResourceServer::discover(settings).await;
+    assert!(
+        matches!(
+            &refused,
+            Err(ResourceError::Profile(ProfileError::Adapter { adapter })) if adapter == "idp-unknown"
+        ),
+        "{refused:?}"
+    );
+    Ok(())
+}
+
+// NOTE: no specification governs adapters: our own design, in which a profile may name an
+// adapter this build compiles in.
+#[cfg(feature = "idp-entra")]
+#[tokio::test]
+async fn a_profile_naming_the_compiled_adapter_loads() -> Outcome {
+    let h = Harness::new(entra())?;
+    let settings = h.settings(IssuerKind::Persons, |profile| {
+        profile.adapter = Some(String::from(ferrohealth_smart::idp::entra::NAME));
+    });
+    assert!(ResourceServer::discover(settings).await.is_ok());
     Ok(())
 }
