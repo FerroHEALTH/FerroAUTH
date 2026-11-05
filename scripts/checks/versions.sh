@@ -22,12 +22,18 @@
 #   3c. Cedar docs       the PROVENANCE.md names the pinned commit and the
 #                        tree still hashes to the digest it records.
 #   3d. the party        the IHE IUA, Nuts RFC021, Microsoft Entra, SCIM
-#       binding sources  workload identity and Keycloak trees: each
-#                        PROVENANCE.md names its row's commit and the tree
-#                        still hashes to the digest it records.
+#       binding sources  workload identity, Keycloak and Federation Tier
+#                        Annex B trees: each PROVENANCE.md names its row's
+#                        commit and the tree still hashes to the digest it
+#                        records.
 #   3e. cache only       the Okta PROVENANCE.md records its row's pin-set
 #                        digest and the directory holds no other file; no
 #                        file under .vendor-cache/ is tracked.
+#   3f. pinned by sha256 the eHDSI specifications and the EU legal acts:
+#                        each PROVENANCE.md records its row's pin-set
+#                        digest, the tree hashes to the digest it records,
+#                        and the script's --check finds every committed file
+#                        at its pin and no withheld or unpinned file.
 #   4. the design        the pin table of docs/architecture.md names the
 #                        same SMART App Launch version as the matrix.
 #   5. the licence       no first-party file claims a licence other than
@@ -208,7 +214,8 @@ fi
 for tree in "ihe-iua:IHE IUA supplement" "nuts-rfc:Nuts RFC021" \
   "entra-docs:Microsoft Entra documentation" \
   "scim-workload-identity:SCIM workload identity federation guide" \
-  "keycloak-docs:Keycloak documentation"; do
+  "keycloak-docs:Keycloak documentation" \
+  "federation-spec:Federation Tier with AQL specification"; do
   dir="docs/specs/${tree%%:*}"
   item="${tree#*:}"
   if [ -f "$dir/PROVENANCE.md" ]; then
@@ -243,6 +250,26 @@ else
 fi
 tracked="$(git ls-files .vendor-cache | head -n1)"
 [ -z "$tracked" ] || fail ".vendor-cache/ is never committed, and $tracked is tracked"
+
+# ---- 3f. the corpora pinned file by file by sha256 --------------------------
+for tree in "ehdsi-specifications:eHDSI specifications" "eu-law:EU legal acts"; do
+  dir="docs/specs/${tree%%:*}"
+  item="${tree#*:}"
+  if [ -f "$dir/PROVENANCE.md" ]; then
+    before="$failures"
+    want="$(grep -oE '[0-9a-f]{64}' <<< "$(corpus_pin_cell "$item")" | head -n1)"
+    got="$(provenance_digest "$dir/PROVENANCE.md" "Pin-set digest")"
+    [ "$got" = "$want" ] || fail "$dir/PROVENANCE.md records pin-set digest ${got:-nothing}, docs/VERSIONS.md $want"
+    want="$(provenance_digest "$dir/PROVENANCE.md" "Tree digest")"
+    got="$(corpus_tree_digest "$dir")"
+    [ "$got" = "$want" ] || fail "$dir hashes to $got, its PROVENANCE.md records ${want:-nothing}"
+    bash "scripts/vendor/${tree%%:*}.sh" --check > /dev/null ||
+      fail "$dir does not match the pins of scripts/vendor/${tree%%:*}.sh"
+    [ "$failures" -ne "$before" ] || ok "$item, every file at its pinned sha256"
+  else
+    fail "$dir/PROVENANCE.md is missing"
+  fi
+done
 
 # ---- 4. the design ----------------------------------------------------------
 architecture="docs/architecture.md"

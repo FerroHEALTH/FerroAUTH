@@ -32,7 +32,15 @@ version `docs/VERSIONS.md` pins, and the design of record,
    federation issuer. The Microsoft Entra, Keycloak and Okta documents are
    evidence for the values of a vendor's issuer profile, never the source
    of a core rule.
-5. **The docs.rs pages of the pinned crates** (`jsonwebtoken`, `argon2`,
+5. **The eHDSI specifications** (the SAML Profile, Section II Security
+   Services, the Service Location and Capability Lookup Profile and the
+   NCPeH Components Specifications 10.0.0, the Interoperability
+   Specifications 8.0.1, and the MyHealth@EU Requirements Catalogue 10.0.0,
+   cited by section and never copied), **Implementing Regulation (EU)
+   2026/2099** and **the GDPR** for a MyHealth@EU contact point, and the
+   **Federation Tier with AQL specification** 1.0.1 Annex B for the Dutch
+   `authorization_details`.
+6. **The docs.rs pages of the pinned crates** (`jsonwebtoken`, `argon2`,
    `reqwest`, `secrecy`, `axum`, `tower`), the Rust book and reference, for
    every question about the tools.
 

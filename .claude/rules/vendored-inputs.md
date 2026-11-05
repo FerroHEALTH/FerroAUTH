@@ -30,6 +30,12 @@ tree with a `PROVENANCE.md`.
   commits only its `PROVENANCE.md`, which records the licence as read and
   that no copy may be committed. `scripts/checks/versions.sh` fails when a
   copy reaches the tree.
+- **A source behind a login is supplied by the owner**: its script
+  downloads nothing, finds each file the owner placed in a local directory
+  by the sha256 it pins (mode `supplied`) and commits it only when its own
+  terms allow reuse. A file the owner read whose terms allow none is
+  `withheld`: its sha256 and version are recorded, no copy is committed or
+  cached, and it is cited by section only.
 - **A new corpus or RFC** is a row in `docs/VERSIONS.md`, a fetch by the
   script and the citation that needs it, in one change.
 - **Bumping a pin** is a deliberate change: rerun the script, read what

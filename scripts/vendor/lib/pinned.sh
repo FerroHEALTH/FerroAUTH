@@ -3,8 +3,9 @@
 # shellcheck shell=bash
 # Shared helpers for the corpora pinned file by file, by URL and sha256.
 #
-# A vendor's web page has no git commit to pin, so each artefact is pinned by
-# the URL it is fetched from and the sha256 of its bytes. A script calls
+# A vendor's web page, an Official Journal act or a document behind a login
+# has no git commit to pin, so each artefact is pinned by the URL it is
+# fetched from and the sha256 of its bytes. A script calls
 # `pinned_begin` once, then for each corpus declares its
 # artefacts with `pin` and calls `pinned_corpus`, which:
 #
@@ -17,6 +18,11 @@
 #   `cache` artefact under the git-ignored .vendor-cache/<corpus>/, and
 #   fetches nothing for a `manual` row (a source behind a login or a bot
 #   challenge);
+# - for a `supplied` row (a source behind a login whose terms allow
+#   redistribution), downloads nothing: it finds the file the owner placed in
+#   the directory PINNED_SUPPLIED names by its sha256 and commits it
+#   verbatim, and a `withheld` row (a file the owner read whose terms do not
+#   allow redistribution) records its sha256 and is never copied;
 # - writes docs/specs/<corpus>/PROVENANCE.md, which names every artefact, its
 #   URL, version, sha256 and licence, whatever its mode.
 #
@@ -28,6 +34,10 @@
 # With PINNED_DIGESTS_ONLY=1 a script prints each corpus and its pin-set
 # digest and fetches nothing, which is how a re-pin reads the digest it
 # writes into docs/VERSIONS.md.
+#
+# With PINNED_CHECK=1 a script fetches and writes nothing: it checks each
+# corpus's pins against docs/VERSIONS.md and each committed file against its
+# sha256, and fails on a file the pins do not name or a withheld file present.
 #
 # With PINNED_ONLY set to a space-separated list of corpus directories, a
 # script checks every corpus's pins against docs/VERSIONS.md and fetches and
@@ -54,18 +64,18 @@ pinned_begin() {
 
 # pin MODE FILE VERSION URL SHA256 LICENCE [NOTE]
 #
-# Adds one artefact to the corpus being declared. MODE is commit, cache or
-# manual; SHA256 is `-` for a manual row. LICENCE is the licence statement as
-# the publisher makes it (quoted verbatim where it is quoted) or the legal
+# Adds one artefact to the corpus being declared. MODE is commit, cache,
+# manual, supplied or withheld; SHA256 is `-` for a manual row. LICENCE is
+# the licence statement as the publisher makes it (quoted verbatim where it is quoted) or the legal
 # ground on which the text is free.
 pin() {
   local mode="$1" file="$2" version="$3" url="$4" sha="$5" licence="$6" note="${7:--}"
   case "$mode" in
-    commit | cache)
+    commit | cache | supplied | withheld)
       grep -qE '^[0-9a-f]{64}$' <<< "$sha" || die "$file: '$sha' is not a sha256"
       ;;
     manual) [ "$sha" = "-" ] || die "$file: a manual row pins no sha256" ;;
-    *) die "$file has mode '$mode', not commit, cache or manual" ;;
+    *) die "$file has mode '$mode', not commit, cache, manual, supplied or withheld" ;;
   esac
   case "$file" in
     */* | .* | '') die "'$file' is not a plain file name" ;;
@@ -100,7 +110,8 @@ pinned_md() {
 # docs/VERSIONS.md row, TITLE the provenance heading, ABOUT the Markdown
 # paragraphs that say what the corpus is and on what ground each part is or
 # is not redistributed, AGENT `browser` for a publisher that refuses a
-# non-browser User-Agent (empty otherwise), and READ_BY the issues and code
+# non-browser User-Agent, `none` for a corpus whose every row is supplied
+# by the owner or withheld (empty otherwise), and READ_BY the issues and code
 # that read the corpus.
 pinned_corpus() {
   local dir="$1" item="$2" title="$3" about="$4" agent="${5:-}" read_by="${6:-}"
@@ -112,6 +123,7 @@ pinned_corpus() {
   local mode file version url sha licence note got bad=0
   pinned_table=""
   [ "$agent" = "browser" ] && ua="$pinned_browser_ua"
+  [ "$agent" = "none" ] && ua=""
   [ -d "${pinned_scratch:-}" ] || die "pinned_begin was not called"
   [ -n "$pins" ] || die "$dir: no artefact is pinned"
 
@@ -129,6 +141,10 @@ pinned_corpus() {
   [ -n "$want" ] || die "the '$item' row of $corpus_matrix names no pin-set digest"
   [ "$digest" = "$want" ] \
     || die "$dir: the pins have pin-set digest $digest, $corpus_matrix records $want"
+  if [ "${PINNED_CHECK:-}" = "1" ]; then
+    pinned_check_tree "$dir" "$pins"
+    return 0
+  fi
   if [ -n "${PINNED_ONLY:-}" ] && ! grep -qxF "$dir" <<< "${PINNED_ONLY// /$'\n'}"; then
     say "$dir: not in PINNED_ONLY, left as it is"
     return 0
@@ -140,6 +156,10 @@ pinned_corpus() {
   while IFS=$'\t' read -r mode file version url sha licence note; do
     case "$mode" in
       commit | cache) ;;
+      supplied)
+        pinned_take_supplied "$dir" "$file" "$sha" "$tmp/$file"
+        continue
+        ;;
       *) continue ;;
     esac
     say "$dir: fetching $file"
@@ -159,7 +179,7 @@ pinned_corpus() {
   mkdir -p "$dest"
   while IFS=$'\t' read -r mode file version url sha licence note; do
     case "$mode" in
-      commit) cp "$tmp/$file" "$dest/$file" ;;
+      commit | supplied) cp "$tmp/$file" "$dest/$file" ;;
       cache)
         mkdir -p "$cache"
         cp "$tmp/$file" "$cache/$file"
@@ -171,12 +191,82 @@ pinned_corpus() {
   pinned_provenance "$dir" "$title" "$about" "$pins" "$digest" "$ua" "$read_by"
 }
 
+# pinned_take_supplied DIR FILE SHA256 OUT
+#
+# Copies the file of the owner's directory PINNED_SUPPLIED whose sha256 is
+# SHA256 to OUT, so the owner's file name never matters; fails when no file
+# there has it. Nothing is downloaded.
+pinned_take_supplied() {
+  local dir="$1" file="$2" sha="$3" out="$4" found="" candidate
+  [ -n "${PINNED_SUPPLIED:-}" ] \
+    || die "$dir: $file is supplied by the owner; set PINNED_SUPPLIED to the directory that holds it"
+  [ -d "$PINNED_SUPPLIED" ] || die "$dir: PINNED_SUPPLIED '$PINNED_SUPPLIED' is not a directory"
+  for candidate in "$PINNED_SUPPLIED"/*; do
+    [ -f "$candidate" ] || continue
+    if [ "$(corpus_sha256 "$candidate")" = "$sha" ]; then
+      found="$candidate"
+      break
+    fi
+  done
+  [ -n "$found" ] || die "$dir: no file in $PINNED_SUPPLIED has the sha256 $sha that $file pins"
+  say "$dir: taking $file from $found"
+  cp "$found" "$out"
+}
+
+# pinned_check_tree DIR PINS
+#
+# Checks docs/specs/DIR against PINS and writes nothing: every committed or
+# supplied file is there with its pinned sha256, no withheld file is, and no
+# file but PROVENANCE.md is there unpinned.
+pinned_check_tree() {
+  local dir="$1" pins="$2" dest="docs/specs/$1" bad=0 named="" path base got
+  local mode file version url sha licence note
+  [ -f "$dest/PROVENANCE.md" ] || die "$dir: $dest/PROVENANCE.md is missing"
+  while IFS=$'\t' read -r mode file version url sha licence note; do
+    case "$mode" in
+      commit | supplied)
+        named="$named$file"$'\n'
+        if [ ! -f "$dest/$file" ]; then
+          printf '%s: %s: %s is missing\n' "$corpus_script" "$dir" "$file" >&2
+          bad=1
+          continue
+        fi
+        got="$(corpus_sha256 "$dest/$file")"
+        if [ "$got" != "$sha" ]; then
+          printf '%s: %s: %s has sha256 %s, the pin records %s\n' \
+            "$corpus_script" "$dir" "$file" "$got" "$sha" >&2
+          bad=1
+        fi
+        ;;
+      withheld)
+        if [ -e "$dest/$file" ]; then
+          printf '%s: %s: %s is withheld and must not be committed\n' "$corpus_script" "$dir" "$file" >&2
+          bad=1
+        fi
+        ;;
+      *) ;;
+    esac
+  done <<< "$pins"
+  for path in "$dest"/*; do
+    [ -f "$path" ] || continue
+    base="${path##*/}"
+    [ "$base" = "PROVENANCE.md" ] && continue
+    if ! grep -qxF "$base" <<< "$named"; then
+      printf '%s: %s: %s is not pinned\n' "$corpus_script" "$dir" "$base" >&2
+      bad=1
+    fi
+  done
+  [ "$bad" -eq 0 ] || die "$dir: the committed tree does not match its pins"
+  say "$dir: the committed tree matches its pins"
+}
+
 # Writes the PROVENANCE.md of one corpus.
 pinned_provenance() {
   local dir="$1" title="$2" about="$3" pins="$4" digest="$5" ua="$6" read_by="$7"
   local dest="docs/specs/$dir" cache="$pinned_cache_root/$dir"
   local mode file version url sha licence note heading
-  local n_commit=0 n_cache=0 n_manual=0 fetched files tree body=""
+  local n_commit=0 n_cache=0 n_manual=0 n_withheld=0 fetched files tree body="" withheld_count=""
+  local served="publisher serves it"
 
   while IFS=$'\t' read -r mode file version url sha licence note; do
     [ -n "$mode" ] || continue
@@ -184,6 +274,14 @@ pinned_provenance() {
       commit)
         n_commit=$((n_commit + 1))
         heading="committed"
+        ;;
+      supplied)
+        n_commit=$((n_commit + 1))
+        heading="committed, supplied by the owner"
+        ;;
+      withheld)
+        n_withheld=$((n_withheld + 1))
+        heading="read, not redistributed"
         ;;
       cache)
         n_cache=$((n_cache + 1))
@@ -215,6 +313,18 @@ pinned_provenance() {
 - Not redistributed: the script fetches it into \`$cache/\`, which git
   ignores; this repository carries none of its content."
         ;;
+      supplied)
+        body="$body
+- Supplied by the owner: the source answers an automated client with a
+  login, so the owner places the file in a local directory and the script
+  copies it verbatim after finding it by its sha256; it downloads nothing."
+        ;;
+      withheld)
+        body="$body
+- Not redistributed: the owner read the file and its sha256 is recorded;
+  the script copies it nowhere, and this repository carries none of its
+  content."
+        ;;
       manual)
         body="$body
 - Needs manual retrieval: the source answers an automated client with a
@@ -229,7 +339,14 @@ pinned_provenance() {
     fi
   done <<< "$pins"
 
+  [ "$n_withheld" -gt 0 ] && withheld_count=", $n_withheld read and not redistributed"
   fetched="$(corpus_fetched)"
+  if [ -n "$ua" ]; then
+    fetched="$fetched, with the User-Agent \`$ua\`"
+  else
+    fetched="$fetched, from the owner's local copies; nothing is downloaded"
+    served="owner supplied it"
+  fi
   files="$(corpus_file_count "$dest")"
   tree="$(corpus_tree_digest "$dest")"
 
@@ -245,11 +362,11 @@ the script and the pin-set digest in docs/VERSIONS.md, and re-run the script.
 
 - Pin-set digest (sha256 over the sorted \`mode  file  url  sha256\` lines of
   the pins): \`$digest\`
-- Fetched: $fetched, with the User-Agent \`$ua\`
+- Fetched: $fetched
 - Artefacts: $n_commit committed, $n_cache cache only, $n_manual needing
-  manual retrieval
+  manual retrieval$withheld_count
 - Files in this directory: $files besides this one, each verbatim as the
-  publisher serves it
+  $served
 - Tree digest (sha256 over the sorted per-file \`sha256  path\` listing,
   \`PROVENANCE.md\` excluded): \`$tree\`
 - Read by: $read_by
