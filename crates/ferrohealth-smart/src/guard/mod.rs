@@ -14,6 +14,9 @@
 //! body of either is the product's ([`Render`]). What a scope reaches inside
 //! a type (the patient compartment, the launch context's EHR) is checked by
 //! the handler, which reads the [`Access`] the layer leaves on the request.
+//! With a party binding ([`Gate::with_party`]) the layer looks each admitted
+//! caller's login up and leaves the outcome on the caller; what it means is
+//! the product's to answer, and a source that fails answers `503`.
 
 mod gate;
 
@@ -39,6 +42,7 @@ use crate::audit::Actor;
 use crate::audit::AuditLine;
 use crate::basic::PasswordStore;
 use crate::extract::HeaderOnly;
+use crate::party::binding::PartyBinding;
 use crate::refusal::Refusal;
 use crate::refusal::Schemes;
 use crate::resource::Access;
@@ -378,6 +382,8 @@ pub struct Gate {
     credential: CredentialHeader,
     /// The `DPoP` proof check, when `DPoP`-bound tokens are admitted.
     proof: Option<Arc<ProofCheck>>,
+    /// The party binding every admitted caller is looked up in.
+    party: Option<Arc<PartyBinding>>,
 }
 
 impl Default for Gate {
@@ -389,6 +395,7 @@ impl Default for Gate {
             honours: Arc::new(|_caller| Honoured::default()),
             credential: CredentialHeader::default(),
             proof: None,
+            party: None,
         }
     }
 }
@@ -401,6 +408,7 @@ impl std::fmt::Debug for Gate {
             .field("realm", &self.realm)
             .field("credential", &self.credential)
             .field("proof", &self.proof)
+            .field("party", &self.party)
             .finish_non_exhaustive()
     }
 }
@@ -425,6 +433,15 @@ impl Gate {
     #[must_use]
     pub fn with_dpop(mut self, check: Arc<ProofCheck>) -> Self {
         self.proof = Some(check);
+        self
+    }
+
+    /// Returns this gate looking every caller it admits up in `binding`,
+    /// once per request, and leaving the outcome on the caller
+    /// ([`Caller::party`]).
+    #[must_use]
+    pub fn with_party(mut self, binding: Arc<PartyBinding>) -> Self {
+        self.party = Some(binding);
         self
     }
 
@@ -659,21 +676,31 @@ where
                 .and_then(|value| value.to_str().ok())
                 .map(str::to_owned);
             let (mut parts, body) = request.into_parts();
+            let mut binding = None;
             let (access, response) = match admit(&gate, &target, &parts).await {
-                Err((access, refusal)) => (access, render.render(&refusal, &parts)),
+                Err((access, refusal)) => {
+                    if refusal == Refusal::Unavailable && access.is_some() {
+                        binding = Some(crate::audit::SOURCE_UNAVAILABLE);
+                    }
+                    (access, render.render(&refusal, &parts))
+                }
                 Ok(access) => {
                     parts.extensions.insert(access.clone());
                     let request = Request::from_parts(parts, body);
                     (Some(access), inner.call(request).await?)
                 }
             };
+            let mut actor = Actor::of(access.as_ref());
+            if let Some(binding) = binding {
+                actor = actor.with_binding(binding);
+            }
             let answered = response
                 .extensions()
                 .get::<AnsweredAs>()
                 .map_or(target.interaction, |answered| answered.0);
             AuditLine::new(&method, answered, response.status())
                 .timed(at, started.elapsed())
-                .by(Actor::of(access.as_ref()))
+                .by(actor)
                 .on(target.route_template(), target.target_name())
                 .request(request_id.as_deref())
                 .write();
@@ -703,10 +730,21 @@ async fn admit(
         .await
         .map_err(|denied| (None, denied.into_refusal()))?;
     let honoured = gate.honoured(&access);
-    if gate.is_open() || target.requirement().met_by(&access, honoured) {
-        Ok(access)
-    } else {
-        Err((Some(access), Refusal::Forbidden))
+    if !gate.is_open() && !target.requirement().met_by(&access, honoured) {
+        return Err((Some(access), Refusal::Forbidden));
+    }
+    let (Some(binding), Access::Caller(caller)) = (&gate.party, &access) else {
+        return Ok(access);
+    };
+    match binding.resolve(caller).await {
+        Ok(None) => Ok(access),
+        Ok(Some(outcome)) => Ok(Access::Caller(Arc::new(
+            Caller::clone(caller).with_party(outcome),
+        ))),
+        Err(error) => {
+            tracing::warn!(error = %error, "the party source could not answer");
+            Err((Some(access), Refusal::Unavailable))
+        }
     }
 }
 

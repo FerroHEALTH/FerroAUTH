@@ -175,6 +175,9 @@ impl AuthSection {
         if self.enabled && kinds.is_empty() && !basic_users {
             return Err(ConfigError::Missing { key: "auth.issuer" });
         }
+        if self.enabled {
+            self.check_party()?;
+        }
         let basic = self.basic_store()?;
         let dpop = self.dpop_settings()?;
         Ok(Resolved {
@@ -189,6 +192,11 @@ impl AuthSection {
             dpop,
             #[cfg(feature = "fetch")]
             introspection,
+            party: if self.enabled {
+                self.party.clone()
+            } else {
+                Vec::new()
+            },
         })
     }
 
@@ -342,6 +350,25 @@ impl AuthSection {
             }
         }
         Ok(())
+    }
+
+    /// Refuses an `[[auth.party]]` table that names no trusted `persons`
+    /// issuer, sets `claim`, or shares its issuer or its `identifier_issuer`
+    /// with another (no specification governs this: our own design).
+    fn check_party(&self) -> Result<(), ConfigError> {
+        let profiles = self
+            .issuers()
+            .iter()
+            .filter_map(|entry| Some((entry.issuer.as_str(), entry.kind?, entry)))
+            .map(|(issuer, kind, entry)| Ok((issuer, kind, profile_of(entry)?)))
+            .collect::<Result<Vec<_>, ConfigError>>()?;
+        crate::party::config::check_tables(&self.party, |issuer| {
+            profiles
+                .iter()
+                .find(|(named, _, _)| *named == issuer)
+                .map(|(_, kind, profile)| (*kind, profile))
+        })
+        .map_err(|source| ConfigError::Party { source })
     }
 
     /// Returns the `[[auth.federation]]` table of `issuer`.

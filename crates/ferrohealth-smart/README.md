@@ -52,6 +52,14 @@ ferrohealth-smart = { version = "=0.8.9", features = ["axum", "openehr"] }
   `System`, `Delegated`, `Representative`, `Person` or `Guest`, and a token
   that matches no step is refused as `Rejection::Unclassified`. A Basic
   credential is a person's, never a system's.
+- **`party`**: the party a person's login belongs to. One `[[auth.party]]`
+  table per `persons` issuer names the identifiers its logins are matched
+  against; the product implements `PartySource` over its own store, and
+  `PartyBinding::resolve` (or `Gate::with_party` behind the guard) looks the
+  issuer profile's `person_key` up on every request, with no cache, into one
+  `Outcome`: `Party`, `WrongMarker`, `Unbound`, `Ambiguous`, `Inactive`,
+  `Abandoned`, `Deprovisioned`, `KeyClaimMissing` or `GroupsUnavailable`. A
+  source failure is a `SourceError`, never no match.
 - **The person's own access**: `Caller::is_the_person`, a `Patient` caller
   of a `patients` issuer, with `Caller::person` naming the patient the request is bound to and a
   deployment's patient claim attached as a `resource::PatientClaim`.

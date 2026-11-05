@@ -777,7 +777,8 @@ impl Via {
 
 /// The identity one valid credential carries.
 ///
-/// Two callers are equal when everything but their extensions is. Its
+/// Two callers are equal when everything but their extensions and their
+/// party is. Its
 /// `Debug` rendering names the subject, the client, the issuer, the kind and
 /// the scheme alone, never another claim of the token.
 #[derive(Clone)]
@@ -818,6 +819,8 @@ pub struct Caller {
     /// The product's own values, attached by its resource server or its
     /// verifier.
     extensions: Extensions,
+    /// What the login resolved to, when a party binding looked it up.
+    party: Option<crate::party::Outcome>,
 }
 
 impl PartialEq for Caller {
