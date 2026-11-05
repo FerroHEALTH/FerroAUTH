@@ -102,9 +102,13 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   vendored SMART App Launch, RFC, OpenID Connect Discovery, Core and
   RP-Initiated Logout, NIST SP 800-162 and Cedar language corpora, the
   IHE IUA supplement, Nuts RFC021, and the Microsoft Entra, SCIM workload
-  identity and Keycloak documents the issuer profiles cite, each with a
-  `PROVENANCE.md`; `okta/` holds only the provenance of a cache-only page,
-  fetched into the ignored `.vendor-cache/`).
+  identity and Keycloak documents the issuer profiles cite, the eHDSI
+  specifications the owner supplied, Implementing Regulation (EU)
+  2026/2099, the GDPR and Commission Decision 2011/833/EU, and the
+  Federation Tier Annex B, each with a `PROVENANCE.md`; `okta/` holds only
+  the provenance of a cache-only page, fetched into the ignored
+  `.vendor-cache/`, and the MyHealth@EU Requirements Catalogue is recorded
+  by sha256 and never copied).
 - `scripts/`: `vendor/` (the corpus fetchers), `checks/` (the committed
   guards), `release/` (the crate publish), `gh/` (the tracker helpers).
 - `.github/`: CI with a single required `conclusion` job, the vendored

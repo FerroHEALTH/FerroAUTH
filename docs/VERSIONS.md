@@ -49,6 +49,9 @@ hashes the vendored bytes again, failing when either disagrees with its row.
 | SCIM workload identity federation guide | `AzureAD/SCIMReferenceCode` commit `21b92c8f28383e30f8c304908b126682af2370d7` (the default branch head on 2026-11-05), `Workload-Identity-Federation-for-SCIM-Provisioning.md` and its figures (MIT) | `scripts/vendor/scim-workload-identity.sh`, `docs/specs/scim-workload-identity/PROVENANCE.md` |
 | Keycloak documentation | `keycloak/keycloak` tag `26.8.2` commit `e514445f9dcdabc5bdcf67cab56c1e49655de067`, the token exchange chapter and the server administration guide's service account, protocol mapper and identity brokering sections (Apache-2.0) | `scripts/vendor/keycloak-docs.sh`, `docs/specs/keycloak-docs/PROVENANCE.md` |
 | Okta OpenID Connect and OAuth 2.0 API | pin-set digest `bda8b2583cfad62b58669f2bba0214d7aabb33ab9c37d99b55d608cbc6171b82` over the one page the script pins by URL and sha256; cache only, never committed ("All rights reserved") | `scripts/vendor/okta.sh`, `docs/specs/okta/PROVENANCE.md` |
+| eHDSI specifications | pin-set digest `c08730ff34b06631cea5422a1fca8a98752acccbf2cb05817f08b5cbae8a2cae`: the SAML Profile 10.0.0, Section II Security Services 10.0.0, the Service Location and Capability Lookup Profile 10.0.0, the NCPeH Components Specifications 10.0.0 and the Interoperability Specifications 8.0.1, supplied by the owner from the eHDSI wiki (EU Login) and committed (each cover: PU, reuse authorised with the source acknowledged), the files and sha256 values FerroHEALTH/FerroFED vendors; the MyHealth@EU Requirements Catalogue 10.0.0 read and not committed (no reuse statement) | `scripts/vendor/ehdsi-specifications.sh`, `docs/specs/ehdsi-specifications/PROVENANCE.md` |
+| EU legal acts | pin-set digest `c4c72048aa7e1f1c69321f23afa9ba41c8149252f8ff0277ea143e6c34a92123`: Implementing Regulation (EU) 2026/2099, Regulation (EU) 2016/679 (the GDPR) and Commission Decision 2011/833/EU, the English Official Journal XHTML at its Cellar manifestation, reused under that Decision | `scripts/vendor/eu-law.sh`, `docs/specs/eu-law/PROVENANCE.md` |
+| Federation Tier with AQL specification | `syntaric/openehr-federation-spec` commit `b4242c291b08990df718bbfaa1188e4865478e5a`, untagged (declares 1.0.1), the commit FerroHEALTH/FerroFED vendors; Annex B (the Dutch Generic Functions), `antora.yml` and `LICENSE` (CC0-1.0) | `scripts/vendor/federation-spec.sh`, `docs/specs/federation-spec/PROVENANCE.md` |
 
 ### The RFCs
 
@@ -112,7 +115,13 @@ documents, MIT for the SCIM workload identity federation guide and Apache
 License 2.0 for the Keycloak documentation. The Okta API reference states
 "All rights reserved" and grants no licence, so `scripts/vendor/okta.sh`
 fetches it into the git-ignored `.vendor-cache/okta/` and only its
-`PROVENANCE.md` is committed.
+`PROVENANCE.md` is committed. The eHDSI documents are reused as each cover
+allows ("Reuse is authorised, provided the source is acknowledged"), with
+the source line of the cover as the acknowledgement; the MyHealth@EU
+Requirements Catalogue states no reuse terms, so only its sha256 and
+version are recorded and no copy is committed or cached. The EU legal acts
+are reused under Commission Decision 2011/833/EU, vendored beside them, and
+the Federation Tier Annex B is under CC0 1.0.
 
 ## The toolchain and the crate
 

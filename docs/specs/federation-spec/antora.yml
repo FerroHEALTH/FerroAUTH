@@ -1,0 +1,14 @@
+name: federation-aql
+title: Federation Tier with AQL
+# Stays at the minor version: a patch release replaces its predecessor in place,
+# so there is no version selector and no stale URLs. The patch level lives in
+# the display attributes below.
+version: '1.0'
+start_page: index.adoc
+nav:
+  - modules/ROOT/nav.adoc
+asciidoc:
+  attributes:
+    spec-version: '1.0.1'
+    spec-status: 'Approved by the openEHR SEC'
+    spec-date: '2026-11-01'
