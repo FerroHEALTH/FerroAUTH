@@ -1019,9 +1019,42 @@ character, or over its length cap, is refused naming the field. A
 professional below level substantial, or below level high from 26 March
 2032 (2026/2099 Art. 6(3)), is refused. The `sub` is recorded with its
 issuer (`External::remote_subject`) and never bound to a local party, and a
-`federation` issuer contributes no role. A `contact_point = true` issuer
-requires `sender_constraint = "required"` and refuses to load until that
-verification lands; the eHDSI contact-point profile follows it.
+`federation` issuer contributes no role.
+
+**The contact-point profile** (`federation::contact`). A
+`contact_point = true` issuer is NCPeH-A's authorization server, and its
+token carries what that server read from the validated HP Identity
+Assertion and Treatment Relationship Confirmation, under `ehdsi`
+(`mapping = "ehdsi"`; the claim names are our own design). It requires
+`sender_constraint = "required"` (3.15) and fails to load without it,
+naming the key, since the assertion lives up to 4 h. It declares the
+participating `countries` and no provider prefixes, and configures the
+country and the issuing authority, which the assertion does not carry.
+The mandatory attributes are eHDSI SAML Profile 10.0.0 §2.3's, with the
+§2.1 assertion window. A refusal carries its MyHealth@EU Requirements
+Catalogue 10.0.0 §1.25 code name (`contact::EhdsiCode`, `Unclassified::ContactPoint`):
+
+- no professional: `ERROR_HPI_NO_INFORMATION`;
+- a missing NameID, name or role, `on_behalf_of` missing for role 44, or a
+  purpose of use other than `TREATMENT` or `EMERGENCY`:
+  `ERROR_HPI_INSUFFICIENT_INFORMATION`, with the missing fields (the purpose
+  is our own design, as §1.25 has no code for it);
+- no `organization-id`: `ERROR_HPI_HAI_NO_INFORMATION`;
+- no point of care, facility type or `homeCommunityId`:
+  `ERROR_HPI_POC_NO_INFORMATION`;
+- an authentication class outside the seven of §2.1:
+  `ERROR_HPI_AUTHENTICATION_NOT_RECEIVED` (requirement 01.01);
+- a missing assertion attribute, or a token that outlives the IdA (4 h) or
+  the TRC (2 h) window, with 60 s of drift:
+  `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED` (requirement 11.01.02).
+
+`EhdsiCode::of` names any other invalid token `ERROR_SEC_GENERIC` and an
+unreadable key set `ERROR_REGISTRY_NOT_AVAILABLE`. Nothing is refused on
+the description of the HP, the role or the point of care (requirements 01
+and 01.02), and no level is judged (Interoperability Specifications 8.0.1
+§2.4.3): the class is recorded as received. A contact point never admits
+an organisation. Whether a request is a patient-data request, which needs
+`patient.id`, is the product's to check.
 
 ### 3.15 Sender-constrained tokens
 

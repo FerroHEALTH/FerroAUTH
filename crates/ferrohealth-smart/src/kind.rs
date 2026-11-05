@@ -244,6 +244,15 @@ pub enum Unclassified {
     /// The Verifiable Presentations do not read.
     #[error("the verifiable presentations do not read")]
     Presentations,
+    /// A contact-point token misses an attribute or outlives its assertions,
+    /// with the MyHealth@EU Requirements Catalogue 10.0.0 §1.25 code name.
+    #[error("a contact-point token is refused as {code}, missing {missing:?}")]
+    ContactPoint {
+        /// The §1.25 code name.
+        code: crate::federation::contact::EhdsiCode,
+        /// The fields it misses, for `ERROR_HPI_INSUFFICIENT_INFORMATION`.
+        missing: Vec<&'static str>,
+    },
     /// The issuer's kind has no step this build classifies.
     #[error("no step classifies a token of a {kind} issuer")]
     NoStep {

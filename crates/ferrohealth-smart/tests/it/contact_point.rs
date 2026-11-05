@@ -1,0 +1,438 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The MyHealth@EU contact-point profile through the public API: a token of
+//! NCPeH-A's authorization server, bound to the client certificate, carries
+//! what was read from the HP Identity Assertion and the Treatment
+//! Relationship Confirmation; every refusal carries its MyHealth@EU
+//! Requirements Catalogue 10.0.0 §1.25 code name.
+
+use std::collections::BTreeMap;
+use std::error::Error as StdError;
+
+use ferrohealth_smart::federation::Attribute;
+use ferrohealth_smart::federation::FederationSection;
+use ferrohealth_smart::federation::Field;
+use ferrohealth_smart::federation::Mapping;
+use ferrohealth_smart::federation::Source;
+use ferrohealth_smart::federation::contact::AUTHENTICATION_CLASSES;
+use ferrohealth_smart::federation::contact::EhdsiCode;
+use ferrohealth_smart::kind::CallerKind;
+use ferrohealth_smart::kind::IssuerKind;
+use ferrohealth_smart::kind::Unclassified;
+use ferrohealth_smart::refusal::Reason;
+use ferrohealth_smart::resource::Caller;
+use ferrohealth_smart::resource::Rejection;
+use ferrohealth_smart::resource::ResourceError;
+use ferrohealth_smart::resource::ResourceServer;
+use ferrohealth_smart::resource::Settings;
+use ferrohealth_smart::sender::Binding;
+use ferrohealth_smart::sender::ClientCertificate;
+use ferrohealth_smart::sender::SenderConstraint;
+use jsonwebtoken::Algorithm;
+use jsonwebtoken::Header;
+use serde_json::Value;
+use serde_json::json;
+
+use crate::support::SigningKey;
+use crate::support::ec_key;
+use crate::support::mint_with;
+use crate::support::now;
+use crate::support::temp_file;
+
+type Outcome = Result<(), Box<dyn StdError>>;
+
+/// NCPeH-A's authorization server.
+const ISSUER: &str = "https://ncpeh-a.example.org";
+/// This node's audience.
+const AUDIENCE: &str = "https://ehr.example.org/openehr";
+/// The synthetic DER bytes of the client certificate the token is bound to.
+const CERTIFICATE: &[u8] = b"synthetic client certificate DER";
+
+/// The table of a contact point: the eHDSI mapping, the country and the
+/// issuing authority taken from NCP-B's identity, configured.
+fn table() -> FederationSection {
+    FederationSection {
+        issuer: String::from(ISSUER),
+        contact_point: Some(true),
+        mapping: Some(Mapping::Ehdsi),
+        fields: BTreeMap::from([
+            (
+                Field::ProfessionalCountryCode,
+                vec![Source::Constant(String::from("BE"))],
+            ),
+            (
+                Field::ProfessionalIssuingAuthorityName,
+                vec![Source::Constant(String::from("NCP-B Belgium"))],
+            ),
+        ]),
+        countries: vec![String::from("BE"), String::from("NL"), String::from("PT")],
+        ..FederationSection::default()
+    }
+}
+
+/// The claims of a contact-point token: eHDSI SAML Profile 10.0.0 §2.3's
+/// mandatory attributes, the §2.1 assertion window and the TRC's.
+fn token() -> Value {
+    let now = now();
+    json!({
+        "iss": ISSUER, "sub": "hp-nameid", "client_id": "ncpeh-b", "aud": AUDIENCE,
+        "jti": "jti-1", "iat": now, "exp": now + 600,
+        "scope": "patient/*.rs",
+        "cnf": { "x5t#S256": ClientCertificate::from_der(CERTIFICATE).thumbprint() },
+        "ehdsi": {
+            "professional": {
+                "hp_identifier": "CN=Synthetic Doctor,O=Hospital,C=BE",
+                "name": "Synthetic Doctor",
+                "hp_professional_role": [{ "system": "2.16.840.1.113883.2.9.6.2.7", "code": "221" }],
+                "authentication_method": AUTHENTICATION_CLASSES[4]
+            },
+            "provider": {
+                "healthcare_provider_identifier": "urn:oid:1.2.3.4",
+                "facility_type": "Hospital",
+                "home_community_id": "urn:oid:1.2.3"
+            },
+            "point_of_care": "Synthetic Hospital",
+            "purpose_of_use": "TREATMENT",
+            "assertion": {
+                "issuer": "https://ncp-b.example.org",
+                "id": "urn:uuid:ida-1",
+                "not_before": now - 60,
+                "not_on_or_after": now + 3600
+            },
+            "trc": {
+                "id": "urn:uuid:trc-1",
+                "not_before": now - 60,
+                "not_on_or_after": now + 3600
+            },
+            "patient": { "id": "synthetic-patient^^^&1.2.3&ISO" }
+        }
+    })
+}
+
+/// The contact-point issuer of the cases.
+struct Harness {
+    /// The signing key, in the key set file.
+    key: SigningKey,
+}
+
+impl Harness {
+    fn new() -> Self {
+        Self {
+            key: ec_key("cp", Algorithm::ES256),
+        }
+    }
+
+    /// Returns the settings of the issuer under `section`, sender-constrained.
+    fn settings(&self, section: FederationSection) -> Settings {
+        let set = json!({ "keys": [self.key.jwk.clone()] }).to_string();
+        let mut settings = Settings::new(ISSUER, AUDIENCE, IssuerKind::Federation);
+        settings.jwks_file = Some(temp_file("contact-point-jwks.json", set.as_bytes()));
+        settings.sender_constraint = SenderConstraint::Required;
+        settings.federation = Some(section);
+        settings
+    }
+
+    /// Returns the caller `claims` authenticate over the bound connection.
+    async fn admit(&self, claims: &Value) -> Result<Caller, Rejection> {
+        let server = ResourceServer::discover(self.settings(table()))
+            .await
+            .expect("the key set file reads");
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(String::from("cp"));
+        header.typ = Some(String::from("at+jwt"));
+        let binding = Binding::bearer().with_certificate(&ClientCertificate::from_der(CERTIFICATE));
+        server
+            .authenticate_bound(&mint_with(&self.key, &header, claims), &binding)
+            .await
+    }
+}
+
+/// Returns the §1.25 code and the missing fields of a refusal.
+fn code(outcome: Result<Caller, Rejection>) -> Option<(EhdsiCode, Vec<&'static str>)> {
+    match outcome {
+        Err(Rejection::Unclassified {
+            reason: Unclassified::ContactPoint { code, missing },
+        }) => Some((code, missing)),
+        _ => None,
+    }
+}
+
+/// Returns `claims` with the `ehdsi` member at `pointer` removed.
+fn without(pointer: &str) -> Value {
+    let mut claims = token();
+    let (parent, member) = pointer.rsplit_once('/').expect("a member");
+    claims
+        .pointer_mut(&format!("/ehdsi{parent}"))
+        .and_then(Value::as_object_mut)
+        .expect("the parent object")
+        .remove(member);
+    claims
+}
+
+#[tokio::test]
+async fn a_complete_contact_point_token_is_an_external_person() -> Outcome {
+    let caller = Harness::new().admit(&token()).await?;
+    let CallerKind::ExternalPerson(person) = caller.kind() else {
+        panic!("an external person: {caller:?}");
+    };
+    assert_eq!(
+        Some(&Attribute::Text(String::from(AUTHENTICATION_CLASSES[4]))),
+        person.field(Field::ProfessionalAuthenticationMethod),
+        "the class is recorded as received"
+    );
+    assert_eq!(
+        Some(&Attribute::Text(String::from("BE"))),
+        person.field(Field::ProfessionalCountryCode),
+        "the country is configured, not asserted"
+    );
+    Ok(())
+}
+
+// NOTE: MyHealth@EU Requirements Catalogue 10.0.0 §1.25, requirement 01: each
+// missing piece of HP information has its own code name.
+#[tokio::test]
+async fn each_missing_attribute_is_refused_with_its_code_name() -> Outcome {
+    let h = Harness::new();
+    let cases = [
+        (
+            "/professional/hp_identifier",
+            EhdsiCode::HpiInsufficientInformation,
+            "professional.hp_identifier",
+        ),
+        (
+            "/professional/name",
+            EhdsiCode::HpiInsufficientInformation,
+            "professional.name",
+        ),
+        (
+            "/professional/hp_professional_role",
+            EhdsiCode::HpiInsufficientInformation,
+            "professional.hp_professional_role",
+        ),
+        (
+            "/provider/healthcare_provider_identifier",
+            EhdsiCode::HpiHaiNoInformation,
+            "provider.healthcare_provider_identifier",
+        ),
+        (
+            "/point_of_care",
+            EhdsiCode::HpiPocNoInformation,
+            "point_of_care",
+        ),
+        (
+            "/provider/facility_type",
+            EhdsiCode::HpiPocNoInformation,
+            "provider.facility_type",
+        ),
+        (
+            "/provider/home_community_id",
+            EhdsiCode::HpiPocNoInformation,
+            "provider.home_community_id",
+        ),
+        (
+            "/professional/authentication_method",
+            EhdsiCode::HpiAuthenticationNotReceived,
+            "professional.authentication_method",
+        ),
+        (
+            "/purpose_of_use",
+            EhdsiCode::HpiInsufficientInformation,
+            "purpose_of_use",
+        ),
+        (
+            "/assertion/id",
+            EhdsiCode::SecDataIntegrityNotEnsured,
+            "assertion.id",
+        ),
+        ("/trc/id", EhdsiCode::SecDataIntegrityNotEnsured, "trc.id"),
+    ];
+    for (pointer, want, field) in cases {
+        let refused = code(h.admit(&without(pointer)).await);
+        assert_eq!(Some((want, vec![field])), refused, "{pointer}");
+        assert!(want.as_str().starts_with("ERROR_"), "{want}");
+    }
+    assert_eq!(
+        "ERROR_HPI_AUTHENTICATION_NOT_RECEIVED",
+        EhdsiCode::HpiAuthenticationNotReceived.as_str()
+    );
+    Ok(())
+}
+
+// NOTE: eHDSI SAML Profile 10.0.0 §2.3: purpose of use is TREATMENT or EMERGENCY,
+// and "If a HP requests claims for another purpose of use, the request must be rejected".
+#[tokio::test]
+async fn a_purpose_other_than_treatment_or_emergency_is_refused() -> Outcome {
+    let h = Harness::new();
+    let mut claims = token();
+    claims["ehdsi"]["purpose_of_use"] = json!("EMERGENCY");
+    assert!(h.admit(&claims).await.is_ok(), "EMERGENCY");
+    claims["ehdsi"]["purpose_of_use"] = json!("RESEARCH");
+    assert_eq!(
+        Some((
+            EhdsiCode::HpiInsufficientInformation,
+            vec!["purpose_of_use"]
+        )),
+        code(h.admit(&claims).await)
+    );
+    Ok(())
+}
+
+// NOTE: eHDSI SAML Profile 10.0.0 §2.3: `on-behalf-of` is mandatory for the
+// structural role "44 - Other Clerical Support Workers".
+#[tokio::test]
+async fn role_44_without_on_behalf_of_is_refused() -> Outcome {
+    let h = Harness::new();
+    let mut claims = token();
+    claims["ehdsi"]["professional"]["hp_professional_role"] =
+        json!([{ "system": "2.16.840.1.113883.2.9.6.2.7", "code": "44" }]);
+    assert_eq!(
+        Some((
+            EhdsiCode::HpiInsufficientInformation,
+            vec!["professional.on_behalf_of"]
+        )),
+        code(h.admit(&claims).await)
+    );
+    claims["ehdsi"]["professional"]["on_behalf_of"] = json!("221");
+    assert!(h.admit(&claims).await.is_ok(), "with on_behalf_of");
+    Ok(())
+}
+
+// NOTE: Requirements Catalogue 10.0.0 requirements 01 and 01.02: country A must not
+// deny access on the description of the HP, the role or the point of care.
+#[tokio::test]
+async fn an_unusual_role_or_point_of_care_is_not_refused() -> Outcome {
+    let mut claims = token();
+    claims["ehdsi"]["professional"]["hp_professional_role"] =
+        json!([{ "system": "urn:oid:9.9.9", "code": "veterinary-locum" }]);
+    claims["ehdsi"]["point_of_care"] = json!("Mobile unit 7, harbour side");
+    assert!(Harness::new().admit(&claims).await.is_ok());
+    Ok(())
+}
+
+// NOTE: Requirements Catalogue 10.0.0 requirement 01 has country B send the HP's
+// information, so a token without a professional is ERROR_HPI_NO_INFORMATION.
+#[tokio::test]
+async fn a_token_without_a_professional_is_refused_never_an_organisation() -> Outcome {
+    let mut claims = token();
+    if let Some(ehdsi) = claims.get_mut("ehdsi").and_then(Value::as_object_mut) {
+        ehdsi.remove("professional");
+    }
+    claims["sub"] = json!("ncpeh-b");
+    assert_eq!(
+        Some((EhdsiCode::HpiNoInformation, Vec::new())),
+        code(Harness::new().admit(&claims).await)
+    );
+    Ok(())
+}
+
+// NOTE: eHDSI SAML Profile 10.0.0 §2.1 lists seven classes and judges no level;
+// Interoperability Specifications 8.0.1 §2.4.3: no country rejects another's assurance.
+#[tokio::test]
+async fn each_of_the_seven_classes_is_admitted_and_an_unknown_one_refused() -> Outcome {
+    let h = Harness::new();
+    for class in AUTHENTICATION_CLASSES {
+        let mut claims = token();
+        claims["ehdsi"]["professional"]["authentication_method"] = json!(class);
+        let caller = h.admit(&claims).await?;
+        assert!(
+            matches!(caller.kind(), CallerKind::ExternalPerson(_)),
+            "{class}"
+        );
+    }
+    let mut claims = token();
+    claims["ehdsi"]["professional"]["authentication_method"] =
+        json!("urn:oasis:names:tc:SAML:2.0:ac:classes:Password");
+    assert_eq!(
+        Some((
+            EhdsiCode::HpiAuthenticationNotReceived,
+            vec!["professional.authentication_method"]
+        )),
+        code(h.admit(&claims).await)
+    );
+    Ok(())
+}
+
+// NOTE: eHDSI SAML Profile 10.0.0 §2.1 and §4: the IdA lives at most 4 h and the
+// TRC at most 2 h, with 60 s of drift; the token never outlives either window.
+#[tokio::test]
+async fn an_issued_token_never_outlives_the_ida_or_the_trc() -> Outcome {
+    let h = Harness::new();
+    let integrity = Some((EhdsiCode::SecDataIntegrityNotEnsured, vec!["exp"]));
+    let mut past_ida = token();
+    past_ida["ehdsi"]["assertion"]["not_on_or_after"] = json!(now() + 120);
+    assert_eq!(integrity, code(h.admit(&past_ida).await), "past the IdA");
+    let mut past_trc = token();
+    past_trc["ehdsi"]["trc"]["not_on_or_after"] = json!(now() + 120);
+    assert_eq!(integrity, code(h.admit(&past_trc).await), "past the TRC");
+    let mut long_ida = token();
+    long_ida["ehdsi"]["assertion"]["not_before"] = json!(now() - 4 * 3600);
+    assert_eq!(
+        integrity,
+        code(h.admit(&long_ida).await),
+        "an IdA window over 4 h"
+    );
+    let mut long_trc = token();
+    long_trc["ehdsi"]["trc"]["not_before"] = json!(now() - 2 * 3600);
+    assert_eq!(
+        integrity,
+        code(h.admit(&long_trc).await),
+        "a TRC window over 2 h"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn every_rejection_maps_to_a_code_name() -> Outcome {
+    let invalid = Rejection::Invalid {
+        reason: Reason::Signature,
+    };
+    assert_eq!(EhdsiCode::SecGeneric, EhdsiCode::of(&invalid));
+    let unavailable = Rejection::upstream("key set", std::io::Error::other("down"));
+    assert_eq!(EhdsiCode::RegistryNotAvailable, EhdsiCode::of(&unavailable));
+    let refused = Harness::new().admit(&without("/point_of_care")).await;
+    let refused = refused.err().ok_or("a refusal")?;
+    assert_eq!(EhdsiCode::HpiPocNoInformation, EhdsiCode::of(&refused));
+    Ok(())
+}
+
+// NOTE: a contact point's tokens live up to the IdA's 4 h, so it requires
+// sender-constrained tokens; without the key it fails to load naming it.
+#[tokio::test]
+async fn a_contact_point_without_sender_constraint_required_fails_to_load() -> Outcome {
+    let h = Harness::new();
+    let mut settings = h.settings(table());
+    settings.sender_constraint = SenderConstraint::None;
+    let refused = ResourceServer::discover(settings).await;
+    assert!(
+        matches!(refused, Err(ResourceError::ContactPointSender)),
+        "{refused:?}"
+    );
+    let message = refused
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(message.contains("sender_constraint"), "{message}");
+    Ok(())
+}
+
+#[test]
+fn a_contact_point_takes_no_provider_prefixes_and_configures_its_country() {
+    let prefixed = FederationSection {
+        provider_identifier_prefixes: vec![String::from("urn:oid:")],
+        ..table()
+    };
+    assert!(
+        prefixed.validate().is_err(),
+        "no narrower bound on another country's identifiers"
+    );
+    let unconfigured = FederationSection {
+        fields: BTreeMap::new(),
+        ..table()
+    };
+    assert!(
+        unconfigured.validate().is_err(),
+        "the assertion carries no country and no issuing authority"
+    );
+    assert!(table().validate().is_ok());
+}

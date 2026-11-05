@@ -42,9 +42,18 @@ issuer tables below and reads who called from `Caller::kind`.
   missing fields; the declared countries, issuing authorities and provider
   identifier prefixes bound every attribute; a control or bidi-control
   character, two disagreeing sources and a professional below level
-  substantial are refused. Strings are compared exactly (RFC 9396 §12). A
-  `contact_point = true` issuer refuses to load until sender-constrained
-  tokens are verified.
+  substantial are refused. Strings are compared exactly (RFC 9396 §12).
+- `federation::contact`: the MyHealth@EU contact-point profile. A
+  `contact_point = true` issuer (`mapping = "ehdsi"`) requires
+  `sender_constraint = "required"` and fails to load without it
+  (`ResourceError::ContactPointSender`, #220), takes no provider prefixes,
+  and configures its country and issuing authority. Its tokens carry the
+  eHDSI SAML Profile 10.0.0 §2.3 attributes, and each refusal carries its
+  Requirements Catalogue 10.0.0 §1.25 code name (`EhdsiCode`,
+  `Unclassified::ContactPoint`); `EhdsiCode::of` names any rejection. A
+  token never outlives the identity assertion or the TRC window, any of
+  the seven authentication classes is admitted and recorded, and nothing
+  is refused on the description, the role or the point of care.
 - `profile`: each issuer's `Profile`, a `Preset` (`profile = "rfc9068"`,
   `"entra"`, `"keycloak"` or `"okta"`, shipped as `profiles/*.toml` with
   each value labelled by its source) with any profile key set over it on
