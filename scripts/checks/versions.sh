@@ -291,6 +291,15 @@ else
   fail "$architecture is missing"
 fi
 
+# ---- 4b. the Keycloak test image -------------------------------------------
+keycloak_live="crates/ferrohealth-smart/tests/it/keycloak_live.rs"
+before="$failures"
+want="$(grep -oE 'sha256:[0-9a-f]{64}' <<< "$(corpus_pin_cell "Keycloak test image")" | head -n1)"
+[ -n "$want" ] || fail "docs/VERSIONS.md pins no Keycloak test image digest"
+grep -qF "@$want" "$keycloak_live" ||
+  fail "$keycloak_live does not run the Keycloak image $want"
+[ "$failures" -ne "$before" ] || ok "the live Keycloak case runs the image $want"
+
 # ---- 5. the licence ---------------------------------------------------------
 licence="$(awk '{ print $1; exit }' <<< "$(corpus_pin_cell "Project licence")")"
 before="$failures"

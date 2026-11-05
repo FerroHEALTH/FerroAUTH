@@ -8,7 +8,7 @@ URL and the sha256 of its bytes. Never edit a file here: change the pins in
 the script and the pin-set digest in docs/VERSIONS.md, and re-run the script.
 
 - Pin-set digest (sha256 over the sorted `mode  file  url  sha256` lines of
-  the pins): `bda8b2583cfad62b58669f2bba0214d7aabb33ab9c37d99b55d608cbc6171b82`
+  the pins): `5eabc84f3fc280ea72504609b93738068dce65c672d8fafb2a2f758ef3e16706`
 - Fetched: 2026-11-05, with the User-Agent `ferrohealth-smart-vendor (scripts/vendor)`
 - Artefacts: 0 committed, 1 cache only, 0 needing
   manual retrieval
@@ -33,9 +33,9 @@ page, and which declares no licence.
 ### `okta-oauth-overview.html` (cache only, not redistributed)
 
 - Source: <https://developer.okta.com/docs/api/openapi/okta-oauth/guides/overview/>
-- Version: no version stated; the page as served on 2026-11-05
-- sha256: `572ba6a714905712e698ccabf09fc25edfda704a0c66996fe793ef3385d29ff8`
+- Version: no version stated; the page as served on 2026-11-05, re-pinned the same day after the first pin's bytes moved
+- sha256: `c278d86c510d60d27ffe073a068d6ac8763358749a6017f449e9bc21f0d39ea9`
 - Licence: Copyright © 2026 Okta. All rights reserved. (the page footer and <https://developer.okta.com/copyright/>, which adds "See Okta's Terms of Service for its Intellectual Property"); okta/okta-developer-docs carries no licence file and GitHub reports no licence for it
 - Not redistributed: the script fetches it into `.vendor-cache/okta/`, which git
   ignores; this repository carries none of its content.
-- Note: The reserved claims of the access token: uid ("A unique identifier for the user", absent when no user is bound to the token) and cid ("Client ID of the client that requested the access token")
+- Note: The reserved claims of the access token: uid ("A unique identifier for the user", absent when no user is bound to the token), cid ("Client ID of the client that requested the access token"), scp ("Array of scopes"), and a header whose only reserved claims are alg and kid

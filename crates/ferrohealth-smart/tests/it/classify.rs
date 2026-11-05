@@ -744,6 +744,28 @@ mod entra_profile {
 mod keycloak_profile {
     use super::*;
 
+    // NOTE: Keycloak 26.8.2 `con-protocol-mappers.adoc`: IMPERSONATOR_ID is a
+    // session note; the preset names no marker until the deployment maps one.
+    #[tokio::test]
+    async fn a_token_carrying_the_configured_impersonation_claim_is_refused() -> Outcome {
+        let h = Harness::new(keycloak())?;
+        assert_eq!(None, h.profile.impersonation_marker, "no default marker");
+        let mut claims = h.person("user/Observation.rs");
+        claims["impersonator_id"] = json!("admin-user-uuid");
+        assert!(
+            h.admit(IssuerKind::Persons, keep, &claims).await.is_ok(),
+            "an unmapped claim marks nothing"
+        );
+        let mapped = |profile: &mut Profile| {
+            profile.impersonation_marker = Some(String::from("impersonator_id"));
+        };
+        assert_eq!(
+            Some(Unclassified::Impersonation),
+            refused(h.admit(IssuerKind::Persons, mapped, &claims).await)
+        );
+        Ok(())
+    }
+
     // NOTE: Keycloak 26.8.2, `admin-cli.adoc`: "A client's service account is a
     // user account with username `service-account-CLIENT_ID`".
     #[tokio::test]

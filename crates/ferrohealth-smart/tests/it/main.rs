@@ -37,6 +37,8 @@ mod introspection;
 mod issuer_lists;
 mod key_file;
 #[cfg(feature = "fetch")]
+mod keycloak_live;
+#[cfg(feature = "fetch")]
 mod metadata;
 #[cfg(feature = "oidc")]
 mod oidc;
