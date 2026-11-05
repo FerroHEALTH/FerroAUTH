@@ -8,7 +8,10 @@
 # the securing applications guide with the template its preview notices are
 # rendered from, and the server administration guide's sections on service
 # accounts (with the admin CLI section that names a service account's user),
-# protocol mappers and identity brokering, with the repository's LICENSE.txt,
+# protocol mappers, audience support and identity brokering, the server
+# guide's container chapter the live Keycloak case starts the image by, and
+# the two sources that name the audience mapper's provider id and config
+# keys (#239), with the repository's LICENSE.txt,
 # from keycloak/keycloak at the release tag the "Keycloak documentation" row
 # of docs/VERSIONS.md pins. A tag is mutable, so the script resolves it to a
 # commit and records the commit. The repository is large, so each file is
@@ -36,16 +39,21 @@ corpus_require curl shasum jq
 
 dest="docs/specs/keycloak-docs"
 admin="docs/documentation/server_admin/topics"
+mappers="services/src/main/java/org/keycloak/protocol/oidc/mappers"
 paths=(
   LICENSE.txt
   docs/guides/securing-apps/token-exchange.adoc
   docs/guides/templates/features.adoc
+  docs/guides/server/containers.adoc
   "$admin/clients/oidc/proc-using-a-service-account.adoc"
   "$admin/admin-cli.adoc"
   "$admin/clients/con-protocol-mappers.adoc"
   "$admin/clients/proc-creating-mappers.adoc"
+  "$admin/clients/oidc/con-audience.adoc"
   "$admin/identity-broker.adoc"
   "$admin/identity-broker/"
+  "$mappers/AudienceProtocolMapper.java"
+  "$mappers/OIDCAttributeMapperHelper.java"
 )
 
 pin="$(corpus_pin_cell "Keycloak documentation")"
@@ -103,8 +111,8 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 - Files: $files
 - Tree digest (sha256 over the sorted per-file \`sha256  path\` listing,
   \`PROVENANCE.md\` excluded): \`$digest\`
-- Read by: the \`keycloak\` issuer profile of #215 and the token exchange
-  grant of #217, vendored by #222
+- Read by: the \`keycloak\` issuer profile of #215, the token exchange
+  grant of #217 and the live Keycloak case of #239, vendored by #222 and #239
 
 ## What is taken
 
@@ -128,6 +136,18 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   mappers.
 - \`$admin/identity-broker.adoc\` and \`$admin/identity-broker/\`:
   "Integrating identity providers", whole.
+- \`$admin/clients/oidc/con-audience.adoc\`: "Audience support", the
+  audience mapper a client's access tokens carry \`aud\` by.
+- \`docs/guides/server/containers.adoc\`: "Running Keycloak in a
+  container", whose section "Trying Keycloak in development mode" runs the
+  image with \`start-dev\` and the \`KC_BOOTSTRAP_ADMIN_USERNAME\` and
+  \`KC_BOOTSTRAP_ADMIN_PASSWORD\` variables.
+- \`$mappers/AudienceProtocolMapper.java\` and
+  \`$mappers/OIDCAttributeMapperHelper.java\`: the audience mapper's
+  provider id (\`PROVIDER_ID = "oidc-audience-mapper"\`), its
+  \`included.custom.audience\` key and the \`access.token.claim\` key, which
+  no guide states. The source files carry the same Apache License 2.0
+  header.
 
 The guides' images, and the other chapters the \`include::\` lines of an
 index name, are not taken.

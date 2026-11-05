@@ -16,11 +16,11 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   reproducing and distributing copies of the work in any medium, with a
   copy of the licence given to every recipient. The files are unmodified.
 - Layout: the upstream paths, unchanged
-- Files: 37
+- Files: 41
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `eb722ef7df58624e2764b19f4269dbb9271b9348c8431b517b20ad5ec397e395`
-- Read by: the `keycloak` issuer profile of #215 and the token exchange
-  grant of #217, vendored by #222
+  `PROVENANCE.md` excluded): `0a21c4c27d4d40cad6ead9e3a3272c698ca5c2d324fad3dfb70e912e1acfa23f`
+- Read by: the `keycloak` issuer profile of #215, the token exchange
+  grant of #217 and the live Keycloak case of #239, vendored by #222 and #239
 
 ## What is taken
 
@@ -44,6 +44,18 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   mappers.
 - `docs/documentation/server_admin/topics/identity-broker.adoc` and `docs/documentation/server_admin/topics/identity-broker/`:
   "Integrating identity providers", whole.
+- `docs/documentation/server_admin/topics/clients/oidc/con-audience.adoc`: "Audience support", the
+  audience mapper a client's access tokens carry `aud` by.
+- `docs/guides/server/containers.adoc`: "Running Keycloak in a
+  container", whose section "Trying Keycloak in development mode" runs the
+  image with `start-dev` and the `KC_BOOTSTRAP_ADMIN_USERNAME` and
+  `KC_BOOTSTRAP_ADMIN_PASSWORD` variables.
+- `services/src/main/java/org/keycloak/protocol/oidc/mappers/AudienceProtocolMapper.java` and
+  `services/src/main/java/org/keycloak/protocol/oidc/mappers/OIDCAttributeMapperHelper.java`: the audience mapper's
+  provider id (`PROVIDER_ID = "oidc-audience-mapper"`), its
+  `included.custom.audience` key and the `access.token.claim` key, which
+  no guide states. The source files carry the same Apache License 2.0
+  header.
 
 The guides' images, and the other chapters the `include::` lines of an
 index name, are not taken.
@@ -53,6 +65,7 @@ index name, are not taken.
 | `LICENSE.txt` | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` | `d645695673349e3947e8e5ae42332d0ac3164cd7` |
 | `docs/documentation/server_admin/topics/admin-cli.adoc` | `2443b1a18cf8ac9ff81062ba875fb854a69c0cc0cea6351d057d15fb16afa483` | `a698a8246357d1cbc48c4d7138dcdd1c6e78b8a6` |
 | `docs/documentation/server_admin/topics/clients/con-protocol-mappers.adoc` | `edb5a5ca0dcc2ff44a386a46420733a7f103f586efdc71bba46e8ea4a6dddcc2` | `ec681ceb05970357fed5af538209dbdad851f7a1` |
+| `docs/documentation/server_admin/topics/clients/oidc/con-audience.adoc` | `ff9f6c0adf79a2b16f94daac4596f1ed0aa67bae1bf4da6e55703df818882225` | `dfdb6995fc93b73d42ea899e5ab8d77b1a7140d2` |
 | `docs/documentation/server_admin/topics/clients/oidc/proc-using-a-service-account.adoc` | `0ab4e3d6fc78b640abdfd8086af1e791d4ed89750a84211bd06ee8e7b24709ed` | `6852d9fb3efd0bafc0234c0718b4d65d07db2157` |
 | `docs/documentation/server_admin/topics/clients/proc-creating-mappers.adoc` | `dea2fd0deb49fc2d350eff27676f03d0fed8954b592c52ab907bfc64ef99f216` | `81766dbe777bc25e2b042e6a92b7986349d78544` |
 | `docs/documentation/server_admin/topics/identity-broker.adoc` | `f2596b2638ff35ae8987d3ede01b9b51742c62d640a8f820c2c3a1163c2f9b0f` | `45c0b18049d5920d4327614b5534d2ee34fce30c` |
@@ -86,4 +99,7 @@ index name, are not taken.
 | `docs/documentation/server_admin/topics/identity-broker/suggested.adoc` | `430a657dd585dd18df658d812805004068257626e379bd4beb976c8299783113` | `74bf35226645a23f7d5d19b9b13b1aa9cc2bc92c` |
 | `docs/documentation/server_admin/topics/identity-broker/tokens.adoc` | `2ece6b41b216450282d991d6322bb7aee6a5e29347649dc8ab2da5b8af562b74` | `99be93b8fb8be5907ee3fa42bb2695817ddcdd78` |
 | `docs/guides/securing-apps/token-exchange.adoc` | `99d6d660675f2d4d35cbdc0825ffab7f5aeeb39d970c580340b1d472a72d7afa` | `8b6b4f866dbfe084d062723687eadd2ec71e5abe` |
+| `docs/guides/server/containers.adoc` | `2c9fa7ff5e2017b5ea316248bdf3bacee792178ab463de7fc0feee1aa81a9699` | `daccd5b809cf9c1826e3172cbe6bf52ef33e3825` |
 | `docs/guides/templates/features.adoc` | `46d92510c4e2cafc8780518f1932784d29359a1c8088a8b643bc63c044d0dc03` | `9a6a96620d13ee8a9ba715240f3607e02e1e1576` |
+| `services/src/main/java/org/keycloak/protocol/oidc/mappers/AudienceProtocolMapper.java` | `706653e426b063601795c1047e6b0f61cf04f378da24569fbb6ab6ff2c25341a` | `64d67834343c5726a630c708d6594664b0a776fd` |
+| `services/src/main/java/org/keycloak/protocol/oidc/mappers/OIDCAttributeMapperHelper.java` | `bd4be995ef4a84026472aa33dea151eba444cd9af68011a5a2165e07805c9b52` | `06af33df0a1a31b4727761d53e8b1fbae6da4f88` |
