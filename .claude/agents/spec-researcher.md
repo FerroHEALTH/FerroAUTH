@@ -2,7 +2,7 @@
 name: spec-researcher
 description: >
   Answers specification questions for FerroAUTH from the vendored sources:
-  SMART App Launch 2.2.0, the OAuth 2.0 and JOSE RFCs (6749, 6750, 7515,
+  SMART App Launch 2.2.0, the IETF RFCs (6749, 6750, 7515,
   7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449,
   8705) and OpenID Connect Discovery 1.0, returning the requirements with
   exact citations (document plus section). Use proactively to keep heavy

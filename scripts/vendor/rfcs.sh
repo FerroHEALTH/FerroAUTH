@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 # scripts/vendor/rfcs.sh
 #
-# Vendors the OAuth 2.0 and JOSE RFCs into docs/specs/rfc/, one text file
+# Vendors the IETF RFCs into docs/specs/rfc/, one text file
 # each, from the RFC Editor. Every `RFC NNNN` row of docs/VERSIONS.md names
 # the pin: the sha256 of the published text, which the script verifies. The
 # RFC Editor's metadata for each is read too, and an RFC it reports obsoleted
@@ -66,7 +66,7 @@ cat > "$dest/PROVENANCE.md" << PROV
 <!-- This file describes vendored third-party material; the bytes beside it
      keep their upstream licence, not the licence of this repository. -->
 
-# Provenance: the OAuth 2.0 and JOSE RFCs
+# Provenance: the IETF RFCs
 
 Vendored verbatim by \`scripts/vendor/rfcs.sh\` from the RFC Editor
 (<$editor/>), the text form of each, as published. Never edit a file here:
