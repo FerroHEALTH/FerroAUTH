@@ -211,6 +211,12 @@ pub enum Unclassified {
         /// The fields it misses.
         missing: Vec<&'static str>,
     },
+    /// A token misses fields the issuer's table requires, each named.
+    #[error("a federation token misses the required fields {missing:?}")]
+    RequiredFields {
+        /// The fields it misses.
+        missing: Vec<&'static str>,
+    },
     /// An attribute is outside the bounds the issuer's table declares.
     #[error("the attribute {field} is outside the declared bounds")]
     OutOfBounds {

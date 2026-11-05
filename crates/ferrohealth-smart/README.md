@@ -45,7 +45,7 @@ ferrohealth-smart = { version = "=0.8.9", features = ["axum", "openehr"] }
 - **`kind`** and **`profile`**: who stands behind a token. Each
   `[[auth.issuer]]` declares its `kind` (`persons`, `patients`, `machines`,
   `federation`) and a `profile`, a preset (`rfc9068`, `entra`, `keycloak`,
-  `okta`, shipped under `profiles/` with each value's source) with any key
+  `okta`, `nl`, shipped under `profiles/` with each value's source) with any key
   set over it: the token types, the required claims, the scope claim, the
   person key, the client claims, the app-only and guest markers, the
   first-party clients and the delegates. `Caller::kind` answers `Patient`,

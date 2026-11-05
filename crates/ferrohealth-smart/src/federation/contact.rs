@@ -49,10 +49,9 @@ pub enum EhdsiCode {
     /// The assertion attributes are missing, or the token outlives an
     /// assertion's window (requirement 11.01.02).
     SecDataIntegrityNotEnsured,
-    /// Any other invalid token (requirement 11).
+    /// Any other invalid token, and a key set or an upstream the check
+    /// needs that cannot be read (requirement 11).
     SecGeneric,
-    /// The key set or an upstream the check needs cannot be read.
-    RegistryNotAvailable,
 }
 
 impl EhdsiCode {
@@ -67,23 +66,21 @@ impl EhdsiCode {
             Self::HpiAuthenticationNotReceived => "ERROR_HPI_AUTHENTICATION_NOT_RECEIVED",
             Self::SecDataIntegrityNotEnsured => "ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED",
             Self::SecGeneric => "ERROR_SEC_GENERIC",
-            Self::RegistryNotAvailable => "ERROR_REGISTRY_NOT_AVAILABLE",
         }
     }
 
     /// Returns the code a contact point answers `rejection` with: the code of
-    /// a contact-point refusal, `ERROR_REGISTRY_NOT_AVAILABLE` for an
-    /// unreadable key set or upstream, and `ERROR_SEC_GENERIC` for any other
-    /// invalid token.
+    /// a contact-point refusal, and `ERROR_SEC_GENERIC` for any other invalid
+    /// token and for an unreadable key set or upstream.
     #[must_use]
     pub const fn of(rejection: &Rejection) -> Self {
+        // NOTE: Requirements Catalogue 10.0.0 §1.25 has no code for an unreadable key
+        // set, and its ERROR_REGISTRY_NOT_AVAILABLE is requirement 05's (Patient Summary), so
+        // the verification failure takes requirement 11's ERROR_SEC_GENERIC.
         match rejection {
             Rejection::Unclassified {
                 reason: Unclassified::ContactPoint { code, .. },
             } => *code,
-            Rejection::Unavailable { .. } | Rejection::Upstream { .. } => {
-                Self::RegistryNotAvailable
-            }
             _ => Self::SecGeneric,
         }
     }

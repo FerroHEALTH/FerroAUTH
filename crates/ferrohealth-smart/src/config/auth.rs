@@ -371,12 +371,30 @@ impl AuthSection {
         .map_err(|source| ConfigError::Party { source })
     }
 
-    /// Returns the `[[auth.federation]]` table of `issuer`.
-    fn federation_of(&self, issuer: &str) -> Option<FederationSection> {
-        self.federation
+    /// Returns the `[[auth.federation]]` table of `entry`, set over its
+    /// preset's federation defaults; the defaults alone when it has no table,
+    /// which an issuer of another kind then refuses.
+    fn federation_of(&self, entry: &IssuerEntry) -> Result<Option<FederationSection>, ConfigError> {
+        let defaults = entry
+            .profile
+            .federation()
+            .map_err(|source| ConfigError::Issuer {
+                issuer: entry.issuer.clone(),
+                source: Box::new(source.into()),
+            })?;
+        let table = self
+            .federation
             .iter()
-            .find(|section| section.issuer == issuer)
-            .cloned()
+            .find(|section| section.issuer == entry.issuer)
+            .cloned();
+        Ok(match (table, defaults) {
+            (Some(table), Some(defaults)) => Some(table.over(defaults)),
+            (table, None) => table,
+            (None, Some(defaults)) => Some(FederationSection {
+                issuer: entry.issuer.clone(),
+                ..defaults
+            }),
+        })
     }
 
     /// Returns the subjects of `scopeless_subjects` that name `issuer`.
@@ -448,7 +466,7 @@ impl AuthSection {
         settings.scopeless_subjects = self.scopeless_of(&entry.issuer);
         settings.role_claims = role_claims_of(entry, kind);
         settings.assurance.clone_from(&entry.assurance);
-        settings.federation = self.federation_of(&entry.issuer);
+        settings.federation = self.federation_of(entry)?;
         settings.sender_constraint = entry.sender_constraint;
         Ok(settings)
     }
@@ -525,7 +543,7 @@ impl AuthSection {
         settings.role_claims = role_claims_of(entry, kind);
         settings.profile = profile_of(entry)?;
         settings.assurance.clone_from(&entry.assurance);
-        settings.federation = self.federation_of(&entry.issuer);
+        settings.federation = self.federation_of(entry)?;
         settings.sender_constraint = entry.sender_constraint;
         settings
             .validate()

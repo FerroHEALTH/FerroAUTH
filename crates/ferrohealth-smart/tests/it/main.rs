@@ -41,6 +41,7 @@ mod key_file;
 mod keycloak_live;
 #[cfg(feature = "fetch")]
 mod metadata;
+mod nl_profile;
 #[cfg(feature = "oidc")]
 mod oidc;
 #[cfg(all(feature = "openehr", feature = "fetch"))]

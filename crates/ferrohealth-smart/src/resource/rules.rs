@@ -36,6 +36,10 @@ pub(super) fn check_issuer_rules(
             {
                 return Err(ResourceError::ContactPointSender);
             }
+            if section.requires_sender_constraint && sender_constraint != SenderConstraint::Required
+            {
+                return Err(ResourceError::SenderConstraintRequired);
+            }
         }
         (IssuerKind::Federation, None) | (_, Some(_)) => {
             return Err(ResourceError::Kind {

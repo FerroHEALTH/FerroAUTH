@@ -51,12 +51,30 @@ release breaks the public configuration and API: every product moves its
   and configures its country and issuing authority. Its tokens carry the
   eHDSI SAML Profile 10.0.0 §2.3 attributes, and each refusal carries its
   Requirements Catalogue 10.0.0 §1.25 code name (`EhdsiCode`,
-  `Unclassified::ContactPoint`); `EhdsiCode::of` names any rejection. A
+  `Unclassified::ContactPoint`); `EhdsiCode::of` names any rejection, an
+  unreadable key set or upstream as `ERROR_SEC_GENERIC` (requirement 11),
+  since §1.25 gives that case no code of its own (#238). A
   token never outlives the identity assertion or the TRC window, any of
   the seven authentication classes is admitted and recorded, and nothing
   is refused on the description, the role or the point of care.
+- `profile = "nl"` (#238): the harmonised BgZ and eOverdracht
+  authentication of the openEHR Federation Tier specification 1.0.1 Annex
+  B §B.4a, for a `federation` issuer that is one requesting care provider.
+  Its `nl-gis-v1` `authorization_details` entry is attested and is the
+  organisation's access statement; `purpose_of_use` and
+  `nl.organisation_type` are read from it, and the deployment configures
+  the issuer's `nl.ura`. The issuer requires `sender_constraint =
+  "required"` and its own `token_types`, and a token missing the purpose,
+  the organisation type or the URA is refused as
+  `Unclassified::RequiredFields`. Every value cites its Annex B section.
+- A preset file may carry `[[auth.federation]]` defaults
+  (`Preset::federation`), which the issuer's own table is set over
+  (`FederationSection::over`); an issuer of another kind refuses them. The
+  federation table gains `required_fields`, the fields every token must
+  carry, and `requires_sender_constraint`, which refuses the issuer without
+  `sender_constraint = "required"` (`ResourceError::SenderConstraintRequired`).
 - `profile`: each issuer's `Profile`, a `Preset` (`profile = "rfc9068"`,
-  `"entra"`, `"keycloak"` or `"okta"`, shipped as `profiles/*.toml` with
+  `"entra"`, `"keycloak"`, `"okta"` or `"nl"`, shipped as `profiles/*.toml` with
   each value labelled by its source) with any profile key set over it on
   the issuer table: `person_key`, `tenant_claim`, `client_claims`,
   `app_only`, `guest`, `impersonation_marker`, `expect`, `user_claims`,

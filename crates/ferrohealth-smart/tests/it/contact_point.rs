@@ -382,6 +382,8 @@ async fn an_issued_token_never_outlives_the_ida_or_the_trc() -> Outcome {
     Ok(())
 }
 
+// NOTE: Requirements Catalogue 10.0.0 §1.25 names no code for an unreadable key
+// set and places ERROR_REGISTRY_NOT_AVAILABLE under requirement 05, so it is requirement 11's.
 #[tokio::test]
 async fn every_rejection_maps_to_a_code_name() -> Outcome {
     let invalid = Rejection::Invalid {
@@ -389,7 +391,8 @@ async fn every_rejection_maps_to_a_code_name() -> Outcome {
     };
     assert_eq!(EhdsiCode::SecGeneric, EhdsiCode::of(&invalid));
     let unavailable = Rejection::upstream("key set", std::io::Error::other("down"));
-    assert_eq!(EhdsiCode::RegistryNotAvailable, EhdsiCode::of(&unavailable));
+    assert_eq!(EhdsiCode::SecGeneric, EhdsiCode::of(&unavailable));
+    assert_eq!("ERROR_SEC_GENERIC", EhdsiCode::of(&unavailable).as_str());
     let refused = Harness::new().admit(&without("/point_of_care")).await;
     let refused = refused.err().ok_or("a refusal")?;
     assert_eq!(EhdsiCode::HpiPocNoInformation, EhdsiCode::of(&refused));
