@@ -215,6 +215,7 @@ for tree in "ihe-iua:IHE IUA supplement" "nuts-rfc:Nuts RFC021" \
   "entra-docs:Microsoft Entra documentation" \
   "scim-workload-identity:SCIM workload identity federation guide" \
   "keycloak-docs:Keycloak documentation" \
+  "openehr-rm/development:openEHR RM Common (development)" \
   "federation-spec:Federation Tier with AQL specification"; do
   dir="docs/specs/${tree%%:*}"
   item="${tree#*:}"
