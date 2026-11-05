@@ -76,6 +76,8 @@ pub mod client;
 pub mod config;
 #[cfg(all(feature = "axum", resource_server))]
 pub mod extract;
+#[cfg(resource_server)]
+pub mod federation;
 #[cfg(all(feature = "axum", resource_server))]
 pub mod guard;
 #[cfg(resource_server)]

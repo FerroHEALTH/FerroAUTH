@@ -33,6 +33,7 @@ use crate::client::AssertionAudience;
 use crate::client::ClientAuth;
 use crate::client::ClientCredentials;
 use crate::client::assertion::AssertionError;
+use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
 use crate::metadata::DiscoveryError;
 use crate::profile::Delegate;
@@ -184,11 +185,14 @@ pub enum ConfigError {
         /// Its kind, when the section trusts it.
         kind: Option<IssuerKind>,
     },
-    /// A `federation` issuer, which this build does not classify yet.
-    #[error("the federation issuer {issuer:?} is not classified by this build")]
-    FederationUnavailable {
+    /// A `federation` issuer without its one `[[auth.federation]]` table,
+    /// or a table naming no trusted `federation` issuer or naming one twice.
+    #[error("the federation table of {issuer:?} is refused: {reason}")]
+    Federation {
         /// The issuer.
         issuer: String,
+        /// Which rule.
+        reason: &'static str,
     },
     /// An entry of a list read per issuer names an issuer the section does
     /// not trust.
@@ -245,6 +249,8 @@ pub struct AuthSection {
     /// behind a private certificate authority: the discovery document and
     /// the key set of every issuer are read trusting it. Read once at start.
     pub ca_file: Option<PathBuf>,
+    /// The `[[auth.federation]]` tables, one per `federation` issuer.
+    pub federation: Vec<FederationSection>,
     /// Removed: set `audience` on each `[[auth.issuer]]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audience: Removed,
@@ -348,6 +354,7 @@ impl Default for AuthSection {
             product_scope: String::new(),
             basic: None,
             ca_file: None,
+            federation: Vec::new(),
             audience: None,
             algorithms: None,
             token_profile: None,

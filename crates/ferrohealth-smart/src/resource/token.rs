@@ -21,6 +21,8 @@ use serde_json::Map;
 use serde_json::Value;
 
 use crate::assurance::AssuranceSection;
+use crate::federation::Context;
+use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
 use crate::kind::Unclassified;
 use crate::kind::classify;
@@ -79,6 +81,8 @@ pub(super) async fn validate(server: &ResourceServer, token: &str) -> Result<Cal
             kind: settings.kind,
             profile: &settings.profile,
             assurance: settings.assurance.as_ref(),
+            federation: settings.federation.as_ref(),
+            audiences: &settings.audience,
             clock_skew: settings.clock_skew,
             scopeless_subjects: &settings.scopeless_subjects,
             role_claims: &settings.role_claims,
@@ -100,6 +104,10 @@ pub(super) struct Admission<'a> {
     pub(super) profile: &'a Profile,
     /// The issuer's assurance mapping, when it has one.
     pub(super) assurance: Option<&'a AssuranceSection>,
+    /// The `[[auth.federation]]` table of a `federation` issuer.
+    pub(super) federation: Option<&'a FederationSection>,
+    /// This node's audiences, which an `authorization_details` entry names.
+    pub(super) audiences: &'a [String],
     /// The clock skew `iat` is checked with.
     pub(super) clock_skew: Duration,
     /// The subjects granted system-wide access without a clinical scope.
@@ -136,8 +144,23 @@ pub(super) fn admit(
     if subject.trim().is_empty() {
         return Err(invalid(Reason::BlankSubject));
     }
-    let classified = classify(admission.kind, admission.profile, &claims)
-        .map_err(|reason| Rejection::Unclassified { reason })?;
+    let assurance = admission
+        .assurance
+        .map(|section| section.assess(&claims))
+        .unwrap_or_default();
+    let federation = admission.federation.map(|section| Context {
+        section,
+        audiences: admission.audiences,
+        level: assurance.level,
+        levels: admission.assurance.map(|assurance| &assurance.levels),
+    });
+    let classified = classify(
+        admission.kind,
+        admission.profile,
+        federation.as_ref(),
+        &claims,
+    )
+    .map_err(|reason| Rejection::Unclassified { reason })?;
     let scope_claim = if classified.app_only {
         admission
             .profile
@@ -161,10 +184,6 @@ pub(super) fn admit(
         None => Scopes::parse(&scope),
     };
     let roles = crate::roles::from_claims(&claims, admission.role_claims);
-    let assurance = admission
-        .assurance
-        .map(|section| section.assess(&claims))
-        .unwrap_or_default();
     Ok(Caller::new(
         subject,
         classified.client,

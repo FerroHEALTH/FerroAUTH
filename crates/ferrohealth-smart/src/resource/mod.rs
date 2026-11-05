@@ -47,6 +47,8 @@ use url::Url;
 use crate::assurance::Assessment;
 use crate::assurance::AssuranceError;
 use crate::assurance::AssuranceSection;
+use crate::federation::FederationError;
+use crate::federation::FederationSection;
 use crate::kind::CallerKind;
 use crate::kind::IssuerKind;
 use crate::kind::Unclassified;
@@ -104,6 +106,9 @@ pub struct Settings {
     /// The assurance level the issuer's tokens carry, when the deployment
     /// maps its authentication context values.
     pub assurance: Option<AssuranceSection>,
+    /// What a `federation` issuer asserts and the bounds it is held to;
+    /// required on a `federation` issuer and refused on any other.
+    pub federation: Option<FederationSection>,
     /// PEM trust roots added to the platform's for the discovery document
     /// and the key set, for an issuer behind a private certificate
     /// authority; none trusts the platform roots alone.
@@ -148,6 +153,7 @@ impl Settings {
                 crate::roles::default_claims()
             },
             assurance: None,
+            federation: None,
             trust_roots: None,
         }
     }
@@ -185,6 +191,7 @@ impl Settings {
             self.kind,
             &self.profile,
             self.assurance.as_ref(),
+            self.federation.as_ref(),
             &self.scopeless_subjects,
             &self.role_claims,
         )
@@ -197,10 +204,21 @@ fn check_issuer_rules(
     kind: IssuerKind,
     profile: &Profile,
     assurance: Option<&AssuranceSection>,
+    federation: Option<&FederationSection>,
     scopeless_subjects: &BTreeSet<String>,
     role_claims: &[String],
 ) -> Result<(), ResourceError> {
     profile.validate(kind)?;
+    match (kind, federation) {
+        (IssuerKind::Federation, Some(section)) => section.validate()?,
+        (IssuerKind::Federation, None) | (_, Some(_)) => {
+            return Err(ResourceError::Kind {
+                key: "federation",
+                kind,
+            });
+        }
+        (_, None) => {}
+    }
     if let Some(assurance) = assurance {
         assurance.validate()?;
     }
@@ -260,6 +278,9 @@ pub enum ResourceError {
     /// The issuer's profile breaks a rule.
     #[error(transparent)]
     Profile(#[from] ProfileError),
+    /// The issuer's `[[auth.federation]]` table breaks a rule.
+    #[error(transparent)]
+    Federation(#[from] FederationError),
     /// The issuer's assurance mapping breaks a rule.
     #[error(transparent)]
     Assurance(#[from] AssuranceError),

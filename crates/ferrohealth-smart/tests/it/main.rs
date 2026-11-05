@@ -28,6 +28,7 @@ mod classify;
 #[cfg(feature = "fetch")]
 mod client;
 mod config;
+mod federation;
 #[cfg(all(feature = "axum", feature = "fetch"))]
 mod guard;
 #[cfg(feature = "fetch")]

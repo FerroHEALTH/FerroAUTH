@@ -518,18 +518,14 @@ mod cases {
             Some(Unclassified::UnlistedClient),
             refused(h.admit(IssuerKind::Persons, keep, &unlisted).await)
         );
-        assert_eq!(
-            Some(Unclassified::NoStep {
-                kind: IssuerKind::Federation
-            }),
-            refused(
-                h.admit(
-                    IssuerKind::Federation,
-                    |profile| profile.first_party_clients.clear(),
-                    &h.person("user/Observation.rs")
-                )
-                .await
-            )
+        // NOTE: a federation token is classified by its issuer's federation table
+        // (tests/it/federation.rs); an issuer without one never loads.
+        assert!(
+            matches!(
+                ResourceServer::discover(h.settings(IssuerKind::Federation, keep)).await,
+                Err(ResourceError::Kind { .. })
+            ),
+            "a federation issuer without its table"
         );
         Ok(())
     }

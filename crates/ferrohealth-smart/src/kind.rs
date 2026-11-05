@@ -20,6 +20,9 @@ use serde::Serialize;
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::federation::Context;
+use crate::federation::External;
+use crate::federation::Outcome;
 use crate::profile::Delegate;
 use crate::profile::Profile;
 
@@ -101,6 +104,11 @@ pub enum CallerKind {
     /// A guest by the issuer's profile, with the kind it would otherwise
     /// have; a product admits one only by a setting of its own.
     Guest(Box<CallerKind>),
+    /// A professional of another party, on a `federation` issuer, with what
+    /// the token asserts about them.
+    ExternalPerson(Box<External>),
+    /// Another party's organisation, on a `federation` issuer.
+    ExternalOrganisation(Box<External>),
 }
 
 impl fmt::Debug for CallerKind {
@@ -109,6 +117,13 @@ impl fmt::Debug for CallerKind {
             Self::Delegated { actor } => f.debug_struct("Delegated").field("actor", actor).finish(),
             Self::Representative { .. } => f.debug_struct("Representative").finish_non_exhaustive(),
             Self::Guest(kind) => f.debug_tuple("Guest").field(kind).finish(),
+            Self::ExternalPerson(external) => {
+                f.debug_tuple("ExternalPerson").field(external).finish()
+            }
+            Self::ExternalOrganisation(external) => f
+                .debug_tuple("ExternalOrganisation")
+                .field(external)
+                .finish(),
             Self::Patient => f.write_str("Patient"),
             Self::System => f.write_str("System"),
             Self::Person => f.write_str("Person"),
@@ -127,6 +142,8 @@ impl CallerKind {
             Self::Representative { .. } => "representative",
             Self::Person => "person",
             Self::Guest(_) => "guest",
+            Self::ExternalPerson(_) => "external_person",
+            Self::ExternalOrganisation(_) => "external_organisation",
         }
     }
 }
@@ -188,6 +205,45 @@ pub enum Unclassified {
     /// A representation claim arrives through a delegate client.
     #[error("a representation claim arrives through a delegate client")]
     RepresentationThroughDelegate,
+    /// A token that names a professional misses required fields, each named.
+    #[error("a federation token names a professional and misses {missing:?}")]
+    ExternalIncomplete {
+        /// The fields it misses.
+        missing: Vec<&'static str>,
+    },
+    /// An attribute is outside the bounds the issuer's table declares.
+    #[error("the attribute {field} is outside the declared bounds")]
+    OutOfBounds {
+        /// The field.
+        field: &'static str,
+    },
+    /// An attribute holds a control or bidi-control character, or is too
+    /// long.
+    #[error("the attribute {field} holds a refused character or is too long")]
+    Attribute {
+        /// The field.
+        field: &'static str,
+    },
+    /// Two sources of one field give different values.
+    #[error("the sources of {field} disagree")]
+    SourcesDisagree {
+        /// The field.
+        field: &'static str,
+    },
+    /// The `authorization_details` carry no single entry of a declared type
+    /// whose `locations` names this node.
+    #[error("no declared authorization_details entry names this node")]
+    AuthorizationDetails,
+    /// A token that names no professional carries no organisation statement.
+    #[error("a federation token names no professional and states no organisation access")]
+    NoOrganisationStatement,
+    /// A professional's authentication is below the level a domestic
+    /// federation issuer requires.
+    #[error("the professional's authentication is below the required level")]
+    AssuranceTooLow,
+    /// The Verifiable Presentations do not read.
+    #[error("the verifiable presentations do not read")]
+    Presentations,
     /// The issuer's kind has no step this build classifies.
     #[error("no step classifies a token of a {kind} issuer")]
     NoStep {
@@ -212,6 +268,7 @@ pub(crate) struct Classified {
 pub(crate) fn classify(
     kind: IssuerKind,
     profile: &Profile,
+    federation: Option<&Context<'_>>,
     claims: &Map<String, Value>,
 ) -> Result<Classified, Unclassified> {
     for (claim, value) in &profile.expect {
@@ -288,7 +345,17 @@ pub(crate) fn classify(
                 person
             }))
         }
-        IssuerKind::Federation => Err(Unclassified::NoStep { kind }),
+        IssuerKind::Federation => {
+            let context = federation.ok_or(Unclassified::NoStep { kind })?;
+            Ok(classified(
+                match crate::federation::read::classify(claims, client.as_deref(), context)? {
+                    Outcome::Person(external) => CallerKind::ExternalPerson(Box::new(external)),
+                    Outcome::Organisation(external) => {
+                        CallerKind::ExternalOrganisation(Box::new(external))
+                    }
+                },
+            ))
+        }
     }
 }
 
