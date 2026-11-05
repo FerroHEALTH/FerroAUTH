@@ -1187,6 +1187,10 @@ behind the default `fetch` feature (FerroHEALTH/FerroAUTH#217). The
 caller's token travels to the token endpoint only, never to the service,
 as 3.5 requires.
 
+A lane declares its onward target in `[<lane>.credentials.onward]` (4),
+which `CredentialsSection::onward` resolves into the client and its
+`Target`.
+
 **The two grants**, chosen by the issuer's `onward_grant` profile key:
 
 - `token_exchange` (`rfc8693 §2.1`), the default: the caller's token as
@@ -1471,6 +1475,41 @@ refresh_margin_ms = 30000
 its own refuses an `oauth` table at load (FerroBRIDGE's `NoGrant` shape). The
 `resource` key is the `rfc8707 §2` resource indicator and `audience` the
 parameter without a specification, both sent only when set (3.5).
+
+A lane that reaches its upstream on a caller's behalf declares its onward
+target beside its `oauth` table, which the onward client authenticates
+with (3.16):
+
+```toml
+[cdr.credentials.onward]             # resolved by CredentialsSection::onward
+issuer = "https://login.microsoftonline.com/<tenant>/v2.0"   # issues the onward tokens
+kind = "persons"                     # persons (a delegated exchange) or federation
+profile = "entra"                    # the preset: rfc9068, entra, keycloak, okta, nl
+# token_endpoint = "https://…/token" # empty: discovered from issuer
+# client_id = "…"                    # empty: the oauth table's client id
+audiences = ["<cdr app id>"]         # what an onward token's aud may name
+scope = "api://<cdr app id>/.default"
+# indicators = ["…"]                 # resource or audience, as the profile names
+# correlation_claim = "txn"          # a chained federation route
+
+[cdr.credentials.onward.keys]        # any profile key over the preset
+max_onward_lifetime = 5400           # required: no preset states one
+
+# [cdr.credentials.onward.federation]  # a federation issuer: exchanges_from and
+# [cdr.credentials.onward.assurance]   # person_mapping required, over the preset's table
+```
+
+The issuer is described in the table, never borrowed from `[[auth.issuer]]`,
+because the issuer of onward tokens is not always one whose tokens the
+surface admits. The table refuses the start when `issuer`, `kind` or
+`audiences` is unset, beside a Basic `user`, without the lane's `oauth`
+table, for a profile or federation table its issuer's rules refuse, for an
+issuer the onward client refuses (`ConfigError::Onward`: another kind, no
+`max_onward_lifetime`, a federation table without `exchanges_from` or
+`person_mapping`), and for a target its grant cannot ask for
+(`Onward::check_target`: no audience, `offline_access`, a JWT bearer target
+without `scope` or with an indicator, a `resource` that is not an absolute
+URI without a fragment).
 
 Validation at load, refusing the start: an enabled section that admits no
 credential (no issuer and no Basic user), the issuer URL rule of 3.1, at

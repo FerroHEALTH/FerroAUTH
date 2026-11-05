@@ -150,6 +150,20 @@ release breaks the public configuration and API: every product moves its
   naming a refresh token and a lifetime of 0 refuse the issuer at load.
 - `exchanges_from` and `person_mapping` on `[[auth.federation]]`, which a
   federation issuer of onward tokens requires.
+- `[<lane>.credentials.onward]` (`config::onward::OnwardSection`, #246):
+  the onward target of a lane, with the issuer of its onward tokens
+  described in the table (`issuer`, `kind`, `profile`, `[onward.keys]`,
+  `[onward.federation]`, `[onward.assurance]`), its `audiences`,
+  `indicators`, `scope` and `correlation_claim`, and an optional
+  `token_endpoint` and `client_id`. It authenticates with the lane's
+  `oauth` table, so its secret or key comes through the same `_file`
+  keys. `CredentialsSection::onward` resolves it into an
+  `config::onward::OnwardLane` (the `Onward` client and its `Target`) and
+  refuses at load a table missing `issuer`, `kind` or `audiences`, beside
+  a Basic `user` or without `oauth`, a profile its issuer's rules refuse,
+  an issuer the onward client refuses (`ConfigError::Onward`) and a target
+  its grant cannot ask for. `Onward::check_target` runs the target checks
+  on their own.
 
 - `party`: the party a person's login belongs to (#216). One
   `[[auth.party]]` table (`party::config::PartySection`) per `persons`
