@@ -395,11 +395,12 @@ jobs:
   # The `keycloak` profile against the Keycloak image docs/VERSIONS.md pins
   # (#239): tests/it/keycloak_live.rs starts it, obtains tokens and classifies
   # them. It runs on a pull request that touches the profiles, the resource
-  # server, the case itself or the pins, and on a manual run.
+  # server, the case itself or the pins, on a manual run, and on every push to
+  # main, which saves the build cache a pull request run restores (#243).
   keycloak-live:
     name: keycloak-live
     needs: detect
-    if: (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch') && needs.detect.outputs.cargo == 'true'
+    if: github.event_name != 'merge_group' && needs.detect.outputs.cargo == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -441,7 +442,7 @@ jobs:
       - if: steps.paths.outputs.live == 'true'
         uses: ./.github/actions/setup-rust
         with:
-          cache-save-if: "false"
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
       - if: steps.paths.outputs.live == 'true'
         uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:

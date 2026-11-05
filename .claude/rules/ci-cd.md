@@ -26,7 +26,8 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
   ferrohealth-smart --dry-run --locked`; the crate-version guard and
   `dependency-review-action` on pull requests; `keycloak-live`, the live
   Keycloak case against the pinned image on a pull request that touches the
-  profiles or the resource server). The `conclusion` job is the
+  profiles or the resource server, and on every push to `main`, which saves
+  the build cache the pull request runs restore). The `conclusion` job is the
   single required status check on `main`.
 - `.github/workflows/specs.yml`: the vendored-specification guard,
   `scripts/checks/versions.sh`, offline, on the same events.
