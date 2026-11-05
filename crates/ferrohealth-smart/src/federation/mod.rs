@@ -26,6 +26,7 @@ use serde::Serialize;
 
 use crate::assurance::AssuranceLevel;
 
+pub mod contact;
 pub(crate) mod read;
 
 /// A field a `federation` issuer asserts, named after the 2026/2099 Annex.
@@ -87,6 +88,60 @@ pub enum Field {
     /// The organisation type of a Dutch care provider.
     #[serde(rename = "nl.organisation_type")]
     NlOrganisationType,
+    /// The role the professional acts on behalf of (eHDSI SAML Profile 10.0.0 §2.3, `on-behalf-of`).
+    #[serde(rename = "professional.on_behalf_of")]
+    ProfessionalOnBehalfOf,
+    /// The authentication context class of the professional (SAML Profile §2.1, `AuthnContextClassRef`).
+    #[serde(rename = "professional.authentication_method")]
+    ProfessionalAuthenticationMethod,
+    /// The clinical speciality of the professional (SAML Profile §2.3).
+    #[serde(rename = "professional.speciality")]
+    ProfessionalSpeciality,
+    /// The National Provider Identifier of the professional (SAML Profile §2.3).
+    #[serde(rename = "professional.npi")]
+    ProfessionalNpi,
+    /// The permissions of the professional (SAML Profile §2.5).
+    #[serde(rename = "professional.permissions")]
+    ProfessionalPermissions,
+    /// The healthcare facility type (SAML Profile §2.3).
+    #[serde(rename = "provider.facility_type")]
+    ProviderFacilityType,
+    /// The home community identifier (SAML Profile §2.3).
+    #[serde(rename = "provider.home_community_id")]
+    ProviderHomeCommunityId,
+    /// The name of the point of care (SAML Profile §2.3, `environment:locality`).
+    #[serde(rename = "point_of_care")]
+    PointOfCare,
+    /// The issuer of the identity assertion the token was issued on.
+    #[serde(rename = "assertion.issuer")]
+    AssertionIssuer,
+    /// The identifier of the identity assertion.
+    #[serde(rename = "assertion.id")]
+    AssertionId,
+    /// The start of the identity assertion's window, in seconds since the epoch.
+    #[serde(rename = "assertion.not_before")]
+    AssertionNotBefore,
+    /// The end of the identity assertion's window, in seconds since the epoch.
+    #[serde(rename = "assertion.not_on_or_after")]
+    AssertionNotOnOrAfter,
+    /// The identifier of the treatment relationship confirmation assertion.
+    #[serde(rename = "trc.id")]
+    TrcId,
+    /// The start of the treatment relationship confirmation's window.
+    #[serde(rename = "trc.not_before")]
+    TrcNotBefore,
+    /// The end of the treatment relationship confirmation's window.
+    #[serde(rename = "trc.not_on_or_after")]
+    TrcNotOnOrAfter,
+    /// The patient identifier of a patient-data request.
+    #[serde(rename = "patient.id")]
+    PatientId,
+    /// The source of the patient identifier.
+    #[serde(rename = "patient.id_source")]
+    PatientIdSource,
+    /// The country that issued the patient identifier.
+    #[serde(rename = "patient.pid_issuer_country")]
+    PatientPidIssuerCountry,
 }
 
 impl Field {
@@ -114,11 +169,29 @@ impl Field {
             Self::NlRole => "nl.role",
             Self::NlUra => "nl.ura",
             Self::NlOrganisationType => "nl.organisation_type",
+            Self::ProfessionalOnBehalfOf => "professional.on_behalf_of",
+            Self::ProfessionalAuthenticationMethod => "professional.authentication_method",
+            Self::ProfessionalSpeciality => "professional.speciality",
+            Self::ProfessionalNpi => "professional.npi",
+            Self::ProfessionalPermissions => "professional.permissions",
+            Self::ProviderFacilityType => "provider.facility_type",
+            Self::ProviderHomeCommunityId => "provider.home_community_id",
+            Self::PointOfCare => "point_of_care",
+            Self::AssertionIssuer => "assertion.issuer",
+            Self::AssertionId => "assertion.id",
+            Self::AssertionNotBefore => "assertion.not_before",
+            Self::AssertionNotOnOrAfter => "assertion.not_on_or_after",
+            Self::TrcId => "trc.id",
+            Self::TrcNotBefore => "trc.not_before",
+            Self::TrcNotOnOrAfter => "trc.not_on_or_after",
+            Self::PatientId => "patient.id",
+            Self::PatientIdSource => "patient.id_source",
+            Self::PatientPidIssuerCountry => "patient.pid_issuer_country",
         }
     }
 
     /// Returns whether the field describes the professional.
-    const fn professional(self) -> bool {
+    pub(crate) const fn professional(self) -> bool {
         matches!(
             self,
             Self::ProfessionalFamilyName
@@ -131,6 +204,11 @@ impl Field {
                 | Self::ProfessionalHealthcareProviderIdentifier
                 | Self::NlProfessionalNumber
                 | Self::NlRole
+                | Self::ProfessionalOnBehalfOf
+                | Self::ProfessionalAuthenticationMethod
+                | Self::ProfessionalSpeciality
+                | Self::ProfessionalNpi
+                | Self::ProfessionalPermissions
         )
     }
 
@@ -230,6 +308,10 @@ pub enum Mapping {
     /// (§3.71.4.2.2.1.1); `person_id`, the patient's identifier, is never
     /// read as the professional.
     Iua,
+    /// The claims a MyHealth@EU contact point's authorization server writes
+    /// from the validated identity and treatment assertions, each field under
+    /// `ehdsi` at its own name (the claim names are our own design).
+    Ehdsi,
 }
 
 impl Mapping {
@@ -265,9 +347,47 @@ impl Mapping {
                 )
             })
             .collect(),
+            Self::Ehdsi => EHDSI_FIELDS
+                .iter()
+                .map(|field| {
+                    (
+                        *field,
+                        vec![Source::Claim(format!("ehdsi.{}", field.as_str()))],
+                    )
+                })
+                .collect(),
         }
     }
 }
+
+/// The fields a contact point's token carries under `ehdsi`: what NCPeH-A's
+/// authorization server read from the identity assertion (eHDSI SAML Profile
+/// 10.0.0 §2.1, §2.3) and the treatment relationship confirmation.
+const EHDSI_FIELDS: [Field; 23] = [
+    Field::ProfessionalHpIdentifier,
+    Field::ProfessionalName,
+    Field::ProfessionalHpProfessionalRole,
+    Field::ProfessionalOnBehalfOf,
+    Field::ProfessionalAuthenticationMethod,
+    Field::ProfessionalSpeciality,
+    Field::ProfessionalNpi,
+    Field::ProfessionalPermissions,
+    Field::ProviderHealthcareProviderIdentifier,
+    Field::ProviderHealthcareProviderName,
+    Field::ProviderFacilityType,
+    Field::ProviderHomeCommunityId,
+    Field::PointOfCare,
+    Field::PurposeOfUse,
+    Field::AssertionIssuer,
+    Field::AssertionId,
+    Field::AssertionNotBefore,
+    Field::AssertionNotOnOrAfter,
+    Field::TrcId,
+    Field::TrcNotBefore,
+    Field::TrcNotOnOrAfter,
+    Field::PatientId,
+    Field::PatientIdSource,
+];
 
 /// One `[[auth.federation]]` table: what the `federation` issuer `issuer`
 /// asserts and the bounds it is held to.
@@ -314,12 +434,11 @@ pub enum FederationError {
         /// The key.
         key: &'static str,
     },
-    /// A contact-point issuer, which requires a sender-constrained token.
-    #[error(
-        "a contact_point = true issuer requires sender_constraint = \"required\", \
-         which this build does not verify"
-    )]
-    ContactPoint,
+    /// A contact-point issuer declares provider identifier prefixes, which
+    /// would deny access on another country's identifiers (MyHealth@EU
+    /// Requirements Catalogue 10.0.0, requirements 01 and 01.02).
+    #[error("a contact_point = true issuer takes no provider_identifier_prefixes")]
+    ContactPointPrefixes,
     /// A source of `authorization_details` without the issuer's attestation
     /// or the declared type.
     #[error(
@@ -348,10 +467,10 @@ impl FederationSection {
         sources
     }
 
-    /// Checks the table: a declared `contact_point` (a contact point refused
-    /// in this build), the domestic bounds, a source for every field, the
+    /// Checks the table: a declared `contact_point`, the countries, the
+    /// domestic bounds (a contact point takes no provider prefixes), a source for every field, the
     /// attestation an `authorization_details` source needs, and the
-    /// `country_code` and `issuing_authority_name` IUA has no default for.
+    /// `country_code` and `issuing_authority_name` no mapping carries.
     ///
     /// # Errors
     ///
@@ -363,16 +482,21 @@ impl FederationSection {
                     key: "contact_point",
                 });
             }
-            // TODO(#215): admit a contact point under the eHDSI contact-point profile.
-            Some(true) => return Err(FederationError::ContactPoint),
-            Some(false) => {}
+            Some(true) if !self.provider_identifier_prefixes.is_empty() => {
+                return Err(FederationError::ContactPointPrefixes);
+            }
+            Some(_) => {}
         }
+        let contact_point = self.contact_point == Some(true);
         let bounds = [
             ("countries", self.countries.is_empty()),
-            ("issuing_authorities", self.issuing_authorities.is_empty()),
+            (
+                "issuing_authorities",
+                !contact_point && self.issuing_authorities.is_empty(),
+            ),
             (
                 "provider_identifier_prefixes",
-                self.provider_identifier_prefixes.is_empty(),
+                !contact_point && self.provider_identifier_prefixes.is_empty(),
             ),
         ];
         if let Some((key, _)) = bounds.iter().find(|(_, empty)| *empty) {
@@ -397,9 +521,9 @@ impl FederationSection {
         {
             return Err(FederationError::Presentations);
         }
-        // NOTE: IHE IUA §3.71.4.2.2.1.1 defines no country and no issuing
-        // authority, so an IUA table must name a source for both.
-        if self.mapping == Some(Mapping::Iua) {
+        // NOTE: IHE IUA §3.71.4.2.2.1.1 and eHDSI SAML Profile 10.0.0 §2.3 carry no
+        // country and no issuing authority, so such a table names a source for both.
+        if self.mapping.is_some() || contact_point {
             for field in [
                 Field::ProfessionalCountryCode,
                 Field::ProfessionalIssuingAuthorityName,
@@ -452,6 +576,16 @@ impl Attribute {
                 .iter()
                 .flat_map(|code| std::iter::once(code.code.as_str()).chain(code.system.as_deref()))
                 .collect(),
+        }
+    }
+
+    /// Returns the values a field carries: the text of a string, the codes
+    /// of coded values.
+    #[must_use]
+    pub fn values(&self) -> Vec<&str> {
+        match self {
+            Self::Text(text) => vec![text.as_str()],
+            Self::Codes(codes) => codes.iter().map(|code| code.code.as_str()).collect(),
         }
     }
 
