@@ -11,8 +11,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
+use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::metadata::DiscoveryError;
 use ferrohealth_smart::metadata::ServerMetadata;
+use ferrohealth_smart::profile::Preset;
+use ferrohealth_smart::profile::Profile;
+use ferrohealth_smart::profile::ProfileKeys;
+use ferrohealth_smart::profile::ScopeClaim;
+use ferrohealth_smart::profile::ScopeForm;
 use ferrohealth_smart::refusal::Reason;
 use ferrohealth_smart::refusal::Refusal;
 use ferrohealth_smart::resource::Caller;
@@ -22,8 +28,6 @@ use ferrohealth_smart::resource::LazyResourceServer;
 use ferrohealth_smart::resource::Rejection;
 use ferrohealth_smart::resource::ResourceError;
 use ferrohealth_smart::resource::ResourceServer;
-use ferrohealth_smart::resource::Settings;
-use ferrohealth_smart::resource::TokenProfile;
 use ferrohealth_smart::resource::Verifier;
 use ferrohealth_smart::resource::Via;
 use ferrohealth_smart::resource::configuration::PermissionCapability;
@@ -34,6 +38,7 @@ use jsonwebtoken::EncodingKey;
 use jsonwebtoken::Header;
 
 use crate::support::AUDIENCE;
+use crate::support::CLIENT;
 use crate::support::Issuer;
 use crate::support::JWKS_PATH;
 use crate::support::SigningKey;
@@ -351,7 +356,7 @@ async fn a_token_that_is_no_jws_is_refused() -> Result<(), Box<dyn StdError>> {
 }
 
 #[tokio::test]
-async fn the_typ_rule_of_each_profile() -> Result<(), Box<dyn StdError>> {
+async fn the_typ_rule_of_the_profile_token_types() -> Result<(), Box<dyn StdError>> {
     let key = ec_key("k1", Algorithm::ES256);
     let issuer = Issuer::start(&[&key]).await;
     let claims = issuer.claims("system/Condition.r");
@@ -379,40 +384,44 @@ async fn the_typ_rule_of_each_profile() -> Result<(), Box<dyn StdError>> {
         "JWT under RFC 9068",
     );
     let mut settings = issuer.settings();
-    settings.profile = TokenProfile::Jwt;
-    let lenient = server(settings).await;
-    assert!(lenient.authenticate(&with_typ(None)).await.is_ok());
-    assert!(lenient.authenticate(&with_typ(Some("JWT"))).await.is_ok());
-    assert!(
-        lenient
-            .authenticate(&with_typ(Some("at+jwt")))
-            .await
-            .is_ok()
+    settings.profile.token_types = vec![String::from("JWT")];
+    let declared = server(settings).await;
+    assert!(declared.authenticate(&with_typ(Some("JWT"))).await.is_ok());
+    assert!(declared.authenticate(&with_typ(Some("jwt"))).await.is_ok());
+    assert_invalid(
+        &declared.authenticate(&with_typ(None)).await,
+        "no typ under a declared JWT type",
     );
     assert_invalid(
-        &lenient.authenticate(&with_typ(Some("logout+jwt"))).await,
-        "another kind under jwt",
+        &declared.authenticate(&with_typ(Some("at+jwt"))).await,
+        "a type the profile does not list",
+    );
+    assert_invalid(
+        &declared.authenticate(&with_typ(Some("logout+jwt"))).await,
+        "another kind under a declared JWT type",
     );
     Ok(())
 }
 
 #[tokio::test]
-async fn the_jwt_profile_needs_no_rfc_9068_claims() -> Result<(), Box<dyn StdError>> {
+async fn the_required_claims_are_the_profiles() -> Result<(), Box<dyn StdError>> {
     let key = ec_key("k1", Algorithm::ES256);
     let issuer = Issuer::start(&[&key]).await;
     let mut claims = issuer.claims("system/Condition.r");
     let object = claims.as_object_mut().ok_or("claims are an object")?;
-    object.remove("client_id");
     object.remove("jti");
     object.remove("iat");
     let token = mint(&key, &claims);
     let strict = server(issuer.settings()).await;
-    assert_invalid(&strict.authenticate(&token).await, "no client_id, jti, iat");
+    assert_invalid(&strict.authenticate(&token).await, "no jti, iat");
     let mut settings = issuer.settings();
-    settings.profile = TokenProfile::Jwt;
+    settings.profile.required_claims = ["iss", "sub", "aud", "exp", "client_id"]
+        .iter()
+        .map(|&claim| claim.to_owned())
+        .collect();
     let lenient = server(settings).await;
     let caller = lenient.authenticate(&token).await?;
-    assert_eq!(None, caller.client_id());
+    assert_eq!(Some(CLIENT), caller.client_id());
     Ok(())
 }
 
@@ -664,12 +673,12 @@ async fn metadata_naming_another_issuer_no_key_set_or_an_insecure_one_refuses_th
         "{error:?}"
     );
 
-    let unreachable = Settings::new("http://127.0.0.1:9/realm", AUDIENCE);
+    let unreachable = crate::support::persons("http://127.0.0.1:9/realm", AUDIENCE);
     assert!(matches!(
         ResourceServer::discover(unreachable).await,
         Err(ResourceError::Discovery(DiscoveryError::Transport { .. }))
     ));
-    let public_http = Settings::new("http://as.example.org/realm", AUDIENCE);
+    let public_http = crate::support::persons("http://as.example.org/realm", AUDIENCE);
     assert!(matches!(
         ResourceServer::discover(public_http).await,
         Err(ResourceError::Discovery(DiscoveryError::Insecure {
@@ -681,7 +690,7 @@ async fn metadata_naming_another_issuer_no_key_set_or_an_insecure_one_refuses_th
 }
 
 #[tokio::test]
-async fn the_scp_array_is_read_under_the_jwt_profile_alone() -> Result<(), Box<dyn StdError>> {
+async fn the_scp_array_is_read_only_where_the_profile_names_it() -> Result<(), Box<dyn StdError>> {
     let key = ec_key("k1", Algorithm::ES256);
     let issuer = Issuer::start(&[&key]).await;
     let mut claims = issuer.claims("");
@@ -695,7 +704,10 @@ async fn the_scp_array_is_read_under_the_jwt_profile_alone() -> Result<(), Box<d
     );
     assert_eq!(None, caller.reach(Permission::Create, "Observation"));
     let mut settings = issuer.settings();
-    settings.profile = TokenProfile::Jwt;
+    settings.profile.scope_claim = ScopeClaim {
+        claim: String::from("scp"),
+        form: ScopeForm::Array,
+    };
     let lenient = server(settings).await;
     let caller = lenient.authenticate(&mint(&key, &claims)).await?;
     assert!(caller.has_scope("__operator"));
@@ -712,16 +724,36 @@ async fn a_scopeless_subject_on_the_allowlist_reaches_everything() -> Result<(),
     let key = ec_key("k1", Algorithm::ES256);
     let issuer = Issuer::start(&[&key]).await;
     let mut settings = issuer.settings();
-    settings
-        .scopeless_subjects
-        .insert(String::from("synthetic-client-sub"));
+    settings.scopeless_subjects.insert(String::from(CLIENT));
     let server = server(settings).await;
-    let caller = server
-        .authenticate(&mint(&key, &issuer.claims("openid")))
-        .await?;
+    // NOTE: RFC 9068 §5, a client credentials token whose `sub` is its
+    // `client_id` is app-only, the one kind the allowlist admits.
+    let mut claims = issuer.claims("openid");
+    claims["sub"] = serde_json::json!(CLIENT);
+    let caller = server.authenticate(&mint(&key, &claims)).await?;
+    assert_eq!(&CallerKind::System, caller.kind());
     assert_eq!(
         Some(Compartment::Any),
         caller.reach(Permission::Delete, "Condition")
+    );
+    let mut person = issuer.claims("openid");
+    person["sub"] = serde_json::json!(CLIENT);
+    person["client_id"] = serde_json::json!("another-client");
+    let mut settings = issuer.settings();
+    settings.scopeless_subjects.insert(String::from(CLIENT));
+    settings
+        .profile
+        .first_party_clients
+        .push(String::from("another-client"));
+    let caller = crate::support::server(settings)
+        .await
+        .authenticate(&mint(&key, &person))
+        .await?;
+    assert_eq!(&CallerKind::Person, caller.kind());
+    assert_eq!(
+        None,
+        caller.reach(Permission::Delete, "Condition"),
+        "a person on the allowlist is never scopeless"
     );
     Ok(())
 }
@@ -845,12 +877,15 @@ async fn the_smart_configuration_republishes_the_issuer() -> Result<(), Box<dyn 
 // NOTE: RFC 9068 §2.2 requires `sub`, and RFC 7519 §4.1.2 has it identify a
 // principal, which an empty or whitespace-only value does not.
 #[tokio::test]
-async fn a_blank_sub_is_refused_under_both_profiles() -> Result<(), Box<dyn StdError>> {
+async fn a_blank_sub_is_refused_under_every_preset() -> Result<(), Box<dyn StdError>> {
     let key = ec_key("k1", Algorithm::ES256);
     let issuer = Issuer::start(&[&key]).await;
-    for profile in [TokenProfile::Rfc9068, TokenProfile::Jwt] {
+    for profile in [Preset::Rfc9068, Preset::Entra] {
         let mut settings = issuer.settings();
-        settings.profile = profile;
+        settings.profile = Profile::resolve(profile, &ProfileKeys::default())?;
+        settings.profile.token_types = vec![String::from("at+jwt")];
+        settings.profile.required_claims = vec![String::from("sub")];
+        settings.profile.expect.clear();
         let server = server(settings).await;
         for blank in ["", " ", "\t \n"] {
             let mut claims = issuer.claims("system/Condition.r");
@@ -987,7 +1022,7 @@ async fn a_lazy_server_recovers_once_the_issuer_answers() -> Result<(), Box<dyn 
 
 #[test]
 fn a_lazy_server_checks_its_settings_at_once() {
-    let mut settings = Settings::new("http://as.example.org", AUDIENCE);
+    let mut settings = crate::support::persons("http://as.example.org", AUDIENCE);
     assert!(matches!(
         ResourceServer::lazy(settings.clone()),
         Err(ResourceError::Discovery(DiscoveryError::Insecure { .. }))
@@ -1042,5 +1077,20 @@ async fn an_issuer_set_routes_to_a_lazy_server_and_carries_its_extension()
         Some(&Policy { name: "ready" }),
         caller.extension::<Policy>()
     );
+    Ok(())
+}
+
+// NOTE: RFC 6750 §1.2: a bearer token is used by "any party in possession" of it,
+// so it is presented on many requests within its life and no `jti` store applies.
+#[tokio::test]
+async fn a_bearer_token_presented_twice_within_its_life_is_accepted_both_times()
+-> Result<(), Box<dyn StdError>> {
+    let key = ec_key("k1", Algorithm::ES256);
+    let issuer = Issuer::start(&[&key]).await;
+    let server = server(issuer.settings()).await;
+    let token = mint(&key, &issuer.claims("user/Observation.rs"));
+    let first = server.authenticate(&token).await?;
+    let second = server.authenticate(&token).await?;
+    assert_eq!(first, second, "the same caller both times");
     Ok(())
 }

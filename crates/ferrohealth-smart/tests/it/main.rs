@@ -24,6 +24,7 @@ mod audit;
 mod basic;
 #[cfg(feature = "fetch")]
 mod ca_file;
+mod classify;
 #[cfg(feature = "fetch")]
 mod client;
 mod config;
@@ -46,6 +47,9 @@ mod person;
 mod reach;
 #[cfg(feature = "fetch")]
 mod roles;
+mod schema;
+#[cfg(feature = "fetch")]
+mod shape;
 #[cfg_attr(
     not(feature = "fetch"),
     expect(

@@ -18,6 +18,7 @@ use aws_lc_rs::signature::EcdsaKeyPair;
 use aws_lc_rs::signature::Ed25519KeyPair;
 use aws_lc_rs::signature::RsaKeyPair;
 use base64::Engine as _;
+use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::resource::ResourceServer;
 use ferrohealth_smart::resource::Settings;
 use jsonwebtoken::Algorithm;
@@ -31,6 +32,9 @@ use wiremock::matchers;
 
 /// The audience every token of these cases is addressed to.
 pub(crate) const AUDIENCE: &str = "http://ferro.invalid/fhir";
+
+/// The client every synthetic token names, first-party on the stub issuer.
+pub(crate) const CLIENT: &str = "synthetic-client";
 
 /// The path the stub serves the key set at.
 pub(crate) const JWKS_PATH: &str = "/jwks";
@@ -219,7 +223,7 @@ impl Issuer {
     /// Returns the settings of a resource server for this issuer, reading
     /// the key set again on every unknown `kid`.
     pub(crate) fn settings(&self) -> Settings {
-        let mut settings = Settings::new(self.uri(), AUDIENCE);
+        let mut settings = persons(self.uri(), AUDIENCE);
         settings.jwks_refresh_interval = Duration::ZERO;
         settings
     }
@@ -231,13 +235,21 @@ impl Issuer {
             "iss": self.uri(),
             "aud": AUDIENCE,
             "sub": "synthetic-client-sub",
-            "client_id": "synthetic-client",
+            "client_id": CLIENT,
             "iat": now,
             "exp": now + 300,
             "jti": "synthetic-jti-1",
             "scope": scope
         })
     }
+}
+
+/// Returns the settings of a `persons` issuer whose first-party client is
+/// [`CLIENT`], so a synthetic token is a person's.
+pub(crate) fn persons(issuer: impl Into<String>, audience: impl Into<String>) -> Settings {
+    let mut settings = Settings::new(issuer, audience, IssuerKind::Persons);
+    settings.profile.first_party_clients = vec![String::from(CLIENT)];
+    settings
 }
 
 /// Returns the current time in seconds.

@@ -355,6 +355,7 @@ async fn a_valid_token_reaches_the_handler_and_is_audited_with_the_fixed_fields(
             "duration_ms",
             "interaction",
             "issuer",
+            "kind",
             "message",
             "method",
             "principal",
@@ -368,6 +369,7 @@ async fn a_valid_token_reaches_the_handler_and_is_audited_with_the_fixed_fields(
     );
     assert_eq!("synthetic-client-sub", line.field("principal"));
     assert_eq!("synthetic-client", line.field("client"));
+    assert_eq!("person", line.field("kind"), "the caller kind (#215)");
     assert_eq!("bearer", line.field("via"));
     assert_eq!(case.issuer.uri(), line.field("issuer"));
     assert_eq!("GET", line.field("method"));
@@ -938,7 +940,16 @@ impl Verifier for BlankSubject {
         &'a self,
         _token: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
-        Box::pin(async { Ok(Caller::new(String::from("  "), None, "", None, false)) })
+        Box::pin(async {
+            Ok(Caller::new(
+                String::from("  "),
+                None,
+                "",
+                None,
+                false,
+                ferrohealth_smart::kind::CallerKind::Person,
+            ))
+        })
     }
 }
 

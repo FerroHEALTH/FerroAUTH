@@ -1,11 +1,10 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The `[auth]` lists read per issuer, `scopeless_subjects` and
-//! `role_claims`: an entry holds for the tokens of the issuer it names, a
-//! bare entry only when the section trusts one issuer, and a section that
-//! trusts several refuses a bare entry or one naming an issuer it does not
-//! trust.
+//! What holds per issuer: `scopeless_subjects` entries are `{ issuer, sub }`
+//! and hold for that issuer's app-only tokens alone, `role_claims` sit on
+//! each `[[auth.issuer]]` table and read that issuer's tokens alone, and the
+//! string forms of both are refused naming the replacement.
 
 use std::collections::BTreeSet;
 use std::error::Error as StdError;
@@ -14,6 +13,9 @@ use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::IssuerEntry;
 use ferrohealth_smart::config::IssuerKey;
+use ferrohealth_smart::config::ScopelessSubject;
+use ferrohealth_smart::kind::CallerKind;
+use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::resource::Compartment;
 use ferrohealth_smart::resource::IssuerSet;
 use ferrohealth_smart::resource::Verifier;
@@ -21,6 +23,7 @@ use ferrohealth_smart::scope::Permission;
 use jsonwebtoken::Algorithm;
 
 use crate::support::AUDIENCE;
+use crate::support::CLIENT;
 use crate::support::Issuer;
 use crate::support::ec_key;
 use crate::support::mint;
@@ -29,21 +32,33 @@ use crate::support::server;
 const ONE: &str = "https://one.example.org";
 const TWO: &str = "https://two.example.org";
 
-/// Returns a section trusting `issuers` with the two lists given.
-fn section(issuers: &[&str], scopeless: &[&str], roles: &[&str]) -> AuthSection {
-    let entries = issuers
-        .iter()
-        .map(|&issuer| IssuerEntry {
-            issuer: issuer.to_owned(),
-            ..IssuerEntry::default()
-        })
-        .collect();
+/// Returns the `persons` issuer table of `issuer` reading roles from
+/// `roles`, its client first-party.
+fn entry(issuer: &str, roles: &[&str]) -> IssuerEntry {
+    IssuerEntry {
+        issuer: issuer.to_owned(),
+        kind: Some(IssuerKind::Persons),
+        audience: vec![String::from(AUDIENCE)],
+        role_claims: Some(roles.iter().map(|&role| role.to_owned()).collect()),
+        first_party_clients: Some(vec![String::from(CLIENT)]),
+        ..IssuerEntry::default()
+    }
+}
+
+/// Returns a section trusting `entries` with the `scopeless` allowlist.
+fn section(entries: Vec<IssuerEntry>, scopeless: Vec<ScopelessSubject>) -> AuthSection {
     AuthSection {
         issuer: IssuerKey::List(entries),
-        audience: vec![String::from(AUDIENCE)],
-        scopeless_subjects: scopeless.iter().map(|&entry| entry.to_owned()).collect(),
-        role_claims: roles.iter().map(|&entry| entry.to_owned()).collect(),
+        scopeless_subjects: scopeless,
         ..AuthSection::default()
+    }
+}
+
+/// Returns the entry `{ issuer, sub }`.
+fn subject(issuer: &str, sub: &str) -> ScopelessSubject {
+    ScopelessSubject::Qualified {
+        issuer: issuer.to_owned(),
+        sub: sub.to_owned(),
     }
 }
 
@@ -56,15 +71,13 @@ fn owned(values: &[&str]) -> Vec<String> {
 }
 
 #[test]
-fn each_issuer_receives_only_the_entries_that_name_it() -> Result<(), Box<dyn StdError>> {
+fn each_issuer_receives_only_its_own_entries() -> Result<(), Box<dyn StdError>> {
     let resolved = section(
-        &[ONE, TWO],
-        &["https://one.example.org#svc"],
-        &[
-            "https://one.example.org#realm_access.roles",
-            "https://two.example.org#groups",
-            "https://one.example.org#roles",
+        vec![
+            entry(ONE, &["realm_access.roles", "roles"]),
+            entry(TWO, &["groups"]),
         ],
+        vec![subject(ONE, "svc")],
     )
     .resolve()?;
     assert_eq!(set(&["svc"]), resolved.issuers[0].scopeless_subjects);
@@ -78,118 +91,76 @@ fn each_issuer_receives_only_the_entries_that_name_it() -> Result<(), Box<dyn St
 }
 
 #[test]
-fn a_bare_scopeless_subject_is_refused_beside_several_issuers() {
-    let refused = section(&[ONE, TWO], &["svc"], &[]).resolve();
-    assert!(
-        matches!(
-            &refused,
-            Err(ConfigError::Unqualified { key: "auth.scopeless_subjects", entry })
-                if entry == "svc"
-        ),
-        "{refused:?}"
-    );
-    let message = refused.err().map(|error| error.to_string());
-    assert_eq!(
-        Some(String::from(
-            "the auth.scopeless_subjects entry \"svc\" names no issuer and the section trusts \
-             several: write it as \"<issuer>#svc\" for each issuer it holds for"
-        )),
-        message
-    );
-}
-
-#[test]
-fn a_bare_role_claim_is_refused_beside_several_issuers() {
-    assert!(matches!(
-        section(&[ONE, TWO], &[], &["https://one.example.org#roles", "groups"]).resolve(),
-        Err(ConfigError::Unqualified { key: "auth.role_claims", entry }) if entry == "groups"
-    ));
-}
-
-#[test]
-fn the_default_role_claims_are_refused_beside_several_issuers() {
-    let mut auth = section(&[ONE, TWO], &[], &[]);
-    auth.role_claims = AuthSection::default().role_claims;
-    assert!(matches!(
-        auth.resolve(),
-        Err(ConfigError::Unqualified {
-            key: "auth.role_claims",
-            ..
-        })
-    ));
-}
-
-#[test]
-fn several_issuers_with_empty_lists_resolve_and_read_no_role() -> Result<(), Box<dyn StdError>> {
-    let resolved = section(&[ONE, TWO], &[], &[]).resolve()?;
-    for settings in &resolved.issuers {
-        assert!(settings.scopeless_subjects.is_empty());
-        assert_eq!(Vec::<String>::new(), settings.role_claims);
+fn a_string_scopeless_subject_is_refused_naming_the_table_form() {
+    for text in [
+        "scopeless_subjects = [\"svc\"]",
+        "scopeless_subjects = [\"https://one.example.org#svc\"]",
+    ] {
+        let section: AuthSection = toml::from_str(&format!(
+            "{text}\n[[issuer]]\nissuer = \"{ONE}\"\nkind = \"persons\"\naudience = [\"a\"]\n"
+        ))
+        .expect("parses");
+        let refused = section.resolve();
+        assert!(
+            matches!(
+                &refused,
+                Err(ConfigError::Removed { replacement, .. }) if replacement.contains("{ issuer, sub }")
+            ),
+            "{text}: {refused:?}"
+        );
     }
-    Ok(())
+}
+
+#[test]
+fn a_section_level_role_claims_is_refused_naming_the_issuer_table() {
+    let section: AuthSection = toml::from_str(&format!(
+        "role_claims = [\"https://one.example.org#roles\"]\n[[issuer]]\nissuer = \"{ONE}\"\nkind = \"persons\"\naudience = [\"a\"]\n"
+    ))
+    .expect("parses");
+    assert!(matches!(
+        section.resolve(),
+        Err(ConfigError::Removed {
+            key: "auth.role_claims",
+            replacement,
+        }) if replacement.contains("[[auth.issuer]]")
+    ));
 }
 
 #[test]
 fn an_entry_naming_an_untrusted_issuer_is_refused() {
     assert!(matches!(
-        section(&[ONE, TWO], &["https://three.example.org#svc"], &[]).resolve(),
+        section(
+            vec![entry(ONE, &[]), entry(TWO, &[])],
+            vec![subject("https://three.example.org", "svc")]
+        )
+        .resolve(),
         Err(ConfigError::UnknownIssuer { key: "auth.scopeless_subjects", issuer })
             if issuer == "https://three.example.org"
     ));
+}
+
+#[test]
+fn a_scopeless_subject_is_refused_on_a_patients_issuer() {
+    let mut patients = entry(ONE, &[]);
+    patients.kind = Some(IssuerKind::Patients);
     assert!(matches!(
-        section(&[ONE], &[], &["https://one.example.org/#roles"]).resolve(),
-        Err(ConfigError::UnknownIssuer { key: "auth.role_claims", issuer })
-            if issuer == "https://one.example.org/"
+        section(vec![patients], vec![subject(ONE, "svc")]).resolve(),
+        Err(ConfigError::Issuer { issuer, .. }) if issuer == ONE
     ));
 }
 
 #[test]
-fn one_issuer_keeps_its_bare_entries() -> Result<(), Box<dyn StdError>> {
-    let section: AuthSection = toml::from_str(
-        r#"
-        issuer = "https://one.example.org"
-        audience = ["http://ferro.invalid/fhir"]
-        scopeless_subjects = ["svc", "https://one.example.org#batch", "etl#7"]
-        role_claims = ["realm_access.roles", "https://one.example.org#groups"]
-        "#,
-    )?;
-    let resolved = section.resolve()?;
-    assert_eq!(
-        set(&["svc", "batch", "etl#7"]),
-        resolved.issuers[0].scopeless_subjects
-    );
-    assert_eq!(
-        owned(&["realm_access.roles", "groups"]),
-        resolved.issuers[0].role_claims
-    );
-    Ok(())
-}
-
-#[test]
-fn a_qualified_role_claim_path_is_still_checked() {
+fn a_role_claim_path_is_still_checked() {
     assert!(matches!(
-        section(
-            &[ONE, TWO],
-            &[],
-            &["https://one.example.org#realm_access..roles"]
-        )
-        .resolve(),
+        section(vec![entry(ONE, &["realm_access..roles"])], Vec::new()).resolve(),
         Err(ConfigError::Missing {
-            key: "auth.role_claims"
+            key: "auth.issuer.role_claims"
         })
     ));
 }
 
-/// Two stub issuers behind one `IssuerSet` resolved from `auth`.
-async fn trusted(
-    one: &Issuer,
-    two: &Issuer,
-    scopeless: &[String],
-    roles: &[String],
-) -> Result<IssuerSet, Box<dyn StdError>> {
-    let mut auth = section(&[one.uri().as_str(), two.uri().as_str()], &[], &[]);
-    auth.scopeless_subjects = scopeless.to_vec();
-    auth.role_claims = roles.to_vec();
+/// The stub issuers of `auth` behind one `IssuerSet`.
+async fn trusted(auth: &AuthSection) -> Result<IssuerSet, Box<dyn StdError>> {
     let mut set = IssuerSet::new();
     for settings in auth.resolve()?.issuers {
         set = set.with(server(settings).await);
@@ -203,31 +174,42 @@ async fn a_scopeless_subject_holds_only_for_the_issuer_it_names() -> Result<(), 
     let two_key = ec_key("k2", Algorithm::ES256);
     let one = Issuer::start(&[&one_key]).await;
     let two = Issuer::start(&[&two_key]).await;
-    let set = trusted(
-        &one,
-        &two,
-        &[format!("{}#synthetic-client-sub", one.uri())],
-        &[],
-    )
-    .await?;
-    let from_one = set.verify(&mint(&one_key, &one.claims("openid"))).await?;
+    let auth = section(
+        vec![entry(&one.uri(), &[]), entry(&two.uri(), &[])],
+        vec![subject(&one.uri(), CLIENT)],
+    );
+    let set = trusted(&auth).await?;
+    // NOTE: RFC 9068 §5, a client credentials token whose `sub` is its
+    // `client_id` is app-only, the one kind the allowlist admits.
+    let app_only = |issuer: &Issuer| {
+        let mut claims = issuer.claims("openid");
+        claims["sub"] = serde_json::json!(CLIENT);
+        claims
+    };
+    let from_one = set.verify(&mint(&one_key, &app_only(&one))).await?;
+    assert_eq!(&CallerKind::System, from_one.kind());
     assert_eq!(
         Some(Compartment::Any),
         from_one.reach(Permission::Delete, "Condition")
     );
-    let from_two = set.verify(&mint(&two_key, &two.claims("openid"))).await?;
+    let from_two = set.verify(&mint(&two_key, &app_only(&two))).await?;
     assert!(!from_two.scopeless(), "the same sub from the other issuer");
     assert_eq!(None, from_two.reach(Permission::Delete, "Condition"));
     Ok(())
 }
 
 #[tokio::test]
-async fn roles_are_read_only_from_the_issuer_a_claim_names() -> Result<(), Box<dyn StdError>> {
+async fn roles_are_read_only_from_the_issuer_that_names_the_claim() -> Result<(), Box<dyn StdError>>
+{
     let one_key = ec_key("k1", Algorithm::ES256);
     let two_key = ec_key("k2", Algorithm::ES256);
     let one = Issuer::start(&[&one_key]).await;
     let two = Issuer::start(&[&two_key]).await;
-    let set = trusted(&one, &two, &[], &[format!("{}#roles", one.uri())]).await?;
+    let auth = section(
+        vec![entry(&one.uri(), &["roles"]), entry(&two.uri(), &[])],
+        Vec::new(),
+    );
+    let set = trusted(&auth).await?;
     let mut one_claims = one.claims("system/Condition.r");
     one_claims["roles"] = serde_json::json!(["ADMIN"]);
     let from_one = set.verify(&mint(&one_key, &one_claims)).await?;

@@ -1,0 +1,819 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The issuer profile: what one authorization server's tokens look like and
+//! which of their claims say who stands behind them.
+//!
+//! The core rules are the standards': RFC 9068 for the token shape, OpenID
+//! Connect Core 1.0 §5.7 for the stable person key, RFC 8693 §4.1 for an
+//! actor. An authorization server that deviates from them is described as
+//! data, its [`Profile`], read by one implementation with no vendor branch.
+//! A [`Preset`] names a shipped set of values (`profiles/*.toml`, each value
+//! labelled with its source), and every key of a preset can be set on the
+//! issuer itself ([`ProfileKeys`]). No specification governs the profile
+//! model: our own design over those sources.
+
+use std::collections::BTreeMap;
+
+use serde::Deserialize;
+use serde::Serialize;
+use serde_json::Map;
+use serde_json::Value;
+
+use crate::kind::IssuerKind;
+
+/// The claims OpenID Connect Core 1.0 §5.7 says "MUST NOT be used as unique
+/// identifiers for the End-User".
+pub const UNSTABLE_CLAIMS: [&str; 4] = ["email", "phone_number", "preferred_username", "name"];
+
+/// A shipped set of profile values, selected by `profile` on
+/// `[[auth.issuer]]`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Preset {
+    /// Every default: a standards-only RFC 9068 issuer.
+    #[default]
+    Rfc9068,
+    /// Microsoft Entra ID v2.0 access tokens.
+    Entra,
+    /// Keycloak access tokens.
+    Keycloak,
+    /// Okta access tokens.
+    Okta,
+}
+
+impl Preset {
+    /// Returns the preset's file, as shipped under `profiles/`.
+    #[must_use]
+    pub const fn source(self) -> &'static str {
+        match self {
+            Self::Rfc9068 => include_str!("../profiles/rfc9068.toml"),
+            Self::Entra => include_str!("../profiles/entra.toml"),
+            Self::Keycloak => include_str!("../profiles/keycloak.toml"),
+            Self::Okta => include_str!("../profiles/okta.toml"),
+        }
+    }
+
+    /// Returns the preset's values over the defaults.
+    ///
+    /// # Errors
+    ///
+    /// [`ProfileError::Preset`] when the shipped file does not read, which
+    /// the crate's own tests rule out for every preset.
+    pub fn keys(self) -> Result<ProfileKeys, ProfileError> {
+        toml::from_str(self.source()).map_err(|source| ProfileError::Preset {
+            preset: self,
+            source: Box::new(source),
+        })
+    }
+}
+
+/// How a scope claim carries its scopes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ScopeForm {
+    /// One space-separated string (RFC 6749 §3.3).
+    #[default]
+    String,
+    /// A JSON array of strings.
+    Array,
+}
+
+/// The claim a token's scopes are read from, and its JSON form.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScopeClaim {
+    /// The claim.
+    pub claim: String,
+    /// Its JSON form.
+    #[serde(default)]
+    pub form: ScopeForm,
+}
+
+impl Default for ScopeClaim {
+    fn default() -> Self {
+        Self {
+            claim: String::from("scope"),
+            form: ScopeForm::String,
+        }
+    }
+}
+
+/// Why a scope claim does not read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScopeFormError;
+
+impl ScopeClaim {
+    /// Returns the scope tokens `claims` carry under this claim; none when
+    /// the claim is absent.
+    ///
+    /// # Errors
+    ///
+    /// [`ScopeFormError`] when the claim is present in another JSON form.
+    pub fn read(&self, claims: &Map<String, Value>) -> Result<String, ScopeFormError> {
+        match (claims.get(&self.claim), self.form) {
+            (None, _) => Ok(String::new()),
+            (Some(Value::String(scope)), ScopeForm::String) => Ok(scope.clone()),
+            (Some(Value::Array(items)), ScopeForm::Array) => items
+                .iter()
+                .map(|item| item.as_str().ok_or(ScopeFormError))
+                .collect::<Result<Vec<_>, _>>()
+                .map(|tokens| tokens.join(" ")),
+            (Some(_), _) => Err(ScopeFormError),
+        }
+    }
+}
+
+/// A test one token's claims either pass or fail, written as one table.
+///
+/// Exactly one form per table: `{ claim, value }`, `{ absent_claim }`,
+/// `{ subjects }`, `{ sub_is_client = true }` or `{ differs_from_iss }`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(try_from = "MarkerTable", into = "MarkerTable")]
+pub enum Marker {
+    /// The claim is present and its text is the value.
+    Claim {
+        /// The claim.
+        claim: String,
+        /// Its value, a string's text or a number's or boolean's JSON text.
+        value: String,
+    },
+    /// The claim is absent.
+    Absent {
+        /// The claim.
+        claim: String,
+    },
+    /// The token's `sub` is one of the subjects.
+    Subjects(Vec<String>),
+    /// The token's `sub` equals its client claim.
+    SubIsClient,
+    /// The claim is present and differs from the token's `iss`.
+    DiffersFromIssuer {
+        /// The claim.
+        claim: String,
+    },
+}
+
+/// The table form of a [`Marker`].
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+struct MarkerTable {
+    /// The claim of `{ claim, value }`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    claim: Option<String>,
+    /// The value of `{ claim, value }`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    value: Option<String>,
+    /// The claim of `{ absent_claim }`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    absent_claim: Option<String>,
+    /// The subjects of `{ subjects }`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    subjects: Option<Vec<String>>,
+    /// The `{ sub_is_client = true }` form.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    sub_is_client: bool,
+    /// The claim of `{ differs_from_iss }`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    differs_from_iss: Option<String>,
+}
+
+impl TryFrom<MarkerTable> for Marker {
+    type Error = String;
+
+    fn try_from(table: MarkerTable) -> Result<Self, Self::Error> {
+        match table {
+            MarkerTable {
+                claim: Some(claim),
+                value: Some(value),
+                absent_claim: None,
+                subjects: None,
+                sub_is_client: false,
+                differs_from_iss: None,
+            } => Ok(Self::Claim { claim, value }),
+            MarkerTable {
+                claim: None,
+                value: None,
+                absent_claim: Some(claim),
+                subjects: None,
+                sub_is_client: false,
+                differs_from_iss: None,
+            } => Ok(Self::Absent { claim }),
+            MarkerTable {
+                claim: None,
+                value: None,
+                absent_claim: None,
+                subjects: Some(subjects),
+                sub_is_client: false,
+                differs_from_iss: None,
+            } => Ok(Self::Subjects(subjects)),
+            MarkerTable {
+                claim: None,
+                value: None,
+                absent_claim: None,
+                subjects: None,
+                sub_is_client: true,
+                differs_from_iss: None,
+            } => Ok(Self::SubIsClient),
+            MarkerTable {
+                claim: None,
+                value: None,
+                absent_claim: None,
+                subjects: None,
+                sub_is_client: false,
+                differs_from_iss: Some(claim),
+            } => Ok(Self::DiffersFromIssuer { claim }),
+            _ => Err(String::from(
+                "a marker is exactly one of { claim, value }, { absent_claim }, { subjects }, \
+                 { sub_is_client = true } and { differs_from_iss }",
+            )),
+        }
+    }
+}
+
+impl From<Marker> for MarkerTable {
+    fn from(marker: Marker) -> Self {
+        match marker {
+            Marker::Claim { claim, value } => Self {
+                claim: Some(claim),
+                value: Some(value),
+                ..Self::default()
+            },
+            Marker::Absent { claim } => Self {
+                absent_claim: Some(claim),
+                ..Self::default()
+            },
+            Marker::Subjects(subjects) => Self {
+                subjects: Some(subjects),
+                ..Self::default()
+            },
+            Marker::SubIsClient => Self {
+                sub_is_client: true,
+                ..Self::default()
+            },
+            Marker::DiffersFromIssuer { claim } => Self {
+                differs_from_iss: Some(claim),
+                ..Self::default()
+            },
+        }
+    }
+}
+
+impl Marker {
+    /// Returns whether `claims`, whose client claim reads `client`, pass
+    /// this test.
+    #[must_use]
+    pub fn matches(&self, claims: &Map<String, Value>, client: Option<&str>) -> bool {
+        match self {
+            Self::Claim { claim, value } => claims
+                .get(claim)
+                .is_some_and(|found| text_of(found).as_deref() == Some(value.as_str())),
+            Self::Absent { claim } => !claims.contains_key(claim),
+            Self::Subjects(subjects) => claims
+                .get("sub")
+                .and_then(Value::as_str)
+                .is_some_and(|sub| subjects.iter().any(|listed| listed == sub)),
+            Self::SubIsClient => {
+                client.is_some() && claims.get("sub").and_then(Value::as_str) == client
+            }
+            Self::DiffersFromIssuer { claim } => {
+                let issuer = claims.get("iss").and_then(Value::as_str);
+                claims
+                    .get(claim)
+                    .and_then(Value::as_str)
+                    .is_some_and(|found| Some(found) != issuer)
+            }
+        }
+    }
+}
+
+/// Returns the text a marker value is compared with: a string's own text,
+/// or a number's or boolean's JSON text.
+fn text_of(value: &Value) -> Option<String> {
+    match value {
+        Value::String(text) => Some(text.clone()),
+        Value::Number(number) => Some(number.to_string()),
+        Value::Bool(flag) => Some(flag.to_string()),
+        _ => None,
+    }
+}
+
+/// An actor or a client the issuer declares may act for a person.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(try_from = "DelegateTable", into = "DelegateTable")]
+pub enum Delegate {
+    /// An RFC 8693 §4.1 actor, by `act.iss` and `act.sub`; with no issuer,
+    /// the token's own.
+    Actor {
+        /// The actor's issuer; the token's when none.
+        issuer: Option<String>,
+        /// The actor's `sub`.
+        sub: String,
+    },
+    /// A third-party client, by the value its client claim names.
+    Client(String),
+}
+
+/// The table form of a [`Delegate`].
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+struct DelegateTable {
+    /// The actor's issuer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    issuer: Option<String>,
+    /// The actor's `sub`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sub: Option<String>,
+    /// The client.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    client: Option<String>,
+}
+
+impl TryFrom<DelegateTable> for Delegate {
+    type Error = String;
+
+    fn try_from(table: DelegateTable) -> Result<Self, Self::Error> {
+        match table {
+            DelegateTable {
+                issuer,
+                sub: Some(sub),
+                client: None,
+            } => Ok(Self::Actor { issuer, sub }),
+            DelegateTable {
+                issuer: None,
+                sub: None,
+                client: Some(client),
+            } => Ok(Self::Client(client)),
+            _ => Err(String::from(
+                "a delegate is { sub } with an optional issuer, or { client }",
+            )),
+        }
+    }
+}
+
+impl From<Delegate> for DelegateTable {
+    fn from(delegate: Delegate) -> Self {
+        match delegate {
+            Delegate::Actor { issuer, sub } => Self {
+                issuer,
+                sub: Some(sub),
+                client: None,
+            },
+            Delegate::Client(client) => Self {
+                client: Some(client),
+                ..Self::default()
+            },
+        }
+    }
+}
+
+/// The claims a `persons` issuer names a represented subject in.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Representation {
+    /// The claim naming the subject the person represents.
+    pub claim: String,
+    /// The claim carrying the ground of the representation, as asserted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ground_claim: Option<String>,
+}
+
+/// The profile keys, each optional: a preset's file, or the keys set on one
+/// `[[auth.issuer]]`, which win over the preset's.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ProfileKeys {
+    /// [`Profile::person_key`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_key: Option<String>,
+    /// [`Profile::tenant_claim`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tenant_claim: Option<String>,
+    /// [`Profile::client_claims`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_claims: Option<Vec<String>>,
+    /// [`Profile::app_only`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_only: Option<Vec<Marker>>,
+    /// [`Profile::guest`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub guest: Option<Vec<Marker>>,
+    /// [`Profile::impersonation_marker`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub impersonation_marker: Option<String>,
+    /// [`Profile::expect`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expect: Option<BTreeMap<String, String>>,
+    /// [`Profile::user_claims`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_claims: Option<Vec<String>>,
+    /// [`Profile::person_equality`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub person_equality: Option<Vec<String>>,
+    /// [`Profile::unstable_claims`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unstable_claims: Option<Vec<String>>,
+    /// [`Profile::first_party_clients`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_party_clients: Option<Vec<String>>,
+    /// [`Profile::delegates`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delegates: Option<Vec<Delegate>>,
+    /// [`Profile::max_actor_chain`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_actor_chain: Option<usize>,
+    /// [`Profile::representation`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub representation: Option<Representation>,
+    /// [`Profile::token_types`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_types: Option<Vec<String>>,
+    /// [`Profile::required_claims`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_claims: Option<Vec<String>>,
+    /// [`Profile::scope_claim`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_claim: Option<ScopeClaim>,
+    /// [`Profile::app_only_scope_claim`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_only_scope_claim: Option<ScopeClaim>,
+    /// [`Profile::adapter`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<String>,
+}
+
+/// What one issuer's tokens look like, every key resolved.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Profile {
+    /// The claim that is the stable person identifier; `sub` by default
+    /// (OpenID Connect Core 1.0 §5.7).
+    pub person_key: String,
+    /// The claim naming a tenant within the issuer, when it has tenants.
+    pub tenant_claim: Option<String>,
+    /// The claims naming the client, read in order; `client_id` by default
+    /// (RFC 9068 §2.2).
+    pub client_claims: Vec<String>,
+    /// The markers of a token with no user, all of which must agree; by
+    /// default `sub` equal to the client claim (RFC 9068 §5).
+    pub app_only: Vec<Marker>,
+    /// The markers of a guest, any of which marks one; none by default.
+    pub guest: Vec<Marker>,
+    /// A claim marking an administrator acting as a user, which is refused.
+    pub impersonation_marker: Option<String>,
+    /// The claims and values every token must carry.
+    pub expect: BTreeMap<String, String>,
+    /// The claims every token that is not app-only must carry.
+    pub user_claims: Vec<String>,
+    /// The claims whose values together decide that two tokens of this
+    /// issuer name one person; `iss` and `sub` by default.
+    pub person_equality: Vec<String>,
+    /// The claims never accepted as an identifier, beside
+    /// [`UNSTABLE_CLAIMS`].
+    pub unstable_claims: Vec<String>,
+    /// The clients a person signs in through.
+    pub first_party_clients: Vec<String>,
+    /// The actors and the third-party clients that may act for a person.
+    pub delegates: Vec<Delegate>,
+    /// The deepest `act` chain admitted, 1 by default: prior actors are
+    /// "informational only" (RFC 8693 §4.1).
+    pub max_actor_chain: usize,
+    /// The claims naming a represented subject, on a `persons` issuer.
+    pub representation: Option<Representation>,
+    /// The accepted `typ` header values; `at+jwt` and `application/at+jwt`
+    /// by default (RFC 9068 §4).
+    pub token_types: Vec<String>,
+    /// The claims every token must carry; the RFC 9068 §2.2 set by default.
+    pub required_claims: Vec<String>,
+    /// Where a token's scopes are read from; `scope` as a string by default
+    /// (RFC 9068 §2.2.3).
+    pub scope_claim: ScopeClaim,
+    /// Where an app-only token's scopes are read from; the `scope_claim`
+    /// when none.
+    pub app_only_scope_claim: Option<ScopeClaim>,
+    /// The vendor adapter the issuer needs, by its feature name.
+    pub adapter: Option<String>,
+}
+
+impl Default for Profile {
+    fn default() -> Self {
+        Self {
+            person_key: String::from("sub"),
+            tenant_claim: None,
+            client_claims: vec![String::from("client_id")],
+            app_only: vec![Marker::SubIsClient],
+            guest: Vec::new(),
+            impersonation_marker: None,
+            expect: BTreeMap::new(),
+            user_claims: Vec::new(),
+            person_equality: vec![String::from("iss"), String::from("sub")],
+            unstable_claims: Vec::new(),
+            first_party_clients: Vec::new(),
+            delegates: Vec::new(),
+            max_actor_chain: 1,
+            representation: None,
+            token_types: vec![String::from("at+jwt"), String::from("application/at+jwt")],
+            required_claims: ["iss", "exp", "aud", "sub", "client_id", "iat", "jti"]
+                .iter()
+                .map(|&claim| claim.to_owned())
+                .collect(),
+            scope_claim: ScopeClaim::default(),
+            app_only_scope_claim: None,
+            adapter: None,
+        }
+    }
+}
+
+/// A profile that breaks a rule.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ProfileError {
+    /// A shipped preset file does not read.
+    #[error("the {preset:?} preset does not read")]
+    Preset {
+        /// The preset.
+        preset: Preset,
+        /// What the reader reported.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+    /// A key the issuer needs is empty.
+    #[error("the profile key {key} is empty")]
+    Empty {
+        /// The key.
+        key: &'static str,
+    },
+    /// A claim used as an identifier is one OpenID Connect Core 1.0 §5.7
+    /// or the profile's `unstable_claims` bans as a key.
+    #[error("the profile key {key} names the unstable claim {claim:?}")]
+    Unstable {
+        /// The key.
+        key: &'static str,
+        /// The claim.
+        claim: String,
+    },
+    /// A key is set on an issuer kind it has no meaning for.
+    #[error("the profile key {key} is refused on a {kind} issuer")]
+    Kind {
+        /// The key.
+        key: &'static str,
+        /// The issuer's kind.
+        kind: &'static str,
+    },
+    /// The profile names an adapter whose feature this build leaves out.
+    #[error("the profile names the adapter {adapter:?}, whose feature is not compiled in")]
+    Adapter {
+        /// The adapter.
+        adapter: String,
+    },
+}
+
+impl Profile {
+    /// Returns the profile of `preset` with `keys` set over it.
+    ///
+    /// # Errors
+    ///
+    /// [`ProfileError::Preset`] when the preset's file does not read.
+    pub fn resolve(preset: Preset, keys: &ProfileKeys) -> Result<Self, ProfileError> {
+        let mut profile = Self::default();
+        profile.overlay(preset.keys()?);
+        profile.overlay(keys.clone());
+        Ok(profile)
+    }
+
+    /// Sets every key `keys` names over this profile.
+    fn overlay(&mut self, keys: ProfileKeys) {
+        let ProfileKeys {
+            person_key,
+            tenant_claim,
+            client_claims,
+            app_only,
+            guest,
+            impersonation_marker,
+            expect,
+            user_claims,
+            person_equality,
+            unstable_claims,
+            first_party_clients,
+            delegates,
+            max_actor_chain,
+            representation,
+            token_types,
+            required_claims,
+            scope_claim,
+            app_only_scope_claim,
+            adapter,
+        } = keys;
+        set(&mut self.person_key, person_key);
+        set_some(&mut self.tenant_claim, tenant_claim);
+        set(&mut self.client_claims, client_claims);
+        set(&mut self.app_only, app_only);
+        set(&mut self.guest, guest);
+        set_some(&mut self.impersonation_marker, impersonation_marker);
+        set(&mut self.expect, expect);
+        set(&mut self.user_claims, user_claims);
+        set(&mut self.person_equality, person_equality);
+        set(&mut self.unstable_claims, unstable_claims);
+        set(&mut self.first_party_clients, first_party_clients);
+        set(&mut self.delegates, delegates);
+        set(&mut self.max_actor_chain, max_actor_chain);
+        set_some(&mut self.representation, representation);
+        set(&mut self.token_types, token_types);
+        set(&mut self.required_claims, required_claims);
+        set(&mut self.scope_claim, scope_claim);
+        set_some(&mut self.app_only_scope_claim, app_only_scope_claim);
+        set_some(&mut self.adapter, adapter);
+    }
+
+    /// Checks the profile for an issuer of `kind`: no empty key the
+    /// classification reads, no unstable identifier, no representation
+    /// outside a `persons` issuer, no adapter this build leaves out.
+    ///
+    /// # Errors
+    ///
+    /// The [`ProfileError`] naming the first rule broken.
+    pub fn validate(&self, kind: IssuerKind) -> Result<(), ProfileError> {
+        let empty = [
+            ("token_types", self.token_types.is_empty()),
+            ("client_claims", self.client_claims.is_empty()),
+            ("app_only", self.app_only.is_empty()),
+            ("person_equality", self.person_equality.is_empty()),
+            ("person_key", self.person_key.trim().is_empty()),
+            (
+                "app_only",
+                self.app_only.iter().any(
+                    |marker| matches!(marker, Marker::Subjects(subjects) if subjects.is_empty()),
+                ),
+            ),
+        ];
+        if let Some((key, _)) = empty.iter().find(|(_, empty)| *empty) {
+            return Err(ProfileError::Empty { key });
+        }
+        let identifiers = std::iter::once(("person_key", &self.person_key))
+            .chain(
+                self.tenant_claim
+                    .iter()
+                    .map(|claim| ("tenant_claim", claim)),
+            )
+            .chain(
+                self.client_claims
+                    .iter()
+                    .map(|claim| ("client_claims", claim)),
+            )
+            .chain(
+                self.person_equality
+                    .iter()
+                    .map(|claim| ("person_equality", claim)),
+            );
+        for (key, claim) in identifiers {
+            if self.is_unstable(claim) {
+                return Err(ProfileError::Unstable {
+                    key,
+                    claim: claim.clone(),
+                });
+            }
+        }
+        if self.representation.is_some() && kind != IssuerKind::Persons {
+            return Err(ProfileError::Kind {
+                key: "representation",
+                kind: kind.as_str(),
+            });
+        }
+        // NOTE: no adapter feature is compiled into this build yet, so every
+        // named adapter refuses the issuer (no specification governs this: our own design).
+        if let Some(adapter) = &self.adapter {
+            return Err(ProfileError::Adapter {
+                adapter: adapter.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    /// Returns whether `claim` may never be an identifier under this
+    /// profile.
+    #[must_use]
+    pub fn is_unstable(&self, claim: &str) -> bool {
+        UNSTABLE_CLAIMS.contains(&claim)
+            || self.unstable_claims.iter().any(|banned| banned == claim)
+    }
+
+    /// Returns the client `claims` name: the first of the client claims
+    /// present as a string.
+    #[must_use]
+    pub fn client<'a>(&self, claims: &'a Map<String, Value>) -> Option<&'a str> {
+        self.client_claims
+            .iter()
+            .find_map(|claim| claims.get(claim).and_then(Value::as_str))
+    }
+
+    /// Returns whether `typ` is a header value the profile accepts,
+    /// compared without regard to case (RFC 7515 §4.1.9).
+    #[must_use]
+    pub fn accepts_type(&self, typ: Option<&str>) -> bool {
+        typ.is_some_and(|typ| {
+            self.token_types
+                .iter()
+                .any(|accepted| typ.eq_ignore_ascii_case(accepted))
+        })
+    }
+}
+
+/// Replaces `slot` with `value` when one is set.
+fn set<T>(slot: &mut T, value: Option<T>) {
+    if let Some(value) = value {
+        *slot = value;
+    }
+}
+
+/// Replaces the optional `slot` with `value` when one is set.
+fn set_some<T>(slot: &mut Option<T>, value: Option<T>) {
+    if value.is_some() {
+        *slot = value;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_preset_file_reads() {
+        for preset in [
+            Preset::Rfc9068,
+            Preset::Entra,
+            Preset::Keycloak,
+            Preset::Okta,
+        ] {
+            assert!(preset.keys().is_ok(), "{preset:?} reads");
+        }
+        assert_eq!(Preset::Rfc9068.keys().ok(), Some(ProfileKeys::default()));
+    }
+
+    #[test]
+    fn every_key_set_on_the_issuer_wins_over_the_preset() {
+        let keys = ProfileKeys {
+            person_key: Some(String::from("k")),
+            tenant_claim: Some(String::from("t")),
+            client_claims: Some(vec![String::from("c")]),
+            app_only: Some(vec![Marker::Absent {
+                claim: String::from("u"),
+            }]),
+            guest: Some(Vec::new()),
+            impersonation_marker: Some(String::from("i")),
+            expect: Some(BTreeMap::new()),
+            user_claims: Some(Vec::new()),
+            person_equality: Some(vec![String::from("iss"), String::from("k")]),
+            unstable_claims: Some(vec![String::from("x")]),
+            first_party_clients: Some(vec![String::from("f")]),
+            delegates: Some(vec![Delegate::Client(String::from("d"))]),
+            max_actor_chain: Some(3),
+            representation: Some(Representation {
+                claim: String::from("r"),
+                ground_claim: None,
+            }),
+            token_types: Some(vec![String::from("at+jwt")]),
+            required_claims: Some(vec![String::from("iss")]),
+            scope_claim: Some(ScopeClaim::default()),
+            app_only_scope_claim: Some(ScopeClaim::default()),
+            adapter: Some(String::from("a")),
+        };
+        for preset in [
+            Preset::Rfc9068,
+            Preset::Entra,
+            Preset::Keycloak,
+            Preset::Okta,
+        ] {
+            let profile = Profile::resolve(preset, &keys).expect("the preset reads");
+            let back = ProfileKeys {
+                person_key: Some(profile.person_key),
+                tenant_claim: profile.tenant_claim,
+                client_claims: Some(profile.client_claims),
+                app_only: Some(profile.app_only),
+                guest: Some(profile.guest),
+                impersonation_marker: profile.impersonation_marker,
+                expect: Some(profile.expect),
+                user_claims: Some(profile.user_claims),
+                person_equality: Some(profile.person_equality),
+                unstable_claims: Some(profile.unstable_claims),
+                first_party_clients: Some(profile.first_party_clients),
+                delegates: Some(profile.delegates),
+                max_actor_chain: Some(profile.max_actor_chain),
+                representation: profile.representation,
+                token_types: Some(profile.token_types),
+                required_claims: Some(profile.required_claims),
+                scope_claim: Some(profile.scope_claim),
+                app_only_scope_claim: profile.app_only_scope_claim,
+                adapter: profile.adapter,
+            };
+            assert_eq!(keys, back, "{preset:?}");
+        }
+    }
+
+    #[test]
+    fn a_marker_table_names_exactly_one_form() {
+        let two: Result<Vec<Marker>, _> = toml::from_str::<BTreeMap<String, Vec<Marker>>>(
+            "m = [{ absent_claim = \"a\", sub_is_client = true }]",
+        )
+        .map(|map| map.into_values().flatten().collect());
+        assert!(two.is_err());
+    }
+}

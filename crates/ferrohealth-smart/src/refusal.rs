@@ -320,6 +320,9 @@ pub enum Reason {
     BasicMalformed,
     /// The Basic user is unknown or the password does not match.
     BasicRejected,
+    /// The token matches no step of the caller classification for its
+    /// issuer's kind; the rejection names the step.
+    Unclassified,
     /// A reason a product's own [`crate::resource::Verifier`] names.
     Other(&'static str),
 }
@@ -351,6 +354,7 @@ impl Reason {
             Self::UpstreamUnavailable => "upstream unavailable",
             Self::BasicMalformed => "malformed basic credential",
             Self::BasicRejected => "basic credential rejected",
+            Self::Unclassified => "no caller kind",
             Self::Other(reason) => reason,
         }
     }
@@ -419,6 +423,7 @@ impl From<&Rejection> for Denied {
         let reason = match rejection {
             Rejection::Missing => None,
             Rejection::Invalid { reason } => Some(*reason),
+            Rejection::Unclassified { .. } => Some(Reason::Unclassified),
             Rejection::Unavailable { .. } => Some(Reason::KeySetUnavailable),
             Rejection::Upstream { .. } => Some(Reason::UpstreamUnavailable),
         };
@@ -433,7 +438,7 @@ impl From<&Rejection> for Refusal {
                 bearer: true,
                 basic: false,
             }),
-            Rejection::Invalid { .. } => Self::InvalidToken,
+            Rejection::Invalid { .. } | Rejection::Unclassified { .. } => Self::InvalidToken,
             Rejection::Unavailable { .. } | Rejection::Upstream { .. } => Self::Unavailable,
         }
     }
@@ -531,7 +536,15 @@ mod tests {
             if let Some(auth_time) = auth_time {
                 claims.insert(String::from("auth_time"), serde_json::json!(auth_time));
             }
-            Caller::new(String::from("doc"), None, "", None, false).with_claims(claims)
+            Caller::new(
+                String::from("doc"),
+                None,
+                "",
+                None,
+                false,
+                crate::kind::CallerKind::Person,
+            )
+            .with_claims(claims)
         };
         let now = jiff::Timestamp::now().as_second();
         let level = StepUp::new()

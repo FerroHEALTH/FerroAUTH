@@ -390,11 +390,11 @@ nowhere otherwise; `Caller::scopeless` reads the flag. No specification governs 
 one FerroBRIDGE runs for an authorization server that cannot mint SMART
 scopes for a service account. The allowlist is a list of exact subjects, and
 a subject on it that does carry scopes gets only its scopes. A `sub` is
-unique only within its issuer (`rfc7519 §4.1.2`), so an entry names its
-issuer as `<issuer>#<sub>` and holds for that issuer's tokens alone; an
-issuer identifier has no fragment (`rfc8414 §2`), so the first `#` ends it.
-A bare `<sub>` is admitted only when the section trusts one issuer, and a
-section that trusts several refuses it at load (4).
+unique only within its issuer (`rfc7519 §4.1.2`), so an entry is
+`{ issuer, sub }` and holds for that issuer's tokens alone, and only for a
+`System` caller (3.14): a person, a patient or another party is never
+admitted by it, and an entry naming a `patients` or `federation` issuer
+refuses the start (4).
 
 **A Basic principal** carries the scope string its configuration grants it
 (4.1), so the same check serves a Basic caller and a bearer caller, and a
@@ -538,7 +538,8 @@ from it, so the four products' records read the same:
 | `at` | the arrival time, RFC 3339 in UTC |
 | `request_id` | the request id the product minted or echoed, `-` when none |
 | `principal` | the token's `sub`, the Basic user-id, `-` for an open route, `unauthenticated` for a refused credential |
-| `client` | the token's `client_id`, `-` when none |
+| `client` | the client the issuer profile's client claims name, `-` when none |
+| `kind` | the caller kind (3.14): `patient`, `system`, `delegated`, `representative`, `person` or `guest`, `-` for an open route or a refused credential |
 | `via` | `bearer`, `basic`, `open` or `none` |
 | `issuer` | the issuer that signed the token, `-` otherwise |
 | `method` | the HTTP method |
@@ -551,7 +552,7 @@ from it, so the four products' records read the same:
 
 No field is named `target`, `level` or after another key a `tracing`
 formatter writes from the event's metadata, so a JSON log that flattens the
-event fields beside the metadata keeps all thirteen; the field was `target`
+event fields beside the metadata keeps all fourteen; the field was `target`
 in 0.1.0 and is `addressed` from 0.1.1.
 
 Never on the line: the token or any part of it, a claim beyond `sub`,
@@ -859,12 +860,10 @@ RFC 9068 §2.2.3.1 has an authorization server that puts authorization
 attributes in a JWT access token use the `groups`, `roles` and
 `entitlements` attributes of the SCIM `User` resource (`rfc7643 §4.1.2`) as
 claim types. `Caller::roles()` holds what the configured claims carry
-(`[auth] role_claims`, by default those three; a dotted path such as
-`realm_access.roles` reaches into a JSON object for an issuer that nests
-them). Like the scopeless allowlist (3.4), an entry `<issuer>#<path>` is
-read from that issuer's tokens alone, and a bare path only when the section
-trusts one issuer, so a section that trusts several names the issuers whose
-roles count, or sets `role_claims = []`. A value is an array element that is a string, an element that is an
+(each `[[auth.issuer]]` names its own `role_claims`, by default those
+three; a dotted path such as `realm_access.roles` reaches into a JSON object
+for an issuer that nests them), so a claim is read from that issuer's
+tokens alone, and a `federation` issuer contributes no role. A value is an array element that is a string, an element that is an
 object with a string `value` sub-attribute (a SCIM multi-valued attribute,
 `rfc7643 §2.4`), or each whitespace-separated word of a string. A role keeps
 the issuer's spelling, trimmed, and appears once. An introspection answer is
@@ -883,55 +882,102 @@ specification governs role semantics, our own design. RFC 9396 (rich
 authorization requests) is vendored as the reference for the
 `authorization_details` claim a later release may read; this one does not.
 
-### 3.12 Assurance and the natural person
+### 3.12 Assurance
 
 RFC 9470 §3 lets a resource server refuse a token whose authentication does
 not meet its requirement, with `401`, `insufficient_user_authentication` and
 the accepted `acr_values`, and leaves the logic that decides it out of scope.
-`assurance::AssuranceSection` holds that logic for every product: the claim
+`assurance::AssuranceSection` holds that logic for every product, on each
+`[[auth.issuer]]` table, since each issuer writes its own values: the claim
 the class is read from (`acr` by default, OpenID Connect Core 1.0 §2), the
-level each value stands for (low, substantial, high), and the minimum;
-`step_up` builds the `Refusal::StepUp` naming the values that meet it.
-`assurance::ProfessionalSection` reads the claim that names the natural person
-behind a token and tells a client token apart: RFC 9068 §2.2 has `sub` name
-the client application when no resource owner is involved, so a token whose
-`sub` is its `client_id` or `azp` is a client's under `sub_is_client`, and the
-client may name the professional it acts for in a configured claim. Which
-routes a product holds to them, and what it records of the result, stay the
-product's. The level mapping is the deployment's: no specification governs it,
-our own design.
+level each value stands for (low, substantial, high), and the minimum. The
+issuer assesses each token when it admits it (`Caller::assurance`), and
+`step_up` builds the `Refusal::StepUp` naming the values that meet the
+minimum. Which routes a product holds to them stays the product's. The level
+mapping is the deployment's: no specification governs it, our own design.
 
 ### 3.13 The natural person's own access
 
-The EHDS person-access rights (Regulation (EU) 2025/327 Art. 3, 5 and 9)
-need every product to tell the same way whether a request is the natural
-person's own access or a health professional's. SMART names *what* a
-`patient/` scope reaches and not *who* asks (`smart scopes-and-launch-context`,
-Patient-specific scopes), so no specification decides it; the rule is the
-owner's ruling of 2026-10-31 (#171), and it gives two answers, because the
-articles fail safe in opposite directions:
-
-- `Caller::acts_for_the_person`, the broad answer, serves Art. 3(3), which
-  lets a Member State delay a person's access to new data until a health
-  professional can explain it. Reading too many requests as the person's
-  only withholds more, so a bearer token counts when it carries any
-  `patient/` scope of either grammar, or the claim the deployment names,
-  whatever `user/` or `system/` scope it carries beside them.
-- `Caller::is_the_person`, the strict answer, serves Art. 5 (what the person
-  inserts is distinguishable as theirs, and they cannot alter what
-  professionals inserted) and Art. 9 (the person learns of every
-  professional access). Reading a professional as the person would record a
-  professional's write as the person's and drop a professional's access from
-  the person's record, so a bearer token counts only when it carries a
-  `patient/` scope and no `user/` or `system/` scope. The patient claim alone
-  does not count: a professional's token in a patient's context carries it
-  too.
-
-A Basic caller is never the person. `Caller::person` returns the patient the
-broad answer binds the request to: the `patient` launch context, the `ehrId`
+The EHDS person-access rights (Regulation (EU) 2025/327 Art. 5 and 9) need
+every product to tell the same way whether a request is the natural
+person's own access. SMART names *what* a `patient/` scope reaches and not
+*who* asks (`smart scopes-and-launch-context`, Patient-specific scopes), so
+the answer is the issuer's kind (3.14): `Caller::is_the_person` holds for a
+`CallerKind::Patient` caller alone, a token of a `patients` issuer whose
+scopes are `patient/` with no `user/` or `system/` grant (SMART on openEHR
+`master08-scopes`, the `patient` context). A token of any other issuer is
+never the person's, whatever scopes it carries: a `persons` token whose only
+clinical scopes are `patient/` is a professional confined to its launch
+context. A Basic caller is never the person. `Caller::person` returns the
+patient the request is bound to: the `patient` launch context, the `ehrId`
 and the patient claim's value. The deployment names its patient claim as a
 `resource::PatientClaim`, a dotted path, attached to each resource server
 with `with_extension`, the one extension the crate reads.
+
+### 3.14 The caller classification
+
+Every product needs one answer to who stands behind a token, and RFC 9068
+§2.2 gives it only as a SHOULD (`sub` names the resource owner, or "an
+identifier the authorization server uses to indicate the client
+application"), with §5 describing an issuer that "elects to use the
+client_id as the sub value". So the answer is read from the issuer, in three
+layers, all in `ferrohealth-smart`:
+
+1. **A generic core**, `kind`, defined by the standards only: RFC 9068 for
+   the token shape, RFC 8693 §4.1 for an actor (`act.iss` with `act.sub`,
+   prior actors "informational only"), OpenID Connect Core 1.0 §5.7 for the
+   stable key (`email`, `phone_number`, `preferred_username` and `name` are
+   never a key). No core rule names a vendor, and an integration test scans
+   the core modules for a vendor's name.
+2. **Vendor profiles as data**, `profile`: each issuer's `Profile` is a
+   `Preset` (`rfc9068`, `entra`, `keycloak`, `okta`, shipped as
+   `profiles/*.toml` with each value labelled by its source) with any key set
+   over it on the issuer table. The keys: `person_key`, `tenant_claim`,
+   `client_claims`, `app_only` and `guest` (markers), `impersonation_marker`,
+   `expect`, `user_claims` (claims every token that is not app-only must
+   carry), `person_equality`, `unstable_claims`, `first_party_clients`,
+   `delegates` (actors by `{ sub, issuer }` and clients by `{ client }`),
+   `max_actor_chain`, `representation`, `token_types`, `required_claims`,
+   `scope_claim` and `app_only_scope_claim`, and `adapter`.
+3. **Vendor adapters as code**, only where data cannot express the
+   behaviour, each an optional Cargo feature. This build compiles none, so a
+   profile naming an adapter refuses its issuer at load.
+
+Each `[[auth.issuer]]` declares its `kind`, with no default: `persons`,
+`patients`, `machines` or `federation`. A valid token is classified in this
+order, and a token that matches no step for its issuer's kind is refused as
+`Rejection::Unclassified`, an `invalid_token` on the wire whose
+`kind::Unclassified` reason names the step:
+
+1. `Patient`: a `patients` token naming only the record subject.
+2. `System`: the profile's app-only markers all match (they must agree, or
+   the token is refused), on a `persons` or `machines` issuer.
+3. `Delegated`: an `act` whose actor is a declared delegate (a chain deeper
+   than `max_actor_chain` refused), or a third-party client that is a
+   declared delegate.
+4. `Representative`: a token of a `persons` issuer that declares
+   `representation` and carries its claim, with the represented subject and
+   the ground as asserted; with an `act`, or through a delegate client, it is
+   refused, and `representation` on another kind of issuer refuses the
+   issuer at load.
+5. `Person`: a token of a `persons` issuer through a first-party client.
+
+Before the steps, a token missing an `expect` value or carrying the
+impersonation marker is refused, and a user token missing a `user_claims`
+claim is refused naming it. A `persons` token with no client claim, or with a
+client outside both lists, is refused; the client is always recorded
+(`Caller::client_id`). A guest marker wraps the kind as `Guest`, which a
+product admits only by a setting of its own. A Basic credential is a
+person's and always a `Person`, never a `System` (owner ruling of
+2026-11-05): a machine authenticates with the client credentials grant
+(RFC 6749 §4.4). The scopeless allowlist (3.4) admits only a `System`
+caller, the audit line records the kind (3.6), and `Caller::person_key` and
+`Caller::tenant` carry the profile's key and tenant values.
+
+How callers are classified is our own design over those sources. The
+`federation` kind (other parties' professionals and organisations, with the
+eHDSI contact-point profile) refuses its issuer at load in this build; its
+classification follows in the same release.
 
 ## 4. The configuration model
 
@@ -946,51 +992,64 @@ specification governs this: our own design.
 ```toml
 [auth]
 enabled = true                       # a product may refuse `false`
-issuer = "https://as.example.org/realms/ferro"   # empty with Basic users: a Basic-only surface
+realm = "ferrobridge"                # the product's default
+capabilities = []                    # SMART capabilities the discovery document adds
+scopes_supported = []                # the scopes the product honours, listed in the discovery document
+product_scope = ""                   # the product's own scope: `__name` or a full URI
+scopeless_subjects = [               # app-only subjects granted system-wide access without a scope (3.4)
+  { issuer = "https://as.example.org/realms/ferro", sub = "batch-client" },
+]
+
+[[auth.issuer]]                      # one table per issuer; none with Basic users: a Basic-only surface
+issuer = "https://as.example.org/realms/ferro"
+kind = "persons"                     # required: persons, patients, machines or federation (3.14)
+profile = "rfc9068"                  # or "entra", "keycloak", "okta"; any profile key below overrides it
 audience = ["https://bridge.example.org/fhir"]   # at least one; `aud` must contain one
 algorithms = ["RS256", "RS384", "PS256", "PS384", "ES256", "ES384"]
-token_profile = "rfc9068"            # or "jwt"
 clock_skew_seconds = 60              # at most 300
 jwks_max_age_seconds = 600
 jwks_refresh_interval_seconds = 60
 jwks_file = ""                       # a key set handed over out of band, instead of jwks_uri
 timeout_ms = 10000                   # one call to the authorization server
-realm = "ferrobridge"                # the product's default
-scopeless_subjects = []              # exact `sub` values granted system-wide access without a scope, `<issuer>#<sub>` (3.4)
-capabilities = []                    # SMART capabilities the discovery document adds
-scopes_supported = []                # the scopes the product honours, listed in the discovery document
-product_scope = ""                   # the product's own scope: `__name` or a full URI
-role_claims = ["roles", "groups", "entitlements"]   # dotted paths the roles are read from, `<issuer>#<path>` (3.11)
-
+role_claims = ["roles", "groups", "entitlements"]   # this issuer's role paths (3.11); none on federation
+first_party_clients = ["ferrobridge-console"]       # the clients a person signs in through (3.14)
+delegates = [{ client = "partner-app" }, { sub = "actor-service" }]
 mode = "jwt"                         # or "introspection" (3.10), with the table below
 
-[auth.introspection]                 # only under mode = "introspection", with the flat issuer
+[auth.issuer.assurance]              # the level this issuer's tokens carry (3.12)
+claim = "acr"
+levels = { "urn:example:acr:high" = "high" }
+
+[auth.issuer.introspection]          # only under mode = "introspection"
 endpoint = ""                        # empty: the metadata's introspection_endpoint
 cache_max_age_seconds = 60           # 0 caches nothing; never past the response's exp
 cache_capacity = 10000
 
-[auth.introspection.client]          # or [auth.introspection.bearer]: a grant whose token authorizes the call
+[auth.issuer.introspection.client]   # or .bearer: a grant whose token authorizes the call
 client_id = "ferrobridge-rs"         # the fields of [<lane>.credentials.oauth]; the issuer stands in
 client_secret_file = "/run/secrets/introspection-secret"
 
 [auth.basic]
 cache_ttl_seconds = 0                # how long a verified credential is kept; 0 keeps none
 
-[[auth.basic.users]]                 # absent: no Basic on this surface
-user = "etl"
-password_hash_file = "/run/secrets/etl.phc"   # or password_hash = "$argon2id$…"
-scopes = ["system/*.rs"]
-roles = ["etl"]                      # one word each (3.11)
+[[auth.basic.users]]                 # a person's credential; absent: no Basic on this surface
+user = "operator"
+password_hash_file = "/run/secrets/operator.phc"   # or password_hash = "$argon2id$…"
+scopes = ["user/*.rs"]
+roles = ["auditor"]                  # one word each (3.11)
 ```
 
-A product that trusts several issuers (FerroFED) writes `[[auth.issuer]]`
-tables, each carrying the fields of the flat form from `issuer` to
-`jwks_file`, and the flat form is read as a one-entry list; the library's
-type is a list, and every verifier runs the same checks per entry. Such a
-section writes every `scopeless_subjects` and `role_claims` entry as
-`<issuer>#<value>`, so each issuer's settings carry only the entries naming
-it; a bare entry, or one naming an issuer the section does not list, refuses
-the start. The
+Every setting of an issuer lives on its own table: no section-level value
+stands in for one an issuer leaves out, and a section-level `audience`,
+`algorithms`, `mode`, `introspection`, `role_claims` or other issuer setting
+refuses the start naming the table (`ConfigError::Removed`), as do the flat
+`issuer = "…"` form, `token_profile`, `acting_for_claim`, `client_tokens` and
+a string `scopeless_subjects` entry. `Resolved` holds each JWT issuer's
+`Settings`, each introspected issuer's settings, and every issuer's kind,
+which `Resolved::check_role_issuers` holds a product's administrator,
+emergency or identifier-reader role list to: only `persons` issuers. An
+`IssuerSet` routes a token to the issuer its readable `iss` names, JWT or
+introspected, and an opaque token to the one introspected issuer. The
 product-specific fields of an issuer entry (FerroFED's backend clients,
 patient binding, contact-point claims) stay in the product's own wrapper
 around the entry.
@@ -1118,8 +1177,8 @@ green on its own gates before the next starts:
    `FERROTERM_OIDC_AUDIENCE` and `FERROTERM_OIDC_ADMIN_SCOPE` become the
    `[auth]` section (or its environment form); `audience` becomes required,
    which is a breaking change for a deployment that set none; the
-   `error_description` on a refusal disappears; the `typ` of `JWT` stays
-   accepted only under `token_profile = "jwt"`.
+   `error_description` on a refusal disappears; the `typ` of `JWT` is
+   accepted when the issuer's profile lists it in `token_types`.
 3. **FerroEHR**: the `hmac_secret` key source is removed (section 3.3,
    algorithm), `jwks_json` becomes `jwks_file`, `allow_insecure_issuer`
    becomes the loopback rule, `audiences` keeps its list shape, `basic.users`
@@ -1261,7 +1320,7 @@ four agree on and settles each difference:
 | A caller's roles are read from the RFC 9068 §2.2.3.1 claims, or the paths a deployment names, and a Basic user's from its configuration; a route table states role requirements beside scope requirements, matched without regard to ASCII case | `rfc9068 §2.2.3.1`, `rfc7643 §2.4`, `§4.1.2`; the matching and the requirement forms are our own design (owner decision 2026-10-25: authentication and the granted subject belong in this crate) | a product that read roles itself (FerroEHR's claim paths and Basic role table) moves them to `[auth] role_claims` and `[[auth.basic.users]] roles` |
 | The crate parses (with its own `openehr::smart_scopes`, which moved here from `openehr-sdt` and builds dependency-free behind `openehr-scopes`, for the browser too) and enforces the SMART on openEHR grammar beside the FHIR grammar; the product's route table declares which applies per route | owner decision 2026-10-19, the move 2026-10-27; `soe master07`, `master08`; the rules the draft leaves open are listed in 3.9 as our own design | a product that named `openehr_sdt::smart_scopes` names `ferrohealth_smart::openehr::smart_scopes` |
 | SMART on openEHR is DEVELOPMENT: pinned by commit, its status checked on every vendor run, upstream read weekly, and every upstream change re-vendored and recorded here as a decision naming what changed | the draft's `manifest_vars.adoc`; no release stabilises it | none yet: the draft last changed on 2026-07-19 (amendment record 1.1.0) |
-| A request is the natural person's own access by two answers: the broad one (Art. 3(3)) counts any `patient/` scope or the deployment's patient claim, mixed scopes included; the strict one (Art. 5, Art. 9) counts only a token whose resource scopes are all `patient/`; a Basic user is never the person (3.13) | Regulation (EU) 2025/327 Art. 3(3), 5, 9; `smart scopes-and-launch-context`, Patient-specific scopes leaves *who* open; owner ruling 2026-10-31 (#171) | a product that decides it itself (FerroEHR's access delay and authorship) calls `Caller::acts_for_the_person` or `Caller::is_the_person` and attaches its patient claim as a `PatientClaim` |
+| A request is the natural person's own access only for a `Patient` caller, a `patients` issuer's token naming the record subject alone; a Basic user is never the person (3.13) | Regulation (EU) 2025/327 Art. 5, 9; `smart scopes-and-launch-context`, Patient-specific scopes leaves *who* open; SMART on openEHR `master08-scopes`; #215 replaces the two answers of #171 | a product that called `Caller::acts_for_the_person` reads `Caller::is_the_person` or `Caller::kind`, and splits patients and professionals into separate issuers |
 | The `ehrId` of the launch context is read from an `ehrId` claim when the issuer carries it in the token | our own design, as `patient` in 3.3; the draft places it in the token response (`soe master07`, Context Selection) | none |
 | An enabled `[auth]` with Basic users and no issuer is a Basic-only surface; an enabled section that admits no credential is refused at load | our own design, fail closed; asked by the FerroEHR migration (#43) | none |
 | A blank `sub` is refused, by the token check and by the gate over every verifier | `rfc9068 §2.2`; `rfc7519 §4.1.2` (#41) | none |
@@ -1282,7 +1341,8 @@ four agree on and settles each difference:
 | A metadata document whose objects repeat a member name is refused | `rfc8259 §4` leaves the meaning to each parser; the refusal is our own design (#69) | none |
 | A product may refuse metadata whose endpoints are off the issuer's origin; the check is opt-in | `rfc6454 §4`, `§5` define the origin; RFC 8414 places no endpoint, so the policy is our own design (#68) | none |
 | Token introspection is a deployment's opt-in (`mode = "introspection"`), under client authentication or a grant's bearer token, with `scope`, `client_id` and `exp` required, `iss` and `aud` checked when present, and a response without `sub` read as the client's | `rfc7662 §2.1`, `§2.2`, `§4`; `smart token-introspection`; `rfc9068 §2.2` | none |
-| Every `scopeless_subjects` and `role_claims` entry of a section with several issuers names its issuer as `<issuer>#<value>`; a bare entry holds only beside one issuer and is refused beside several | `rfc7519 §4.1.2` (a `sub` is unique within its issuer); `rfc8414 §2` (an issuer has no fragment, so the first `#` ends it); the form is our own design, kept in the existing string lists so a patch release breaks no API (GHSA-pfgx-xq28-2629) | a deployment with several issuers qualifies each entry, or sets `role_claims = []`, before it upgrades |
+| A `scopeless_subjects` entry is `{ issuer, sub }` and admits a `System` caller of that issuer alone; `role_claims` sit on each issuer table; the string forms, bare or `<issuer>#<value>`, are refused at load | `rfc7519 §4.1.2` (a `sub` is unique within its issuer); our own design (#215, after GHSA-pfgx-xq28-2629) | a deployment rewrites each entry as a table and moves `role_claims` onto its issuer tables |
+| Every issuer declares its `kind` and a profile (a preset with keys over it), every issuer setting lives on its table, and a valid token is classified as `Patient`, `System`, `Delegated`, `Representative`, `Person` or `Guest`, or refused as `Rejection::Unclassified`; a Basic credential is always a `Person` (3.14) | `rfc9068 §2.2`, `§4`, `§5`; `rfc8693 §4.1`; `oidc-core §5.7`; the vendor documents each preset cites; the classification is our own design (#215, owner ruling 2026-11-05 on Basic) | a deployment writes `[[auth.issuer]]` tables with `kind`, lists its `first_party_clients`, and drops `token_profile`, `acting_for_claim` and `client_tokens` |
 | An active introspection response is held until its `exp` and at most `cache_max_age_seconds`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
 
 ## 10. Verification

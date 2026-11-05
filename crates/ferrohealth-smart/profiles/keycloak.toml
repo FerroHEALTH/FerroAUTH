@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# The `keycloak` issuer profile: Keycloak 26.8.2 access tokens. Each value
+# is Keycloak's deviation from the `rfc9068` profile, with its source under
+# docs/specs/keycloak-docs/docs/documentation/server_admin/topics/ at tag
+# 26.8.2. Every key can be set on the issuer table, which wins over this
+# file.
+
+# The vendored chapters do not state the `typ` header Keycloak writes, so the
+# value is a deployment's to confirm against its own server.
+token_types = ["JWT"]
+# clients/con-protocol-mappers.adoc, "Using lightweight access token": `exp`,
+# `iat`, `jti`, `iss`, `azp` and `scope` "cannot be removed"; `sub` and `aud`
+# are the claims the resource server identifies the caller and itself by.
+required_claims = ["iss", "sub", "aud", "exp", "iat", "jti", "azp"]
+# clients/con-protocol-mappers.adoc: `scope` is a claim of every token.
+scope_claim = { claim = "scope", form = "string" }
+# clients/con-protocol-mappers.adoc: `azp` is a claim of every token.
+client_claims = ["azp"]
+# admin-cli.adoc: "A client's service account is a user account with
+# username `service-account-CLIENT_ID`", so its `sub` is a user's, never the
+# client's. The deployment lists its service accounts' subjects; the empty
+# list refuses the issuer at load until it does.
+app_only = [{ subjects = [] }]

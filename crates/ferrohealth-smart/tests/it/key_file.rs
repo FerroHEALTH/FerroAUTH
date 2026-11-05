@@ -11,7 +11,6 @@ use ferrohealth_smart::metadata::MtlsEndpointAliases;
 use ferrohealth_smart::metadata::ServerMetadata;
 use ferrohealth_smart::resource::ResourceError;
 use ferrohealth_smart::resource::ResourceServer;
-use ferrohealth_smart::resource::Settings;
 use ferrohealth_smart::resource::configuration::SmartOptions;
 use jsonwebtoken::Algorithm;
 
@@ -28,7 +27,7 @@ async fn a_key_set_file_verifies_without_reading_the_issuer() -> Result<(), Box<
     let key = ec_key("k1", Algorithm::ES256);
     let set = serde_json::json!({ "keys": [key.jwk.clone()] }).to_string();
     let path = temp_file("offline-jwks.json", set.as_bytes());
-    let mut settings = Settings::new(ISSUER, "https://fhir.example.org");
+    let mut settings = crate::support::persons(ISSUER, "https://fhir.example.org");
     settings.jwks_file = Some(path.clone());
     let server = ResourceServer::discover(settings).await?;
     let issued = now();
@@ -51,7 +50,7 @@ async fn a_key_set_file_verifies_without_reading_the_issuer() -> Result<(), Box<
 #[cfg(not(feature = "fetch"))]
 #[tokio::test]
 async fn without_the_fetch_feature_a_key_set_file_is_required() {
-    let settings = Settings::new(ISSUER, "https://fhir.example.org");
+    let settings = crate::support::persons(ISSUER, "https://fhir.example.org");
     assert!(
         matches!(
             ResourceServer::discover(settings).await,
@@ -63,7 +62,7 @@ async fn without_the_fetch_feature_a_key_set_file_is_required() {
 
 #[tokio::test]
 async fn a_missing_key_set_file_refuses_the_start() {
-    let mut settings = Settings::new(ISSUER, "https://fhir.example.org");
+    let mut settings = crate::support::persons(ISSUER, "https://fhir.example.org");
     settings.jwks_file = Some(std::path::PathBuf::from("/nonexistent/ferro-offline.jwks"));
     assert!(matches!(
         ResourceServer::discover(settings).await,
@@ -78,7 +77,7 @@ async fn offline_server(
     let key = ec_key("k1", Algorithm::ES256);
     let set = serde_json::json!({ "keys": [key.jwk.clone()] }).to_string();
     let path = temp_file(name, set.as_bytes());
-    let mut settings = Settings::new(ISSUER, "https://fhir.example.org");
+    let mut settings = crate::support::persons(ISSUER, "https://fhir.example.org");
     settings.jwks_file = Some(path.clone());
     Ok((ResourceServer::discover(settings).await?, path))
 }
@@ -185,7 +184,7 @@ async fn a_key_set_that_repeats_a_member_name_refuses_the_start() -> Result<(), 
         ),
     ] {
         let path = temp_file(name, set.as_bytes());
-        let mut settings = Settings::new(ISSUER, "https://fhir.example.org");
+        let mut settings = crate::support::persons(ISSUER, "https://fhir.example.org");
         settings.jwks_file = Some(path.clone());
         let outcome = ResourceServer::discover(settings).await;
         std::fs::remove_file(path)?;
@@ -200,7 +199,7 @@ async fn a_key_set_that_repeats_a_member_name_refuses_the_start() -> Result<(), 
 #[tokio::test]
 async fn a_key_set_that_is_no_json_stays_a_key_set_error() -> Result<(), Box<dyn StdError>> {
     let path = temp_file("truncated-jwks.json", br#"{"keys": ["#);
-    let mut settings = Settings::new(ISSUER, "https://fhir.example.org");
+    let mut settings = crate::support::persons(ISSUER, "https://fhir.example.org");
     settings.jwks_file = Some(path.clone());
     let outcome = ResourceServer::discover(settings).await;
     std::fs::remove_file(path)?;

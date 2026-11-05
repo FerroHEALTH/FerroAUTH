@@ -11,6 +11,98 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0] - Unreleased
+
+The caller classification (#215). This release breaks the public
+configuration and API: every product moves its `[auth]` section to the
+issuer tables below and reads who called from `Caller::kind`.
+
+### Added
+
+- `kind::CallerKind`, read through `Caller::kind`: who stands behind a
+  credential, `Patient`, `System`, `Delegated` (with the RFC 8693 actor
+  when there is one), `Representative` (the represented subject and the
+  ground as asserted), `Person` or `Guest` wrapping the kind it would
+  otherwise have. A valid token that matches no step for its issuer's kind
+  is refused as `Rejection::Unclassified`, an `invalid_token` on the wire
+  whose `kind::Unclassified` reason names the step. The audit line records
+  the kind in its new `kind` field.
+- `kind::IssuerKind` and the required `kind` key of every
+  `[[auth.issuer]]`: `persons`, `patients`, `machines` or `federation`.
+  A `federation` issuer refuses to load in this build
+  (`ConfigError::FederationUnavailable`); its classification follows in
+  0.9.0.
+- `profile`: each issuer's `Profile`, a `Preset` (`profile = "rfc9068"`,
+  `"entra"`, `"keycloak"` or `"okta"`, shipped as `profiles/*.toml` with
+  each value labelled by its source) with any profile key set over it on
+  the issuer table: `person_key`, `tenant_claim`, `client_claims`,
+  `app_only`, `guest`, `impersonation_marker`, `expect`, `user_claims`,
+  `person_equality`, `unstable_claims`, `first_party_clients`,
+  `delegates`, `max_actor_chain`, `representation`, `token_types`,
+  `required_claims`, `scope_claim`, `app_only_scope_claim` and `adapter`.
+  A profile naming an adapter refuses its issuer, since this build
+  compiles none. `email`, `phone_number`, `preferred_username` and `name`
+  are never accepted as an identifier (OpenID Connect Core 1.0 §5.7).
+- `Caller::person_key`, `Caller::tenant` and `Caller::assurance`.
+- `IssuerSet::with_introspector`: one set verifies JWT and introspected
+  issuers together, routing a token with a readable `iss` to its issuer
+  and an opaque token to the one introspected issuer.
+- `config::Resolved::check_role_issuers`, which refuses a product's
+  administrator, emergency or identifier-reader role list naming an
+  issuer that is not a trusted `persons` issuer.
+
+### Changed
+
+- Every issuer setting lives on its own `[[auth.issuer]]` table, with no
+  section-level fallback: `audience`, `algorithms`, `clock_skew_seconds`,
+  `jwks_max_age_seconds`, `jwks_refresh_interval_seconds`, `jwks_file`,
+  `timeout_ms`, `mode`, `introspection` (now `[auth.issuer.introspection]`),
+  `role_claims` and the new `assurance` table. Upgrade: move each key onto
+  every issuer table it held for; a section-level key fails to load naming
+  the table (`ConfigError::Removed`).
+- `scopeless_subjects` entries are tables, `{ issuer, sub }`, and admit only
+  a `System` caller of that issuer. Upgrade: rewrite each string, bare or
+  `<issuer>#<sub>`, as a table; a string fails to load.
+- A Basic credential is always a `CallerKind::Person`, never a `System`:
+  a machine authenticates with the client credentials grant (RFC 6749
+  §4.4). Upgrade: move each machine on Basic to a client credentials
+  client of a `machines` or `persons` issuer.
+- `Caller::is_the_person` holds for a `Patient` caller alone: a token of a
+  `patients` issuer whose scopes are `patient/` with no `user/` or
+  `system/` grant. A `persons` token whose only clinical scopes are
+  `patient/` is a professional confined to its launch context. Upgrade:
+  give patients and professionals separate issuers (a realm or tenant
+  each), the patients' with `kind = "patients"`.
+- A `persons` token is admitted only through a client the issuer lists in
+  `first_party_clients` or `delegates`. Upgrade: list the deployment's own
+  clients in `first_party_clients`.
+- `Caller::client_id` is the client the profile's `client_claims` name
+  (`client_id` by default, `azp` under `entra` and `keycloak`, `cid` under
+  `okta`).
+- `Caller::new` and `resource::Settings::new` take the kind, and
+  `introspection::IntrospectionSettings::new` takes the kind after the
+  authentication; `Resolved::introspection` is a list, one entry per
+  introspected issuer; `assurance::AssuranceSection::assess` reads a
+  token's claims, and `meets` the caller's assessment.
+- The workspace requirement on `ferrohealth-smart` moves to 0.9.0.
+
+### Removed
+
+- The flat `[auth] issuer = "…"` form. Upgrade: write an
+  `[[auth.issuer]]` table with its `kind`.
+- `TokenProfile` and the `token_profile` key, section-level or per issuer.
+  Upgrade: select a `profile`, or set `token_types`, `required_claims` and
+  `scope_claim` on the issuer; the key fails to load naming them.
+- `assurance::ProfessionalSection`, `ClientTokens`, `ActingMode` and
+  `Actor`, with the `acting_for_claim` and `client_tokens` keys. Upgrade:
+  issue the client a delegated token whose subject is the person, which
+  `CallerKind::Delegated` classifies through the issuer's `delegates`; the
+  keys fail to load naming it.
+- `Caller::acts_for_the_person`. Upgrade: read `Caller::is_the_person` or
+  `Caller::kind`.
+- `ConfigError::Unqualified`, with the string forms of `scopeless_subjects`
+  and `role_claims` it named.
+
 ## [0.8.9] - 2026-11-05
 
 ### Security

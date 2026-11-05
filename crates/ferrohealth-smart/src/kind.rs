@@ -1,0 +1,403 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! Who stands behind a credential: the kind of issuer a token comes from and
+//! the [`CallerKind`] the token's claims make its caller.
+//!
+//! RFC 9068 §2.2 has `sub` name the resource owner when one is involved and
+//! "an identifier the authorization server uses to indicate the client
+//! application" when none is, and that is a SHOULD, so whether a token names
+//! a person is read from the issuer's profile ([`crate::profile`]), never
+//! from `sub` alone. RFC 8693 §4.1 names an actor in `act`. A Basic
+//! credential is a person's, never a system's: a machine authenticates with
+//! the client credentials grant (RFC 6749 §4.4) and is classified from its
+//! token. How callers are classified is our own design over those sources.
+
+use std::fmt;
+
+use serde::Deserialize;
+use serde::Serialize;
+use serde_json::Map;
+use serde_json::Value;
+
+use crate::profile::Delegate;
+use crate::profile::Profile;
+
+/// Whose tokens an issuer signs, declared on every `[[auth.issuer]]`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IssuerKind {
+    /// Professionals and other people of the deployment, signing in through
+    /// the deployment's own clients; also the app-only tokens of its
+    /// machines.
+    Persons,
+    /// Patients, each token naming only the record subject (the `patient`
+    /// context of SMART on openEHR `master08-scopes`).
+    Patients,
+    /// Machines, through the client credentials grant only.
+    Machines,
+    /// Another party's issuer, whose tokens name its professionals or its
+    /// organisation.
+    Federation,
+}
+
+impl IssuerKind {
+    /// Returns the configuration spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Persons => "persons",
+            Self::Patients => "patients",
+            Self::Machines => "machines",
+            Self::Federation => "federation",
+        }
+    }
+}
+
+impl fmt::Display for IssuerKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// An RFC 8693 §4.1 actor: "the combination of the two claims `iss` and
+/// `sub` might be necessary to uniquely identify an actor".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Actor {
+    /// The actor's issuer, the token's own when `act` names none.
+    pub issuer: String,
+    /// The actor's `sub`.
+    pub sub: String,
+}
+
+/// Who stands behind a caller's credential.
+///
+/// The `Debug` rendering names the kind and never a represented subject or
+/// a ground.
+#[derive(Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CallerKind {
+    /// The patient, on a `patients` issuer, the token naming only the
+    /// record subject.
+    Patient,
+    /// A machine: an app-only token by the issuer's profile.
+    System,
+    /// A person through a declared actor or third-party client.
+    Delegated {
+        /// The RFC 8693 actor, when the delegation is an `act` claim.
+        actor: Option<Actor>,
+    },
+    /// A person acting for another subject, on a `persons` issuer that
+    /// declares `representation`.
+    Representative {
+        /// The represented subject's identifier, as asserted.
+        represented: String,
+        /// The ground of the representation, as asserted.
+        ground: Option<String>,
+    },
+    /// A person under their own account, through a first-party client, or
+    /// through HTTP Basic.
+    Person,
+    /// A guest by the issuer's profile, with the kind it would otherwise
+    /// have; a product admits one only by a setting of its own.
+    Guest(Box<CallerKind>),
+}
+
+impl fmt::Debug for CallerKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Delegated { actor } => f.debug_struct("Delegated").field("actor", actor).finish(),
+            Self::Representative { .. } => f.debug_struct("Representative").finish_non_exhaustive(),
+            Self::Guest(kind) => f.debug_tuple("Guest").field(kind).finish(),
+            other => f.write_str(other.as_str()),
+        }
+    }
+}
+
+impl CallerKind {
+    /// Returns the name the audit line records.
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Patient => "patient",
+            Self::System => "system",
+            Self::Delegated { .. } => "delegated",
+            Self::Representative { .. } => "representative",
+            Self::Person => "person",
+            Self::Guest(_) => "guest",
+        }
+    }
+}
+
+/// Why a valid token matches no step of the classification for its issuer's
+/// kind. Each names a check or a configured claim, never a claim value.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum Unclassified {
+    /// A claim the profile's `expect` names is absent or holds another
+    /// value.
+    #[error("the claim {claim} does not hold the value the profile expects")]
+    Expected {
+        /// The claim.
+        claim: String,
+    },
+    /// A token that is not app-only lacks a claim the profile's
+    /// `user_claims` names.
+    #[error("a user token lacks the claim {claim}")]
+    UserClaim {
+        /// The claim.
+        claim: String,
+    },
+    /// The token carries the profile's impersonation marker.
+    #[error("the token carries the impersonation marker")]
+    Impersonation,
+    /// The profile's app-only markers disagree about the token.
+    #[error("the app-only markers disagree")]
+    MarkersDisagree,
+    /// A scope claim is present in another JSON form than the profile's.
+    #[error("the scope claim {claim} is not in the profile's form")]
+    ScopeForm {
+        /// The claim.
+        claim: String,
+    },
+    /// A `patients` token does not name only the record subject: it lacks a
+    /// `patient/` scope or carries a `user/` or `system/` one.
+    #[error("a patients token does not name only the record subject")]
+    NotPatientContext,
+    /// A `machines` token is not app-only.
+    #[error("a machines token is not app-only")]
+    NotAppOnly,
+    /// A `persons` token names no client.
+    #[error("a persons token names no client")]
+    NoClient,
+    /// A `persons` token's client is neither first-party nor a delegate.
+    #[error("the client is neither first-party nor a declared delegate")]
+    UnlistedClient,
+    /// The `act` actor is not a declared delegate.
+    #[error("the actor is not a declared delegate")]
+    UnlistedActor,
+    /// The `act` chain is deeper than the profile admits, or `act` is not
+    /// an object with a string `sub`.
+    #[error("the act chain is deeper than admitted or malformed")]
+    ActorChain,
+    /// A representation claim arrives together with an `act`.
+    #[error("a representation claim arrives together with an act")]
+    RepresentationWithAct,
+    /// A representation claim arrives through a delegate client.
+    #[error("a representation claim arrives through a delegate client")]
+    RepresentationThroughDelegate,
+    /// The issuer's kind has no step this build classifies.
+    #[error("no step classifies a token of a {kind} issuer")]
+    NoStep {
+        /// The kind.
+        kind: IssuerKind,
+    },
+}
+
+/// What a classification read from a token's claims.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Classified {
+    /// The kind.
+    pub(crate) kind: CallerKind,
+    /// The client the profile's client claims name.
+    pub(crate) client: Option<String>,
+    /// Whether the profile's markers call the token app-only.
+    pub(crate) app_only: bool,
+}
+
+/// Returns the kind of the caller whose verified `claims` an issuer of
+/// `kind` signed under `profile`.
+pub(crate) fn classify(
+    kind: IssuerKind,
+    profile: &Profile,
+    claims: &Map<String, Value>,
+) -> Result<Classified, Unclassified> {
+    for (claim, value) in &profile.expect {
+        let holds = match claims.get(claim) {
+            Some(Value::String(text)) => text == value,
+            Some(Value::Number(number)) => number.to_string() == *value,
+            Some(Value::Bool(flag)) => flag.to_string() == *value,
+            _ => false,
+        };
+        if !holds {
+            return Err(Unclassified::Expected {
+                claim: claim.clone(),
+            });
+        }
+    }
+    if profile
+        .impersonation_marker
+        .as_ref()
+        .is_some_and(|marker| claims.contains_key(marker))
+    {
+        return Err(Unclassified::Impersonation);
+    }
+    let client = profile.client(claims).map(str::to_owned);
+    let app_only = app_only(profile, claims, client.as_deref())?;
+    if !app_only
+        && let Some(claim) = profile
+            .user_claims
+            .iter()
+            .find(|claim| !claims.contains_key(*claim))
+    {
+        return Err(Unclassified::UserClaim {
+            claim: claim.clone(),
+        });
+    }
+    let classified = |kind| Classified {
+        kind,
+        client: client.clone(),
+        app_only,
+    };
+    match kind {
+        IssuerKind::Patients => {
+            let scope =
+                profile
+                    .scope_claim
+                    .read(claims)
+                    .map_err(|_form| Unclassified::ScopeForm {
+                        claim: profile.scope_claim.claim.clone(),
+                    })?;
+            // NOTE: SMART on openEHR `master08-scopes`: the `patient` context alone,
+            // with no `user/` or `system/` grant, names only the record subject.
+            if !app_only
+                && grants_in(&scope, "patient")
+                && !grants_in(&scope, "user")
+                && !grants_in(&scope, "system")
+            {
+                Ok(classified(CallerKind::Patient))
+            } else {
+                Err(Unclassified::NotPatientContext)
+            }
+        }
+        IssuerKind::Machines | IssuerKind::Persons if app_only => {
+            Ok(classified(CallerKind::System))
+        }
+        IssuerKind::Machines => Err(Unclassified::NotAppOnly),
+        IssuerKind::Persons => {
+            let person = person(profile, claims, client.as_deref())?;
+            let guest = profile
+                .guest
+                .iter()
+                .any(|marker| marker.matches(claims, client.as_deref()));
+            Ok(classified(if guest {
+                CallerKind::Guest(Box::new(person))
+            } else {
+                person
+            }))
+        }
+        IssuerKind::Federation => Err(Unclassified::NoStep { kind }),
+    }
+}
+
+/// Returns whether the profile's app-only markers call the token app-only,
+/// refusing a token they disagree about.
+fn app_only(
+    profile: &Profile,
+    claims: &Map<String, Value>,
+    client: Option<&str>,
+) -> Result<bool, Unclassified> {
+    let mut verdicts = profile
+        .app_only
+        .iter()
+        .map(|marker| marker.matches(claims, client));
+    let first = verdicts.next().unwrap_or(false);
+    if verdicts.any(|verdict| verdict != first) {
+        return Err(Unclassified::MarkersDisagree);
+    }
+    Ok(first)
+}
+
+/// Returns the kind of a `persons` token that is not app-only: delegated
+/// through a declared actor or client, a representative, or the person.
+fn person(
+    profile: &Profile,
+    claims: &Map<String, Value>,
+    client: Option<&str>,
+) -> Result<CallerKind, Unclassified> {
+    let client = client.ok_or(Unclassified::NoClient)?;
+    let represented = profile.representation.as_ref().and_then(|representation| {
+        text(claims, &representation.claim).map(|represented| (representation, represented))
+    });
+    if let Some(act) = claims.get("act") {
+        if represented.is_some() {
+            return Err(Unclassified::RepresentationWithAct);
+        }
+        let token_issuer = text(claims, "iss").unwrap_or_default();
+        let actor = actor(act, &token_issuer, profile.max_actor_chain)?;
+        let listed = profile.delegates.iter().any(|delegate| match delegate {
+            Delegate::Actor { issuer, sub } => {
+                *sub == actor.sub && issuer.as_deref().unwrap_or(&token_issuer) == actor.issuer
+            }
+            Delegate::Client(_) => false,
+        });
+        return if listed {
+            Ok(CallerKind::Delegated { actor: Some(actor) })
+        } else {
+            Err(Unclassified::UnlistedActor)
+        };
+    }
+    let first_party = profile
+        .first_party_clients
+        .iter()
+        .any(|listed| listed == client);
+    let delegate = profile
+        .delegates
+        .iter()
+        .any(|delegate| matches!(delegate, Delegate::Client(listed) if listed == client));
+    match (first_party, delegate, represented) {
+        (true, _, Some((representation, represented))) => Ok(CallerKind::Representative {
+            represented,
+            ground: representation
+                .ground_claim
+                .as_deref()
+                .and_then(|claim| text(claims, claim)),
+        }),
+        (true, _, None) => Ok(CallerKind::Person),
+        (false, true, Some(_)) => Err(Unclassified::RepresentationThroughDelegate),
+        (false, true, None) => Ok(CallerKind::Delegated { actor: None }),
+        (false, false, _) => Err(Unclassified::UnlistedClient),
+    }
+}
+
+/// Returns the actor `act` names, refusing a chain deeper than `max`.
+fn actor(act: &Value, token_issuer: &str, max: usize) -> Result<Actor, Unclassified> {
+    let object = act.as_object().ok_or(Unclassified::ActorChain)?;
+    let sub = object
+        .get("sub")
+        .and_then(Value::as_str)
+        .filter(|sub| !sub.trim().is_empty())
+        .ok_or(Unclassified::ActorChain)?;
+    let issuer = object
+        .get("iss")
+        .and_then(Value::as_str)
+        .unwrap_or(token_issuer);
+    let mut depth = 1_usize;
+    let mut current = object;
+    while let Some(prior) = current.get("act") {
+        depth = depth.saturating_add(1);
+        current = prior.as_object().ok_or(Unclassified::ActorChain)?;
+    }
+    if depth > max {
+        return Err(Unclassified::ActorChain);
+    }
+    Ok(Actor {
+        issuer: issuer.to_owned(),
+        sub: sub.to_owned(),
+    })
+}
+
+/// Returns the string claim `name`, trimmed, when it is not blank.
+fn text(claims: &Map<String, Value>, name: &str) -> Option<String> {
+    crate::roles::claim_text(claims, name).map(str::to_owned)
+}
+
+/// Returns whether a token of the space-delimited `scope` names `context`,
+/// the `<context>/` prefix both SMART grammars share.
+pub(crate) fn grants_in(scope: &str, context: &str) -> bool {
+    scope.split(' ').any(|token| {
+        token
+            .strip_prefix(context)
+            .is_some_and(|rest| rest.starts_with('/'))
+    })
+}

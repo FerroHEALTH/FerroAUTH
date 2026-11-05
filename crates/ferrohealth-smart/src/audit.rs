@@ -3,8 +3,8 @@
 
 //! The one audit line of a request.
 //!
-//! It names who called (the principal, the client, the scheme and the
-//! issuer), what was asked (the method, the matched route, what was
+//! It names who called (the principal, the client, the caller kind, the
+//! scheme and the issuer), what was asked (the method, the matched route, what was
 //! addressed and the interaction) and how it ended (the status and the duration). It
 //! never carries the token, a claim beyond those three, a scope, a query
 //! string, a header or a body. No specification governs the line: our own
@@ -45,6 +45,8 @@ pub enum Actor<'a> {
         principal: &'a str,
         /// The client, when the credential names one.
         client: Option<&'a str>,
+        /// The caller kind ([`crate::kind::CallerKind::as_str`]).
+        kind: &'static str,
         /// The scheme the credential arrived with.
         via: Via,
         /// The issuer that signed the token, when one did.
@@ -62,6 +64,7 @@ impl<'a> Actor<'a> {
             Some(Access::Caller(caller)) => Self::Caller {
                 principal: caller.subject(),
                 client: caller.client_id(),
+                kind: caller.kind().as_str(),
                 via: caller.via(),
                 issuer: caller.issuer(),
             },
@@ -155,20 +158,22 @@ impl<'a> AuditLine<'a> {
 
     /// Writes the line under [`AUDIT_TARGET`].
     pub fn write(&self) {
-        let (principal, client, via, issuer) = match self.actor {
+        let (principal, client, kind, via, issuer) = match self.actor {
             Actor::Caller {
                 principal,
                 client,
+                kind,
                 via,
                 issuer,
             } => (
                 principal,
                 client.unwrap_or("-"),
+                kind,
                 via.name(),
                 issuer.unwrap_or("-"),
             ),
-            Actor::Open => ("-", "-", "open", "-"),
-            Actor::Unauthenticated => ("unauthenticated", "-", "none", "-"),
+            Actor::Open => ("-", "-", "-", "open", "-"),
+            Actor::Unauthenticated => ("unauthenticated", "-", "-", "none", "-"),
         };
         let addressed: String = self
             .addressed
@@ -185,6 +190,7 @@ impl<'a> AuditLine<'a> {
                 request_id = self.request_id.unwrap_or("-"),
                 principal,
                 client,
+                kind,
                 via,
                 issuer,
                 method = self.method.as_str(),
@@ -204,6 +210,7 @@ impl<'a> AuditLine<'a> {
             request_id = self.request_id.unwrap_or("-"),
             principal,
             client,
+            kind,
             via,
             issuer,
             method = self.method.as_str(),
