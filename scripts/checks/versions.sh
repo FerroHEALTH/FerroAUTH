@@ -26,8 +26,9 @@
 #                        Annex B trees: each PROVENANCE.md names its row's
 #                        commit and the tree still hashes to the digest it
 #                        records.
-#   3e. cache only       the Okta PROVENANCE.md records its row's pin-set
-#                        digest and the directory holds no other file; no
+#   3e. cache only       the Okta and Microsoft Graph PROVENANCE.md files
+#                        each record their row's pin-set digest and each
+#                        directory holds no other file; no
 #                        file under .vendor-cache/ is tracked.
 #   3f. pinned by sha256 the eHDSI specifications and the EU legal acts:
 #                        each PROVENANCE.md records its row's pin-set
@@ -236,18 +237,22 @@ for tree in "ihe-iua:IHE IUA supplement" "nuts-rfc:Nuts RFC021" \
 done
 
 # ---- 3e. the cache-only sources ---------------------------------------------
-okta="docs/specs/okta"
-if [ -f "$okta/PROVENANCE.md" ]; then
-  before="$failures"
-  want="$(grep -oE '[0-9a-f]{64}' <<< "$(corpus_pin_cell "Okta OpenID Connect and OAuth 2.0 API")" | head -n1)"
-  got="$(provenance_digest "$okta/PROVENANCE.md" "Pin-set digest")"
-  [ "$got" = "$want" ] || fail "$okta/PROVENANCE.md records pin-set digest ${got:-nothing}, docs/VERSIONS.md $want"
-  extra="$(corpus_file_count "$okta")"
-  [ "$extra" = "0" ] || fail "$okta holds $extra file(s) besides PROVENANCE.md; its source is cache only"
-  [ "$failures" -ne "$before" ] || ok "the Okta API reference pinned at $want, cache only"
-else
-  fail "$okta/PROVENANCE.md is missing"
-fi
+for tree in "okta:Okta OpenID Connect and OAuth 2.0 API" \
+  "microsoft-graph:Microsoft Graph documentation"; do
+  dir="docs/specs/${tree%%:*}"
+  item="${tree#*:}"
+  if [ -f "$dir/PROVENANCE.md" ]; then
+    before="$failures"
+    want="$(grep -oE '[0-9a-f]{64}' <<< "$(corpus_pin_cell "$item")" | head -n1)"
+    got="$(provenance_digest "$dir/PROVENANCE.md" "Pin-set digest")"
+    [ "$got" = "$want" ] || fail "$dir/PROVENANCE.md records pin-set digest ${got:-nothing}, docs/VERSIONS.md $want"
+    extra="$(corpus_file_count "$dir")"
+    [ "$extra" = "0" ] || fail "$dir holds $extra file(s) besides PROVENANCE.md; its source is cache only"
+    [ "$failures" -ne "$before" ] || ok "$item pinned at $want, cache only"
+  else
+    fail "$dir/PROVENANCE.md is missing"
+  fi
+done
 tracked="$(git ls-files .vendor-cache | head -n1)"
 [ -z "$tracked" ] || fail ".vendor-cache/ is never committed, and $tracked is tracked"
 
