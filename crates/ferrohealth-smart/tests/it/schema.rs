@@ -144,10 +144,10 @@ fn a_banned_key_fails_to_load() {
 }
 
 #[test]
-fn a_federation_issuer_fails_to_load_in_this_build() {
+fn a_federation_issuer_without_its_table_fails_to_load() {
     let refused = section(&issuer("federation", "")).resolve();
     assert!(
-        matches!(refused, Err(ConfigError::FederationUnavailable { .. })),
+        matches!(refused, Err(ConfigError::Federation { .. })),
         "{refused:?}"
     );
 }

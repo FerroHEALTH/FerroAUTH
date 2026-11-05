@@ -26,6 +26,7 @@ pub mod configuration;
 #[cfg(feature = "fetch")]
 pub mod introspection;
 mod jwks;
+mod rules;
 mod set;
 mod token;
 
@@ -47,6 +48,8 @@ use url::Url;
 use crate::assurance::Assessment;
 use crate::assurance::AssuranceError;
 use crate::assurance::AssuranceSection;
+use crate::federation::FederationError;
+use crate::federation::FederationSection;
 use crate::kind::CallerKind;
 use crate::kind::IssuerKind;
 use crate::kind::Unclassified;
@@ -107,6 +110,9 @@ pub struct Settings {
     /// The assurance level the issuer's tokens carry, when the deployment
     /// maps its authentication context values.
     pub assurance: Option<AssuranceSection>,
+    /// What a `federation` issuer asserts and the bounds it is held to;
+    /// required on a `federation` issuer and refused on any other.
+    pub federation: Option<FederationSection>,
     /// Whether the issuer's tokens must be bound to a `DPoP` key or a client
     /// certificate ([`crate::sender`]).
     pub sender_constraint: SenderConstraint,
@@ -154,6 +160,7 @@ impl Settings {
                 crate::roles::default_claims()
             },
             assurance: None,
+            federation: None,
             sender_constraint: SenderConstraint::None,
             trust_roots: None,
         }
@@ -188,48 +195,15 @@ impl Settings {
                 skew: self.clock_skew,
             });
         }
-        check_issuer_rules(
+        rules::check_issuer_rules(
             self.kind,
             &self.profile,
             self.assurance.as_ref(),
+            self.federation.as_ref(),
             &self.scopeless_subjects,
             &self.role_claims,
         )
     }
-}
-
-/// Checks what an issuer of `kind` is configured with beside its keys: its
-/// profile, its assurance mapping, and the settings its kind refuses.
-fn check_issuer_rules(
-    kind: IssuerKind,
-    profile: &Profile,
-    assurance: Option<&AssuranceSection>,
-    scopeless_subjects: &BTreeSet<String>,
-    role_claims: &[String],
-) -> Result<(), ResourceError> {
-    profile.validate(kind)?;
-    if let Some(assurance) = assurance {
-        assurance.validate()?;
-    }
-    // NOTE: no specification governs the allowlist: our own design; a patient
-    // or another party is never granted system-wide access.
-    if !scopeless_subjects.is_empty()
-        && matches!(kind, IssuerKind::Patients | IssuerKind::Federation)
-    {
-        return Err(ResourceError::Kind {
-            key: "scopeless_subjects",
-            kind,
-        });
-    }
-    // NOTE: no specification governs this: our own design; another party's
-    // issuer asserts no role of this deployment.
-    if !role_claims.is_empty() && kind == IssuerKind::Federation {
-        return Err(ResourceError::Kind {
-            key: "role_claims",
-            kind,
-        });
-    }
-    Ok(())
 }
 
 /// A failure to reach or read the authorization server, or settings that
@@ -267,6 +241,9 @@ pub enum ResourceError {
     /// The issuer's profile breaks a rule.
     #[error(transparent)]
     Profile(#[from] ProfileError),
+    /// The issuer's `[[auth.federation]]` table breaks a rule.
+    #[error(transparent)]
+    Federation(#[from] FederationError),
     /// The issuer's assurance mapping breaks a rule.
     #[error(transparent)]
     Assurance(#[from] AssuranceError),

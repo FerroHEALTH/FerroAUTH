@@ -20,6 +20,7 @@ use crate::config::IssuerKey;
 use crate::config::Resolved;
 use crate::config::ScopelessSubject;
 use crate::config::secret;
+use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
 use crate::profile::Profile;
 use crate::resource::Settings;
@@ -142,6 +143,7 @@ impl AuthSection {
         let mut introspection = Vec::new();
         if self.enabled {
             self.check_scopeless()?;
+            self.check_federation()?;
             for entry in self.issuers() {
                 let kind = check_entry(entry)?;
                 kinds.insert(entry.issuer.clone(), kind);
@@ -307,6 +309,49 @@ impl AuthSection {
         Ok(())
     }
 
+    /// Refuses a `[[auth.federation]]` table that names no trusted
+    /// `federation` issuer or names one twice, and a `federation` issuer with
+    /// no table (no specification governs this: our own design).
+    fn check_federation(&self) -> Result<(), ConfigError> {
+        let mut seen = BTreeSet::new();
+        for section in &self.federation {
+            let kind = self
+                .issuers()
+                .iter()
+                .find(|entry| entry.issuer == section.issuer)
+                .and_then(|entry| entry.kind);
+            if kind != Some(IssuerKind::Federation) {
+                return Err(ConfigError::Federation {
+                    issuer: section.issuer.clone(),
+                    reason: "it names no trusted federation issuer",
+                });
+            }
+            if !seen.insert(section.issuer.as_str()) {
+                return Err(ConfigError::Federation {
+                    issuer: section.issuer.clone(),
+                    reason: "two tables name the issuer",
+                });
+            }
+        }
+        for entry in self.issuers() {
+            if entry.kind == Some(IssuerKind::Federation) && !seen.contains(entry.issuer.as_str()) {
+                return Err(ConfigError::Federation {
+                    issuer: entry.issuer.clone(),
+                    reason: "a federation issuer needs its [[auth.federation]] table",
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns the `[[auth.federation]]` table of `issuer`.
+    fn federation_of(&self, issuer: &str) -> Option<FederationSection> {
+        self.federation
+            .iter()
+            .find(|section| section.issuer == issuer)
+            .cloned()
+    }
+
     /// Returns the subjects of `scopeless_subjects` that name `issuer`.
     fn scopeless_of(&self, issuer: &str) -> BTreeSet<String> {
         self.scopeless_subjects
@@ -376,6 +421,7 @@ impl AuthSection {
         settings.scopeless_subjects = self.scopeless_of(&entry.issuer);
         settings.role_claims = role_claims_of(entry, kind);
         settings.assurance.clone_from(&entry.assurance);
+        settings.federation = self.federation_of(&entry.issuer);
         settings.sender_constraint = entry.sender_constraint;
         Ok(settings)
     }
@@ -452,6 +498,7 @@ impl AuthSection {
         settings.role_claims = role_claims_of(entry, kind);
         settings.profile = profile_of(entry)?;
         settings.assurance.clone_from(&entry.assurance);
+        settings.federation = self.federation_of(&entry.issuer);
         settings.sender_constraint = entry.sender_constraint;
         settings
             .validate()
@@ -502,12 +549,6 @@ fn check_entry(entry: &IssuerEntry) -> Result<IssuerKind, ConfigError> {
     let kind = entry.kind.ok_or(ConfigError::Missing {
         key: "auth.issuer.kind",
     })?;
-    if kind == IssuerKind::Federation {
-        // TODO(#215): classify the professionals and organisations of a federation issuer.
-        return Err(ConfigError::FederationUnavailable {
-            issuer: entry.issuer.clone(),
-        });
-    }
     if entry.mode == AuthMode::Jwt && entry.introspection.is_some() {
         return Err(ConfigError::Exclusive {
             left: "auth.issuer.introspection",

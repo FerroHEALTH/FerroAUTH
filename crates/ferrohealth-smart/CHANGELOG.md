@@ -29,9 +29,22 @@ issuer tables below and reads who called from `Caller::kind`.
   the kind in its new `kind` field.
 - `kind::IssuerKind` and the required `kind` key of every
   `[[auth.issuer]]`: `persons`, `patients`, `machines` or `federation`.
-  A `federation` issuer refuses to load in this build
-  (`ConfigError::FederationUnavailable`); its classification follows in
-  0.9.0.
+  A `federation` issuer needs its one `[[auth.federation]]` table
+  (`ConfigError::Federation` otherwise).
+- `federation`: what a `federation` issuer asserts about another party.
+  `[[auth.federation]]` (`FederationSection`) maps each field, named after
+  the 2026/2099 Annex Tables 1 and 2, to a claim path (`mapping = "iua"`
+  for the IHE IUA claims), a constant, an attested RFC 9396
+  `authorization_details` entry whose `locations` names this node, or a
+  Nuts RFC021 presentation. `CallerKind::ExternalPerson` and
+  `ExternalOrganisation` carry the `External` fields as asserted and the
+  remote `sub`, never bound. A partial professional is refused naming the
+  missing fields; the declared countries, issuing authorities and provider
+  identifier prefixes bound every attribute; a control or bidi-control
+  character, two disagreeing sources and a professional below level
+  substantial are refused. Strings are compared exactly (RFC 9396 §12). A
+  `contact_point = true` issuer refuses to load until sender-constrained
+  tokens are verified.
 - `profile`: each issuer's `Profile`, a `Preset` (`profile = "rfc9068"`,
   `"entra"`, `"keycloak"` or `"okta"`, shipped as `profiles/*.toml` with
   each value labelled by its source) with any profile key set over it on

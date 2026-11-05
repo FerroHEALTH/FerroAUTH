@@ -111,6 +111,8 @@ pub struct IntrospectionSettings {
     /// The assurance level a response carries, when the deployment maps
     /// its authentication context values.
     pub assurance: Option<AssuranceSection>,
+    /// What a `federation` issuer asserts, required on one.
+    pub federation: Option<crate::federation::FederationSection>,
     /// Whether the issuer's tokens must be bound to a `DPoP` key or a client
     /// certificate ([`crate::sender`]).
     pub sender_constraint: SenderConstraint,
@@ -142,10 +144,17 @@ impl IntrospectionSettings {
             cache_capacity: 10_000,
             timeout: Duration::from_secs(10),
             scopeless_subjects: BTreeSet::new(),
-            role_claims: crate::roles::default_claims(),
+            // NOTE: no specification governs this: our own design; another party's
+            // issuer asserts no role of this deployment.
+            role_claims: if kind == IssuerKind::Federation {
+                Vec::new()
+            } else {
+                crate::roles::default_claims()
+            },
             kind,
             profile: Profile::default(),
             assurance: None,
+            federation: None,
             sender_constraint: SenderConstraint::None,
         }
     }
@@ -170,10 +179,11 @@ impl IntrospectionSettings {
                 skew: self.clock_skew,
             });
         }
-        super::check_issuer_rules(
+        super::rules::check_issuer_rules(
             self.kind,
             &self.profile,
             self.assurance.as_ref(),
+            self.federation.as_ref(),
             &self.scopeless_subjects,
             &self.role_claims,
         )
@@ -624,6 +634,8 @@ impl Introspector {
                 kind: self.settings.kind,
                 profile: &self.settings.profile,
                 assurance: self.settings.assurance.as_ref(),
+                federation: self.settings.federation.as_ref(),
+                audiences: &self.settings.audience,
                 clock_skew: self.settings.clock_skew,
                 scopeless_subjects: &self.settings.scopeless_subjects,
                 role_claims: &self.settings.role_claims,

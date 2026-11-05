@@ -982,10 +982,38 @@ person's and always a `Person`, never a `System` (owner ruling of
 caller, the audit line records the kind (3.6), and `Caller::person_key` and
 `Caller::tenant` carry the profile's key and tenant values.
 
-How callers are classified is our own design over those sources. The
-`federation` kind (other parties' professionals and organisations, with the
-eHDSI contact-point profile) refuses its issuer at load in this build; its
-classification follows in the same release.
+How callers are classified is our own design over those sources.
+
+**The `federation` kind.** A `federation` issuer's tokens name another
+party's professional or organisation, and its one `[[auth.federation]]`
+table (`federation::FederationSection`) maps each field, named after the
+Commission Implementing Regulation (EU) 2026/2099 Annex Tables 1 and 2, to
+its sources: a claim path (`mapping = "iua"` reads the IHE IUA
+§3.71.4.2.2.1.1 claims under `extensions.ihe_iua`, and never `person_id`,
+the patient's), a constant, a path in the RFC 9396 `authorization_details`
+entry of the declared type, which counts only from an issuer declared to
+attest it and only when its `locations` names this node, or a credential
+subject path in the Verifiable Presentations of a Nuts RFC021 §6
+introspection response. Strings are compared exactly, with "no additional
+transformation or normalization" (RFC 9396 §12), and two sources that
+disagree refuse the token. A token that names a professional (a
+professional field, or `sub` other than the client) is a
+`CallerKind::ExternalPerson` only with every Table 1 field, the name as one
+string or as family and given names, and is refused as
+`ExternalIncomplete` naming each missing field otherwise. One that names
+none is an `ExternalOrganisation` only with an attested organisation
+statement, and a Nuts token is one unless a presentation holds a credential
+type the deployment declares user-authenticated (Nuts RFC021 §8). A
+domestic issuer (`contact_point = false`, a required key) declares the
+countries, issuing authorities and provider identifier prefixes it may
+assert, and an attribute outside them, or holding a C0, C1 or bidi-control
+character, or over its length cap, is refused naming the field. A
+professional below level substantial, or below level high from 26 March
+2032 (2026/2099 Art. 6(3)), is refused. The `sub` is recorded with its
+issuer (`External::remote_subject`) and never bound to a local party, and a
+`federation` issuer contributes no role. A `contact_point = true` issuer
+requires `sender_constraint = "required"` and refuses to load until that
+verification lands; the eHDSI contact-point profile follows it.
 
 ### 3.15 Sender-constrained tokens
 
