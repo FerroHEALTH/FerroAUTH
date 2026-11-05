@@ -31,6 +31,8 @@ mod config;
 mod guard;
 #[cfg(feature = "fetch")]
 mod introspection;
+#[cfg(feature = "fetch")]
+mod issuer_lists;
 mod key_file;
 #[cfg(feature = "fetch")]
 mod metadata;

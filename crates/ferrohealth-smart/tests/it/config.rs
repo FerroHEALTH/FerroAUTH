@@ -51,6 +51,7 @@ fn the_list_form_reads_each_entry_over_the_sections_defaults() {
         r#"
         audience = ["https://fed.example.org"]
         clock_skew_seconds = 30
+        role_claims = []
 
         [[issuer]]
         issuer = "https://one.example.org"

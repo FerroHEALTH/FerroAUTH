@@ -163,6 +163,27 @@ pub enum ConfigError {
         #[source]
         source: Box<DiscoveryError>,
     },
+    /// An entry of a list read per issuer names no issuer while the section
+    /// trusts several.
+    #[error(
+        "the {key} entry {entry:?} names no issuer and the section trusts several: \
+         write it as \"<issuer>#{entry}\" for each issuer it holds for"
+    )]
+    Unqualified {
+        /// The key of the list.
+        key: &'static str,
+        /// The entry.
+        entry: String,
+    },
+    /// An entry of a list read per issuer names an issuer the section does
+    /// not trust.
+    #[error("a {key} entry names the issuer {issuer:?}, which the section does not trust")]
+    UnknownIssuer {
+        /// The key of the list.
+        key: &'static str,
+        /// The issuer the entry names.
+        issuer: String,
+    },
 }
 
 /// The `[auth]` section: the surface's issuer or issuers, the audiences,
@@ -195,10 +216,17 @@ pub struct AuthSection {
     /// The realm the challenges name; empty for none, which a product
     /// replaces with its own default.
     pub realm: String,
-    /// The exact `sub` values granted system-wide access without a scope.
+    /// The exact `sub` values granted system-wide access without a scope,
+    /// each written `<issuer>#<sub>` to name the issuer whose tokens it
+    /// admits; a bare `<sub>` is admitted only when the section trusts
+    /// exactly one issuer.
     pub scopeless_subjects: Vec<String>,
     /// The claims a token's roles are read from, each a dotted path; by
     /// default `roles`, `groups` and `entitlements` (RFC 9068 §2.2.3.1).
+    /// An entry written `<issuer>#<path>` is read from that issuer's tokens
+    /// only; a bare path is admitted only when the section trusts exactly
+    /// one issuer, so a section with several names each issuer whose roles
+    /// count, or sets an empty list.
     pub role_claims: Vec<String>,
     /// The SMART capabilities the discovery document adds, each a
     /// capability SMART App Launch 2.2.0 or the SMART on openEHR draft
@@ -483,8 +511,10 @@ impl AuthSection {
     /// symmetric algorithm, a skew over the bound, a Basic user with a bad
     /// hash, user-id or scope, a secret set twice or not at all, a
     /// capability SMART does not define, a listed scope outside RFC 6749
-    /// §3.3, a product scope in no extension form, or a cache key the
-    /// random source cannot draw.
+    /// §3.3, a product scope in no extension form, a `scopeless_subjects` or
+    /// `role_claims` entry that names an issuer the section does not trust
+    /// or names none while it trusts several, or a cache key the random
+    /// source cannot draw.
     pub fn resolve(&self) -> Result<Resolved, ConfigError> {
         if let Some(bad) = self
             .capabilities
@@ -532,18 +562,7 @@ impl AuthSection {
             #[cfg(not(feature = "fetch"))]
             return Err(ConfigError::IntrospectionUnavailable);
         } else if self.enabled && !basic_only {
-            for entry in self.issuers() {
-                if entry.issuer.is_empty() {
-                    return Err(ConfigError::Missing { key: "auth.issuer" });
-                }
-                let mut settings = self.settings_of(&entry);
-                settings.trust_roots.clone_from(&trust_roots);
-                settings.validate().map_err(|source| ConfigError::Issuer {
-                    issuer: entry.issuer.clone(),
-                    source: Box::new(source),
-                })?;
-                issuers.push(settings);
-            }
+            issuers = self.issuer_settings(trust_roots.as_ref())?;
         }
         // NOTE: no specification governs the configuration model: our own
         // design, and a surface that admits no credential at all fails closed.
@@ -591,13 +610,69 @@ impl AuthSection {
     /// Refuses a role claim path that is empty, has an empty step, or
     /// carries whitespace.
     fn check_role_claims(&self) -> Result<(), ConfigError> {
-        let malformed = |path: &String| {
-            path.split('.').any(str::is_empty) || path.contains(char::is_whitespace)
-        };
-        if self.role_claims.iter().any(malformed) {
+        let malformed =
+            |path: &str| path.split('.').any(str::is_empty) || path.contains(char::is_whitespace);
+        if self
+            .role_claims
+            .iter()
+            .any(|entry| malformed(qualified(entry).1))
+        {
             return Err(ConfigError::Missing {
                 key: "auth.role_claims",
             });
+        }
+        Ok(())
+    }
+
+    /// Returns the checked settings of every issuer entry, each holding the
+    /// `trust_roots` of `auth.ca_file`.
+    fn issuer_settings(&self, trust_roots: Option<&Vec<u8>>) -> Result<Vec<Settings>, ConfigError> {
+        let entries = self.issuers();
+        if entries.iter().any(|entry| entry.issuer.is_empty()) {
+            return Err(ConfigError::Missing { key: "auth.issuer" });
+        }
+        let trusted: Vec<&str> = entries.iter().map(|entry| entry.issuer.as_str()).collect();
+        self.check_qualified(&trusted)?;
+        let mut issuers = Vec::with_capacity(entries.len());
+        for entry in &entries {
+            let mut settings = self.settings_of(entry);
+            settings.trust_roots = trust_roots.cloned();
+            settings.validate().map_err(|source| ConfigError::Issuer {
+                issuer: entry.issuer.clone(),
+                source: Box::new(source),
+            })?;
+            issuers.push(settings);
+        }
+        Ok(issuers)
+    }
+
+    /// Refuses an entry of `scopeless_subjects` or `role_claims` that names
+    /// an issuer outside `trusted`, or that names none while `trusted` holds
+    /// several (no specification governs the lists: our own design, since a
+    /// `sub` is unique only within its issuer, RFC 7519 §4.1.2).
+    fn check_qualified(&self, trusted: &[&str]) -> Result<(), ConfigError> {
+        let lists = [
+            ("auth.scopeless_subjects", &self.scopeless_subjects),
+            ("auth.role_claims", &self.role_claims),
+        ];
+        for (key, entries) in lists {
+            for entry in entries {
+                match qualified(entry) {
+                    (Some(issuer), _) if !trusted.contains(&issuer) => {
+                        return Err(ConfigError::UnknownIssuer {
+                            key,
+                            issuer: issuer.to_owned(),
+                        });
+                    }
+                    (None, _) if trusted.len() > 1 => {
+                        return Err(ConfigError::Unqualified {
+                            key,
+                            entry: entry.clone(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
         }
         Ok(())
     }
@@ -675,8 +750,10 @@ impl AuthSection {
         settings.cache_max_age = Duration::from_secs(section.cache_max_age_seconds);
         settings.cache_capacity = section.cache_capacity;
         settings.timeout = Duration::from_millis(self.timeout_ms);
-        settings.scopeless_subjects = self.scopeless_subjects.iter().cloned().collect();
-        settings.role_claims.clone_from(&self.role_claims);
+        let trusted = [issuer.as_str()];
+        self.check_qualified(&trusted)?;
+        settings.scopeless_subjects = for_issuer(&self.scopeless_subjects, issuer).collect();
+        settings.role_claims = for_issuer(&self.role_claims, issuer).collect();
         settings
             .validate()
             .map_err(|source| ConfigError::Introspection {
@@ -741,15 +818,40 @@ impl AuthSection {
             ),
             jwks_file: (!jwks_file.is_empty()).then(|| PathBuf::from(jwks_file)),
             timeout: Duration::from_millis(self.timeout_ms),
-            scopeless_subjects: self
-                .scopeless_subjects
-                .iter()
-                .cloned()
+            scopeless_subjects: for_issuer(&self.scopeless_subjects, &entry.issuer)
                 .collect::<BTreeSet<_>>(),
-            role_claims: self.role_claims.clone(),
+            role_claims: for_issuer(&self.role_claims, &entry.issuer).collect(),
             trust_roots: None,
         }
     }
+}
+
+/// Splits a `scopeless_subjects` or `role_claims` entry into the issuer it
+/// names and its value.
+///
+/// An entry is qualified when the text before its first `#` is an issuer
+/// identifier, which has no fragment (RFC 8414 §2), so the first `#` ends
+/// it; any other entry is bare and names no issuer.
+fn qualified(entry: &str) -> (Option<&str>, &str) {
+    match entry.split_once('#') {
+        Some((issuer, value)) if crate::metadata::issuer_url(issuer).is_ok() => {
+            (Some(issuer), value)
+        }
+        _ => (None, entry),
+    }
+}
+
+/// Returns the values of `entries` that hold for tokens of `issuer`: the
+/// entries naming it and the bare ones, which [`AuthSection::resolve`]
+/// admits only when it is the one issuer the section trusts.
+fn for_issuer<'a>(entries: &'a [String], issuer: &'a str) -> impl Iterator<Item = String> + 'a {
+    entries
+        .iter()
+        .filter_map(move |entry| match qualified(entry) {
+            (Some(named), value) if named == issuer => Some(value.to_owned()),
+            (None, value) => Some(value.to_owned()),
+            (Some(_), _) => None,
+        })
 }
 
 /// Adds the `auth.ca_file` roots to the roots of an introspection grant, so

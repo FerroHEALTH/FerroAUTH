@@ -521,3 +521,34 @@ fn the_introspection_table_reads_from_toml() -> Result<(), Box<dyn StdError>> {
     assert_eq!(Duration::from_secs(30), settings.cache_max_age);
     Ok(())
 }
+
+#[test]
+fn introspection_mode_reads_the_entries_naming_its_issuer() -> Result<(), Box<dyn StdError>> {
+    let mut auth = section("https://as.example.org");
+    auth.scopeless_subjects = vec![
+        String::from("https://as.example.org#batch"),
+        String::from("svc"),
+    ];
+    auth.role_claims = vec![String::from("https://as.example.org#realm_access.roles")];
+    let settings = auth
+        .resolve()?
+        .introspection
+        .ok_or("the introspection settings")?;
+    assert_eq!(
+        std::collections::BTreeSet::from([String::from("batch"), String::from("svc")]),
+        settings.scopeless_subjects
+    );
+    assert_eq!(
+        vec![String::from("realm_access.roles")],
+        settings.role_claims
+    );
+    auth.scopeless_subjects = vec![String::from("https://other.example.org#batch")];
+    assert!(matches!(
+        auth.resolve(),
+        Err(ConfigError::UnknownIssuer {
+            key: "auth.scopeless_subjects",
+            ..
+        })
+    ));
+    Ok(())
+}

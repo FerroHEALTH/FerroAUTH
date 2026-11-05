@@ -387,7 +387,12 @@ admitted system-wide when its `sub` is on the deployment's allowlist, and
 nowhere otherwise; `Caller::scopeless` reads the flag. No specification governs this: our own design, the
 one FerroBRIDGE runs for an authorization server that cannot mint SMART
 scopes for a service account. The allowlist is a list of exact subjects, and
-a subject on it that does carry scopes gets only its scopes.
+a subject on it that does carry scopes gets only its scopes. A `sub` is
+unique only within its issuer (`rfc7519 §4.1.2`), so an entry names its
+issuer as `<issuer>#<sub>` and holds for that issuer's tokens alone; an
+issuer identifier has no fragment (`rfc8414 §2`), so the first `#` ends it.
+A bare `<sub>` is admitted only when the section trusts one issuer, and a
+section that trusts several refuses it at load (4).
 
 **A Basic principal** carries the scope string its configuration grants it
 (4.1), so the same check serves a Basic caller and a bearer caller, and a
@@ -854,7 +859,10 @@ attributes in a JWT access token use the `groups`, `roles` and
 claim types. `Caller::roles()` holds what the configured claims carry
 (`[auth] role_claims`, by default those three; a dotted path such as
 `realm_access.roles` reaches into a JSON object for an issuer that nests
-them). A value is an array element that is a string, an element that is an
+them). Like the scopeless allowlist (3.4), an entry `<issuer>#<path>` is
+read from that issuer's tokens alone, and a bare path only when the section
+trusts one issuer, so a section that trusts several names the issuers whose
+roles count, or sets `role_claims = []`. A value is an array element that is a string, an element that is an
 object with a string `value` sub-attribute (a SCIM multi-valued attribute,
 `rfc7643 §2.4`), or each whitespace-separated word of a string. A role keeps
 the issuer's spelling, trimmed, and appears once. An introspection answer is
@@ -946,11 +954,11 @@ jwks_refresh_interval_seconds = 60
 jwks_file = ""                       # a key set handed over out of band, instead of jwks_uri
 timeout_ms = 10000                   # one call to the authorization server
 realm = "ferrobridge"                # the product's default
-scopeless_subjects = []              # exact `sub` values granted system-wide access without a scope
+scopeless_subjects = []              # exact `sub` values granted system-wide access without a scope, `<issuer>#<sub>` (3.4)
 capabilities = []                    # SMART capabilities the discovery document adds
 scopes_supported = []                # the scopes the product honours, listed in the discovery document
 product_scope = ""                   # the product's own scope: `__name` or a full URI
-role_claims = ["roles", "groups", "entitlements"]   # dotted paths the roles are read from (3.11)
+role_claims = ["roles", "groups", "entitlements"]   # dotted paths the roles are read from, `<issuer>#<path>` (3.11)
 
 mode = "jwt"                         # or "introspection" (3.10), with the table below
 
@@ -976,7 +984,11 @@ roles = ["etl"]                      # one word each (3.11)
 A product that trusts several issuers (FerroFED) writes `[[auth.issuer]]`
 tables, each carrying the fields of the flat form from `issuer` to
 `jwks_file`, and the flat form is read as a one-entry list; the library's
-type is a list, and every verifier runs the same checks per entry. The
+type is a list, and every verifier runs the same checks per entry. Such a
+section writes every `scopeless_subjects` and `role_claims` entry as
+`<issuer>#<value>`, so each issuer's settings carry only the entries naming
+it; a bare entry, or one naming an issuer the section does not list, refuses
+the start. The
 product-specific fields of an issuer entry (FerroFED's backend clients,
 patient binding, contact-point claims) stay in the product's own wrapper
 around the entry.
@@ -1219,6 +1231,11 @@ four agree on and settles each difference:
   authorization server mints valid tokens for every product that trusts it.
   That is the OAuth model, and the mitigation is operational (one issuer per
   deployment, its keys rotated, its audit read), not the library's.
+- **Several issuers.** A section that trusts several issuers trusts each
+  only for its own tokens: a `sub` the scopeless allowlist names and the
+  claims roles are read from hold for the issuer an entry names, so one
+  issuer cannot mint the subject or the role another was trusted for
+  (`rfc7519 §4.1.2`; 3.4, 3.11; GHSA-pfgx-xq28-2629).
 
 ## 9. Decision register
 
@@ -1263,6 +1280,7 @@ four agree on and settles each difference:
 | A metadata document whose objects repeat a member name is refused | `rfc8259 §4` leaves the meaning to each parser; the refusal is our own design (#69) | none |
 | A product may refuse metadata whose endpoints are off the issuer's origin; the check is opt-in | `rfc6454 §4`, `§5` define the origin; RFC 8414 places no endpoint, so the policy is our own design (#68) | none |
 | Token introspection is a deployment's opt-in (`mode = "introspection"`), under client authentication or a grant's bearer token, with `scope`, `client_id` and `exp` required, `iss` and `aud` checked when present, and a response without `sub` read as the client's | `rfc7662 §2.1`, `§2.2`, `§4`; `smart token-introspection`; `rfc9068 §2.2` | none |
+| Every `scopeless_subjects` and `role_claims` entry of a section with several issuers names its issuer as `<issuer>#<value>`; a bare entry holds only beside one issuer and is refused beside several | `rfc7519 §4.1.2` (a `sub` is unique within its issuer); `rfc8414 §2` (an issuer has no fragment, so the first `#` ends it); the form is our own design, kept in the existing string lists so a patch release breaks no API (GHSA-pfgx-xq28-2629) | a deployment with several issuers qualifies each entry, or sets `role_claims = []`, before it upgrades |
 | An active introspection response is held until its `exp` and at most `cache_max_age_seconds`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
 
 ## 10. Verification

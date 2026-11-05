@@ -11,7 +11,7 @@ authorization server.
 
 ```toml
 [dependencies]
-ferrohealth-smart = { version = "=0.8.8", features = ["axum", "openehr"] }
+ferrohealth-smart = { version = "=0.8.9", features = ["axum", "openehr"] }
 ```
 
 ## What it does
@@ -38,7 +38,8 @@ ferrohealth-smart = { version = "=0.8.8", features = ["axum", "openehr"] }
   which one a route is checked against.
 - **`roles`**: the roles a caller holds, `Caller::roles()`, read from the
   `roles`, `groups` and `entitlements` claims of RFC 9068 §2.2.3.1 or the
-  paths `[auth] role_claims` names, or granted to a Basic user; the route
+  paths `[auth] role_claims` names (`<issuer>#<path>` beside several
+  issuers), or granted to a Basic user; the route
   table checks them with `Requirement::Role`, `AnyRole`, `WithoutRole` and
   `All`.
 - **The person's own access**: `Caller::acts_for_the_person` (the broad
@@ -88,7 +89,7 @@ server and its dependencies are left out, so a browser client parses a
 scope string with the parser the resource server enforces it with:
 
 ```toml
-ferrohealth-smart = { version = "=0.8.8", default-features = false, features = ["openehr-scopes"] }
+ferrohealth-smart = { version = "=0.8.9", default-features = false, features = ["openehr-scopes"] }
 ```
 
 With the `axum` feature, **`guard::AuthLayer`** runs the credential check,

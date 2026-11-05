@@ -11,6 +11,25 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.9] - 2026-11-05
+
+### Security
+
+- `[auth] scopeless_subjects` and `role_claims` hold per issuer. An entry
+  written `<issuer>#<value>` holds for the tokens of the issuer it names
+  alone; a bare entry holds only when the section trusts one issuer. A
+  section with several `[[auth.issuer]]` entries refuses a bare entry as
+  `ConfigError::Unqualified`, and every section refuses an entry naming an
+  issuer it does not trust as `ConfigError::UnknownIssuer`. Before 0.8.9
+  both lists applied to the tokens of every trusted issuer: a token from
+  any of them whose `sub` was on the allowlist was granted system-wide
+  access without a scope (since 0.1.0), and any of them could assert every
+  role a product checks, its administrator and emergency roles included
+  (since 0.7.0) (CWE-863, CWE-639, GHSA-pfgx-xq28-2629). A deployment with
+  several issuers qualifies each entry, or sets `role_claims = []` to read
+  no role from a token, before it upgrades: the default `role_claims` is
+  bare and refused beside several issuers.
+
 ## [0.8.8] - 2026-11-03
 
 ### Added
@@ -768,7 +787,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.8...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.9...HEAD
+[0.8.9]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.8...ferrohealth-smart-v0.8.9
 [0.8.8]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.7...ferrohealth-smart-v0.8.8
 [0.8.7]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.6...ferrohealth-smart-v0.8.7
 [0.8.6]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.5...ferrohealth-smart-v0.8.6
