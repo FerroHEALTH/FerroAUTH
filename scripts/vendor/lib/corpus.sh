@@ -83,6 +83,14 @@ corpus_pin_commit() {
   printf '%s\n' "$commit"
 }
 
+# The tag a pin cell names: the token after the word `tag`.
+corpus_pin_tag() {
+  local tag
+  tag="$(corpus_pin_field tag "$1")"
+  [ -n "$tag" ] || die "the pin '$1' names no tag"
+  printf '%s\n' "$tag"
+}
+
 # The token after the word $1 in the pin cell $2, without trailing
 # punctuation.
 corpus_pin_field() {
@@ -155,6 +163,64 @@ corpus_take() {
     mkdir -p "$dest/$(dirname "$path")"
     cp -R "$src/$path" "$dest/$path"
   done
+}
+
+# Copies each named path of $1 at commit $2 into $3, one file at a time from
+# raw.githubusercontent.com, for a repository too large to fetch whole. A path
+# ending in `/` takes every file under that directory. Each file's git blob id
+# is checked against the tree GitHub records for the commit, which is the
+# proof that the bytes on disk are the pinned ones.
+corpus_take_raw() {
+  local repo="$1" commit="$2" dest="$3" path dir listing file want
+  shift 3
+  local scratch
+  scratch="$(mktemp -d)"
+  for path in "$@"; do
+    case "$path" in
+      */)
+        dir="${path%/}"
+        listing="$(corpus_api "https://api.github.com/repos/$repo/git/trees/$commit:$dir?recursive=1")" ||
+          die "$repo at $commit has no directory $dir"
+        [ "$(jq -r '.truncated' <<< "$listing")" = "false" ] || die "the tree of $dir is truncated"
+        while IFS=$'\t' read -r file want; do
+          corpus_take_raw_one "$repo" "$commit" "$dest" "$dir/$file" "$want"
+        done < <(jq -r '.tree[] | select(.type == "blob") | [.path, .sha] | @tsv' <<< "$listing")
+        ;;
+      *)
+        dir="$(dirname "$path")"
+        if [ ! -f "$scratch/$dir.tsv" ]; then
+          mkdir -p "$(dirname "$scratch/$dir.tsv")"
+          listing="$(corpus_api "https://api.github.com/repos/$repo/git/trees/$commit:$([ "$dir" = . ] || printf '%s' "$dir")")" ||
+            die "$repo at $commit has no directory $dir"
+          jq -r '.tree[] | select(.type == "blob") | [.path, .sha] | @tsv' <<< "$listing" > "$scratch/$dir.tsv"
+        fi
+        want="$(awk -F'\t' -v f="$(basename "$path")" '$1 == f { print $2; exit }' "$scratch/$dir.tsv")"
+        [ -n "$want" ] || die "$repo at $commit has no file $path"
+        corpus_take_raw_one "$repo" "$commit" "$dest" "$path" "$want"
+        ;;
+    esac
+  done
+  rm -rf "$scratch"
+}
+
+# Downloads one file of corpus_take_raw and checks its blob id against $5.
+corpus_take_raw_one() {
+  local repo="$1" commit="$2" dest="$3" path="$4" want="$5" got
+  mkdir -p "$dest/$(dirname "$path")"
+  corpus_download "https://raw.githubusercontent.com/$repo/$commit/$path" "$dest/$path" ||
+    die "download of $path failed"
+  got="$(corpus_blob_id "$dest/$path")"
+  [ "$got" = "$want" ] || die "$path has blob id $got, the commit records $want"
+}
+
+# The git blob id of the file $1: sha1 over `blob <size>\0` and the bytes.
+corpus_blob_id() {
+  local size
+  size="$(wc -c < "$1" | tr -d '[:space:]')"
+  {
+    printf 'blob %s\0' "$size"
+    cat "$1"
+  } | shasum -a 1 | cut -d' ' -f1
 }
 
 corpus_sha256() { shasum -a 256 "$1" | cut -d' ' -f1; }
