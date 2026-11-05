@@ -598,9 +598,11 @@ impl Profile {
             });
         }
         onward::validate(&self.onward_parameters, self.max_onward_lifetime)?;
-        // NOTE: no adapter feature is compiled into this build yet, so every
-        // named adapter refuses the issuer (no specification governs this: our own design).
-        if let Some(adapter) = &self.adapter {
+        // NOTE: no specification governs adapters: our own design, in which a profile names
+        // only an adapter this build compiles in, and any other name refuses the issuer.
+        if let Some(adapter) = &self.adapter
+            && !crate::idp::is_compiled(adapter)
+        {
             return Err(ProfileError::Adapter {
                 adapter: adapter.clone(),
             });

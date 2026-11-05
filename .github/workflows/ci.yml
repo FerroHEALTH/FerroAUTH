@@ -236,6 +236,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
       - run: cargo clippy --workspace --all-targets --no-default-features --features axum,openehr --locked -- -D warnings
       - run: cargo clippy --workspace --all-targets --features axum --locked -- -D warnings
+      - run: cargo clippy -p ferrohealth-smart --all-targets --features idp-entra --locked -- -D warnings
       - run: cargo clippy -p ferrohealth-smart --all-targets --no-default-features --features openehr-scopes --locked -- -D warnings
       - run: cargo clippy -p ferrohealth-smart --no-default-features --features openehr-scopes --target wasm32-unknown-unknown --locked -- -D warnings
 
@@ -258,6 +259,8 @@ jobs:
         with:
           tool: cargo-nextest
       - run: cargo nextest run --workspace --locked
+      # The vendor adapter suite runs after the generic one, with only its feature.
+      - run: cargo nextest run -p ferrohealth-smart --features idp-entra --locked --no-tests=fail -E 'test(/^party::entra::/)'
       - run: cargo nextest run --workspace --all-features --locked
       - run: cargo nextest run --workspace --no-default-features --features axum,openehr --locked
       - run: cargo test --doc --workspace --all-features --locked

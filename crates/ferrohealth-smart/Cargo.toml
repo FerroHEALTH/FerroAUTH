@@ -42,6 +42,10 @@ openehr-scopes = []
 # The grammar enforced beside the FHIR one: the `Requirement::OpenEhr` of a
 # product route, the grant rules of the draft, and the launch context `ehrId`.
 openehr = ["openehr-scopes"]
+# The vendor adapter that resolves a Microsoft Entra ID groups overage through
+# Microsoft Graph (`idp::entra`), named by a profile as `adapter = "idp-entra"`.
+# A profile naming it fails to load in a build without this feature.
+idp-entra = ["fetch", "tokio/time"]
 
 # Everything but the grammar is the resource server, which a browser never
 # runs, so it is compiled for every target but the browser's.

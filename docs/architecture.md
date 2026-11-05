@@ -960,8 +960,11 @@ layers, all in `ferrohealth-smart`:
    touches the profiles or the resource server.
 3. **Vendor adapters as code**, only where data cannot express the
    behaviour, each an optional Cargo feature behind the
-   `party::adapter::IdpAdapter` trait (3.17). This build compiles none, so a
-   profile naming an adapter refuses its issuer at load.
+   `party::adapter::IdpAdapter` trait (3.17), in the `idp` tree, the one
+   place outside the preset selector where a vendor's name stands. A
+   profile names an adapter by its feature name, and a name this build does
+   not compile in refuses the issuer at load, naming it
+   (`ProfileError::Adapter`). The one adapter is `idp-entra` (3.17).
 
 Each `[[auth.issuer]]` declares its `kind`, with no default: `persons`,
 `patients`, `machines` or `federation`. A valid token is classified in this
@@ -1334,6 +1337,50 @@ handler, which decides what it means. The library calls the source once
 per request and holds no cache, no expiry and no invalidation hook (owner
 ruling 2026-11-05): a source meets its product's latency budget by indexed
 reads, and a cache is proposed only with measurements and an owner ruling.
+
+**The `idp-entra` adapter.** Behind the `idp-entra` feature,
+`idp::entra::GraphAdapter` resolves an Entra ID groups overage. Above its
+limit ("150 for SAML tokens, 200 for JWT tokens") Entra ID leaves `groups`
+out and carries `_claim_names` and `_claim_sources`, or `hasgroups`, in its
+place; the `_claim_sources` URL is "an Azure AD Graph URL", and a service
+should "use the `idtyp` optional claim ... to construct a Microsoft Graph
+URL" (Microsoft, "Access token claims reference", §Groups overage claim).
+The adapter never reads `_claim_sources`: it builds
+`{base_url}/users/{oid}/getMemberObjects` for a user token and
+`{base_url}/servicePrincipals/{oid}/getMemberObjects` for one whose `idtyp`
+is `app` (Microsoft, "Optional claims reference"), from the configured
+Graph root and the token's `oid`, which must be a GUID, and refuses any
+other `idtyp` with `AdapterError::Claim` before it calls anything. It sends
+the `POST` of the Microsoft Graph v1.0 reference `directoryObject:
+getMemberObjects` with `securityEnabledOnly` as configured, under a
+client-credentials token of `client::cache::TokenSource` renewed once on a
+`401`, and reads only a `200 OK` "String collection" (the pages are pinned
+cache only, `docs/specs/microsoft-graph/PROVENANCE.md`). A deployment
+turns it on per issuer with `adapter = "idp-entra"` on an `entra` issuer,
+builds the adapter from a `GraphSection` (the Graph root, `timeout_ms`,
+`max_response_bytes`, `security_enabled_only` and the `credentials` of the
+Graph token) and registers it under `idp::entra::NAME`. The `entra` preset
+names no adapter, so a build without the feature loads every `entra`
+issuer that does not ask for one.
+
+Every failure is `GroupsUnavailable(GroupsCause::Adapter(..))`, never an
+empty set: a status other than `200` is `AdapterError::Status`, with the
+`Retry-After` seconds of a throttled `429` ("Microsoft Graph throttling
+guidance"); a call past the budget is `AdapterError::Timeout`; a Graph
+token that cannot be obtained, or an answer past `max_response_bytes`, that
+repeats a member name, is no collection of strings or names a next page, is
+`AdapterError::Unreadable` with the cause. A product answers these as an
+upstream failure (`503`) and `GroupsCause::Overage` as a refusal. The call
+has its own budget, `timeout_ms` (2 s by default), over the token fetch and
+the Graph round trip together, and answers one request: nothing is cached.
+Its latency is outside a product's lookup budget (FerroEHR's 2 ms at p99
+excludes it). Every request of a user above the overage limit costs one
+Graph round trip and draws on the application's Graph throttling
+allowance. The perf case measured a p99 of 55.8 ms over 100 overage
+requests against a stub Graph with 50 ms injected latency (2026-11-05),
+beside the 2 ms lookup budget, and fails when the p99 passes the adapter's
+timeout. A bounded cache needs measurements and an owner ruling. The bounds
+are our own design.
 
 **The configuration.** One `[[auth.party]]` table per bound `persons`
 issuer, with `deny_unknown_fields`, checked when the section resolves:
@@ -1729,6 +1776,7 @@ four agree on and settles each difference:
 | A `persons` login is resolved to its party through a `PartySource` the product supplies, once per request with no cache, keyed by the issuer profile's `person_key` in the canonical form of its `identifier_type`, against the identifiers of one `[[auth.party]]` table's `identifier_issuer`; two matches are `Ambiguous`, a source failure is an error and never `Unbound`, and the outcome is the product's to answer (3.17) | `oidc-core §5.7`; `rfc7519 §4.1.2`; Microsoft, "Access token claims reference" (the overage markers); the binding is our own design (#216, owner ruling 2026-11-05 on the cache) | a product binds its `persons` issuers with `[[auth.party]]` tables, implements `PartySource`, maps each Basic user to a key, and answers each outcome |
 | An active introspection response is held until its `exp` and at most `cache_max_age_seconds`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
 | Onward tokens are obtained by token exchange or the JWT bearer grant as the issuer's profile names, refused unless they pass the onward check of 3.16, cached by issuer, grant, subject and actor token, target, scope and extra parameters until the earlier `exp`, and never refreshed; only a `persons` or `federation` issuer issues them | `rfc8693 §2.1`, `§2.2`, `§4.1`; `rfc7523 §2.1`, `§2.2`; `rfc8707 §2`; the check, the cache and the profile keys are our own design (#217) | a deployment sets `max_onward_lifetime` on each onward issuer, and `exchanges_from` and `person_mapping` on a federation issuer's table |
+| An Entra ID groups overage is resolved by the `idp-entra` adapter, an optional feature a profile names by `adapter`, at the `getMemberObjects` URL it builds from the Graph root and the token's `oid` and `idtyp`, never at `_claim_sources`; every Graph failure is `GroupsUnavailable` carrying the status, the `Retry-After` or the timeout, under a 2 s budget of its own and with no cache (3.17) | Microsoft, "Access token claims reference", §Groups overage claim; "Optional claims reference", `idtyp`; Microsoft Graph v1.0 `directoryObject: getMemberObjects` and "Microsoft Graph throttling guidance"; the bounds are our own design (#221) | a deployment with users above the overage limit compiles `idp-entra`, sets `adapter = "idp-entra"` on its `entra` issuer, grants the Graph permission and registers the adapter |
 
 ## 10. Verification
 
@@ -1763,6 +1811,13 @@ Every rule above is a test the crate carries before a product moves:
   example request and Examples 1 to 3, then every check of 3.16 as its own
   refusal under the standards-only, `entra` and `keycloak` profiles against
   a harness token endpoint, the federation route, and the cache (3.16);
+- the `idp-entra` adapter, behind its feature and after the generic suite:
+  the "Access token claims reference" overage example and `hasgroups`
+  resolved at the adapter-built `getMemberObjects` URL against a
+  `wiremock` Graph that records `_claim_sources` is never called, the
+  `servicePrincipals` URL by `idtyp`, the `429` with its `Retry-After`, a
+  refused permission, a refused Graph token, the timeout, the size bound,
+  the renewal on a `401`, no cache, and the p99 perf case (3.17);
 
 The vendored specifications are read by the design and by the tests that
 cite them; `scripts/checks/versions.sh` holds the trees to their provenance,

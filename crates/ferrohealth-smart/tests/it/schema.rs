@@ -219,6 +219,9 @@ fn the_okta_and_keycloak_presets_fail_to_load_until_the_deployment_sets_their_ga
     );
 }
 
+// NOTE: no specification governs adapters: our own design, in which a profile naming an
+// adapter whose feature this build leaves out fails to load.
+#[cfg(not(feature = "idp-entra"))]
 #[test]
 fn an_adapter_whose_feature_is_not_compiled_in_fails_to_load() {
     let refused = section(&issuer(
@@ -229,6 +232,31 @@ fn an_adapter_whose_feature_is_not_compiled_in_fails_to_load() {
     assert!(
         matches!(refused, Err(ConfigError::Issuer { .. })),
         "{refused:?}"
+    );
+}
+
+// NOTE: no specification governs adapters: our own design, in which the compiled adapter
+// loads and a name no feature compiles in fails in every build.
+#[test]
+fn only_a_compiled_adapter_loads() {
+    let unknown = section(&issuer(
+        "persons",
+        "profile = \"entra\"\nadapter = \"idp-unknown\"",
+    ))
+    .resolve();
+    assert!(
+        matches!(unknown, Err(ConfigError::Issuer { .. })),
+        "{unknown:?}"
+    );
+    let compiled = section(&issuer(
+        "persons",
+        "profile = \"entra\"\nadapter = \"idp-entra\"",
+    ))
+    .resolve();
+    assert_eq!(
+        cfg!(feature = "idp-entra"),
+        compiled.is_ok(),
+        "{compiled:?}"
     );
 }
 

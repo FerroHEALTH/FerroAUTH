@@ -58,3 +58,10 @@ onward_client_id = true
 # The same table, `assertion`: "This token must have an audience (`aud`)
 # claim of the app making this OBO request".
 onward_subject_audience = true
+#
+# The groups overage: claims, "Groups overage claim": above "150 for SAML
+# tokens, 200 for JWT tokens" the token carries `_claim_names` and
+# `_claim_sources`, or `hasgroups`, in place of `groups`. The preset names
+# no adapter, so the outcome is `GroupsUnavailable`; an issuer whose users
+# pass the limit sets `adapter = "idp-entra"`, which needs the `idp-entra`
+# feature and a registered `idp::entra::GraphAdapter`.
