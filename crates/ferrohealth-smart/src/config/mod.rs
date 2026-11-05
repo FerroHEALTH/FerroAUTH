@@ -35,6 +35,8 @@ use crate::client::assertion::AssertionError;
 use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
 use crate::metadata::DiscoveryError;
+use crate::party::config::PartyError;
+use crate::party::config::PartySection;
 use crate::profile::Delegate;
 use crate::profile::Marker;
 use crate::profile::Preset;
@@ -215,6 +217,13 @@ pub enum ConfigError {
         /// Which rule.
         reason: &'static str,
     },
+    /// An `[[auth.party]]` table breaks a rule.
+    #[error("an [[auth.party]] table is refused")]
+    Party {
+        /// The rule.
+        #[source]
+        source: PartyError,
+    },
     /// An entry of a list read per issuer names an issuer the section does
     /// not trust.
     #[error("a {key} entry names the issuer {issuer:?}, which the section does not trust")]
@@ -275,6 +284,9 @@ pub struct AuthSection {
     pub ca_file: Option<PathBuf>,
     /// The `[[auth.federation]]` tables, one per `federation` issuer.
     pub federation: Vec<FederationSection>,
+    /// The `[[auth.party]]` tables, one per `persons` issuer whose logins
+    /// are bound to a party.
+    pub party: Vec<PartySection>,
     /// Removed: set `audience` on each `[[auth.issuer]]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audience: Removed,
@@ -592,6 +604,8 @@ pub struct Resolved {
     /// the order written.
     #[cfg(feature = "fetch")]
     pub introspection: Vec<crate::resource::introspection::IntrospectionSettings>,
+    /// The `[[auth.party]]` tables, each checked against its issuer.
+    pub party: Vec<PartySection>,
 }
 
 /// The `[<lane>.credentials]` table: HTTP Basic with `user` and `password`,

@@ -13,9 +13,10 @@ and this project adheres to
 
 ## [0.9.0] - Unreleased
 
-The caller classification (#215). This release breaks the public
-configuration and API: every product moves its `[auth]` section to the
-issuer tables below and reads who called from `Caller::kind`.
+The caller classification (#215) and the party binding (#216). This
+release breaks the public configuration and API: every product moves its
+`[auth]` section to the issuer tables below and reads who called from
+`Caller::kind`.
 
 ### Added
 
@@ -164,6 +165,43 @@ issuer tables below and reads who called from `Caller::kind`.
   its grant cannot ask for. `Onward::check_target` runs the target checks
   on their own.
 
+- `party`: the party a person's login belongs to (#216). One
+  `[[auth.party]]` table (`party::config::PartySection`) per `persons`
+  issuer names the `identifier_issuer` and `identifier_type` its logins are
+  matched against, and the `group_claim` and `group_identifier_issuer` its
+  groups are read under; it has no `claim` key, since the issuer profile's
+  `person_key` is the key, and `guests = true` looks a guest up. The product
+  implements `party::source::PartySource` over its own store, and
+  `party::binding::PartyBinding::resolve` looks a `Person`, `Delegated` or
+  `Representative` caller, or a Basic user by the key
+  `PartyBinding::with_basic_user` maps it to, up on every request, with no
+  cache, into one `party::Outcome`: `Party` (the reference, the identifier
+  that matched, the markers, the groups the token names that the party
+  belongs to, its representation relationships, provisional and guest),
+  `WrongMarker`, `Unbound`, `Ambiguous`, `Inactive`, `Abandoned`,
+  `Deprovisioned`, `KeyClaimMissing` or `GroupsUnavailable`. `Patient`,
+  `System` and external callers are never looked up. A failing source is a
+  `SourceError`, never `Unbound`. A key of the `guid` or `uuid` type is
+  compared in lower case.
+- `party::adapter::IdpAdapter`, the vendor adapter seam a profile's
+  `adapter` names: on a groups overage marker (`_claim_names` naming the
+  group claim, or `hasgroups = true`) the adapter registered with
+  `PartyBinding::with_adapter` is called before the outcome is decided, and
+  its failure is `GroupsUnavailable` carrying the upstream status and
+  `Retry-After` (`party::adapter::AdapterError`).
+- `Gate::with_party`: the guard looks every admitted caller up and leaves
+  the outcome on it (`Caller::party`, `Access::party`); a failing source
+  answers `503`. `Caller::with_party` attaches an outcome a product
+  resolved itself, and `PasswordStore::users` lists the Basic users, which
+  `PartyBinding::check_basic` holds to a key each.
+- The audit line records what the login resolved to in its new `binding`
+  field (`source_unavailable` when the source failed, `-` when not looked
+  up) and the party reference in `party`, never a party attribute.
+- `ConfigError::Party`, naming an `[[auth.party]]` table that sets `claim`
+  (with the profile's `person_key`), names no trusted `persons` issuer,
+  shares its issuer or its `identifier_issuer` with another table (naming
+  both), or sets `group_claim` without `group_identifier_issuer`.
+
 ### Changed
 
 - Every issuer setting lives on its own `[[auth.issuer]]` table, with no
@@ -209,6 +247,11 @@ issuer tables below and reads who called from `Caller::kind`.
   `DPoP` request and a certificate-bound token; the layer uses
   `Gate::authenticate_request`.
 - The workspace requirement on `ferrohealth-smart` moves to 0.9.0.
+
+- `audit::Actor::Caller` carries `binding` and `party`, and the audit line
+  two fields more. Upgrade: a product that builds an `Actor::Caller` sets
+  both (`"-"` and `None` for a caller not looked up); a log pipeline that
+  holds the field set adds them.
 
 ### Removed
 
