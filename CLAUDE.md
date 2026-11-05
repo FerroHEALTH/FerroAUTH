@@ -135,7 +135,7 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   SMART on openEHR draft (DEVELOPMENT, pinned by commit and read weekly
   upstream), RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725,
   9068, 9700, 8707, 7638, 8705, 9449, 9470, 8259, 6454, 7636, 7009, 7521,
-  7522 and 8693, OpenID Connect Discovery 1.0, Core 1.0 and RP-Initiated
+  7522, 8693 and 3986, OpenID Connect Discovery 1.0, Core 1.0 and RP-Initiated
   Logout 1.0, and IHE IUA and Nuts RFC021 for federation tokens, as
   vendored under `docs/specs/`. Cite the section in every `// NOTE:`; never resolve a
   question from memory or from another implementation's behaviour. Where

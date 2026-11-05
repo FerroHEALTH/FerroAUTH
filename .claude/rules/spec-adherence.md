@@ -22,7 +22,9 @@ version `docs/VERSIONS.md` pins, and the design of record,
    and 6454 (the web origin, §4 and §5), 7636 (PKCE) and 7009 (token
    revocation), the last two for the `oidc` relying party; 7521 (the
    assertion framework), 7522 (its SAML 2.0 profile) and 8693 (token
-   exchange) for the onward grants and delegation.
+   exchange) for the onward grants and delegation; 3986 (URI syntax, §6.2.2
+   and §6.2.3 for the DPoP `htu` comparison, §4.2 for the console's return
+   path).
 3. **OpenID Connect Discovery 1.0** (incorporating errata set 2): the
    fallback metadata location and the `issuer` and `jwks_uri` rules. For
    the `oidc` relying party, **OpenID Connect Core 1.0** (incorporating
