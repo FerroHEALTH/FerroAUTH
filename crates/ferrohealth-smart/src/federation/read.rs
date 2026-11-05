@@ -22,6 +22,7 @@ use crate::federation::Outcome;
 use crate::federation::REQUIRED;
 use crate::federation::Source;
 use crate::kind::Unclassified;
+use crate::roles::lookup;
 
 /// Returns what the verified `claims` of a `federation` token assert.
 pub(crate) fn classify(
@@ -251,16 +252,6 @@ fn attested_entry<'a>(
         return Err(Unclassified::AuthorizationDetails);
     }
     Ok(Some(entry))
-}
-
-/// Returns the value at the dotted `path` of `object`.
-fn lookup<'a>(object: &'a Map<String, Value>, path: &str) -> Option<&'a Value> {
-    let mut steps = path.split('.');
-    let mut current = object.get(steps.next()?)?;
-    for step in steps {
-        current = current.as_object()?.get(step)?;
-    }
-    Some(current)
 }
 
 /// Returns `value` as an attribute: a string or a number as text, an array
