@@ -62,6 +62,10 @@ assertion to the token endpoint (RFC 7523 §2.2), never an access token.
   fetch, cache and one renewal on a `401`, authenticating with a secret or a
   `private_key_jwt` assertion). Static or shared bearer tokens and API keys
   are not supported (owner decision 2026-10-19);
+- obtain a token for another service on a caller's behalf (`client::onward`)
+  by RFC 8693 token exchange or the RFC 7523 JWT bearer grant, as the
+  issuer's profile names, refusing an issued token that fails the onward
+  check of `docs/architecture.md` §3.16;
 - write one audit line per request (`audit`) under the `tracing` target
   `ferrohealth_smart::audit`, with the fixed field set of
   `docs/architecture.md` §3.6 and never the token or any content.
@@ -84,8 +88,10 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 
 - `crates/ferrohealth-smart`: the library, with its own `CHANGELOG.md`. `src/` (`metadata`, `resource`
   with `jwks`, `token`, `configuration` and `introspection`, `scope`, `basic`, `client` with
-  `cache`, `endpoint` and `assertion`, `kind` (the caller classification),
-  `profile` (the issuer profile, its presets under `profiles/`), `federation`
+  `cache`, `endpoint`, `assertion` and `onward` (the token exchange and JWT
+  bearer onward grants with their check and cache), `kind` (the caller
+  classification), `profile` (the issuer profile with its `onward` keys, its
+  presets under `profiles/`), `federation`
   (what a `federation` issuer asserts), `sender` (sender-constrained tokens,
   with `proof`, the DPoP proof check, and `replay`, the proof replay store),
   `party` (the login's party through a product `PartySource`, with

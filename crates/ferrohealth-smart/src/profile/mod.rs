@@ -22,6 +22,14 @@ use serde_json::Value;
 
 use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
+use crate::profile::onward::OnwardGrant;
+use crate::profile::onward::OnwardIndicator;
+use crate::profile::onward::PreviewVariant;
+use crate::profile::tables::set;
+use crate::profile::tables::set_some;
+
+pub mod onward;
+mod tables;
 
 /// The claims OpenID Connect Core 1.0 §5.7 says "MUST NOT be used as unique
 /// identifiers for the End-User".
@@ -52,11 +60,11 @@ impl Preset {
     #[must_use]
     pub const fn source(self) -> &'static str {
         match self {
-            Self::Rfc9068 => include_str!("../profiles/rfc9068.toml"),
-            Self::Entra => include_str!("../profiles/entra.toml"),
-            Self::Keycloak => include_str!("../profiles/keycloak.toml"),
-            Self::Okta => include_str!("../profiles/okta.toml"),
-            Self::Nl => include_str!("../profiles/nl.toml"),
+            Self::Rfc9068 => include_str!("../../profiles/rfc9068.toml"),
+            Self::Entra => include_str!("../../profiles/entra.toml"),
+            Self::Keycloak => include_str!("../../profiles/keycloak.toml"),
+            Self::Okta => include_str!("../../profiles/okta.toml"),
+            Self::Nl => include_str!("../../profiles/nl.toml"),
         }
     }
 
@@ -167,7 +175,7 @@ impl ScopeClaim {
 /// Exactly one form per table: `{ claim, value }`, `{ absent_claim }`,
 /// `{ subjects }`, `{ sub_is_client = true }` or `{ differs_from_iss }`.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(try_from = "MarkerTable", into = "MarkerTable")]
+#[serde(try_from = "tables::MarkerTable", into = "tables::MarkerTable")]
 pub enum Marker {
     /// The claim is present and its text is the value.
     Claim {
@@ -192,153 +200,9 @@ pub enum Marker {
     },
 }
 
-/// The table form of a [`Marker`].
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-struct MarkerTable {
-    /// The claim of `{ claim, value }`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    claim: Option<String>,
-    /// The value of `{ claim, value }`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    value: Option<String>,
-    /// The claim of `{ absent_claim }`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    absent_claim: Option<String>,
-    /// The subjects of `{ subjects }`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    subjects: Option<Vec<String>>,
-    /// The `{ sub_is_client = true }` form.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    sub_is_client: bool,
-    /// The claim of `{ differs_from_iss }`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    differs_from_iss: Option<String>,
-}
-
-impl TryFrom<MarkerTable> for Marker {
-    type Error = String;
-
-    fn try_from(table: MarkerTable) -> Result<Self, Self::Error> {
-        match table {
-            MarkerTable {
-                claim: Some(claim),
-                value: Some(value),
-                absent_claim: None,
-                subjects: None,
-                sub_is_client: false,
-                differs_from_iss: None,
-            } => Ok(Self::Claim { claim, value }),
-            MarkerTable {
-                claim: None,
-                value: None,
-                absent_claim: Some(claim),
-                subjects: None,
-                sub_is_client: false,
-                differs_from_iss: None,
-            } => Ok(Self::Absent { claim }),
-            MarkerTable {
-                claim: None,
-                value: None,
-                absent_claim: None,
-                subjects: Some(subjects),
-                sub_is_client: false,
-                differs_from_iss: None,
-            } => Ok(Self::Subjects(subjects)),
-            MarkerTable {
-                claim: None,
-                value: None,
-                absent_claim: None,
-                subjects: None,
-                sub_is_client: true,
-                differs_from_iss: None,
-            } => Ok(Self::SubIsClient),
-            MarkerTable {
-                claim: None,
-                value: None,
-                absent_claim: None,
-                subjects: None,
-                sub_is_client: false,
-                differs_from_iss: Some(claim),
-            } => Ok(Self::DiffersFromIssuer { claim }),
-            _ => Err(String::from(
-                "a marker is exactly one of { claim, value }, { absent_claim }, { subjects }, \
-                 { sub_is_client = true } and { differs_from_iss }",
-            )),
-        }
-    }
-}
-
-impl From<Marker> for MarkerTable {
-    fn from(marker: Marker) -> Self {
-        match marker {
-            Marker::Claim { claim, value } => Self {
-                claim: Some(claim),
-                value: Some(value),
-                ..Self::default()
-            },
-            Marker::Absent { claim } => Self {
-                absent_claim: Some(claim),
-                ..Self::default()
-            },
-            Marker::Subjects(subjects) => Self {
-                subjects: Some(subjects),
-                ..Self::default()
-            },
-            Marker::SubIsClient => Self {
-                sub_is_client: true,
-                ..Self::default()
-            },
-            Marker::DiffersFromIssuer { claim } => Self {
-                differs_from_iss: Some(claim),
-                ..Self::default()
-            },
-        }
-    }
-}
-
-impl Marker {
-    /// Returns whether `claims`, whose client claim reads `client`, pass
-    /// this test.
-    #[must_use]
-    pub fn matches(&self, claims: &Map<String, Value>, client: Option<&str>) -> bool {
-        match self {
-            Self::Claim { claim, value } => claims
-                .get(claim)
-                .is_some_and(|found| text_of(found).as_deref() == Some(value.as_str())),
-            Self::Absent { claim } => !claims.contains_key(claim),
-            Self::Subjects(subjects) => claims
-                .get("sub")
-                .and_then(Value::as_str)
-                .is_some_and(|sub| subjects.iter().any(|listed| listed == sub)),
-            Self::SubIsClient => {
-                client.is_some() && claims.get("sub").and_then(Value::as_str) == client
-            }
-            Self::DiffersFromIssuer { claim } => {
-                let issuer = claims.get("iss").and_then(Value::as_str);
-                claims
-                    .get(claim)
-                    .and_then(Value::as_str)
-                    .is_some_and(|found| Some(found) != issuer)
-            }
-        }
-    }
-}
-
-/// Returns the text a marker value is compared with: a string's own text,
-/// or a number's or boolean's JSON text.
-fn text_of(value: &Value) -> Option<String> {
-    match value {
-        Value::String(text) => Some(text.clone()),
-        Value::Number(number) => Some(number.to_string()),
-        Value::Bool(flag) => Some(flag.to_string()),
-        _ => None,
-    }
-}
-
 /// An actor or a client the issuer declares may act for a person.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(try_from = "DelegateTable", into = "DelegateTable")]
+#[serde(try_from = "tables::DelegateTable", into = "tables::DelegateTable")]
 pub enum Delegate {
     /// An RFC 8693 §4.1 actor, by `act.iss` and `act.sub`; with no issuer,
     /// the token's own.
@@ -350,59 +214,6 @@ pub enum Delegate {
     },
     /// A third-party client, by the value its client claim names.
     Client(String),
-}
-
-/// The table form of a [`Delegate`].
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-struct DelegateTable {
-    /// The actor's issuer.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    issuer: Option<String>,
-    /// The actor's `sub`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sub: Option<String>,
-    /// The client.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    client: Option<String>,
-}
-
-impl TryFrom<DelegateTable> for Delegate {
-    type Error = String;
-
-    fn try_from(table: DelegateTable) -> Result<Self, Self::Error> {
-        match table {
-            DelegateTable {
-                issuer,
-                sub: Some(sub),
-                client: None,
-            } => Ok(Self::Actor { issuer, sub }),
-            DelegateTable {
-                issuer: None,
-                sub: None,
-                client: Some(client),
-            } => Ok(Self::Client(client)),
-            _ => Err(String::from(
-                "a delegate is { sub } with an optional issuer, or { client }",
-            )),
-        }
-    }
-}
-
-impl From<Delegate> for DelegateTable {
-    fn from(delegate: Delegate) -> Self {
-        match delegate {
-            Delegate::Actor { issuer, sub } => Self {
-                issuer,
-                sub: Some(sub),
-                client: None,
-            },
-            Delegate::Client(client) => Self {
-                client: Some(client),
-                ..Self::default()
-            },
-        }
-    }
 }
 
 /// The claims a `persons` issuer names a represented subject in.
@@ -478,6 +289,27 @@ pub struct ProfileKeys {
     /// [`Profile::adapter`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapter: Option<String>,
+    /// [`Profile::max_onward_lifetime`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_onward_lifetime: Option<u64>,
+    /// [`Profile::onward_grant`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_grant: Option<OnwardGrant>,
+    /// [`Profile::onward_indicator`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_indicator: Option<OnwardIndicator>,
+    /// [`Profile::onward_parameters`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_parameters: Option<BTreeMap<String, String>>,
+    /// [`Profile::onward_client_id`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_client_id: Option<bool>,
+    /// [`Profile::onward_subject_audience`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_subject_audience: Option<bool>,
+    /// [`Profile::onward_preview`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub onward_preview: Option<Vec<PreviewVariant>>,
 }
 
 /// What one issuer's tokens look like, every key resolved.
@@ -530,6 +362,25 @@ pub struct Profile {
     pub app_only_scope_claim: Option<ScopeClaim>,
     /// The vendor adapter the issuer needs, by its feature name.
     pub adapter: Option<String>,
+    /// The longest an onward token this issuer issues may live, in seconds
+    /// from its `iat`; required on an issuer the onward grants use.
+    pub max_onward_lifetime: Option<u64>,
+    /// The grant the issuer issues onward tokens under; token exchange by
+    /// default (RFC 8693 §2.1).
+    pub onward_grant: OnwardGrant,
+    /// The token-exchange parameter a target is named in; `resource` by
+    /// default (RFC 8707 §2).
+    pub onward_indicator: OnwardIndicator,
+    /// The parameters an onward request carries beside the grant's own.
+    pub onward_parameters: BTreeMap<String, String>,
+    /// Whether an onward request names `client_id` beside a client
+    /// assertion, which RFC 7523 §3 leaves optional.
+    pub onward_client_id: bool,
+    /// Whether the subject token must name the requesting client in its
+    /// `aud` before it is sent.
+    pub onward_subject_audience: bool,
+    /// The grant variants the issuer labels preview, which are refused.
+    pub onward_preview: Vec<PreviewVariant>,
 }
 
 impl Default for Profile {
@@ -557,6 +408,13 @@ impl Default for Profile {
             scope_claim: ScopeClaim::default(),
             app_only_scope_claim: None,
             adapter: None,
+            max_onward_lifetime: None,
+            onward_grant: OnwardGrant::TokenExchange,
+            onward_indicator: OnwardIndicator::Resource,
+            onward_parameters: BTreeMap::new(),
+            onward_client_id: false,
+            onward_subject_audience: false,
+            onward_preview: Vec::new(),
         }
     }
 }
@@ -603,6 +461,15 @@ pub enum ProfileError {
         /// The adapter.
         adapter: String,
     },
+    /// `onward_parameters` names a parameter the client writes itself.
+    #[error("onward_parameters names {parameter:?}, which the client writes itself")]
+    Reserved {
+        /// The parameter.
+        parameter: String,
+    },
+    /// `onward_parameters` asks for a refresh token.
+    #[error("onward_parameters asks for a refresh token")]
+    RefreshToken,
 }
 
 impl Profile {
@@ -640,6 +507,13 @@ impl Profile {
             scope_claim,
             app_only_scope_claim,
             adapter,
+            max_onward_lifetime,
+            onward_grant,
+            onward_indicator,
+            onward_parameters,
+            onward_client_id,
+            onward_subject_audience,
+            onward_preview,
         } = keys;
         set(&mut self.person_key, person_key);
         set_some(&mut self.tenant_claim, tenant_claim);
@@ -660,6 +534,13 @@ impl Profile {
         set(&mut self.scope_claim, scope_claim);
         set_some(&mut self.app_only_scope_claim, app_only_scope_claim);
         set_some(&mut self.adapter, adapter);
+        set_some(&mut self.max_onward_lifetime, max_onward_lifetime);
+        set(&mut self.onward_grant, onward_grant);
+        set(&mut self.onward_indicator, onward_indicator);
+        set(&mut self.onward_parameters, onward_parameters);
+        set(&mut self.onward_client_id, onward_client_id);
+        set(&mut self.onward_subject_audience, onward_subject_audience);
+        set(&mut self.onward_preview, onward_preview);
     }
 
     /// Checks the profile for an issuer of `kind`: no empty key the
@@ -716,6 +597,7 @@ impl Profile {
                 kind: kind.as_str(),
             });
         }
+        onward::validate(&self.onward_parameters, self.max_onward_lifetime)?;
         // NOTE: no adapter feature is compiled into this build yet, so every
         // named adapter refuses the issuer (no specification governs this: our own design).
         if let Some(adapter) = &self.adapter {
@@ -752,20 +634,6 @@ impl Profile {
                 .iter()
                 .any(|accepted| typ.eq_ignore_ascii_case(accepted))
         })
-    }
-}
-
-/// Replaces `slot` with `value` when one is set.
-fn set<T>(slot: &mut T, value: Option<T>) {
-    if let Some(value) = value {
-        *slot = value;
-    }
-}
-
-/// Replaces the optional `slot` with `value` when one is set.
-fn set_some<T>(slot: &mut Option<T>, value: Option<T>) {
-    if value.is_some() {
-        *slot = value;
     }
 }
 
@@ -814,6 +682,16 @@ mod tests {
             scope_claim: Some(ScopeClaim::default()),
             app_only_scope_claim: Some(ScopeClaim::default()),
             adapter: Some(String::from("a")),
+            max_onward_lifetime: Some(600),
+            onward_grant: Some(OnwardGrant::JwtBearer),
+            onward_indicator: Some(OnwardIndicator::Audience),
+            onward_parameters: Some(BTreeMap::from([(
+                String::from("requested_token_use"),
+                String::from("on_behalf_of"),
+            )])),
+            onward_client_id: Some(true),
+            onward_subject_audience: Some(true),
+            onward_preview: Some(vec![PreviewVariant::ActorToken]),
         };
         for preset in [
             Preset::Rfc9068,
@@ -843,6 +721,13 @@ mod tests {
                 scope_claim: Some(profile.scope_claim),
                 app_only_scope_claim: profile.app_only_scope_claim,
                 adapter: profile.adapter,
+                max_onward_lifetime: profile.max_onward_lifetime,
+                onward_grant: Some(profile.onward_grant),
+                onward_indicator: Some(profile.onward_indicator),
+                onward_parameters: Some(profile.onward_parameters),
+                onward_client_id: Some(profile.onward_client_id),
+                onward_subject_audience: Some(profile.onward_subject_audience),
+                onward_preview: Some(profile.onward_preview),
             };
             assert_eq!(keys, back, "{preset:?}");
         }

@@ -445,7 +445,7 @@ fn person(
 }
 
 /// Returns the actor `act` names, refusing a chain deeper than `max`.
-fn actor(act: &Value, token_issuer: &str, max: usize) -> Result<Actor, Unclassified> {
+pub(crate) fn actor(act: &Value, token_issuer: &str, max: usize) -> Result<Actor, Unclassified> {
     let object = act.as_object().ok_or(Unclassified::ActorChain)?;
     let sub = object
         .get("sub")
