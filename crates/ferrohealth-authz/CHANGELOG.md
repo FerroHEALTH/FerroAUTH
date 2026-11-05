@@ -14,6 +14,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.0] - Unreleased
+
+Releases beside `ferrohealth-smart` 0.9.0, whose `resource::Caller` this
+crate carries in its public API (#218).
+
+### Changed
+
+- Requires `ferrohealth-smart` 0.9.0 (caret `0.9.0`) in place of `0.8.2`.
+  `request::Subject::of` takes the 0.9.0 `ferrohealth_smart::resource::Caller`,
+  which carries its `kind::CallerKind`, and `remote::RemotePdp::new` its
+  `client::cache::TokenSource`, so a product on 0.8 that moves
+  `ferrohealth-smart` to 0.9.0 alone builds two copies of it and fails on
+  the type. Upgrade: move `ferrohealth-smart` to 0.9.0 (its changelog lists
+  the `[auth]` changes) and `ferrohealth-authz` to 0.3.0 in one change;
+  nothing else this crate offers changes.
+
 ## [0.2.2] - 2026-10-27
 
 ### Changed
