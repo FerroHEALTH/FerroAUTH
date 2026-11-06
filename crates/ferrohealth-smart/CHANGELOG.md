@@ -19,6 +19,18 @@ and this project adheres to
   code from the refusal (#281). `federation::contact::EhdsiCode::requirement`
   names the catalogue requirement each code answers. The code stays off the
   challenge, and a refusal before the contact-point check carries none.
+- The onward client exchanges a patient's own token at a `patients` issuer,
+  a deployment's separate patients realm or tenant, by token exchange
+  (RFC 8693) or the JWT bearer grant (Entra ID's on-behalf-of flow), so a
+  product reaches its upstream as the patient (#282).
+  `[<lane>.credentials.onward]` accepts `kind = "patients"`. The issued
+  token must read as a patient token of that issuer and carry the subject
+  token's `patient`, `ehrId` and the deployment's `PatientClaim` with the
+  same values, or it is refused as `Rejected::Patient` or
+  `Rejected::PatientContext`. A caller that is not a patient is refused
+  before anything is sent with `OnwardError::PatientRequired`, and a
+  patient whose token names no patient context with
+  `OnwardError::NoPatientContext`.
 
 ## [0.9.1] - 2026-11-06
 

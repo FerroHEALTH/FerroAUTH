@@ -20,7 +20,10 @@
 //! profile's `expect`, it names the requesting client as its actor, and it
 //! names the caller's person: by the profile's `person_equality` claims on
 //! a `persons` issuer, by the attested `person_mapping` of its
-//! `[[auth.federation]]` table on a `federation` issuer. A failed exchange
+//! `[[auth.federation]]` table on a `federation` issuer. A `patients` issuer
+//! exchanges a patient's own token alone, and its token must read as a
+//! patient token of that issuer and name the subject token's patient
+//! context, beside `person_equality`. A failed exchange
 //! is a typed error carrying the upstream status, and the client never
 //! falls back to its own credentials. The rules beyond the two RFCs are our
 //! own design.
@@ -43,6 +46,7 @@ use crate::kind::IssuerKind;
 use crate::kind::Unclassified;
 use crate::profile::onward::PreviewVariant;
 use crate::resource::Caller;
+use crate::resource::PatientClaim;
 use crate::resource::ResourceError;
 use crate::resource::Via;
 
@@ -96,6 +100,9 @@ pub struct SubjectToken {
     claims: Map<String, Value>,
     /// Who stands behind it.
     kind: CallerKind,
+    /// The path of the deployment's patient claim the caller carried, when
+    /// its resource server names one.
+    patient_claim: Option<String>,
 }
 
 impl fmt::Debug for SubjectToken {
@@ -136,6 +143,9 @@ impl SubjectToken {
             issuer: issuer.to_owned(),
             claims: caller.claims().clone(),
             kind: caller.kind().clone(),
+            patient_claim: caller
+                .extension::<PatientClaim>()
+                .map(|claim| claim.path().to_owned()),
         })
     }
 
@@ -172,6 +182,15 @@ impl SubjectToken {
     /// Returns the token.
     pub(crate) const fn token(&self) -> &SecretString {
         &self.token
+    }
+
+    /// Returns the claims a patient context is named by: the `patient`
+    /// launch context, the `ehrId` of the openEHR launch context, and the
+    /// deployment's patient claim, when the caller carried one.
+    pub(crate) fn patient_context(&self) -> impl Iterator<Item = &str> {
+        ["patient", "ehrId"]
+            .into_iter()
+            .chain(self.patient_claim.as_deref())
     }
 }
 
@@ -376,6 +395,17 @@ pub enum Rejected {
     /// The token does not carry the subject token's correlation claim.
     #[error("the issued token does not carry the subject token's correlation claim")]
     Correlation,
+    /// The token of a `patients` issuer does not read as a patient token of
+    /// that issuer.
+    #[error("the issued token is not a patient token of the issuer")]
+    Patient(#[source] Unclassified),
+    /// A claim of the subject token's patient context differs on the token
+    /// of a `patients` issuer, or is absent from it.
+    #[error("the issued token names another patient: {claim} differs")]
+    PatientContext {
+        /// The claim.
+        claim: String,
+    },
 }
 
 /// An onward token the product could not obtain or may not use.
@@ -388,7 +418,8 @@ pub enum OnwardError {
     #[error("the onward issuer's settings break a rule")]
     Settings(#[source] Box<ResourceError>),
     /// The issuer's kind issues no onward token: only a `persons` issuer
-    /// (a delegated exchange) and a `federation` issuer do.
+    /// (a delegated exchange), a `patients` issuer and a `federation`
+    /// issuer do.
     #[error("a {kind} issuer issues no onward token")]
     IssuerKind {
         /// The kind.
@@ -407,6 +438,14 @@ pub enum OnwardError {
     /// The caller holds no verified token to exchange.
     #[error("the caller holds no verified token to exchange")]
     NoSubjectToken,
+    /// A `patients` issuer was asked to exchange the token of a caller that
+    /// is not a patient.
+    #[error("a patients issuer exchanges a patient's own token only")]
+    PatientRequired,
+    /// A patient's token names no patient context for the issued token to
+    /// keep.
+    #[error("the patient's token names no patient context")]
+    NoPatientContext,
     /// A JWT bearer grant was asked for a caller that is not a user
     /// principal.
     #[error("the JWT bearer grant exchanges a user principal's token only")]
