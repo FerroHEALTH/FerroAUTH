@@ -20,6 +20,22 @@ and this project adheres to
   token (#272). It runs none of the classification's checks, and a product
   never enables it outside its tests.
 
+### Security
+
+Shipped with functional changes because: the one other change, the `test-support` feature, is off by default and adds nothing to a build that does not enable it, so a product taking 0.9.1 gets the security fix alone.
+
+- A Basic user never carries a `system/` scope (#274). An
+  `[[auth.basic.users]]` entry granted one fails to load as
+  `ConfigError::Basic` with `basic::StoreError::SystemScope`, naming the
+  user and the scope, and `resource::Caller::basic` drops every `system/`
+  scope it is handed. In 0.9.0 a Basic credential was a person, yet a
+  `system/` scope still loaded and gave that person caller every resource
+  of a type, the reach of a backend service (CWE-269, CWE-863,
+  GHSA-jhg2-jwjp-hq74). Upgrade step: give each Basic user the `user/`
+  scopes a person holds, and move each machine on Basic to a client of the
+  authorization server under the client credentials grant (RFC 6749
+  §4.4), of a `machines` or `persons` issuer.
+
 ## [0.9.0] - 2026-11-06
 
 The caller classification (#215) and the party binding (#216). This

@@ -402,7 +402,10 @@ refuses the start (4).
 **A Basic principal** carries the scope string its configuration grants it
 (4.1), so the same check serves a Basic caller and a bearer caller, and a
 handler never asks which it was. No specification governs this: our own
-design.
+design. A Basic principal is a person, so its configuration grants no
+`system/` scope, a backend service's grant (`smart scopes-and-launch-context`):
+an `[[auth.basic.users]]` entry holding one fails to load naming the user and
+the scope, and `Caller::basic` drops any it is handed (#274).
 
 ### 3.5 Machine authentication
 

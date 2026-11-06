@@ -68,10 +68,24 @@ impl Caller {
     /// A Basic credential is a person's, so the caller is always a
     /// [`CallerKind::Person`], never a [`CallerKind::System`]: a machine
     /// authenticates with the client credentials grant (RFC 6749 §4.4) and
-    /// is classified from its token.
+    /// is classified from its token. A `system/` scope in `scope` is a
+    /// backend service's grant (SMART App Launch 2.2.0, Scopes and Launch
+    /// Context), so the caller is granted none of them: it neither reaches a
+    /// resource through one nor holds one as a scope.
     #[must_use]
     pub fn basic(username: String, scope: &str) -> Self {
-        let mut caller = Self::new(username, None, scope, None, false, CallerKind::Person);
+        let personal: Vec<&str> = scope
+            .split(' ')
+            .filter(|token| !crate::basic::is_system_scope(token))
+            .collect();
+        let mut caller = Self::new(
+            username,
+            None,
+            &personal.join(" "),
+            None,
+            false,
+            CallerKind::Person,
+        );
         caller.via = Via::Basic;
         caller
     }
@@ -801,6 +815,39 @@ mod tests {
         assert!(!caller.scopeless(), "a Basic caller is never scopeless");
     }
 
+    // NOTE: a Basic credential is a person's (owner ruling on #215), so no scope string a
+    // product hands `Caller::basic` gives it a backend service's `system/` reach (#274).
+    #[test]
+    fn a_basic_caller_never_carries_system_reach() {
+        let caller = Caller::basic(
+            String::from("batch-loader"),
+            "system/*.cruds system/Condition.r user/Observation.r __ferro.admin",
+        );
+        assert_eq!(None, caller.reach(Permission::Read, "Condition"));
+        assert_eq!(None, caller.reach(Permission::Create, "Patient"));
+        assert!(
+            !caller.has_scope("system/*.cruds"),
+            "the scope is not granted"
+        );
+        assert!(
+            caller
+                .scope()
+                .iter()
+                .all(|token| !token.starts_with("system/")),
+            "{:?}",
+            caller.scope()
+        );
+        assert_eq!(
+            Some(Compartment::Any),
+            caller.reach(Permission::Read, "Observation"),
+            "a user/ scope still reaches"
+        );
+        assert!(
+            caller.has_scope("__ferro.admin"),
+            "a product scope still counts"
+        );
+    }
+
     #[test]
     fn only_a_system_caller_is_scopeless() {
         let system = Caller::new(
@@ -828,7 +875,7 @@ mod tests {
 
     #[test]
     fn a_basic_caller_carries_its_configured_scope() {
-        let caller = Caller::basic(String::from("alice"), "system/Condition.r");
+        let caller = Caller::basic(String::from("alice"), "user/Condition.r");
         assert_eq!("alice", caller.subject());
         assert_eq!(None, caller.client_id());
         assert_eq!(Via::Basic, caller.via());
