@@ -22,7 +22,7 @@ use serde::{Deserialize, Serialize};
 use crate::clock::Clock;
 use crate::config::{SessionSettings, Storage};
 use crate::cookies::{CookieNames, Jar, header};
-use crate::lifetime::seconds;
+use crate::lifetime::{from_seconds, millis, seconds, seconds_up};
 use crate::record::{Ended, Held, Record, Sealed, SignedIn};
 use crate::return_path::ReturnPath;
 use crate::store::{COOKIE_LIMIT, Id, Memory, open, seal};
@@ -104,7 +104,8 @@ impl<T> WithCookies<T> {
     }
 }
 
-/// A pending sign-in as a sealed cookie carries it.
+/// A pending sign-in as a sealed cookie carries it, begun at `created` whole
+/// seconds since the Unix epoch, rounded up.
 #[derive(Serialize, Deserialize)]
 struct SealedPending {
     state: String,
@@ -183,11 +184,11 @@ impl Sessions {
     }
 
     pub(crate) fn now(&self) -> i64 {
-        self.inner.clock.now()
+        self.inner.clock.millis()
     }
 
     fn timeout(&self) -> i64 {
-        seconds(self.inner.settings.sign_in_timeout)
+        millis(self.inner.settings.sign_in_timeout)
     }
 
     fn jar(&self) -> &Jar {
@@ -228,12 +229,16 @@ impl Sessions {
                     nonce: sign_in.nonce().to_owned(),
                     verifier: sign_in.verifier().expose().to_owned(),
                     back: back.map(|back| back.as_str().to_owned()),
-                    created: now,
+                    created: seconds_up(now),
                 };
                 seal(key, &self.jar().name(&name), &pending)?
             }
         };
-        self.set(&name, value, Some(self.timeout()))
+        self.set(
+            &name,
+            value,
+            Some(seconds(self.inner.settings.sign_in_timeout)),
+        )
     }
 
     /// Takes the pending sign-in the request's cookie names, once, and
@@ -257,7 +262,9 @@ impl Sessions {
         let pending = match &self.inner.backend {
             Backend::Memory(memory) => memory.take(&Id::from_cookie(value), now, self.timeout())?,
             Backend::Sealed(key) => open::<SealedPending>(key, &self.jar().name(&name), value)
-                .filter(|pending| now.saturating_sub(pending.created) < self.timeout())
+                .filter(|pending| {
+                    now.saturating_sub(from_seconds(pending.created)) < self.timeout()
+                })
                 .map(|pending| Pending {
                     sign_in: PendingSignIn::from_parts(
                         pending.state,

@@ -15,7 +15,7 @@ use std::time::Duration;
 use ferrohealth_smart::oidc::{OidcError, RelyingParty};
 use http::HeaderMap;
 
-use crate::lifetime::seconds;
+use crate::lifetime::millis;
 use crate::record::Record;
 use crate::sessions::{SessionError, Sessions};
 
@@ -50,10 +50,11 @@ impl fmt::Debug for Freshness {
     }
 }
 
-/// Whether `record`'s access token is due for renewal at `now`.
+/// Whether `record`'s access token is due for renewal at `now`, in
+/// milliseconds since the Unix epoch.
 fn due(record: &Record, now: i64) -> bool {
-    let margin = record.lifetime.map_or(seconds(MARGIN), |lifetime| {
-        seconds(MARGIN).min(i64::try_from(lifetime.div_euclid(2)).unwrap_or(i64::MAX))
+    let margin = record.lifetime.map_or(millis(MARGIN), |lifetime| {
+        millis(MARGIN).min(millis(lifetime).div_euclid(2))
     });
     record.refresh_token.is_some()
         && record
@@ -110,10 +111,7 @@ impl Sessions {
                         let record = &mut entry.record;
                         record.credential =
                             crate::record::Credential::Bearer(refreshed.access_token);
-                        record.expires = refreshed
-                            .expires_in
-                            .map(|lifetime| now.saturating_add(seconds(lifetime)));
-                        record.lifetime = refreshed.expires_in.map(|lifetime| lifetime.as_secs());
+                        record.token_issued(refreshed.expires_in, now);
                         if let Some(rotated) = refreshed.refresh_token {
                             record.refresh_token = Some(rotated);
                         }
@@ -130,5 +128,68 @@ impl Sessions {
             }
             Err(error) => Ok(Freshness::Unreached(error)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use ferrohealth_secret::secret::Secret;
+
+    use super::due;
+    use crate::record::{Credential, Record, SignedIn};
+
+    /// The last millisecond of a second, where a clock counted in whole
+    /// seconds lies the furthest behind the time.
+    const LATE: i64 = 1_800_000_000_999;
+
+    fn refreshable(expires_in: Duration) -> SignedIn {
+        SignedIn {
+            operator: None,
+            subject: Some(String::from("synthetic-subject")),
+            scopes: Vec::new(),
+            credential: Credential::Bearer(Secret::new("synthetic-access-token")),
+            expires_in: Some(expires_in),
+            refresh_token: Some(Secret::new("synthetic-refresh-token")),
+            id_token: None,
+        }
+    }
+
+    #[test]
+    fn a_refreshed_token_is_not_due_before_half_its_life_has_passed() {
+        let mut record = Record::begin(refreshable(Duration::ZERO), LATE);
+        assert!(due(&record, LATE), "an expired token is due");
+        record.token_issued(Some(Duration::from_secs(2)), LATE);
+        assert!(
+            !due(&record, LATE + 999),
+            "999 ms into a 2 s token renewed at half its life"
+        );
+        assert!(due(&record, LATE + 1000), "half of its 2 s life has passed");
+    }
+
+    #[test]
+    fn a_long_lived_token_is_due_within_the_margin_of_its_expiry() {
+        let record = Record::begin(refreshable(Duration::from_secs(3600)), LATE);
+        assert!(
+            !due(&record, LATE + 3_540_000 - 1),
+            "a millisecond before the margin"
+        );
+        assert!(
+            due(&record, LATE + 3_540_000),
+            "sixty seconds before expiry"
+        );
+    }
+
+    #[test]
+    fn a_token_without_a_refresh_token_is_never_due() {
+        let record = Record::begin(
+            SignedIn {
+                refresh_token: None,
+                ..refreshable(Duration::ZERO)
+            },
+            LATE,
+        );
+        assert!(!due(&record, LATE + 1000), "nothing can renew it");
     }
 }
