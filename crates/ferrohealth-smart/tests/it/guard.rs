@@ -708,7 +708,7 @@ async fn a_basic_credential_is_admitted_beside_a_token_with_its_scopes()
         .hash_password_with_salt(b"synthetic-pw", b"synthetic-salt-16")?
         .to_string();
     let store =
-        PasswordStore::new().with_user("alice", SecretString::from(hash), "system/Condition.c")?;
+        PasswordStore::new().with_user("alice", SecretString::from(hash), "user/Condition.c")?;
     let key = ec_key("k1", Algorithm::ES256);
     let issuer = Issuer::start(&[&key]).await;
     let verifier: Arc<dyn Verifier> = server(issuer.settings()).await;
@@ -982,7 +982,7 @@ async fn a_basic_only_gate_admits_basic_and_challenges_a_token_with_basic_alone(
     let issuer = Issuer::start(&[&key]).await;
     let case = Case {
         gate: Gate::open()
-            .with_basic(Arc::new(alice("system/Condition.c")?))
+            .with_basic(Arc::new(alice("user/Condition.c")?))
             .with_realm("ferro"),
         issuer,
         key,
@@ -1018,7 +1018,7 @@ async fn a_basic_only_gate_admits_basic_and_challenges_a_token_with_basic_alone(
 #[tokio::test]
 async fn a_cached_basic_credential_is_admitted_again_and_a_wrong_one_refused()
 -> Result<(), Box<dyn StdError>> {
-    let store = alice("system/Condition.c")?.with_cache(std::time::Duration::from_secs(60))?;
+    let store = alice("user/Condition.c")?.with_cache(std::time::Duration::from_secs(60))?;
     let gate = Gate::open().with_basic(Arc::new(store));
     let good = Credential::new("alice", SecretString::from("synthetic-pw"))?;
     for round in ["first", "cached"] {
