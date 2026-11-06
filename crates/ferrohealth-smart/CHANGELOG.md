@@ -11,7 +11,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.9.0] - Unreleased
+## [0.9.0] - 2026-11-06
 
 The caller classification (#215) and the party binding (#216). This
 release breaks the public configuration and API: every product moves its
@@ -274,7 +274,6 @@ release breaks the public configuration and API: every product moves its
   `DPoP` request and a certificate-bound token; the layer uses
   `Gate::authenticate_request`.
 - The workspace requirement on `ferrohealth-smart` moves to 0.9.0.
-
 - `audit::Actor::Caller` carries `binding` and `party`, and the audit line
   two fields more. Upgrade: a product that builds an `Actor::Caller` sets
   both (`"-"` and `None` for a caller not looked up); a log pipeline that
@@ -1087,7 +1086,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.9...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.0...HEAD
+[0.9.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.9...ferrohealth-smart-v0.9.0
 [0.8.9]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.8...ferrohealth-smart-v0.8.9
 [0.8.8]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.7...ferrohealth-smart-v0.8.8
 [0.8.7]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.6...ferrohealth-smart-v0.8.7
