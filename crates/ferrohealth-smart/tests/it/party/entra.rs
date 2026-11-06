@@ -13,6 +13,7 @@ use ferrohealth_smart::idp::entra::GraphError;
 use ferrohealth_smart::idp::entra::GraphSection;
 use ferrohealth_smart::idp::entra::NAME;
 use ferrohealth_smart::idp::entra::ReadError;
+use ferrohealth_smart::party::adapter::BodyExcerpt;
 use ferrohealth_smart::profile::Preset;
 use ferrohealth_smart::profile::ProfileKeys;
 use ferrohealth_smart::resource::ResourceServer;
@@ -259,7 +260,7 @@ async fn a_throttled_graph_is_groups_unavailable_carrying_429_and_retry_after() 
     assert!(
         matches!(
             error,
-            AdapterError::Status { status: StatusCode::TOO_MANY_REQUESTS, retry_after: Some(after) }
+            AdapterError::Status { status: StatusCode::TOO_MANY_REQUESTS, retry_after: Some(after), body: None }
                 if after == Duration::from_secs(10)
         ),
         "{error:?}"
@@ -286,10 +287,64 @@ async fn a_graph_refusing_the_permission_is_groups_unavailable_carrying_its_stat
             error,
             AdapterError::Status {
                 status: StatusCode::FORBIDDEN,
-                retry_after: None
+                retry_after: None,
+                body: None,
             }
         ),
         "{error:?}"
+    );
+    Ok(())
+}
+
+// NOTE: no specification governs the excerpt: our own design, in which a refusal carries a bounded
+// excerpt of the upstream error body with every claim value of the token and every JWS withheld.
+#[tokio::test]
+async fn a_graph_403_carries_a_bounded_redacted_excerpt_of_its_error_body() -> Outcome2 {
+    let graph = Graph::start().await;
+    let jws = "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJzeW50aGV0aWMifQ.c2lnbmF0dXJl";
+    // The members in the order Graph writes them, so the excerpt opens with the code and message.
+    let padding = "x".repeat(4096);
+    let refused = ResponseTemplate::new(403)
+        .insert_header("content-type", "application/json")
+        .set_body_string(format!(
+            r#"{{"error":{{"code":"Authorization_RequestDenied","message":"Insufficient privileges to read the memberships of '{LOGIN}'.","innerError":{{"date":"2026-11-06T10:00:00","request-id":"b1e3c1d0-0000-4000-8000-000000000001","echo":"{jws}","padding":"{padding}"}}}}}}"#
+        ));
+    graph.members("users", LOGIN, refused, 1).await;
+    let error = adapter_failure(
+        binding_with(&member_of_group_2(), &graph.section())
+            .resolve(&person(&graph.overage()))
+            .await?,
+    )?;
+    let AdapterError::Status {
+        status,
+        body: Some(body),
+        ..
+    } = &error
+    else {
+        return Err(format!("a status carrying its body, not {error:?}").into());
+    };
+    assert_eq!(StatusCode::FORBIDDEN, *status);
+    let excerpt = body.as_str();
+    assert!(excerpt.contains("Authorization_RequestDenied"), "{excerpt}");
+    assert!(excerpt.contains("Insufficient privileges"), "{excerpt}");
+    assert!(
+        excerpt.chars().count() <= BodyExcerpt::MAX_CHARS,
+        "{excerpt}"
+    );
+    for withheld in [LOGIN, jws, GRAPH_TOKEN] {
+        assert!(!excerpt.contains(withheld), "{withheld} in {excerpt}");
+        assert!(
+            !error.to_string().contains(withheld),
+            "{withheld} in {error}"
+        );
+        assert!(
+            !format!("{error:?}").contains(withheld),
+            "{withheld} in {error:?}"
+        );
+    }
+    assert!(
+        error.to_string().contains("Authorization_RequestDenied"),
+        "{error}"
     );
     Ok(())
 }

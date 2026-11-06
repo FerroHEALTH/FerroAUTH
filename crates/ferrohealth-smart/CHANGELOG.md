@@ -220,6 +220,14 @@ release breaks the public configuration and API: every product moves its
   load, naming it (`ProfileError::Adapter`).
 - `AdapterError::Claim`: the token lacks or misforms a claim the adapter
   reads, and nothing was called.
+- `AdapterError::Status` carries `body`, a `party::adapter::BodyExcerpt` of
+  the error body the identity provider answered with (#261), which its
+  message ends with: at most 256 characters, control characters as spaces,
+  and every string and number of the caller's token claims, the subject and
+  every compact JWS replaced by `***`. The Graph adapter reads the body of
+  every refusal up to `max_response_bytes`; a body it cannot read leaves
+  the status and no excerpt. An adapter of a product's own builds the
+  excerpt with `BodyExcerpt::new`.
 
 ### Changed
 

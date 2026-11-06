@@ -98,6 +98,7 @@ async fn an_adapter_failure_is_groups_unavailable_carrying_the_upstream_status()
     let throttled = AdapterError::Status {
         status: StatusCode::TOO_MANY_REQUESTS,
         retry_after: Some(Duration::from_secs(30)),
+        body: None,
     };
     let binding = with_adapter(&source, Err(throttled))?;
     let outcome = binding
@@ -106,6 +107,7 @@ async fn an_adapter_failure_is_groups_unavailable_carrying_the_upstream_status()
     let Some(Outcome::GroupsUnavailable(GroupsCause::Adapter(AdapterError::Status {
         status,
         retry_after,
+        ..
     }))) = outcome
     else {
         panic!("an adapter failure, not {outcome:?}");

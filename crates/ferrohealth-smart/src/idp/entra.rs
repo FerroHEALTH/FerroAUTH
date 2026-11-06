@@ -23,7 +23,8 @@
 //! budget, `timeout_ms` (2 s by default), which bounds the token fetch and the
 //! Graph round trip together and lies outside a product's lookup budget, and
 //! the answer is read up to `max_response_bytes`. A refusal is
-//! [`AdapterError::Status`] with the status and, on a `429`, the
+//! [`AdapterError::Status`] with the status, a redacted excerpt of the error
+//! body ([`BodyExcerpt`]) and, on a `429`, the
 //! `Retry-After`; a call past the budget is [`AdapterError::Timeout`]; an
 //! answer that does not read, or a token that cannot be obtained, is
 //! [`AdapterError::Unreadable`]. Every user above the overage limit costs one
@@ -52,6 +53,7 @@ use crate::config::OauthSection;
 use crate::metadata::DiscoveryError;
 use crate::metadata::Http;
 use crate::party::adapter::AdapterError;
+use crate::party::adapter::BodyExcerpt;
 use crate::party::adapter::IdpAdapter;
 use crate::resource::Caller;
 
@@ -298,9 +300,9 @@ impl GraphAdapter {
         Ok(url)
     }
 
-    /// Returns the identifiers Graph answers `url` with, under the Graph
-    /// token, renewed once on a `401`.
-    async fn member_objects(&self, url: Url) -> Result<Vec<String>, AdapterError> {
+    /// Returns the identifiers Graph answers `url` with for `caller`, under the
+    /// Graph token, renewed once on a `401`.
+    async fn member_objects(&self, url: Url, caller: &Caller) -> Result<Vec<String>, AdapterError> {
         let answered = self
             .tokens
             .call(|authorization| {
@@ -331,11 +333,26 @@ impl GraphAdapter {
         // NOTE: Microsoft Graph v1.0, `directoryObject: getMemberObjects`: "If successful, this
         // method returns `200 OK`"; every other status is the refusal it is.
         if status != StatusCode::OK {
+            let retry_after = retry_after(response.headers());
+            // NOTE: no specification governs this: our own design; an error body that cannot be
+            // read leaves the refusal its status, so the excerpt is absent, never the failure.
+            let body = self
+                .body(&mut response)
+                .await
+                .ok()
+                .and_then(|bytes| BodyExcerpt::new(&bytes, caller));
             return Err(AdapterError::Status {
                 status,
-                retry_after: retry_after(response.headers()),
+                retry_after,
+                body,
             });
         }
+        let bytes = self.body(&mut response).await?;
+        read(&bytes)
+    }
+
+    /// Returns the body of `response`, read up to `max_response_bytes`.
+    async fn body(&self, response: &mut reqwest::Response) -> Result<Vec<u8>, AdapterError> {
         let mut bytes = Vec::new();
         loop {
             let chunk = match response.chunk().await {
@@ -350,7 +367,7 @@ impl GraphAdapter {
             }
             bytes.extend_from_slice(&chunk);
         }
-        read(&bytes)
+        Ok(bytes)
     }
 
     /// Returns the outcome of a transport failure: the timeout it reports,
@@ -375,7 +392,7 @@ impl IdpAdapter for GraphAdapter {
     ) -> Pin<Box<dyn Future<Output = Result<Vec<String>, AdapterError>> + Send + 'a>> {
         Box::pin(async move {
             let url = self.url(caller)?;
-            match tokio::time::timeout(self.timeout, self.member_objects(url)).await {
+            match tokio::time::timeout(self.timeout, self.member_objects(url, caller)).await {
                 Ok(answer) => answer,
                 Err(_elapsed) => Err(AdapterError::Timeout {
                     timeout: self.timeout,
