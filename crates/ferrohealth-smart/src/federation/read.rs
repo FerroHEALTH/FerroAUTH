@@ -7,7 +7,6 @@
 
 use std::collections::BTreeMap;
 
-use base64::Engine as _;
 use serde_json::Map;
 use serde_json::Value;
 
@@ -188,12 +187,11 @@ fn decoded(value: &Value, member: &str) -> Result<Map<String, Value>, Unclassifi
     match value {
         Value::Object(object) => Ok(object.clone()),
         Value::String(jwt) => {
-            let payload = jwt.split('.').nth(1).ok_or(Unclassified::Presentations)?;
-            let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(payload)
-                .map_err(|_malformed| Unclassified::Presentations)?;
-            let claims: Map<String, Value> =
-                serde_json::from_slice(&bytes).map_err(|_malformed| Unclassified::Presentations)?;
+            let claims = jwt
+                .split('.')
+                .nth(1)
+                .and_then(crate::jws::object)
+                .ok_or(Unclassified::Presentations)?;
             match claims.get(member) {
                 Some(Value::Object(object)) => Ok(object.clone()),
                 _ => Err(Unclassified::Presentations),

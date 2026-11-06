@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::SystemTime;
 
-use base64::Engine as _;
 use http::HeaderMap;
 use http::Method;
 use jsonwebtoken::Algorithm;
@@ -475,12 +474,7 @@ fn read_header(jwt: &str) -> Result<ProofHeader, Rejection> {
     let raw = jwt
         .split('.')
         .next()
-        .and_then(|segment| {
-            base64::engine::general_purpose::URL_SAFE_NO_PAD
-                .decode(segment)
-                .ok()
-        })
-        .and_then(|bytes| serde_json::from_slice::<Map<String, Value>>(&bytes).ok())
+        .and_then(crate::jws::object)
         .ok_or_else(|| sender(Check::ProofMalformed))?;
     // NOTE: RFC 9449 §4.3 check 5, an `alg` the JOSE reader knows no
     // asymmetric algorithm by (`none` among them) is refused as the algorithm.

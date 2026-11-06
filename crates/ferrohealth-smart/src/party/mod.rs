@@ -156,10 +156,12 @@ pub enum PartyState {
     /// created at a first login; the outcome marks it provisional.
     Incomplete,
     /// The party is not usable: inactive (openEHR `800|inactive|`, as the
-    /// product reports it).
+    /// product reports it; openEHR RM Common, Change Control Package,
+    /// §Abandoned and Inactive States, `rm-common master06`).
     Inactive,
     /// The party is not usable: abandoned (openEHR `801|abandoned|`, as the
-    /// product reports it).
+    /// product reports it; openEHR RM Common, Change Control Package,
+    /// §Abandoned and Inactive States, `rm-common master06`).
     Abandoned,
 }
 

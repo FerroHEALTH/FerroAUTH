@@ -10,8 +10,6 @@ use std::sync::Arc;
 use std::sync::PoisonError;
 use std::time::Instant;
 
-use base64::Engine as _;
-
 use crate::refusal::Reason;
 use crate::resource::Caller;
 use crate::resource::IssuerSet;
@@ -293,12 +291,7 @@ impl IssuerSet {
 
 /// Returns the `iss` claim of `token` without checking anything.
 fn unverified_issuer(token: &str) -> Option<String> {
-    let payload = token.split('.').nth(1)?;
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .ok()?;
-    let claims: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(&bytes).ok()?;
-    claims
+    crate::jws::object(token.split('.').nth(1)?)?
         .get("iss")
         .and_then(serde_json::Value::as_str)
         .map(str::to_owned)
