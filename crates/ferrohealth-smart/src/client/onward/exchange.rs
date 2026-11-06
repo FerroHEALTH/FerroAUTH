@@ -193,8 +193,7 @@ impl Onward {
     /// [`OnwardError::Settings`] when `issuer` breaks a rule,
     /// [`OnwardError::Token`] when `credentials` lack the credential of
     /// their method or the HTTP engine cannot be built,
-    /// [`OnwardError::IssuerKind`] for an issuer that is neither `persons`
-    /// nor `federation`, [`OnwardError::MaxOnwardLifetime`] when its profile
+    /// [`OnwardError::IssuerKind`] for a `machines` issuer, [`OnwardError::MaxOnwardLifetime`] when its profile
     /// sets no `max_onward_lifetime`, and [`OnwardError::Federation`] when a
     /// `federation` issuer's table sets no `exchanges_from` or
     /// `person_mapping`.
@@ -244,7 +243,7 @@ impl Onward {
             .map_err(|source| OnwardError::Settings(Box::new(source)))?;
         credentials.validate()?;
         match issuer.kind {
-            IssuerKind::Persons => {}
+            IssuerKind::Persons | IssuerKind::Patients => {}
             IssuerKind::Federation => {
                 let section = issuer
                     .federation
@@ -261,7 +260,7 @@ impl Onward {
                     });
                 }
             }
-            kind => return Err(OnwardError::IssuerKind { kind }),
+            kind @ IssuerKind::Machines => return Err(OnwardError::IssuerKind { kind }),
         }
         let lifetime = issuer
             .profile
@@ -288,6 +287,9 @@ impl Onward {
     ///
     /// Before anything is sent: [`OnwardError::UserPrincipalRequired`] for
     /// a JWT bearer grant on behalf of a system or an organisation,
+    /// [`OnwardError::PatientRequired`] and [`OnwardError::NoPatientContext`]
+    /// at a `patients` issuer for a caller that is no patient or names no
+    /// patient context,
     /// [`OnwardError::Preview`] for a variant the profile labels preview,
     /// [`OnwardError::NoAudience`], [`OnwardError::OfflineAccess`],
     /// [`OnwardError::ActorToken`], [`OnwardError::Indicator`],
@@ -401,6 +403,19 @@ impl Onward {
             )
         {
             return Err(OnwardError::UserPrincipalRequired);
+        }
+        if issuer.kind == IssuerKind::Patients {
+            // NOTE: no specification governs this: our own design; a patients issuer
+            // carries the patient's own access, so it exchanges no one else's token.
+            if *subject.kind() != CallerKind::Patient {
+                return Err(OnwardError::PatientRequired);
+            }
+            let named = |claim| {
+                crate::roles::lookup(subject.claims(), claim).is_some_and(|value| !value.is_null())
+            };
+            if !subject.patient_context().any(named) {
+                return Err(OnwardError::NoPatientContext);
+            }
         }
         if actor.is_some() && profile.onward_preview.contains(&PreviewVariant::ActorToken) {
             return Err(OnwardError::Preview {

@@ -82,9 +82,11 @@ pub(crate) fn check(
     named_actor(route, actor, issued)?;
     match settings.kind {
         IssuerKind::Federation => federation(settings, target, subject, issued),
-        IssuerKind::Persons | IssuerKind::Patients | IssuerKind::Machines => {
-            person(settings, subject, issued)
+        IssuerKind::Patients => {
+            person(settings, subject, issued)?;
+            patient(settings, subject, issued)
         }
+        IssuerKind::Persons | IssuerKind::Machines => person(settings, subject, issued),
     }
 }
 
@@ -184,6 +186,27 @@ fn person(
         if held.is_none() || held != issued.get(claim) {
             return Err(Rejected::Person {
                 claim: claim.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Checks that `issued` reads as a patient token of the `patients` issuer
+/// and names the subject token's patient context by every claim of it the
+/// subject token carries.
+fn patient(
+    settings: &Settings,
+    subject: &SubjectToken,
+    issued: &Map<String, Value>,
+) -> Result<(), Rejected> {
+    crate::kind::classify(IssuerKind::Patients, &settings.profile, None, issued)
+        .map_err(Rejected::Patient)?;
+    for claim in subject.patient_context() {
+        let held = lookup(subject.claims(), claim).filter(|value| !value.is_null());
+        if held.is_some() && held != lookup(issued, claim) {
+            return Err(Rejected::PatientContext {
+                claim: claim.to_owned(),
             });
         }
     }

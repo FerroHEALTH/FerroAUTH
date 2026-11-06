@@ -1261,6 +1261,12 @@ over the connection the client opened. It is refused unless:
 - on a `persons` issuer (a delegated exchange), every claim of
   `person_equality` is equal in the subject and the issued token (`iss`
   and `sub` by default, `oid` and `tid` under `entra`);
+- on a `patients` issuer, every claim of `person_equality` is equal as on
+  a `persons` issuer, the token reads as a patient token of that issuer
+  (3.14: the `patient` context alone), and every claim of the subject
+  token's patient context is equal in the issued token: `patient`, `ehrId`
+  and the deployment's `PatientClaim` (3.13), each when the subject token
+  carries it;
 - on a `federation` issuer, the subject token's issuer is in its
   `[[auth.federation]]` table's `exchanges_from`, the token reads under
   that table as 3.14 reads a federation token, a professional's
@@ -1269,7 +1275,14 @@ over the connection the client opened. It is refused unless:
   chained route (`Target::with_correlation_claim`) the correlation claim
   is carried over.
 
-Only a `persons` or a `federation` issuer issues onward tokens.
+Only a `persons`, a `patients` or a `federation` issuer issues onward
+tokens. A `patients` issuer, a deployment's separate patients realm or
+tenant, exchanges a patient's own token alone: before anything is sent it
+refuses a caller that is not `CallerKind::Patient`
+(`OnwardError::PatientRequired`) and a patient whose token names no
+patient context (`OnwardError::NoPatientContext`). No specification
+governs the patients route: our own design over `rfc8693 §2.1` and
+`rfc7523 §2.1`.
 
 **The cache** is keyed by a SHA-256 over the issuer, the grant, the hash of
 the subject token and of the actor token, the target's audiences and
@@ -1540,7 +1553,7 @@ with (3.16):
 ```toml
 [cdr.credentials.onward]             # resolved by CredentialsSection::onward
 issuer = "https://login.microsoftonline.com/<tenant>/v2.0"   # issues the onward tokens
-kind = "persons"                     # persons (a delegated exchange) or federation
+kind = "persons"                     # persons (a delegated exchange), patients or federation
 profile = "entra"                    # the preset: rfc9068, entra, keycloak, okta, nl
 # token_endpoint = "https://…/token" # empty: discovered from issuer
 # client_id = "…"                    # empty: the oauth table's client id
@@ -1824,7 +1837,7 @@ four agree on and settles each difference:
 | Every issuer declares its `kind` and a profile (a preset with keys over it), every issuer setting lives on its table, and a valid token is classified as `Patient`, `System`, `Delegated`, `Representative`, `Person` or `Guest`, or refused as `Rejection::Unclassified`; a Basic credential is always a `Person` (3.14) | `rfc9068 §2.2`, `§4`, `§5`; `rfc8693 §4.1`; `oidc-core §5.7`; the vendor documents each preset cites; the classification is our own design (#215, owner ruling 2026-11-05 on Basic) | a deployment writes `[[auth.issuer]]` tables with `kind`, lists its `first_party_clients`, and drops `token_profile`, `acting_for_claim` and `client_tokens` |
 | A `persons` login is resolved to its party through a `PartySource` the product supplies, once per request with no cache, keyed by the issuer profile's `person_key` in the canonical form of its `identifier_type`, against the identifiers of one `[[auth.party]]` table's `identifier_issuer`; two matches are `Ambiguous`, a source failure is an error and never `Unbound`, and the outcome is the product's to answer (3.17) | `oidc-core §5.7`; `rfc7519 §4.1.2`; Microsoft, "Access token claims reference" (the overage markers); the binding is our own design (#216, owner ruling 2026-11-05 on the cache) | a product binds its `persons` issuers with `[[auth.party]]` tables, implements `PartySource`, maps each Basic user to a key, and answers each outcome |
 | An active introspection response is held until its `exp` and at most `cache_max_age_seconds`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
-| Onward tokens are obtained by token exchange or the JWT bearer grant as the issuer's profile names, refused unless they pass the onward check of 3.16, cached by issuer, grant, subject and actor token, target, scope and extra parameters until the earlier `exp`, and never refreshed; only a `persons` or `federation` issuer issues them | `rfc8693 §2.1`, `§2.2`, `§4.1`; `rfc7523 §2.1`, `§2.2`; `rfc8707 §2`; the check, the cache and the profile keys are our own design (#217) | a deployment sets `max_onward_lifetime` on each onward issuer, and `exchanges_from` and `person_mapping` on a federation issuer's table |
+| Onward tokens are obtained by token exchange or the JWT bearer grant as the issuer's profile names, refused unless they pass the onward check of 3.16, cached by issuer, grant, subject and actor token, target, scope and extra parameters until the earlier `exp`, and never refreshed; only a `persons`, `patients` or `federation` issuer issues them, a `patients` one for a patient's own token that keeps its patient context | `rfc8693 §2.1`, `§2.2`, `§4.1`; `rfc7523 §2.1`, `§2.2`; `rfc8707 §2`; the check, the cache and the profile keys are our own design (#217) | a deployment sets `max_onward_lifetime` on each onward issuer, and `exchanges_from` and `person_mapping` on a federation issuer's table |
 | An Entra ID groups overage is resolved by the `idp-entra` adapter, an optional feature a profile names by `adapter`, at the `getMemberObjects` URL it builds from the Graph root and the token's `oid` and `idtyp`, never at `_claim_sources`; every Graph failure is `GroupsUnavailable` carrying the status, the `Retry-After` or the timeout, under a 2 s budget of its own and with no cache (3.17) | Microsoft, "Access token claims reference", §Groups overage claim; "Optional claims reference", `idtyp`; Microsoft Graph v1.0 `directoryObject: getMemberObjects` and "Microsoft Graph throttling guidance"; the bounds are our own design (#221) | a deployment with users above the overage limit compiles `idp-entra`, sets `adapter = "idp-entra"` on its `entra` issuer, grants the Graph permission and registers the adapter |
 
 ## 10. Verification

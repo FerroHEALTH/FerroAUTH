@@ -27,8 +27,9 @@ pub struct OnwardSection {
     /// The identifier of the issuer of the onward tokens, whose metadata
     /// names its token endpoint unless `token_endpoint` is set.
     pub issuer: String,
-    /// Whose tokens the issuer signs: `persons` (a delegated exchange) or
-    /// `federation`; required, with no default.
+    /// Whose tokens the issuer signs: `persons` (a delegated exchange),
+    /// `patients` (a patient's own token) or `federation`; required, with no
+    /// default.
     pub kind: Option<IssuerKind>,
     /// The preset the issuer's profile starts from.
     pub profile: Preset,

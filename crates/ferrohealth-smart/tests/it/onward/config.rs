@@ -141,20 +141,23 @@ async fn an_issuer_without_max_onward_lifetime_refuses_to_build() {
 }
 
 #[tokio::test]
-async fn only_a_persons_or_federation_issuer_issues_onward_tokens() {
+async fn a_machines_issuer_issues_no_onward_tokens() {
     let server = MockServer::start().await;
-    for kind in [IssuerKind::Machines, IssuerKind::Patients] {
-        let mut settings = Settings::new("https://as.example.org", "bridge", kind);
-        settings.profile.max_onward_lifetime = Some(600);
-        let built = Onward::new(
-            settings,
-            ClientKey::new().credentials(endpoint(&server, "/token"), "bridge"),
-        );
-        assert!(
-            matches!(&built, Err(OnwardError::IssuerKind { kind: refused }) if *refused == kind),
-            "{kind}: {built:?}"
-        );
-    }
+    let mut settings = Settings::new("https://as.example.org", "bridge", IssuerKind::Machines);
+    settings.profile.max_onward_lifetime = Some(600);
+    let built = Onward::new(
+        settings,
+        ClientKey::new().credentials(endpoint(&server, "/token"), "bridge"),
+    );
+    assert!(
+        matches!(
+            &built,
+            Err(OnwardError::IssuerKind {
+                kind: IssuerKind::Machines
+            })
+        ),
+        "{built:?}"
+    );
 }
 
 #[tokio::test]

@@ -15,6 +15,7 @@ mod examples;
 mod federation;
 mod harness;
 mod lanes;
+mod patients;
 mod refusals;
 mod vendors;
 
