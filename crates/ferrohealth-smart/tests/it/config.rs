@@ -7,6 +7,7 @@
 use std::time::Duration;
 
 use ferrohealth_smart::basic::PasswordStore;
+use ferrohealth_smart::basic::StoreError;
 use ferrohealth_smart::client::ClientAuth;
 use ferrohealth_smart::client::Endpoint;
 use ferrohealth_smart::config::AuthSection;
@@ -294,7 +295,7 @@ fn an_enabled_section_with_basic_users_and_no_issuer_is_basic_only() {
         [[basic.users]]
         user = "etl"
         password_hash = "{PHC}"
-        scopes = ["system/*.rs"]
+        scopes = ["user/*.rs"]
         "#
     ))
     .expect("the section parses");
@@ -502,5 +503,35 @@ fn an_issuer_that_is_neither_a_string_nor_a_list_is_refused() {
     assert!(
         refused.to_string().contains("a list of issuer tables"),
         "the refusal says what the key takes: {refused}"
+    );
+}
+
+// NOTE: a Basic credential is a person's (owner ruling on #215); a `system/` scope is a backend
+// service's (SMART App Launch 2.2.0, Scopes and Launch Context), so the section refuses it (#274).
+#[test]
+fn a_basic_user_with_a_system_scope_fails_to_load_naming_the_user_and_the_scope() {
+    let section: AuthSection = toml::from_str(&format!(
+        r#"
+        enabled = true
+        [[basic.users]]
+        user = "batch-loader"
+        password_hash = "{PHC}"
+        scopes = ["user/CodeSystem.r", "system/CodeSystem.cud"]
+        "#
+    ))
+    .expect("the section parses");
+    let refused = section.resolve();
+    let Err(ConfigError::Basic { source }) = &refused else {
+        panic!("a Basic refusal, not {refused:?}");
+    };
+    let StoreError::SystemScope { username, scope } = source else {
+        panic!("a system scope, not {source:?}");
+    };
+    assert_eq!("batch-loader", username);
+    assert_eq!("system/CodeSystem.cud", scope);
+    let message = source.to_string();
+    assert!(
+        message.contains("batch-loader") && message.contains("system/CodeSystem.cud"),
+        "{message}"
     );
 }

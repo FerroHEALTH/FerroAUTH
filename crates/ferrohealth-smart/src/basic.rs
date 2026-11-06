@@ -119,6 +119,19 @@ pub enum StoreError {
     /// the system's random source.
     #[error("the key of the verified-credential cache could not be drawn")]
     CacheKey,
+    /// `username` is granted a `system/` scope, a backend service's grant
+    /// (SMART App Launch 2.2.0, Scopes and Launch Context): a Basic
+    /// credential is a person's, and a machine authenticates with the client
+    /// credentials grant (RFC 6749 §4.4).
+    #[error(
+        "the user {username:?} is granted the system scope {scope:?}, which a Basic credential, a person's, never carries"
+    )]
+    SystemScope {
+        /// The user.
+        username: String,
+        /// The `system/` scope token.
+        scope: String,
+    },
 }
 
 /// A credential that does not hold.
@@ -274,7 +287,8 @@ impl PasswordStore {
     ///
     /// Returns [`StoreError`] for a hash that does not parse or names
     /// another algorithm, a user-id that is empty or carries a colon or a
-    /// control character, or a scope token outside RFC 6749 §3.3.
+    /// control character, a scope token outside RFC 6749 §3.3, or a
+    /// `system/` scope ([`StoreError::SystemScope`]).
     pub fn with_user(
         mut self,
         username: impl Into<String>,
@@ -293,6 +307,12 @@ impl PasswordStore {
         {
             return Err(StoreError::Scope {
                 scope: bad.to_owned(),
+                username,
+            });
+        }
+        if let Some(system) = scope.split(' ').find(|token| is_system_scope(token)) {
+            return Err(StoreError::SystemScope {
+                scope: system.to_owned(),
                 username,
             });
         }
@@ -446,6 +466,13 @@ fn user_id_ok(username: &str) -> bool {
     !username.is_empty() && !username.chars().any(|c| c == ':' || c.is_control())
 }
 
+/// Returns whether `token` is a `system/` scope, the grant of a backend
+/// service (SMART App Launch 2.2.0, Scopes and Launch Context), in either
+/// grammar: SMART on FHIR or SMART on openEHR.
+pub(crate) fn is_system_scope(token: &str) -> bool {
+    token.starts_with("system/")
+}
+
 /// A credential sent to an upstream with HTTP Basic.
 ///
 /// The `Debug` rendering never carries the password.
@@ -536,7 +563,7 @@ mod tests {
 
     fn store() -> PasswordStore {
         PasswordStore::new()
-            .with_user("alice", hash("s3cret"), "system/*.rs")
+            .with_user("alice", hash("s3cret"), "user/*.rs")
             .expect("a well-formed hash")
     }
 
@@ -553,7 +580,7 @@ mod tests {
     fn a_valid_credential_names_its_user_and_scope() {
         let verified = Verified {
             username: String::from("alice"),
-            scope: String::from("system/*.rs"),
+            scope: String::from("user/*.rs"),
             roles: Vec::new(),
             cached: false,
         };
@@ -711,7 +738,7 @@ mod tests {
         );
         assert!(
             PasswordStore::new()
-                .with_user("a", hash("x"), "system/*.rs bad\"scope")
+                .with_user("a", hash("x"), "user/*.rs bad\"scope")
                 .is_err()
         );
         assert!(PasswordStore::new().is_empty());

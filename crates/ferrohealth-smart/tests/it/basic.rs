@@ -12,6 +12,7 @@ use argon2::password_hash::PasswordHasher;
 use ferrohealth_smart::basic::Credential;
 use ferrohealth_smart::basic::InvalidCredential;
 use ferrohealth_smart::basic::PasswordStore;
+use ferrohealth_smart::basic::StoreError;
 use ferrohealth_smart::basic::Verified;
 use secrecy::SecretString;
 
@@ -28,13 +29,13 @@ fn hash(password: &str) -> SecretString {
 #[test]
 fn the_sent_credential_verifies_against_the_store() -> Result<(), Box<dyn StdError>> {
     let store = PasswordStore::new()
-        .with_user("ferro-bridge", hash("synthetic-pw"), "system/*.rs")?
+        .with_user("ferro-bridge", hash("synthetic-pw"), "user/*.rs")?
         .with_user("ferro-fed", hash("another-pw"), "")?;
     let sent = Credential::new("ferro-bridge", SecretString::from("synthetic-pw"))?;
     assert_eq!(
         Ok(Verified {
             username: String::from("ferro-bridge"),
-            scope: String::from("system/*.rs"),
+            scope: String::from("user/*.rs"),
             roles: Vec::new(),
             cached: false,
         }),
@@ -66,7 +67,7 @@ fn a_verified_user_carries_its_configured_roles() -> Result<(), Box<dyn StdError
     assert_eq!(verified.roles, ["etl", "reader"]);
     assert!(matches!(
         PasswordStore::new().with_roles("nobody", vec![String::from("etl")]),
-        Err(ferrohealth_smart::basic::StoreError::UnknownUser { .. })
+        Err(StoreError::UnknownUser { .. })
     ));
     Ok(())
 }
@@ -79,4 +80,28 @@ fn a_bearer_value_is_no_basic_credential() -> Result<(), Box<dyn StdError>> {
     let bare = http::HeaderValue::from_static("Basic");
     assert_eq!(Err(InvalidCredential), store.verify(&bare));
     Ok(())
+}
+
+// NOTE: a Basic credential is a person's, never a system caller's (owner ruling on #215), and a
+// `system/` scope is a backend service's grant (SMART App Launch 2.2.0, Scopes and Launch Context).
+#[test]
+fn a_store_refuses_a_system_scope_naming_the_user_and_the_scope() {
+    // A password made when the case runs, so no credential is written down.
+    let password = format!("pw-{}", std::process::id());
+    for scope in [
+        "system/*.rs",
+        "user/Condition.r system/Condition.c",
+        "system/composition-*.r",
+    ] {
+        let refused = PasswordStore::new().with_user("batch-loader", hash(&password), scope);
+        let Err(StoreError::SystemScope {
+            username,
+            scope: named,
+        }) = refused
+        else {
+            panic!("{scope}: a system scope, not {refused:?}");
+        };
+        assert_eq!("batch-loader", username, "{scope}");
+        assert!(named.starts_with("system/"), "{scope}: {named}");
+    }
 }
