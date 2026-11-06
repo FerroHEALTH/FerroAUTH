@@ -17,13 +17,18 @@
 
 use std::collections::BTreeMap;
 
+use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::resource::Caller;
 
 /// Who asks: the authenticated subject and the attributes a policy reads
 /// about them.
+///
+/// Its `Debug` rendering names the caller kind by [`CallerKind::as_str`], so
+/// it carries no represented subject, ground or external attribute.
 #[derive(Clone, Default, PartialEq, Eq)]
 pub struct Subject {
     id: String,
+    kind: Option<CallerKind>,
     roles: Vec<String>,
     scopes: Vec<String>,
     attributes: BTreeMap<String, String>,
@@ -33,6 +38,7 @@ impl std::fmt::Debug for Subject {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Subject")
             .field("id", &self.id)
+            .field("kind", &self.kind.as_ref().map(CallerKind::as_str))
             .field("roles", &self.roles)
             .field("attributes", &self.attributes.keys().collect::<Vec<_>>())
             .finish_non_exhaustive()
@@ -40,7 +46,7 @@ impl std::fmt::Debug for Subject {
 }
 
 impl Subject {
-    /// Returns the subject `id` with no role, scope or attribute.
+    /// Returns the subject `id` with no kind, role, scope or attribute.
     #[must_use]
     pub fn new(id: impl Into<String>) -> Self {
         Self {
@@ -50,8 +56,9 @@ impl Subject {
     }
 
     /// Returns the subject `ferrohealth-smart` admitted: its subject id, its
-    /// roles and its scopes, and one attribute per `(name, claim path)` pair
-    /// whose claim holds a string ([`Caller::claim_text`]).
+    /// caller kind ([`Caller::kind`]), its roles and its scopes, and one
+    /// attribute per `(name, claim path)` pair whose claim holds a string
+    /// ([`Caller::claim_text`]).
     #[must_use]
     pub fn of(caller: &Caller, claims: &[(&str, &str)]) -> Self {
         let attributes = claims
@@ -64,10 +71,18 @@ impl Subject {
             .collect();
         Self {
             id: caller.subject().to_owned(),
+            kind: Some(caller.kind().clone()),
             roles: caller.roles().to_vec(),
             scopes: caller.scope().to_vec(),
             attributes,
         }
+    }
+
+    /// Returns this subject with the caller kind `kind`.
+    #[must_use]
+    pub fn with_kind(mut self, kind: CallerKind) -> Self {
+        self.kind = Some(kind);
+        self
     }
 
     /// Returns this subject holding `roles`.
@@ -95,6 +110,13 @@ impl Subject {
     #[must_use]
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// Who stands behind the credential, when the subject was read from a
+    /// caller or given one; a policy reads it by [`CallerKind::as_str`].
+    #[must_use]
+    pub const fn kind(&self) -> Option<&CallerKind> {
+        self.kind.as_ref()
     }
 
     /// The roles.

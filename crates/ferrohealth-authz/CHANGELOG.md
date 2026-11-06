@@ -14,6 +14,33 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.4.0] - Unreleased
+
+A policy reads who stands behind the credential (#262). This release
+breaks a Cedar model that declares a subject attribute named `kind`.
+
+### Added
+
+- `request::Subject` carries the caller kind: `Subject::of` reads it from
+  `ferrohealth_smart::resource::Caller::kind`, `Subject::with_kind` sets
+  it and `Subject::kind` returns it (`None` for a subject built with
+  `Subject::new`). The subject's `Debug` names the kind by
+  `CallerKind::as_str` alone.
+
+### Changed
+
+- The Cedar principal `User` declares `kind?: String`, holding the name
+  `CallerKind::as_str` gives (`person`, `system`, `patient` and the rest
+  the audit line records), so a policy reads `principal has kind &&
+  principal.kind == "system"`. `cedar::Model` refuses a subject attribute
+  named `kind`, as it refuses `roles` and `scopes` (`ModelError::Name`).
+  Upgrade: rename a subject attribute `kind` the model declares, and its
+  claim mapping, before moving to 0.4.0.
+- A remote binding parameter named `kind` carries the subject's caller
+  kind, read after the resource attributes and before a subject attribute
+  of that name. Upgrade: a remote point that read a product attribute
+  named `kind` reads it under another name.
+
 ## [0.3.0] - 2026-11-06
 
 Releases beside `ferrohealth-smart` 0.9.0, whose `resource::Caller` this
