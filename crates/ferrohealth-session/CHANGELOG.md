@@ -14,6 +14,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-11-06
+
 ### Added
 
 - `clock::ManualClock` moves in milliseconds as well as seconds
@@ -170,7 +172,8 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.3.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.3.1...HEAD
+[0.3.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.3.0...ferrohealth-session-v0.3.1
 [0.3.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.3...ferrohealth-session-v0.3.0
 [0.2.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.2...ferrohealth-session-v0.2.3
 [0.2.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.1...ferrohealth-session-v0.2.2
