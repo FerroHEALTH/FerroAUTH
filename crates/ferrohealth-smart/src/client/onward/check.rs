@@ -11,7 +11,6 @@
 //! the route the issuer's kind decides. No specification governs the check:
 //! our own design over RFC 8693 §2.1 and §4.1 and RFC 8707 §2.
 
-use base64::Engine as _;
 use serde_json::Map;
 use serde_json::Value;
 
@@ -49,10 +48,7 @@ pub(crate) fn decode(token: &str) -> Result<Map<String, Value>, Rejected> {
     else {
         return Err(Rejected::NotJwt);
     };
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .map_err(|_not_base64url| Rejected::NotJwt)?;
-    serde_json::from_slice(&bytes).map_err(|_not_an_object| Rejected::NotJwt)
+    crate::jws::object(payload).ok_or(Rejected::NotJwt)
 }
 
 /// Checks `issued`, the claims of a token `route` issued for `target` on

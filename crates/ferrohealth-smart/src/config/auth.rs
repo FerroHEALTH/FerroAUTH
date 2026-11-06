@@ -14,6 +14,7 @@ use crate::basic::PasswordStore;
 use crate::client::Tls;
 use crate::config::AuthMode;
 use crate::config::AuthSection;
+use crate::config::BasicSection;
 use crate::config::ConfigError;
 use crate::config::IssuerEntry;
 use crate::config::IssuerKey;
@@ -600,13 +601,11 @@ fn check_entry(entry: &IssuerEntry) -> Result<IssuerKind, ConfigError> {
             right: "auth.issuer.mode = \"jwt\"",
         });
     }
-    let malformed =
-        |path: &str| path.split('.').any(str::is_empty) || path.contains(char::is_whitespace);
-    if entry
+    if !entry
         .role_claims
         .iter()
         .flatten()
-        .any(|path| malformed(path))
+        .all(|path| crate::roles::well_formed(path))
     {
         return Err(ConfigError::Missing {
             key: "auth.issuer.role_claims",
@@ -677,6 +676,17 @@ impl Default for AuthSection {
             introspection: None,
             acting_for_claim: None,
             client_tokens: None,
+        }
+    }
+}
+
+impl Default for BasicSection {
+    fn default() -> Self {
+        Self {
+            users: Vec::new(),
+            // NOTE: no specification governs the cache: our own design, safe on
+            // by default because the user list changes only at a restart.
+            cache_ttl_seconds: 300,
         }
     }
 }

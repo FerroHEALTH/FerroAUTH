@@ -27,7 +27,9 @@ pub mod configuration;
 pub mod introspection;
 mod jwks;
 mod rules;
+mod server;
 mod set;
+mod settings;
 mod token;
 
 use std::collections::BTreeMap;
@@ -54,8 +56,6 @@ use crate::kind::CallerKind;
 use crate::kind::IssuerKind;
 use crate::kind::Unclassified;
 use crate::metadata::DiscoveryError;
-#[cfg(feature = "fetch")]
-use crate::metadata::Http;
 use crate::metadata::ServerMetadata;
 use crate::profile::Profile;
 use crate::profile::ProfileError;
@@ -120,91 +120,6 @@ pub struct Settings {
     /// and the key set, for an issuer behind a private certificate
     /// authority; none trusts the platform roots alone.
     pub trust_roots: Option<Vec<u8>>,
-}
-
-impl Settings {
-    /// Returns settings for tokens of `issuer`, an issuer of `kind`,
-    /// addressed to `audience`.
-    ///
-    /// RS256, RS384, PS256, PS384, ES256 and ES384 are accepted under the
-    /// `rfc9068` profile, the clock skew is 60 seconds, the key set is used
-    /// for 600 seconds and read again at most once a minute, a call to the
-    /// authorization server may take 10 seconds, and no subject is granted
-    /// scopeless access.
-    #[must_use]
-    pub fn new(issuer: impl Into<String>, audience: impl Into<String>, kind: IssuerKind) -> Self {
-        Self {
-            issuer: issuer.into(),
-            audience: vec![audience.into()],
-            algorithms: vec![
-                Algorithm::RS256,
-                Algorithm::RS384,
-                Algorithm::PS256,
-                Algorithm::PS384,
-                Algorithm::ES256,
-                Algorithm::ES384,
-            ],
-            kind,
-            profile: Profile::default(),
-            clock_skew: Duration::from_secs(60),
-            jwks_max_age: Duration::from_secs(600),
-            jwks_refresh_interval: Duration::from_secs(60),
-            jwks_file: None,
-            timeout: Duration::from_secs(10),
-            scopeless_subjects: BTreeSet::new(),
-            // NOTE: no specification governs this: our own design; another party's
-            // issuer asserts no role of this deployment.
-            role_claims: if kind == IssuerKind::Federation {
-                Vec::new()
-            } else {
-                crate::roles::default_claims()
-            },
-            assurance: None,
-            federation: None,
-            sender_constraint: SenderConstraint::None,
-            trust_roots: None,
-        }
-    }
-
-    /// Checks the settings: the issuer URL rule, at least one audience, at
-    /// least one algorithm and none symmetric, and the clock skew bound.
-    ///
-    /// # Errors
-    ///
-    /// Returns the [`ResourceError`] naming the first rule broken.
-    pub fn validate(&self) -> Result<(), ResourceError> {
-        crate::metadata::issuer_url(&self.issuer)?;
-        if self.audience.iter().all(String::is_empty) {
-            return Err(ResourceError::NoAudience);
-        }
-        if self.algorithms.is_empty() {
-            return Err(ResourceError::NoAlgorithm);
-        }
-        if let Some(algorithm) = self.algorithms.iter().find(|algorithm| {
-            matches!(
-                algorithm,
-                Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512
-            )
-        }) {
-            return Err(ResourceError::SymmetricAlgorithm {
-                algorithm: *algorithm,
-            });
-        }
-        if self.clock_skew > MAX_CLOCK_SKEW {
-            return Err(ResourceError::ClockSkew {
-                skew: self.clock_skew,
-            });
-        }
-        rules::check_issuer_rules(
-            self.kind,
-            &self.profile,
-            self.assurance.as_ref(),
-            self.federation.as_ref(),
-            self.sender_constraint,
-            &self.scopeless_subjects,
-            &self.role_claims,
-        )
-    }
 }
 
 /// A failure to reach or read the authorization server, or settings that
@@ -380,221 +295,6 @@ impl std::fmt::Debug for ResourceServer {
     }
 }
 
-impl ResourceServer {
-    /// Reads the metadata and the key set of the authorization server
-    /// `settings` names.
-    ///
-    /// Both are read once here, so an authorization server that cannot be
-    /// reached refuses the start rather than the first request. With a
-    /// `jwks_file`, the file is read and the metadata is not; without the
-    /// `fetch` feature, a `jwks_file` is the one key source.
-    ///
-    /// # Errors
-    ///
-    /// Returns every [`ResourceError`]: the settings break a rule, the
-    /// metadata or the key set could not be read, the metadata names
-    /// another issuer, no `jwks_uri` or an insecure one, or, without the
-    /// `fetch` feature, the settings name no `jwks_file`.
-    pub async fn discover(settings: Settings) -> Result<Self, ResourceError> {
-        settings.validate()?;
-        #[cfg(feature = "fetch")]
-        let http = match &settings.trust_roots {
-            Some(roots) => Http::with_tls(
-                settings.timeout,
-                &crate::client::Tls {
-                    root_certificates: Some(roots.clone()),
-                    identity: None,
-                },
-            )?,
-            None => Http::new(settings.timeout)?,
-        };
-        let (metadata, source) = if let Some(path) = &settings.jwks_file {
-            let metadata = ServerMetadata {
-                issuer: settings.issuer.clone(),
-                ..ServerMetadata::default()
-            };
-            (metadata, KeySource::File(path.clone()))
-        } else {
-            #[cfg(feature = "fetch")]
-            {
-                let metadata = http.discover(&settings.issuer).await?;
-                let jwks_uri = metadata
-                    .jwks_uri
-                    .as_deref()
-                    .ok_or(ResourceError::MissingMember { member: "jwks_uri" })?
-                    .parse::<Url>()
-                    .map_err(|source| ResourceError::JwksUrl { source })?;
-                crate::metadata::secure(&jwks_uri, "the jwks_uri")?;
-                (metadata, KeySource::Uri(jwks_uri))
-            }
-            #[cfg(not(feature = "fetch"))]
-            return Err(ResourceError::KeySetFileRequired);
-        };
-        let keys = KeySet::load(
-            #[cfg(feature = "fetch")]
-            http,
-            source,
-            settings.jwks_max_age,
-            settings.jwks_refresh_interval,
-        )
-        .await?;
-        // NOTE: no specification governs this: our own design; the count is read
-        // before the log line, so no formatting argument is held across an await
-        // and the future stays `Send`.
-        let count = keys.len().await;
-        tracing::info!(
-            issuer = %settings.issuer,
-            keys = count,
-            source = %keys.source(),
-            "validating access tokens of this issuer"
-        );
-        Ok(Self {
-            settings,
-            metadata,
-            keys,
-            resource_types: None,
-            extensions: Extensions::new(),
-        })
-    }
-
-    /// Returns a resource server for `settings` that reads the metadata and
-    /// the key set when the first token needs them.
-    ///
-    /// The settings are checked here, so a broken rule still refuses the
-    /// start. A read that fails answers that token, and every token inside
-    /// `jwks_refresh_interval`, with [`Rejection::Unavailable`] (`503`), and
-    /// the next token after the interval reads again. No specification
-    /// governs when the key set is first read: our own design.
-    ///
-    /// # Errors
-    ///
-    /// Returns the [`ResourceError`] of [`Settings::validate`], or, without
-    /// the `fetch` feature, [`ResourceError::KeySetFileRequired`] when the
-    /// settings name no `jwks_file`.
-    pub fn lazy(settings: Settings) -> Result<LazyResourceServer, ResourceError> {
-        settings.validate()?;
-        #[cfg(not(feature = "fetch"))]
-        if settings.jwks_file.is_none() {
-            return Err(ResourceError::KeySetFileRequired);
-        }
-        Ok(LazyResourceServer {
-            settings,
-            resource_types: None,
-            extensions: Extensions::new(),
-            server: tokio::sync::OnceCell::new(),
-            failed: Mutex::new(None),
-        })
-    }
-
-    /// Returns this resource server copying `value` onto every caller it
-    /// admits, which a handler reads with [`Caller::extension`].
-    ///
-    /// This is how a product attaches its own per-issuer policy to the
-    /// callers of that issuer; the crate reads one extension, the
-    /// [`PatientClaim`] (no specification governs this: our own design).
-    #[must_use]
-    pub fn with_extension<T: Clone + Send + Sync + 'static>(mut self, value: T) -> Self {
-        self.extensions.insert(value);
-        self
-    }
-
-    /// Returns this resource server reading a clinical scope's resource type
-    /// against `known`, in place of the lexical rule.
-    #[must_use]
-    pub fn with_resource_types(
-        mut self,
-        known: impl Fn(&str) -> bool + Send + Sync + 'static,
-    ) -> Self {
-        self.resource_types = Some(Arc::new(known));
-        self
-    }
-
-    /// Returns this resource server with `metadata`, supplied by the
-    /// operator, as its authorization server's, for a key set read from a
-    /// `jwks_file`, whose issuer metadata is otherwise unknown.
-    ///
-    /// The SMART discovery document is built from it, so a `jwks_file`
-    /// issuer can name the `token_endpoint` SMART App Launch 2.2.0
-    /// (Conformance, Metadata) requires. The metadata must name the
-    /// configured issuer, as RFC 8414 §3.3 holds a fetched document to, and
-    /// every location it names, each member of [`ServerMetadata::endpoints`]
-    /// with the mutual-TLS token alias, is held to the `https` rule of
-    /// RFC 8414 §2.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ResourceError::MetadataFetched`] when the metadata was read
-    /// from the issuer, [`ResourceError::MetadataIssuer`] for another
-    /// issuer, [`ResourceError::MetadataUrl`] for a location that is not a
-    /// URL, and [`ResourceError::Discovery`] for one outside the `https`
-    /// rule.
-    pub fn with_metadata(mut self, metadata: ServerMetadata) -> Result<Self, ResourceError> {
-        if self.settings.jwks_file.is_none() {
-            return Err(ResourceError::MetadataFetched);
-        }
-        if crate::metadata::check_issuer(&self.settings.issuer, &metadata.issuer).is_err() {
-            return Err(ResourceError::MetadataIssuer {
-                found: metadata.issuer,
-            });
-        }
-        for (member, location) in metadata.endpoints() {
-            let url = location
-                .parse::<Url>()
-                .map_err(|source| ResourceError::MetadataUrl { member, source })?;
-            crate::metadata::secure(&url, member)?;
-        }
-        self.metadata = metadata;
-        Ok(self)
-    }
-
-    /// Returns what the deployment configured.
-    #[must_use]
-    pub const fn settings(&self) -> &Settings {
-        &self.settings
-    }
-
-    /// Returns the authorization server's metadata as read at boot.
-    #[must_use]
-    pub const fn metadata(&self) -> &ServerMetadata {
-        &self.metadata
-    }
-
-    /// Returns the caller `token` authenticates.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`Rejection::Invalid`] for a token whose signature, issuer,
-    /// audience, lifetime or claims do not hold, and
-    /// [`Rejection::Unavailable`] when the key set could not be read again.
-    pub async fn authenticate(&self, token: &str) -> Result<Caller, Rejection> {
-        token::validate(self, token, &Binding::bearer()).await
-    }
-
-    /// Returns the caller `token` authenticates, its `cnf` held to what
-    /// `binding` proves and to the issuer's sender constraint
-    /// ([`crate::sender`]).
-    ///
-    /// # Errors
-    ///
-    /// Returns every [`Rejection`] of [`ResourceServer::authenticate`], and
-    /// [`Rejection::Invalid`] naming the [`Check`] for a token whose binding
-    /// does not hold.
-    pub async fn authenticate_bound(
-        &self,
-        token: &str,
-        binding: &Binding,
-    ) -> Result<Caller, Rejection> {
-        token::validate(self, token, binding).await
-    }
-
-    /// Returns the SMART discovery document of this resource server under
-    /// `options`.
-    #[must_use]
-    pub fn smart_configuration(&self, options: &configuration::SmartOptions) -> serde_json::Value {
-        configuration::document(&self.metadata, options)
-    }
-}
-
 /// How a bearer token is checked.
 ///
 /// [`ResourceServer`] checks a JWT against the issuer's key set; a product
@@ -629,23 +329,6 @@ pub trait Verifier: Send + Sync + 'static {
             })));
         }
         self.verify(token)
-    }
-}
-
-impl Verifier for ResourceServer {
-    fn verify<'a>(
-        &'a self,
-        token: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
-        Box::pin(self.authenticate(token))
-    }
-
-    fn verify_bound<'a>(
-        &'a self,
-        token: &'a str,
-        binding: &'a Binding,
-    ) -> Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
-        Box::pin(self.authenticate_bound(token, binding))
     }
 }
 
@@ -933,7 +616,7 @@ impl PatientClaim {
     /// carries whitespace, which would name no claim.
     pub fn new(path: impl Into<String>) -> Result<Self, PatientClaimError> {
         let path = path.into();
-        if path.split('.').any(str::is_empty) || path.contains(char::is_whitespace) {
+        if !crate::roles::well_formed(&path) {
             return Err(PatientClaimError);
         }
         Ok(Self(path))
@@ -956,33 +639,4 @@ pub enum Access {
     Open,
     /// A caller with a valid credential.
     Caller(Arc<Caller>),
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{MAX_CLOCK_SKEW, ResourceError, Settings};
-    use crate::kind::IssuerKind;
-    use std::time::Duration;
-
-    #[test]
-    fn the_settings_rules_refuse_the_start() {
-        let mut settings = Settings::new("https://as.example.org", "aud", IssuerKind::Persons);
-        assert!(settings.validate().is_ok());
-        settings.clock_skew = MAX_CLOCK_SKEW + Duration::from_secs(1);
-        assert!(matches!(
-            settings.validate(),
-            Err(ResourceError::ClockSkew { .. })
-        ));
-        let mut settings = Settings::new("https://as.example.org", "", IssuerKind::Persons);
-        assert!(matches!(
-            settings.validate(),
-            Err(ResourceError::NoAudience)
-        ));
-        settings.audience = vec![String::from("aud")];
-        settings.issuer = String::from("http://as.example.org");
-        assert!(matches!(
-            settings.validate(),
-            Err(ResourceError::Discovery(_))
-        ));
-    }
 }
