@@ -439,3 +439,86 @@ fn a_contact_point_takes_no_provider_prefixes_and_configures_its_country() {
     );
     assert!(table().validate().is_ok());
 }
+
+/// The gate in front of a contact point, whose refusal carries the §1.25 code.
+#[cfg(feature = "axum")]
+mod gate {
+    use std::sync::Arc;
+
+    use ferrohealth_smart::federation::contact::EhdsiCode;
+    use ferrohealth_smart::guard::Gate;
+    use ferrohealth_smart::refusal::Denied;
+    use ferrohealth_smart::refusal::Refusal;
+    use ferrohealth_smart::resource::ResourceServer;
+    use ferrohealth_smart::sender::ClientCertificate;
+    use http::Request;
+    use http::header;
+    use jsonwebtoken::Algorithm;
+    use jsonwebtoken::Header;
+    use serde_json::Value;
+
+    use super::CERTIFICATE;
+    use super::Harness;
+    use super::Outcome;
+    use super::table;
+    use super::without;
+    use crate::support::mint_with;
+
+    /// Returns the denial the gate answers `token` with over the bound
+    /// connection.
+    async fn deny(h: &Harness, token: &str) -> Result<Denied, Box<dyn std::error::Error>> {
+        let server = ResourceServer::discover(h.settings(table())).await?;
+        let gate = Gate::default().with_bearer(Arc::new(server));
+        let (mut parts, ()) = Request::get("/fhir/Patient")
+            .header(header::AUTHORIZATION, format!("Bearer {token}"))
+            .body(())?
+            .into_parts();
+        parts
+            .extensions
+            .insert(ClientCertificate::from_der(CERTIFICATE));
+        let denied = gate
+            .authenticate_request(&parts)
+            .await
+            .err()
+            .ok_or("a refusal")?;
+        Ok(denied)
+    }
+
+    /// Returns `claims` signed by the contact point's key.
+    fn signed(h: &Harness, claims: &Value) -> String {
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(String::from("cp"));
+        header.typ = Some(String::from("at+jwt"));
+        mint_with(&h.key, &header, claims)
+    }
+
+    // NOTE: MyHealth@EU Requirements Catalogue 10.0.0 §1.25, requirement 01: the
+    // gate's refusal names the code the contact-point check refused the token with.
+    #[tokio::test]
+    async fn a_contact_point_refusal_from_the_gate_carries_its_code() -> Outcome {
+        let h = Harness::new();
+        let denied = deny(&h, &signed(&h, &without("/point_of_care"))).await?;
+        assert_eq!(&Refusal::InvalidToken, denied.refusal());
+        assert_eq!(Some(EhdsiCode::HpiPocNoInformation), denied.ehdsi());
+        let code = denied.ehdsi().ok_or("a code")?;
+        assert_eq!("ERROR_HPI_POC_NO_INFORMATION", code.as_str());
+        assert_eq!("01", code.requirement());
+        assert_eq!(
+            Some(String::from("Bearer error=\"invalid_token\"")),
+            denied.refusal().challenge(None),
+            "RFC 6750 §3.1: the code stays off the challenge"
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_refusal_before_the_contact_point_check_carries_no_code() -> Outcome {
+        let h = Harness::new();
+        let mut forged = signed(&h, &super::token());
+        forged.push('A');
+        let denied = deny(&h, &forged).await?;
+        assert_eq!(&Refusal::InvalidToken, denied.refusal());
+        assert_eq!(None, denied.ehdsi(), "ERROR_SEC_GENERIC is EhdsiCode::of's");
+        Ok(())
+    }
+}

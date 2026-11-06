@@ -215,7 +215,7 @@ async fn dpop(
         match denied.refusal() {
             // NOTE: RFC 9449 §7.2, the challenge of a request whose scheme is
             // known is that scheme's.
-            Refusal::InvalidToken => Denied::new(Refusal::InvalidDpopToken, denied.reason()),
+            Refusal::InvalidToken => denied.answered_with(Refusal::InvalidDpopToken),
             _ => denied,
         }
     })
@@ -236,7 +236,7 @@ fn dpop_denied(rejection: &Rejection) -> Denied {
     let denied = Denied::from(rejection);
     tracing::debug!(reason = ?denied.reason(), "a DPoP request was refused");
     match denied.refusal() {
-        Refusal::InvalidToken => Denied::new(Refusal::InvalidDpopToken, denied.reason()),
+        Refusal::InvalidToken => denied.answered_with(Refusal::InvalidDpopToken),
         _ => denied,
     }
 }

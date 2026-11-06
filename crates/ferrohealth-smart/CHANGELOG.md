@@ -13,6 +13,12 @@ and this project adheres to
 
 ### Added
 
+- `refusal::Denied::ehdsi` returns the MyHealth@EU Requirements Catalogue
+  10.0.0 §1.25 code the contact-point check refused a token with, so a
+  product that answers a national contact point through the gate reads the
+  code from the refusal (#281). `federation::contact::EhdsiCode::requirement`
+  names the catalogue requirement each code answers. The code stays off the
+  challenge, and a refusal before the contact-point check carries none.
 - The onward client exchanges a patient's own token at a `patients` issuer,
   a deployment's separate patients realm or tenant, by token exchange
   (RFC 8693) or the JWT bearer grant (Entra ID's on-behalf-of flow), so a

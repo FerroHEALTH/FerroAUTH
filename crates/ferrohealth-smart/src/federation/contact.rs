@@ -69,6 +69,21 @@ impl EhdsiCode {
         }
     }
 
+    /// Returns the id of the Requirements Catalogue 10.0.0 requirement the
+    /// code answers, as the catalogue numbers it.
+    #[must_use]
+    pub const fn requirement(self) -> &'static str {
+        match self {
+            Self::HpiNoInformation
+            | Self::HpiInsufficientInformation
+            | Self::HpiHaiNoInformation
+            | Self::HpiPocNoInformation => "01",
+            Self::HpiAuthenticationNotReceived => "01.01",
+            Self::SecDataIntegrityNotEnsured => "11.01.02",
+            Self::SecGeneric => "11",
+        }
+    }
+
     /// Returns the code a contact point answers `rejection` with: the code of
     /// a contact-point refusal, and `ERROR_SEC_GENERIC` for any other invalid
     /// token and for an unreadable key set or upstream.
