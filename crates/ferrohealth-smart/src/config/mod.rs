@@ -366,18 +366,6 @@ pub struct IntrospectionSection {
     pub bearer: Option<OauthSection>,
 }
 
-impl Default for IntrospectionSection {
-    fn default() -> Self {
-        Self {
-            endpoint: String::new(),
-            cache_max_age_seconds: 60,
-            cache_capacity: 10_000,
-            client: None,
-            bearer: None,
-        }
-    }
-}
-
 /// The `issuer` key: the `[[auth.issuer]]` list, or the flat identifier,
 /// which [`AuthSection::resolve`] refuses naming the table form.
 #[derive(Debug, Clone, Serialize)]
@@ -542,17 +530,6 @@ pub struct BasicSection {
     /// How long a credential that verified is kept, so a repeat request
     /// skips the key derivation; 300 seconds by default, 0 keeps none.
     pub cache_ttl_seconds: u64,
-}
-
-impl Default for BasicSection {
-    fn default() -> Self {
-        Self {
-            users: Vec::new(),
-            // NOTE: no specification governs the cache: our own design, safe on
-            // by default because the user list changes only at a restart.
-            cache_ttl_seconds: 300,
-        }
-    }
 }
 
 /// One `[[auth.basic.users]]` entry: a person's credential, never a

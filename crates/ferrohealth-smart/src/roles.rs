@@ -98,6 +98,13 @@ fn push(roles: &mut Vec<String>, raw: &str) {
     }
 }
 
+/// Returns whether `path` is a dotted claim path [`lookup`] can follow: not
+/// blank, no empty step, and no whitespace (no specification governs the
+/// rule: our own design).
+pub(crate) fn well_formed(path: &str) -> bool {
+    !path.split('.').any(str::is_empty) && !path.contains(char::is_whitespace)
+}
+
 /// Returns the value at the dotted `path`, each step a member of an object.
 pub(crate) fn lookup<'a>(claims: &'a Map<String, Value>, path: &str) -> Option<&'a Value> {
     let mut steps = path.split('.');

@@ -1,12 +1,14 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The defaults of one `[[auth.issuer]]` table and the profile keys it sets
-//! over its preset.
+//! The defaults of one `[[auth.issuer]]` table and of its
+//! `[auth.issuer.introspection]` table, and the profile keys it sets over its
+//! preset.
 
 use jsonwebtoken::Algorithm;
 
 use crate::config::AuthMode;
+use crate::config::IntrospectionSection;
 use crate::config::IssuerEntry;
 use crate::profile::Preset;
 use crate::profile::ProfileKeys;
@@ -66,6 +68,18 @@ impl Default for IssuerEntry {
             token_profile: None,
             acting_for_claim: None,
             client_tokens: None,
+        }
+    }
+}
+
+impl Default for IntrospectionSection {
+    fn default() -> Self {
+        Self {
+            endpoint: String::new(),
+            cache_max_age_seconds: 60,
+            cache_capacity: 10_000,
+            client: None,
+            bearer: None,
         }
     }
 }

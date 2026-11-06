@@ -101,8 +101,8 @@ impl std::fmt::Debug for Assessment {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum AssuranceError {
-    /// A claim path is blank or has an empty step.
-    #[error("the claim path {key} is blank or has an empty step")]
+    /// A claim path is blank, has an empty step or carries whitespace.
+    #[error("the claim path {key} is blank, has an empty step or carries whitespace")]
     Claim {
         /// The key of the path.
         key: &'static str,
@@ -127,7 +127,7 @@ impl AssuranceSection {
     ///
     /// The [`AssuranceError`] naming the first rule broken.
     pub fn validate(&self) -> Result<(), AssuranceError> {
-        if !path_ok(&self.claim) {
+        if !crate::roles::well_formed(&self.claim) {
             return Err(AssuranceError::Claim {
                 key: "assurance.claim",
             });
@@ -196,11 +196,6 @@ impl AssuranceSection {
             .with_acr_values(self.accepted())
             .map(Refusal::StepUp)
     }
-}
-
-/// Returns whether `path` is a dotted claim path with no empty step.
-fn path_ok(path: &str) -> bool {
-    !path.split('.').any(|step| step.trim().is_empty())
 }
 
 #[cfg(test)]
@@ -291,5 +286,19 @@ mod tests {
         };
         assert!(matches!(quoted.validate(), Err(AssuranceError::Value(_))));
         assert_eq!(section(Some(AssuranceLevel::High)).validate(), Ok(()));
+    }
+
+    #[test]
+    fn a_claim_path_carrying_whitespace_is_refused() {
+        for claim in [" acr", "auth context.acr", "acr\t"] {
+            let spaced = AssuranceSection {
+                claim: String::from(claim),
+                ..AssuranceSection::default()
+            };
+            assert!(
+                matches!(spaced.validate(), Err(AssuranceError::Claim { .. })),
+                "{claim:?}"
+            );
+        }
     }
 }

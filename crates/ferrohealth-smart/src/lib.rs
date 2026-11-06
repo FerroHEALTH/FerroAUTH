@@ -91,6 +91,8 @@ pub mod guard;
 #[cfg(resource_server)]
 pub mod idp;
 #[cfg(resource_server)]
+mod jws;
+#[cfg(resource_server)]
 pub mod kind;
 #[cfg(resource_server)]
 pub mod metadata;

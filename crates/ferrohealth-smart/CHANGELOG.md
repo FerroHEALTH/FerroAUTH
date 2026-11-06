@@ -271,6 +271,10 @@ release breaks the public configuration and API: every product moves its
   two fields more. Upgrade: a product that builds an `Actor::Caller` sets
   both (`"-"` and `None` for a caller not looked up); a log pipeline that
   holds the field set adds them.
+- The `[auth.issuer.assurance] claim` path is held to the rule of
+  `role_claims` and `resource::PatientClaim` (#234): a path carrying
+  whitespace anywhere fails to load (`AssuranceError::Claim`), where only
+  a blank step did. Upgrade: name the claim without whitespace.
 
 ### Removed
 
