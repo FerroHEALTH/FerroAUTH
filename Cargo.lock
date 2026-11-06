@@ -924,7 +924,7 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-smart"
-version = "0.9.1"
+version = "0.9.2"
 dependencies = [
  "argon2",
  "aws-lc-rs",
