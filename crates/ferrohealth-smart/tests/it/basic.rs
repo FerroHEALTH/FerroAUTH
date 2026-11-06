@@ -86,12 +86,14 @@ fn a_bearer_value_is_no_basic_credential() -> Result<(), Box<dyn StdError>> {
 // `system/` scope is a backend service's grant (SMART App Launch 2.2.0, Scopes and Launch Context).
 #[test]
 fn a_store_refuses_a_system_scope_naming_the_user_and_the_scope() {
+    // A password made when the case runs, so no credential is written down.
+    let password = format!("pw-{}", std::process::id());
     for scope in [
         "system/*.rs",
         "user/Condition.r system/Condition.c",
         "system/composition-*.r",
     ] {
-        let refused = PasswordStore::new().with_user("batch-loader", hash("synthetic-pw"), scope);
+        let refused = PasswordStore::new().with_user("batch-loader", hash(&password), scope);
         let Err(StoreError::SystemScope {
             username,
             scope: named,
