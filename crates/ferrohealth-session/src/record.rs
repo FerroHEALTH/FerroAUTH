@@ -11,6 +11,8 @@ use ferrohealth_secret::secret::Secret;
 use ferrohealth_ui::view::session::Left;
 use serde::{Deserialize, Serialize};
 
+use crate::lifetime::{from_seconds, millis, seconds_down, seconds_up};
+
 /// How a session authenticates the console's calls to its own server.
 #[derive(Clone, PartialEq, Eq)]
 pub enum Credential {
@@ -146,10 +148,11 @@ impl Session {
         &self.credential
     }
 
-    /// When the operator signed in, in whole seconds since the Unix epoch.
+    /// When the operator signed in, in whole seconds since the Unix epoch,
+    /// rounded up.
     #[must_use]
     pub const fn signed_in_at(&self) -> i64 {
-        self.signed_in_at
+        seconds_up(self.signed_in_at)
     }
 
     /// What the session has left as this request found it.
@@ -193,7 +196,8 @@ impl fmt::Debug for Ended {
     }
 }
 
-/// The session record both stores keep, with its times.
+/// The session record both stores keep, with its times in milliseconds
+/// since the Unix epoch.
 #[derive(Clone)]
 pub(crate) struct Record {
     pub(crate) operator: Option<String>,
@@ -201,7 +205,7 @@ pub(crate) struct Record {
     pub(crate) scopes: Vec<String>,
     pub(crate) credential: Credential,
     pub(crate) expires: Option<i64>,
-    pub(crate) lifetime: Option<u64>,
+    pub(crate) lifetime: Option<Duration>,
     pub(crate) refresh_token: Option<Secret>,
     pub(crate) id_token: Option<Secret>,
     pub(crate) signed_in: i64,
@@ -211,20 +215,26 @@ pub(crate) struct Record {
 impl Record {
     /// The record a sign-in at `now` begins.
     pub(crate) fn begin(signed_in: SignedIn, now: i64) -> Self {
-        Self {
+        let mut record = Self {
             operator: signed_in.operator,
             subject: signed_in.subject,
             scopes: signed_in.scopes,
             credential: signed_in.credential,
-            expires: signed_in
-                .expires_in
-                .map(|lifetime| now.saturating_add(crate::lifetime::seconds(lifetime))),
-            lifetime: signed_in.expires_in.map(|lifetime| lifetime.as_secs()),
+            expires: None,
+            lifetime: None,
             refresh_token: signed_in.refresh_token,
             id_token: signed_in.id_token,
             signed_in: now,
             touched: now,
-        }
+        };
+        record.token_issued(signed_in.expires_in, now);
+        record
+    }
+
+    /// Counts the access token's `lifetime` from `now`, when it was issued.
+    pub(crate) fn token_issued(&mut self, lifetime: Option<Duration>, now: i64) {
+        self.expires = lifetime.map(|lifetime| now.saturating_add(millis(lifetime)));
+        self.lifetime = lifetime;
     }
 
     /// The times its lifetimes are counted from.
@@ -274,6 +284,11 @@ impl Record {
 
 /// The record as the sealed cookie carries it. The plain strings exist only
 /// between this record and the sealing, and never reach a rendering.
+///
+/// Its times are whole seconds since the Unix epoch, the format every
+/// earlier release sealed: the sign-in and the last activity rounded up, so
+/// no lifetime counted from them ends early, and the token's expiry rounded
+/// down, so no expired token is sent.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Sealed {
     operator: Option<String>,
@@ -302,14 +317,14 @@ impl From<&Record> for Sealed {
             scopes: record.scopes.clone(),
             bearer,
             basic,
-            expires: record.expires,
-            lifetime: record.lifetime,
+            expires: record.expires.map(seconds_down),
+            lifetime: record.lifetime.map(|lifetime| lifetime.as_secs()),
             id_token: record
                 .id_token
                 .as_ref()
                 .map(|token| token.expose().to_owned()),
-            signed_in: record.signed_in,
-            touched: record.touched,
+            signed_in: seconds_up(record.signed_in),
+            touched: seconds_up(record.touched),
         }
     }
 }
@@ -330,12 +345,90 @@ impl Sealed {
             subject: self.subject,
             scopes: self.scopes,
             credential,
-            expires: self.expires,
-            lifetime: self.lifetime,
+            expires: self.expires.map(from_seconds),
+            lifetime: self.lifetime.map(Duration::from_secs),
             refresh_token: None,
             id_token: self.id_token.map(Secret::new),
-            signed_in: self.signed_in,
-            touched: self.touched,
+            signed_in: from_seconds(self.signed_in),
+            touched: from_seconds(self.touched),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use ferrohealth_secret::secret::Secret;
+
+    use super::{Credential, Record, Sealed, SignedIn};
+
+    const START: i64 = 1_800_000_000;
+
+    /// The last millisecond of the second `START`.
+    const LATE: i64 = START * 1000 + 999;
+
+    fn record() -> Record {
+        Record::begin(
+            SignedIn {
+                operator: Some(String::from("Synthetic Operator")),
+                subject: None,
+                scopes: Vec::new(),
+                credential: Credential::Bearer(Secret::new("synthetic-access-token")),
+                expires_in: Some(Duration::from_secs(30)),
+                refresh_token: None,
+                id_token: None,
+            },
+            LATE,
+        )
+    }
+
+    #[test]
+    fn a_sealed_record_keeps_whole_seconds_rounded_toward_a_longer_life() {
+        let sealed = serde_json::to_value(Sealed::from(&record())).expect("serialized");
+        assert_eq!(
+            (Some(START + 1), Some(START + 1), Some(START + 30), Some(30)),
+            (
+                sealed["signed_in"].as_i64(),
+                sealed["touched"].as_i64(),
+                sealed["expires"].as_i64(),
+                sealed["lifetime"].as_u64()
+            ),
+            "the sign-in and activity rounded up, the token's expiry down: {sealed}"
+        );
+    }
+
+    #[test]
+    fn a_record_sealed_in_whole_seconds_reads_back_in_milliseconds() {
+        let earlier = serde_json::json!({
+            "operator": "Synthetic Operator",
+            "subject": null,
+            "scopes": [],
+            "bearer": "synthetic-access-token",
+            "basic": null,
+            "expires": START + 30,
+            "lifetime": 30,
+            "id_token": null,
+            "signed_in": START,
+            "touched": START + 10
+        });
+        let record = serde_json::from_value::<Sealed>(earlier)
+            .expect("the earlier format reads")
+            .record()
+            .expect("a credential");
+        assert_eq!(
+            (
+                START * 1000,
+                (START + 10) * 1000,
+                Some((START + 30) * 1000),
+                Some(Duration::from_secs(30))
+            ),
+            (
+                record.signed_in,
+                record.touched,
+                record.expires,
+                record.lifetime
+            )
+        );
     }
 }

@@ -24,7 +24,7 @@ pub struct Lifetimes {
     pub absolute: Duration,
 }
 
-/// The times a session carries, in whole seconds since the Unix epoch.
+/// The times a session carries, in milliseconds since the Unix epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Times {
     /// When the operator signed in.
@@ -36,16 +36,16 @@ pub(crate) struct Times {
 }
 
 impl Lifetimes {
-    /// What a session with `times` has left at `now`, in whole seconds;
-    /// `None` once either lifetime has passed.
+    /// What a session with `times` has left at `now`, both in milliseconds,
+    /// as whole seconds rounded up; `None` once either lifetime has passed.
     pub(crate) fn left(&self, times: Times, now: i64) -> Option<Left> {
-        let mut absolute_end = times.signed_in.saturating_add(seconds(self.absolute));
+        let mut absolute_end = times.signed_in.saturating_add(millis(self.absolute));
         if let Some(expires) = times.last_token {
             absolute_end = absolute_end.min(expires);
         }
         let idle_end = times
             .touched
-            .saturating_add(seconds(self.idle))
+            .saturating_add(millis(self.idle))
             .min(absolute_end);
         let idle = idle_end.saturating_sub(now);
         (idle > 0).then(|| Left {
@@ -55,61 +55,95 @@ impl Lifetimes {
     }
 }
 
+/// Milliseconds in a second.
+const MILLIS_PER_SECOND: i64 = 1000;
+
 /// `span` in whole seconds, saturating.
 pub(crate) fn seconds(span: Duration) -> i64 {
     i64::try_from(span.as_secs()).unwrap_or(i64::MAX)
 }
 
-/// A count of seconds as the watch's wire carries it, saturating.
+/// `span` in whole milliseconds, saturating.
+pub(crate) fn millis(span: Duration) -> i64 {
+    i64::try_from(span.as_millis()).unwrap_or(i64::MAX)
+}
+
+/// A time in milliseconds as whole seconds, rounded down.
+pub(crate) const fn seconds_down(millis: i64) -> i64 {
+    millis.div_euclid(MILLIS_PER_SECOND)
+}
+
+/// A time in milliseconds as whole seconds, rounded up.
+pub(crate) const fn seconds_up(millis: i64) -> i64 {
+    let whole = millis.div_euclid(MILLIS_PER_SECOND);
+    if millis.rem_euclid(MILLIS_PER_SECOND) == 0 {
+        whole
+    } else {
+        whole.saturating_add(1)
+    }
+}
+
+/// A time in whole seconds as milliseconds, saturating.
+pub(crate) const fn from_seconds(seconds: i64) -> i64 {
+    seconds.saturating_mul(MILLIS_PER_SECOND)
+}
+
+/// A span in milliseconds as the whole seconds the watch's wire carries,
+/// rounded up so a live session never reads as having none left.
 fn whole(span: i64) -> u32 {
-    u32::try_from(span.max(0)).unwrap_or(u32::MAX)
+    u32::try_from(seconds_up(span.max(0))).unwrap_or(u32::MAX)
 }
 
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
-    use super::{Lifetimes, Times};
+    use super::{Lifetimes, Times, seconds_down, seconds_up};
 
     const LIFETIMES: Lifetimes = Lifetimes {
         idle: Duration::from_secs(60),
         absolute: Duration::from_secs(600),
     };
 
+    /// `seconds` in the milliseconds the lifetimes count in.
+    const fn s(seconds: i64) -> i64 {
+        seconds * 1000
+    }
+
     fn times(signed_in: i64, touched: i64) -> Times {
         Times {
-            signed_in,
-            touched,
+            signed_in: s(signed_in),
+            touched: s(touched),
             last_token: None,
         }
     }
 
     #[test]
     fn a_fresh_session_has_both_lifetimes_left() {
-        let left = LIFETIMES.left(times(1000, 1000), 1000).expect("live");
+        let left = LIFETIMES.left(times(1000, 1000), s(1000)).expect("live");
         assert_eq!((60, 600), (left.idle, left.absolute), "nothing has passed");
     }
 
     #[test]
     fn the_idle_lifetime_counts_from_the_last_activity() {
-        let left = LIFETIMES.left(times(1000, 1100), 1130).expect("live");
+        let left = LIFETIMES.left(times(1000, 1100), s(1130)).expect("live");
         assert_eq!((30, 470), (left.idle, left.absolute), "{left:?}");
         assert!(
-            LIFETIMES.left(times(1000, 1100), 1160).is_none(),
+            LIFETIMES.left(times(1000, 1100), s(1160)).is_none(),
             "sixty idle seconds end the session"
         );
     }
 
     #[test]
     fn the_absolute_lifetime_counts_from_the_sign_in_whatever_the_activity() {
-        let left = LIFETIMES.left(times(1000, 1590), 1590).expect("live");
+        let left = LIFETIMES.left(times(1000, 1590), s(1590)).expect("live");
         assert_eq!(
             (10, 10),
             (left.idle, left.absolute),
             "the idle lifetime never runs past the absolute end"
         );
         assert!(
-            LIFETIMES.left(times(1000, 1599), 1600).is_none(),
+            LIFETIMES.left(times(1000, 1599), s(1600)).is_none(),
             "the absolute lifetime ends the session"
         );
     }
@@ -117,12 +151,15 @@ mod tests {
     #[test]
     fn an_access_token_no_refresh_token_replaces_ends_the_session() {
         let bounded = Times {
-            last_token: Some(1040),
+            last_token: Some(s(1040)),
             ..times(1000, 1000)
         };
-        let left = LIFETIMES.left(bounded, 1010).expect("live");
+        let left = LIFETIMES.left(bounded, s(1010)).expect("live");
         assert_eq!((30, 30), (left.idle, left.absolute), "{left:?}");
-        assert!(LIFETIMES.left(bounded, 1040).is_none(), "the token expired");
+        assert!(
+            LIFETIMES.left(bounded, s(1040)).is_none(),
+            "the token expired"
+        );
     }
 
     #[test]
@@ -131,6 +168,24 @@ mod tests {
             idle: Duration::ZERO,
             ..LIFETIMES
         };
-        assert!(none.left(times(1000, 1000), 1000).is_none(), "no window");
+        assert!(none.left(times(1000, 1000), s(1000)).is_none(), "no window");
+    }
+
+    #[test]
+    fn what_is_left_is_rounded_up_to_a_whole_second() {
+        let left = LIFETIMES
+            .left(times(1000, 1000), s(1059) + 1)
+            .expect("live");
+        assert_eq!((1, 541), (left.idle, left.absolute), "{left:?}");
+    }
+
+    #[test]
+    fn a_time_rounds_to_whole_seconds_either_way() {
+        assert_eq!((1000, 1000), (seconds_down(s(1000)), seconds_up(s(1000))));
+        assert_eq!(
+            (1000, 1001),
+            (seconds_down(s(1000) + 1), seconds_up(s(1000) + 1))
+        );
+        assert_eq!((-1, 0), (seconds_down(-1), seconds_up(-1)));
     }
 }

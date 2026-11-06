@@ -129,6 +129,125 @@ fn an_expired_sign_in_is_refused() {
     }
 }
 
+/// Reads the session `cookie` names every 50 s, `reads` times, and answers
+/// the cookie the last read left.
+fn active(sessions: &Sessions, now: &ManualClock, cookie: HeaderValue, reads: u32) -> HeaderValue {
+    let mut cookie = cookie;
+    for _ in 0..reads {
+        now.advance(50);
+        let held = sessions.held(&sent(&cookie)).expect("usable");
+        if let Some(resealed) = held.cookies.first() {
+            cookie = resealed.clone();
+        }
+    }
+    cookie
+}
+
+/// The last millisecond of the second `START`, where a clock counted in
+/// whole seconds lies the furthest behind the time.
+const LATE: i64 = START * 1000 + 999;
+
+/// A sign-in with a 1 s timeout begun at `LATE`, with its cookie.
+fn late_sign_in(kind: StoreKind) -> (Sessions, ManualClock, HeaderValue) {
+    let (sessions, now) = store_of(&SessionSection {
+        sign_in_timeout_s: 1,
+        ..section(kind)
+    });
+    now.set_millis(LATE);
+    let cookie = sessions
+        .begin(PendingSignIn::mint().expect("minted"), None)
+        .expect("begun");
+    (sessions, now, cookie)
+}
+
+/// A session of `signed_in` established at `LATE`, with its cookie.
+fn late_session(kind: StoreKind, signed_in: SignedIn) -> (Sessions, ManualClock, HeaderValue) {
+    let (sessions, now) = store(kind);
+    now.set_millis(LATE);
+    let cookie = sessions
+        .establish(&HeaderMap::new(), signed_in)
+        .expect("room");
+    (sessions, now, cookie)
+}
+
+#[test]
+fn a_sign_in_begun_late_in_a_second_lasts_its_whole_timeout() {
+    for kind in both() {
+        let (sessions, now, cookie) = late_sign_in(kind);
+        now.advance_millis(999);
+        let taken = sessions.take_pending(&sent(&cookie)).expect("usable");
+        assert!(
+            taken.value.is_some(),
+            "{kind:?}: 999 ms into a 1 s sign-in timeout"
+        );
+    }
+}
+
+#[test]
+fn a_sign_in_begun_late_in_a_second_ends_within_a_second_of_its_timeout() {
+    for kind in both() {
+        let (sessions, now, cookie) = late_sign_in(kind);
+        now.advance_millis(2000);
+        let taken = sessions.take_pending(&sent(&cookie)).expect("usable");
+        assert!(taken.value.is_none(), "{kind:?}: 2 s into a 1 s timeout");
+    }
+}
+
+#[test]
+fn an_idle_lifetime_begun_late_in_a_second_lasts_its_whole_length() {
+    for kind in both() {
+        let (sessions, now, cookie) = late_session(kind, signed_in());
+        now.advance_millis(59_999);
+        let left = sessions.left(&sent(&cookie), false).expect("usable").value;
+        assert_eq!(
+            Some(1),
+            left.map(|left| left.idle),
+            "{kind:?}: 59.999 s into a 60 s idle lifetime, rounded up"
+        );
+    }
+}
+
+#[test]
+fn an_idle_lifetime_begun_late_in_a_second_ends_within_a_second_of_its_length() {
+    for kind in both() {
+        let (sessions, now, cookie) = late_session(kind, signed_in());
+        now.advance_millis(61_000);
+        let held = sessions.held(&sent(&cookie)).expect("usable").value;
+        assert!(matches!(held, Held::Ended), "{kind:?}: {held:?}");
+    }
+}
+
+#[test]
+fn an_absolute_lifetime_begun_late_in_a_second_lasts_its_whole_length() {
+    for kind in both() {
+        let (sessions, now, cookie) = late_session(kind, signed_in());
+        let cookie = active(&sessions, &now, cookie, 11);
+        now.advance_millis(49_999);
+        let held = sessions.held(&sent(&cookie)).expect("usable").value;
+        assert!(
+            matches!(held, Held::SignedIn(_)),
+            "{kind:?}: 599.999 s into a 600 s absolute lifetime: {held:?}"
+        );
+    }
+}
+
+#[test]
+fn a_memory_access_token_begun_late_in_a_second_lasts_its_whole_lifetime() {
+    let (sessions, now, cookie) = late_session(
+        StoreKind::Memory,
+        SignedIn {
+            expires_in: Some(Duration::from_secs(30)),
+            ..signed_in()
+        },
+    );
+    now.advance_millis(29_999);
+    let held = sessions.held(&sent(&cookie)).expect("usable").value;
+    assert!(
+        matches!(held, Held::SignedIn(_)),
+        "29.999 s into a 30 s access token: {held:?}"
+    );
+}
+
 #[test]
 fn a_session_carries_the_sign_in_time_and_what_the_sign_in_left() {
     for kind in both() {
@@ -191,16 +310,10 @@ fn the_idle_lifetime_ends_a_session_and_activity_moves_it() {
 fn the_absolute_lifetime_ends_a_session_whatever_the_activity() {
     for kind in both() {
         let (sessions, now) = store(kind);
-        let mut cookie = sessions
+        let cookie = sessions
             .establish(&HeaderMap::new(), signed_in())
             .expect("room");
-        for _ in 0..12 {
-            now.advance(50);
-            let held = sessions.held(&sent(&cookie)).expect("usable");
-            if let Some(resealed) = held.cookies.first() {
-                cookie = resealed.clone();
-            }
-        }
+        let cookie = active(&sessions, &now, cookie, 12);
         let held = sessions.held(&sent(&cookie)).expect("usable").value;
         assert!(
             matches!(held, Held::Ended),

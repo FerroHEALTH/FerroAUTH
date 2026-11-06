@@ -14,6 +14,26 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `clock::ManualClock` moves in milliseconds as well as seconds
+  (`now_millis`, `set_millis`, `advance_millis`), so a console's test
+  reaches either side of a second boundary (#268).
+
+### Fixed
+
+- The sign-in timeout, the idle and the absolute lifetime last at least
+  their configured length. They were counted in whole seconds, so one
+  begun late in a second could end up to a second early. The memory store
+  now counts them in milliseconds of the wall clock. The sealed cookie
+  keeps its format of whole seconds, read by every earlier release, and
+  rounds the sign-in and the last activity up, so its lifetimes last
+  between their length and one second more. `Session::signed_in_at` reads
+  the sign-in time rounded up (#268).
+- A refreshed access token is not due again until it is within
+  `refresh::MARGIN` of its expiry, or past half its lifetime when that is
+  shorter; it could fall due within a second of its refresh (#268).
+
 ## [0.3.0] - 2026-11-06
 
 Releases beside `ferrohealth-smart` 0.9.0, whose `oidc::SignedIn` this
