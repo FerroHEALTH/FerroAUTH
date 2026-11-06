@@ -20,6 +20,7 @@ use ferrohealth_authz::request::Subject;
 use ferrohealth_smart::client::ClientCredentials;
 use ferrohealth_smart::client::Endpoint;
 use ferrohealth_smart::client::cache::TokenSource;
+use ferrohealth_smart::kind::CallerKind;
 use secrecy::SecretString;
 use url::Url;
 use wiremock::Mock;
@@ -92,6 +93,36 @@ async fn ok_permits_and_the_object_carries_the_bound_parameters() {
         Decision::Permit {
             policies: vec![String::from("composition")]
         }
+    );
+}
+
+// NOTE: no specification governs the wire contract: our own design, in which a bound `kind`
+// parameter carries the subject's caller kind ahead of any subject attribute of that name (#262).
+#[tokio::test]
+async fn a_bound_kind_parameter_carries_the_caller_kind() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/pdp/composition"))
+        .and(body_json(
+            serde_json::json!({ "kind": "system", "patient": "p-1" }),
+        ))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let mut settings = settings(&server);
+    for binding in settings.bindings.values_mut() {
+        binding.parameters = vec![String::from("kind"), String::from("patient")];
+    }
+    let pdp = RemotePdp::new(settings, None).expect("a point");
+    let subject = Subject::new("svc-a")
+        .with_attribute("kind", "forged")
+        .with_kind(CallerKind::System);
+    assert!(
+        pdp.decide(&request(&subject, &["p-1"]))
+            .await
+            .expect("decides")
+            .is_permit()
     );
 }
 

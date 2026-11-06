@@ -1876,8 +1876,8 @@ The code came from FerroEHR (`app/ferroehr-rest/src/extensions/access/authz/`),
 generalised so FerroFED and FerroPIX use it too (owner decision 2026-10-25).
 
 - **The request.** `request::Subject` is read from the caller
-  `ferrohealth-smart` admitted: its subject id, roles (3.11), scopes, and the
-  claims a product names as subject attributes. `request::Request` names an
+  `ferrohealth-smart` admitted: its subject id, its caller kind (3.14), roles
+  (3.11), scopes, and the claims a product names as subject attributes. `request::Request` names an
   action, a resource type, resource attributes and context attributes. A
   resource attribute may be a set, when one operation touches several objects;
   the engine decides every combination of one value per set and permits only
@@ -1895,7 +1895,8 @@ generalised so FerroFED and FerroPIX use it too (owner decision 2026-10-25).
   `cedar::Model` (the subject attributes, each resource type with its
   attributes, each action with the resource types it applies to, the context
   attributes), so a policy can name only what the product sends; the principal
-  is `User` with `roles` and `scopes`. Policies are validated strictly at load
+  is `User` with `roles`, `scopes` and the caller `kind` by the name the audit
+  line records, which the model may not redeclare. Policies are validated strictly at load
   and at every reload; a reload that does not validate keeps the set in force.
   Cedar skips a policy that errors during evaluation and reports it in the
   diagnostics; the engine answers such an evaluation with an error, since a

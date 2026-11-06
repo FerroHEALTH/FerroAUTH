@@ -6,8 +6,9 @@
 //!
 //! The schema is written from the model, so the entity types and actions the
 //! policies may name are exactly the ones the product sends: the principal
-//! `User` with its `roles`, its `scopes` and the subject attributes the model
-//! names, one entity type per resource type with its attributes, and one
+//! `User` with its `roles`, its `scopes`, its caller `kind` (the name
+//! `ferrohealth_smart::kind::CallerKind::as_str` gives, absent for a subject
+//! without one) and the subject attributes the model names, one entity type per resource type with its attributes, and one
 //! action per action id with the resource types it applies to and the
 //! context attributes. Every attribute is a `String`; a subject or resource
 //! attribute is optional, so a policy guards it with `has`, and a context
@@ -54,6 +55,10 @@ use crate::request::Request;
 /// The entity type of the principal.
 const PRINCIPAL: &str = "User";
 
+/// The attributes the principal always declares, which no subject attribute
+/// of the model may be.
+const PRINCIPAL_ATTRIBUTES: [&str; 3] = ["roles", "scopes", "kind"];
+
 /// The id every resource entity carries; a policy reads a resource by its
 /// type and attributes (no specification governs the id: our own design).
 const RESOURCE_ID: &str = "resource";
@@ -77,7 +82,7 @@ pub struct Model {
 #[non_exhaustive]
 pub enum ModelError {
     /// A name is not a Cedar identifier, or is a reserved word or one of
-    /// `roles` and `scopes`, which the principal always carries.
+    /// `roles`, `scopes` and `kind`, which the principal always declares.
     #[error("the {what} {name:?} is not a Cedar identifier the schema can declare")]
     Name {
         /// What the name names.
@@ -166,7 +171,7 @@ impl Model {
         }
         for name in &self.subject_attributes {
             identifier("subject attribute", name)?;
-            if name == "roles" || name == "scopes" {
+            if PRINCIPAL_ATTRIBUTES.contains(&name.as_str()) {
                 return Err(ModelError::Name {
                     what: "subject attribute",
                     name: name.clone(),
@@ -217,6 +222,7 @@ impl Model {
         let mut principal = vec![
             String::from("roles: Set<String>"),
             String::from("scopes: Set<String>"),
+            String::from("kind?: String"),
         ];
         principal.extend(
             self.subject_attributes
@@ -523,6 +529,12 @@ fn principal(request: &Request<'_>, model: &Model) -> Result<Entity, AuthzError>
                 .map(|scope| RestrictedExpression::new_string(scope.clone())),
         ),
     );
+    if let Some(kind) = subject.kind() {
+        attributes.insert(
+            String::from("kind"),
+            RestrictedExpression::new_string(kind.as_str().to_owned()),
+        );
+    }
     for (name, value) in subject.attributes() {
         if model.subject_attributes.contains(name) {
             attributes.insert(

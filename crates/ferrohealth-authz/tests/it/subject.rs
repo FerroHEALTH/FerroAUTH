@@ -54,3 +54,68 @@ fn a_subject_is_read_from_a_caller_of_every_kind() {
         );
     }
 }
+
+/// Asserts that the subject of a caller of `kind` carries that kind, which
+/// a policy reads by `name`.
+fn carries(kind: &CallerKind, name: &str) {
+    let subject = Subject::of(&caller(kind.clone()), &[]);
+    assert_eq!(Some(kind), subject.kind(), "{name}");
+    assert_eq!(Some(name), subject.kind().map(CallerKind::as_str), "{name}");
+}
+
+// NOTE: NIST SP 800-162 §2: the subject's attributes include who stands behind the credential,
+// so a policy tells a person from a system caller (#262).
+#[test]
+fn a_person_subject_carries_its_kind() {
+    carries(&CallerKind::Person, "person");
+}
+
+#[test]
+fn a_system_subject_carries_its_kind() {
+    carries(&CallerKind::System, "system");
+}
+
+#[test]
+fn a_patient_subject_carries_its_kind() {
+    carries(&CallerKind::Patient, "patient");
+}
+
+#[test]
+fn a_delegated_subject_carries_its_kind() {
+    carries(&CallerKind::Delegated { actor: None }, "delegated");
+}
+
+#[test]
+fn a_representative_subject_carries_its_kind() {
+    carries(
+        &CallerKind::Representative {
+            represented: String::from("synthetic-represented"),
+            ground: None,
+        },
+        "representative",
+    );
+}
+
+#[test]
+fn a_guest_subject_carries_its_kind() {
+    carries(&CallerKind::Guest(Box::new(CallerKind::Person)), "guest");
+}
+
+#[test]
+fn a_subject_built_by_hand_carries_the_kind_it_is_given() {
+    let subject = Subject::new("synthetic-subject");
+    assert_eq!(None, subject.kind());
+    let subject = subject.with_kind(CallerKind::System);
+    assert_eq!(Some(&CallerKind::System), subject.kind());
+}
+
+#[test]
+fn the_subject_debug_names_the_kind_and_no_represented_subject() {
+    let kind = CallerKind::Representative {
+        represented: String::from("synthetic-represented"),
+        ground: None,
+    };
+    let rendered = format!("{:?}", Subject::of(&caller(kind), &[]));
+    assert!(rendered.contains("representative"), "{rendered}");
+    assert!(!rendered.contains("synthetic-represented"), "{rendered}");
+}

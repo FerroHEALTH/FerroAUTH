@@ -7,7 +7,9 @@
 //! Each resource type is bound to one policy of the remote point. For each
 //! combination the engine posts `{server}{policy}` with a flat JSON object
 //! of the attributes the binding names, read from the combination's resource
-//! attributes and then from the subject's: a `200` permits, any `4xx` denies,
+//! attributes, then for `kind` from the subject's caller kind (the name
+//! `ferrohealth_smart::kind::CallerKind::as_str` gives), and then from the
+//! subject's attributes: a `200` permits, any `4xx` denies,
 //! and the body of the answer is not read, so the point imposes no policy
 //! language. Any other answer, a redirect included, and any failure to reach
 //! the point is no decision: an [`AuthzError::Remote`] carrying the status
@@ -20,6 +22,7 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use ferrohealth_smart::client::cache::TokenSource;
+use ferrohealth_smart::kind::CallerKind;
 use http::StatusCode;
 use url::Url;
 
@@ -200,7 +203,8 @@ impl PolicyEngine for RemotePdp {
 }
 
 /// The posted object: each parameter with a value, from the combination
-/// first and the subject's attributes after.
+/// first, then the subject's caller kind for `kind`, and the subject's
+/// attributes after.
 fn body(
     binding: &Binding,
     request: &Request<'_>,
@@ -213,6 +217,11 @@ fn body(
             combination
                 .get(name.as_str())
                 .copied()
+                .or_else(|| {
+                    (name == "kind")
+                        .then(|| request.subject().kind().map(CallerKind::as_str))
+                        .flatten()
+                })
                 .or_else(|| request.subject().attributes().get(name).map(String::as_str))
                 .map(|value| (name.clone(), serde_json::Value::String(value.to_owned())))
         })

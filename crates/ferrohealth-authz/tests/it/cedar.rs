@@ -16,6 +16,7 @@ use ferrohealth_authz::request::Attr;
 use ferrohealth_authz::request::Decision;
 use ferrohealth_authz::request::Request;
 use ferrohealth_authz::request::Subject;
+use ferrohealth_smart::kind::CallerKind;
 
 /// The model of a synthetic records service.
 fn model() -> Model {
@@ -66,6 +67,24 @@ async fn a_policy_reads_the_subject_roles_scopes_and_attributes() {
     assert!(!permit(engine.decide(&create(&other, None)).await));
     let no_role = Subject::new("dr-b").with_attribute("organization", "Qz7-hospital");
     assert!(!permit(engine.decide(&create(&no_role, None)).await));
+}
+
+// NOTE: NIST SP 800-162 §2: the subject attributes a policy reads include the caller kind, the
+// name `ferrohealth-smart` records for it; a subject without one has no `kind` (#262).
+#[tokio::test]
+async fn a_policy_reads_the_caller_kind() {
+    let engine = engine(
+        r#"permit(principal, action, resource) when {
+            principal has kind && principal.kind == "system"
+        };"#,
+    );
+    let system = Subject::new("svc-a").with_kind(CallerKind::System);
+    assert!(permit(engine.decide(&create(&system, None)).await));
+    let person = Subject::new("dr-a").with_kind(CallerKind::Person);
+    assert!(!permit(engine.decide(&create(&person, None)).await));
+    assert!(!permit(
+        engine.decide(&create(&Subject::new("svc-b"), None)).await
+    ));
 }
 
 #[tokio::test]
@@ -196,6 +215,7 @@ fn a_model_with_a_bad_name_is_refused() {
     assert_eq!(Model::new().validate(), Err(ModelError::Empty));
     for (model, what) in [
         (model().subject_attribute("roles"), "subject attribute"),
+        (model().subject_attribute("kind"), "subject attribute"),
         (model().resource("in", ["x"]), "resource type"),
         (
             model().resource("Thing", ["two words"]),
