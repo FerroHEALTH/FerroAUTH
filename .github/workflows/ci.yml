@@ -4,7 +4,7 @@
 # CI in two tiers (no specification governs this: our own design).
 #
 #   1. The workflow, shell and guard tier needs no Rust and runs on every
-#      change.
+#      change, the duplication ratchet among it.
 #   2. The Rust tier runs when the workspace exists (the `detect` job looks
 #      for the root Cargo.toml after checkout, which hashFiles() at `if:` time
 #      cannot): fmt, clippy with and without the `axum` feature, nextest and
@@ -160,6 +160,24 @@ jobs:
         with:
           persist-credentials: false
       - run: bash scripts/checks/comment-style.sh --all
+
+  # The duplication ratchet (#265): the duplicated lines of the hand-written
+  # Rust may fall and never rise. jscpd runs from its pinned image; a fall
+  # passes with a note, and ratchet-tighten.yml records it.
+  duplication:
+    name: duplication
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Duplication ratchet self-test
+        run: bash scripts/checks/duplication.sh --self-test
+      - name: The duplicated lines have not risen
+        run: bash scripts/checks/duplication.sh
 
   # Every TODO(#N) names an open issue.
   todo-issues:
@@ -475,6 +493,7 @@ jobs:
       - changelog
       - conflict-markers
       - comment-style
+      - duplication
       - todo-issues
       - detect
       - fmt
