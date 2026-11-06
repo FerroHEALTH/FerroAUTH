@@ -11,7 +11,12 @@
 #   2. a subsection header outside the canonical type set
 #      (Added / Changed / Deprecated / Removed / Fixed / Security), plus any
 #      type a product adds deliberately in CHANGELOG_EXTRA_TYPES (comma-separated,
-#      empty by default; e.g. "Upgrade notes").
+#      empty by default; e.g. "Upgrade notes");
+#   3. a blank line between two entries of one list (#265) in a section not
+#      yet released, [Unreleased] or a pending `- Unreleased` one: Markdown
+#      ends the list at the blank line and renders the rest as a second list.
+#      A released section is the record its release notes were cut from, and
+#      stays as it was cut.
 #
 #   scripts/checks/changelog-structure.sh             every crates/*/CHANGELOG.md
 #   scripts/checks/changelog-structure.sh <file>...   each file named
@@ -46,11 +51,24 @@ check_file() {
         if (extras[i] != "") { extra_type[extras[i]] = 1; allowed = allowed ", " extras[i] }
       }
     }
+    # An entry opens a list; a blank line after an entry or its continuation
+    # is a gap, and an entry after a gap splits the list. Any other line ends it.
+    /^- / {
+      if (gap && pending) {
+        errors[++n] = path ":" FNR ": a blank line splits the list above it" \
+          (section != "" ? " in [" section "]" : "") ": remove it"
+      }
+      in_list = 1; gap = 0
+    }
+    /^[[:space:]]*$/ { if (in_list) gap = 1; next }
+    !/^- / && !/^[[:space:]]+[^[:space:]]/ { in_list = 0; gap = 0 }
+    /^[[:space:]]+[^[:space:]]/ { gap = 0 }
     # A release heading opens a new section and resets what has been seen in it.
     /^## \[/ {
       section = $0
       sub(/^## \[/, "", section)
       sub(/\].*$/, "", section)
+      pending = (section == "Unreleased" || $0 ~ / - Unreleased[[:space:]]*$/)
       delete seen
       next
     }
@@ -132,7 +150,15 @@ self_test() {
   check_workspace "$work/clean" >/dev/null 2>"$work/err" && fail "a workspace with one bad changelog passed"
   grep -q 'crates/two/CHANGELOG.md:7' "$work/err" || fail "the workspace run did not name the bad crate"
   check_workspace "$work/empty" >/dev/null 2>&1 && fail "a workspace with no changelog passed"
-  echo "changelog-structure: self-test OK (a clean changelog and workspace passed; a duplicated type, a stray type, a bad crate and a workspace with no changelog refused by file and line)."
+  printf '## [Unreleased]\n\n### Changed\n\n- a\n  continued\n\n- b\n\n### Fixed\n\n- c\n\n## [0.2.0] - Unreleased\n\n### Added\n\n- d\n\n- e\n\n## [0.1.0] - 2026-01-01\n\n### Added\n\n- f\n\n- g\n' >"$work/split.md"
+  check_files "$work/split.md" >/dev/null 2>"$work/err" && fail "a list split by a blank line passed"
+  grep -q 'split.md:8: a blank line splits the list above it in \[Unreleased\]' "$work/err" ||
+    fail "the split was not named by file and line: $(cat "$work/err")"
+  grep -q 'split.md:20: a blank line splits the list above it in \[0.2.0\]' "$work/err" ||
+    fail "the split of a pending section was not named: $(cat "$work/err")"
+  [[ "$(grep -c 'splits the list' "$work/err")" -eq 2 ]] ||
+    fail "a released section was held to the list rule: $(cat "$work/err")"
+  echo "changelog-structure: self-test OK (a clean changelog and workspace passed; a duplicated type, a stray type, a bad crate, a workspace with no changelog and a list split by a blank line refused by file and line)."
 }
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

@@ -13,6 +13,7 @@ Closes #NNN
 - [ ] Rust gates pass: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` with and without `--all-features`, `cargo nextest run --workspace --locked` with and without `--all-features`, `cargo doc` with `RUSTDOCFLAGS=-D warnings`, and `cargo deny check`.
 - [ ] Every refusal the change adds has an asserted negative test, and no test was weakened to pass.
 - [ ] Shell and workflow files are clean: `shellcheck --severity=style`, `actionlint`, `zizmor --min-severity=low .github/`.
+- [ ] The duplication ratchet holds: `scripts/checks/duplication.sh` (a rise is moved to one owner, never recorded by hand without a reason).
 - [ ] The changed crate's `crates/<crate>/CHANGELOG.md` has an entry under `[Unreleased]`, or under its pending `[X.Y.Z] - Unreleased` section when one stands, if a product sees the change.
 - [ ] No key, token, password, secret or patient data in a fixture, test or example; every key a test uses is generated when it runs.
 - [ ] Every commit is signed.

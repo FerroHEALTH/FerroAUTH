@@ -22,7 +22,8 @@
 #                            docs/VERSIONS.md, which CI installs
 #
 # The installed cargo-semver-checks must be the pinned version. Exit 1 when
-# a crate breaks its API without the bump, 2 on a usage or setup error.
+# a crate breaks its API without the bump, 2 on a usage or setup error or
+# while another run builds the baselines in target/semver/.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 
@@ -55,6 +56,27 @@ else
   for crate in "$@"; do args+=(--package "$crate"); done
 fi
 cd "$root"
+
+# The baselines build in a target directory of their own (#265), so no other
+# cargo run of this checkout reads or writes them while they build, and one
+# run at a time holds it: a second run is told so, never left to fail inside
+# a half-built baseline (no specification governs this: our own design).
+export CARGO_TARGET_DIR="$root/target/semver"
+mkdir -p "$CARGO_TARGET_DIR"
+lock="$CARGO_TARGET_DIR/.lock"
+if ! mkdir "$lock" 2>/dev/null; then
+  holder="$(cat "$lock/pid" 2>/dev/null || true)"
+  if [[ "$holder" =~ ^[0-9]+$ ]] && kill -0 "$holder" 2>/dev/null; then
+    echo "semver: another run (pid $holder) is building the baselines in $CARGO_TARGET_DIR; run again when it ends" >&2
+    exit 2
+  fi
+  echo "semver: taking over $lock, left by a run that is gone" >&2
+  rm -rf "$lock"
+  mkdir "$lock"
+fi
+echo "$$" >"$lock/pid"
+trap 'rm -rf "$lock"' EXIT
+
 # The higher exit code of the two passes wins, so a setup error stays 2.
 status=0
 echo "semver: pass 1 of 2, the default feature selection" >&2
