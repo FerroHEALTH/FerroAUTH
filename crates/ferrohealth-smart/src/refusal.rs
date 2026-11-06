@@ -17,6 +17,8 @@
 
 use http::StatusCode;
 
+use crate::federation::contact::EhdsiCode;
+use crate::kind::Unclassified;
 use crate::resource::Caller;
 use crate::resource::Rejection;
 
@@ -395,20 +397,27 @@ impl std::fmt::Display for Reason {
 ///
 /// The product answers [`Denied::refusal`], whose status and challenge are
 /// the library's, and logs [`Denied::reason`]; the reason never reaches
-/// the wire.
+/// the wire. A contact point also answers [`Denied::ehdsi`], the
+/// MyHealth@EU Requirements Catalogue 10.0.0 §1.25 code of the refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Denied {
     /// What the request is answered with.
     refusal: Refusal,
     /// Which check refused it, when one did.
     reason: Option<Reason>,
+    /// The §1.25 code the contact-point check refused the token with.
+    ehdsi: Option<EhdsiCode>,
 }
 
 impl Denied {
     /// Returns the denial answered with `refusal`, refused by `reason`.
     #[must_use]
     pub const fn new(refusal: Refusal, reason: Option<Reason>) -> Self {
-        Self { refusal, reason }
+        Self {
+            refusal,
+            reason,
+            ehdsi: None,
+        }
     }
 
     /// Returns what the request is answered with.
@@ -422,6 +431,26 @@ impl Denied {
     #[must_use]
     pub const fn reason(&self) -> Option<Reason> {
         self.reason
+    }
+
+    /// Returns the MyHealth@EU Requirements Catalogue 10.0.0 §1.25 code
+    /// the contact-point check of [`crate::federation::contact`] refused the
+    /// token with, by its code name ([`EhdsiCode::as_str`]) and requirement
+    /// id ([`EhdsiCode::requirement`]).
+    ///
+    /// `None` for every other refusal, which a contact point answers with
+    /// `ERROR_SEC_GENERIC` ([`EhdsiCode::of`]).
+    #[must_use]
+    pub const fn ehdsi(&self) -> Option<EhdsiCode> {
+        self.ehdsi
+    }
+
+    /// Returns this denial answered with `refusal` instead, keeping the
+    /// reason and the §1.25 code.
+    #[cfg(feature = "axum")]
+    #[must_use]
+    pub(crate) fn answered_with(self, refusal: Refusal) -> Self {
+        Self { refusal, ..self }
     }
 
     /// Returns the refusal, dropping the reason.
@@ -452,7 +481,16 @@ impl From<&Rejection> for Denied {
             Rejection::Unavailable { .. } => Some(Reason::KeySetUnavailable),
             Rejection::Upstream { .. } => Some(Reason::UpstreamUnavailable),
         };
-        Self::new(Refusal::from(rejection), reason)
+        let ehdsi = match rejection {
+            Rejection::Unclassified {
+                reason: Unclassified::ContactPoint { code, .. },
+            } => Some(*code),
+            _ => None,
+        };
+        Self {
+            ehdsi,
+            ..Self::new(Refusal::from(rejection), reason)
+        }
     }
 }
 
@@ -490,6 +528,8 @@ fn quote(realm: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{Denied, Reason, Refusal, Schemes, StepUp};
+    use crate::federation::contact::EhdsiCode;
+    use crate::kind::Unclassified;
     use crate::resource::{Caller, Rejection};
     use http::StatusCode;
 
@@ -511,6 +551,38 @@ mod tests {
             Refusal::InvalidToken,
             Refusal::from(Denied::new(Refusal::InvalidToken, None))
         );
+    }
+
+    #[test]
+    fn a_contact_point_denial_carries_its_code_and_others_none() {
+        let rejection = Rejection::Unclassified {
+            reason: Unclassified::ContactPoint {
+                code: EhdsiCode::SecDataIntegrityNotEnsured,
+                missing: vec!["exp"],
+            },
+        };
+        let denied = Denied::from(&rejection);
+        assert_eq!(Some(EhdsiCode::SecDataIntegrityNotEnsured), denied.ehdsi());
+        assert_eq!(Some(Reason::Unclassified), denied.reason());
+        #[cfg(feature = "axum")]
+        {
+            let dpop = denied.answered_with(Refusal::InvalidDpopToken);
+            assert_eq!(&Refusal::InvalidDpopToken, dpop.refusal());
+            assert_eq!(
+                Some(EhdsiCode::SecDataIntegrityNotEnsured),
+                dpop.ehdsi(),
+                "the DPoP challenge keeps the code"
+            );
+        }
+        assert_eq!(
+            "11.01.02",
+            EhdsiCode::SecDataIntegrityNotEnsured.requirement()
+        );
+        let invalid = Denied::from(&Rejection::Invalid {
+            reason: Reason::Expired,
+        });
+        assert_eq!(None, invalid.ehdsi());
+        assert_eq!(None, Denied::from(Refusal::Forbidden).ehdsi());
     }
 
     #[test]

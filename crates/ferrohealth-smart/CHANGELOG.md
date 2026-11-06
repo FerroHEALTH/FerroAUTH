@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `refusal::Denied::ehdsi` returns the MyHealth@EU Requirements Catalogue
+  10.0.0 §1.25 code the contact-point check refused a token with, so a
+  product that answers a national contact point through the gate reads the
+  code from the refusal (#281). `federation::contact::EhdsiCode::requirement`
+  names the catalogue requirement each code answers. The code stays off the
+  challenge, and a refusal before the contact-point check carries none.
+
 ## [0.9.1] - 2026-11-06
 
 ### Added
