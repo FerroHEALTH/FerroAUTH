@@ -109,6 +109,16 @@ pub enum StoreError {
         /// The role.
         role: String,
     },
+    /// Roles are granted to a user the store does not admit.
+    #[error("roles are granted to the user {username:?}, whom the store does not admit")]
+    UnknownUser {
+        /// The user.
+        username: String,
+    },
+    /// The key of the verified-credential cache could not be drawn from
+    /// the system's random source.
+    #[error("the key of the verified-credential cache could not be drawn")]
+    CacheKey,
     /// `username` is granted a `system/` scope, a backend service's grant
     /// (SMART App Launch 2.2.0, Scopes and Launch Context): a Basic
     /// credential is a person's, and a machine authenticates with the client
@@ -122,16 +132,6 @@ pub enum StoreError {
         /// The `system/` scope token.
         scope: String,
     },
-    /// Roles are granted to a user the store does not admit.
-    #[error("roles are granted to the user {username:?}, whom the store does not admit")]
-    UnknownUser {
-        /// The user.
-        username: String,
-    },
-    /// The key of the verified-credential cache could not be drawn from
-    /// the system's random source.
-    #[error("the key of the verified-credential cache could not be drawn")]
-    CacheKey,
 }
 
 /// A credential that does not hold.

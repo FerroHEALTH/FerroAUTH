@@ -53,7 +53,8 @@ ferrohealth-smart = { version = "=0.9.0", features = ["axum", "openehr"] }
   `ExternalPerson` or `ExternalOrganisation`, the last two only on a
   federation issuer, and a token that matches no step is refused as
   `Rejection::Unclassified`. A Basic credential is a person's, never a
-  system's.
+  system's, and carries no `system/` scope: a Basic user granted one fails
+  to load.
 - **`party`**: the party a person's login belongs to. One `[[auth.party]]`
   table per `persons` issuer names the identifiers its logins are matched
   against; the product implements `PartySource` over its own store, and
