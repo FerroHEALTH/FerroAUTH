@@ -20,7 +20,12 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
   (`scripts/checks/caller-kinds.sh`, the kinds the docs list against
   `CallerKind::as_str`), the `TODO(#N)` guard, the conflict-marker guard,
   which the `conflict_markers_guard.sh` hook also runs on every commit's
-  staged files) and the Rust tier (`cargo fmt --all --check`; `cargo clippy
+  staged files, the duplication ratchet
+  (`scripts/checks/duplication.sh`: jscpd from its pinned image over the
+  hand-written Rust, the duplicated lines held to
+  `scripts/checks/duplication.count`, a rise failing and naming both places
+  of each new block, a fall passing with a note)) and the Rust tier
+  (`cargo fmt --all --check`; `cargo clippy
   --workspace --all-targets --locked -- -D warnings` with and without
   `--all-features`; `cargo nextest run --workspace --locked` with and without
   `--all-features`, plus `cargo test --doc`; `cargo doc` with
@@ -31,6 +36,11 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
   profiles or the resource server, and on every push to `main`, which saves
   the build cache the pull request runs restore). The `conclusion` job is the
   single required status check on `main`.
+- `.github/workflows/ratchet-tighten.yml`: once a day on `main`, runs
+  `scripts/checks/duplication.sh --update` and, when the count fell, pushes
+  `chore/ratchet-tighten` with only the ratchet files, committed through the
+  Git Data API so GitHub signs it; a maintainer opens its pull request. A
+  pull request that lowers the count never touches the files itself.
 - `.github/workflows/specs.yml`: the vendored-specification guard,
   `scripts/checks/versions.sh`, offline, on the same events.
 - `.github/workflows/codeql.yml`: CodeQL over the `actions` language and Rust.
