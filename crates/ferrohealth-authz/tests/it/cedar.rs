@@ -5,6 +5,7 @@
 //! deny by default, a forbid over a permit, the fan-out, and an erroring
 //! policy that decides nothing.
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use ferrohealth_authz::cedar::CedarEngine;
@@ -16,6 +17,9 @@ use ferrohealth_authz::request::Attr;
 use ferrohealth_authz::request::Decision;
 use ferrohealth_authz::request::Request;
 use ferrohealth_authz::request::Subject;
+use ferrohealth_smart::federation::Attribute;
+use ferrohealth_smart::federation::External;
+use ferrohealth_smart::federation::Field;
 use ferrohealth_smart::kind::CallerKind;
 
 /// The model of a synthetic records service.
@@ -85,6 +89,31 @@ async fn a_policy_reads_the_caller_kind() {
     assert!(!permit(
         engine.decide(&create(&Subject::new("svc-b"), None)).await
     ));
+}
+
+// NOTE: NIST SP 800-162 §2: a policy tells another party's professional from its organisation by
+// the caller kind (#272).
+#[tokio::test]
+async fn a_policy_tells_the_two_external_kinds_apart() {
+    let engine = engine(
+        r#"permit(principal, action, resource) when {
+            principal has kind && principal.kind == "external_person"
+        };"#,
+    );
+    let external = || {
+        Box::new(External::new(
+            "synthetic-remote-subject",
+            BTreeMap::from([(
+                Field::ProfessionalName,
+                Attribute::Text(String::from("Synthetic Professional")),
+            )]),
+        ))
+    };
+    let person = Subject::new("remote-a").with_kind(CallerKind::ExternalPerson(external()));
+    assert!(permit(engine.decide(&create(&person, None)).await));
+    let organisation =
+        Subject::new("remote-b").with_kind(CallerKind::ExternalOrganisation(external()));
+    assert!(!permit(engine.decide(&create(&organisation, None)).await));
 }
 
 #[tokio::test]

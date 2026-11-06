@@ -29,6 +29,8 @@ mod classify;
 mod client;
 mod config;
 mod contact_point;
+#[cfg(feature = "test-support")]
+mod external;
 mod federation;
 #[cfg(all(feature = "axum", feature = "fetch"))]
 mod guard;

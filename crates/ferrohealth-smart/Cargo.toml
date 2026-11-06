@@ -46,6 +46,10 @@ openehr = ["openehr-scopes"]
 # Microsoft Graph (`idp::entra`), named by a profile as `adapter = "idp-entra"`.
 # A profile naming it fails to load in a build without this feature.
 idp-entra = ["fetch", "tokio/time"]
+# Constructors a downstream crate's tests build values with that only a
+# token would otherwise carry, such as `federation::External::new` for the
+# two external caller kinds. A product never enables it outside its tests.
+test-support = []
 
 # Everything but the grammar is the resource server, which a browser never
 # runs, so it is compiled for every target but the browser's.

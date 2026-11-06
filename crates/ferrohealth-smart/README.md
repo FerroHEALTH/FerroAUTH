@@ -73,6 +73,9 @@ ferrohealth-smart = { version = "=0.9.0", features = ["axum", "openehr"] }
   timeout (2 s by default); nothing is cached, so every request of a user
   above the overage limit costs one Graph round trip and draws on the
   application's Graph throttling allowance.
+- **Feature `test-support`**, for a downstream crate's tests only:
+  `federation::External::new` builds the party the two external caller
+  kinds carry, which otherwise only a `federation` token yields.
 - **The person's own access**: `Caller::is_the_person`, a `Patient` caller
   of a `patients` issuer, with `Caller::person` naming the patient the request is bound to and a
   deployment's patient claim attached as a `resource::PatientClaim`.
