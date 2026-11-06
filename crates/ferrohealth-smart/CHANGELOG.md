@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The `test-support` feature, for a downstream crate's tests only:
+  `federation::External::new` builds the party that
+  `CallerKind::ExternalPerson` and `ExternalOrganisation` carry, so a
+  policy over the two external kinds can be tested without a `federation`
+  token (#272). It runs none of the classification's checks, and a product
+  never enables it outside its tests.
+
 ## [0.9.0] - 2026-11-06
 
 The caller classification (#215) and the party binding (#216). This

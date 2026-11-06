@@ -688,6 +688,22 @@ impl fmt::Debug for External {
 }
 
 impl External {
+    /// Returns the external party asserting `fields` for the remote subject
+    /// `remote_subject`, for a test of a downstream crate (feature
+    /// `test-support`).
+    ///
+    /// The fields are taken as given: none of the checks a `federation`
+    /// token's classification applies runs here, so a product never builds
+    /// the value it admits a caller under this way.
+    #[cfg(feature = "test-support")]
+    #[must_use]
+    pub fn new(remote_subject: impl Into<String>, fields: BTreeMap<Field, Attribute>) -> Self {
+        Self {
+            remote_subject: remote_subject.into(),
+            fields,
+        }
+    }
+
     /// Returns the token's `sub`, which names a user in the issuer's
     /// namespace and is never matched against a local party.
     #[must_use]

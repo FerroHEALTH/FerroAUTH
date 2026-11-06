@@ -4,7 +4,12 @@
 //! The subject read from a `ferrohealth-smart` 0.9.0 caller of every kind
 //! its classification gives.
 
+use std::collections::BTreeMap;
+
 use ferrohealth_authz::request::Subject;
+use ferrohealth_smart::federation::Attribute;
+use ferrohealth_smart::federation::External;
+use ferrohealth_smart::federation::Field;
 use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::resource::Caller;
 use serde_json::json;
@@ -118,4 +123,32 @@ fn the_subject_debug_names_the_kind_and_no_represented_subject() {
     let rendered = format!("{:?}", Subject::of(&caller(kind), &[]));
     assert!(rendered.contains("representative"), "{rendered}");
     assert!(!rendered.contains("synthetic-represented"), "{rendered}");
+}
+
+/// Returns an external party asserted by a `federation` token, built for
+/// the test.
+fn external() -> External {
+    External::new(
+        "synthetic-remote-subject",
+        BTreeMap::from([(
+            Field::ProfessionalName,
+            Attribute::Text(String::from("Synthetic Professional")),
+        )]),
+    )
+}
+
+#[test]
+fn an_external_person_subject_carries_its_kind() {
+    carries(
+        &CallerKind::ExternalPerson(Box::new(external())),
+        "external_person",
+    );
+}
+
+#[test]
+fn an_external_organisation_subject_carries_its_kind() {
+    carries(
+        &CallerKind::ExternalOrganisation(Box::new(external())),
+        "external_organisation",
+    );
 }

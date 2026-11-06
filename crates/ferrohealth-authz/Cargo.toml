@@ -45,6 +45,8 @@ tracing = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 
 [dev-dependencies]
+# The constructors the tests build the two external caller kinds with.
+ferrohealth-smart = { workspace = true, default-features = false, features = ["test-support"] }
 secrecy.workspace = true
 serde_json.workspace = true
 url.workspace = true
