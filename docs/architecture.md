@@ -409,9 +409,13 @@ the scope, and `Caller::basic` drops any it is handed (#274).
 
 ### 3.5 Machine authentication
 
-Machine-to-machine traffic has exactly two forms: HTTP Basic and the OAuth
-2.0 client credentials grant. No static bearer token and no API key exists
-in the family (owner decision 2026-10-19).
+Machine-to-machine traffic has one form of its own, the OAuth 2.0 client
+credentials grant, beside the onward grants a product uses on a caller's
+behalf (3.16) and the tokens a `federation` issuer asserts (3.14). No
+static bearer token and no API key exists in the family (owner decision
+2026-10-19). HTTP Basic, verified and sent below, is a person's credential:
+a Basic caller is classified `Person` (3.14), and a Basic user carries no
+`system/` scope (3.4, #274; owner ruling 2026-11-05).
 
 **Basic, verifying.** The credential is `Basic` followed by the base64 of
 `user-id:password` (`rfc7617 §2`). The user-id "MUST NOT contain any control
@@ -1779,7 +1783,7 @@ four agree on and settles each difference:
 |---|---|---|
 | `ferrohealth-smart` is a library, a resource server and a credential client, never an authorization server | owner decision 2026-10-19 | the repository's `README.md` still describes a SMART on openEHR server that issues tokens and launch context; it needs the new statement |
 | The crate is licensed BUSL-1.1 | It is hand-written code that implements the specifications above, which is the family's rule for its own code; only generator-emitted code (`fhir-types`, `hl7v2-types` in FerroBRIDGE) is published under Apache-2.0, because it is emitted from CC0 inputs and three servers depend on it. `ferrohealth-smart` emits nothing and is consumed by the family's own products (owner decision 2026-10-19). `docs/VERSIONS.md` records the licence row and `scripts/checks/versions.sh` fails on any other claim. | none |
-| Machine-to-machine traffic is HTTP Basic or the client credentials grant, nothing else | owner decision 2026-10-19 | none |
+| Machine-to-machine traffic is the client credentials grant, beside the onward grants and federation tokens; HTTP Basic is a person's credential and carries no `system/` scope; no static bearer token and no API key | owner decision 2026-10-19; owner ruling 2026-11-05 on Basic (#215, #274) | none |
 | The `private_key_jwt` key is a client credential, held under `[<lane>.credentials.oauth]`, and is the one private key the library can hold; "never holds a signing key" means never a key that signs an access token, and this key signs only the product's own client assertion (owner decision 2026-10-19) | `rfc7523 §2.2`; the assertion authenticates the client to the token endpoint and no resource server accepts it as an access token (`rfc9068 §4`, the `typ` and `aud` checks) | none |
 | Asymmetric algorithms only; HMAC and `none` refused; FerroEHR's `hmac_secret` source removed | `rfc8725 §3.1`, `§3.2`; `rfc9068 §2.1`, `§4` | a FerroEHR deployment on an HMAC secret must move its authorization server to published keys before the FerroEHR migration |
 | `audience` is required, as a list | `rfc9068 §4`; `rfc8725 §3.9` | a FerroTERM deployment that set no audience must set one |

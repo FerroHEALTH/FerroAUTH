@@ -56,12 +56,13 @@ assertion to the token endpoint (RFC 7523 §2.2), never an access token.
   through a product evaluator. A product's route table declares which
   grammar each route is checked against (`Requirement::OpenEhr` or
   `Requirement::Fhir`), with a `403` that names no scope;
-- authenticate machine-to-machine callers and calls in exactly two modes
-  (`basic`, `client`): HTTP Basic (verified against Argon2id hashes, sent
-  outgoing) and the OAuth 2.0 client credentials grant (a token client with
-  fetch, cache and one renewal on a `401`, authenticating with a secret or a
-  `private_key_jwt` assertion). Static or shared bearer tokens and API keys
-  are not supported (owner decision 2026-10-19);
+- authenticate machine-to-machine calls with the OAuth 2.0 client
+  credentials grant (`client`: a token client with fetch, cache and one
+  renewal on a `401`, authenticating with a secret or a `private_key_jwt`
+  assertion), and a person's HTTP Basic credential (`basic`: verified
+  against Argon2id hashes, sent outgoing), which carries no `system/`
+  scope. Static or shared bearer tokens and API keys are not supported
+  (owner decision 2026-10-19);
 - obtain a token for another service on a caller's behalf (`client::onward`)
   by RFC 8693 token exchange or the RFC 7523 JWT bearer grant, as the
   issuer's profile names, refusing an issued token that fails the onward
