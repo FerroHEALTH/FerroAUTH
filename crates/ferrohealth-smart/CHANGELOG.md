@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-11-07
+
 ### Added
 
 - The MyHealth@EU contact-point profile reads the format of the HP
@@ -1191,7 +1193,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.3...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.4...HEAD
+[0.9.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.3...ferrohealth-smart-v0.9.4
 [0.9.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.2...ferrohealth-smart-v0.9.3
 [0.9.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.1...ferrohealth-smart-v0.9.2
 [0.9.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.0...ferrohealth-smart-v0.9.1
