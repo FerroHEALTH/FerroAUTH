@@ -294,8 +294,10 @@ impl Onward {
     /// [`OnwardError::NoAudience`], [`OnwardError::OfflineAccess`],
     /// [`OnwardError::ActorToken`], [`OnwardError::Indicator`],
     /// [`OnwardError::NoScope`], [`OnwardError::Resource`],
-    /// [`OnwardError::SubjectAudience`], and [`Rejected::NotMapped`] for a
-    /// subject a `federation` issuer is not trusted to map. After:
+    /// [`OnwardError::SubjectAudience`], [`Rejected::NotMapped`] for a
+    /// subject a `federation` issuer is not trusted to map, and
+    /// [`OnwardError::NoCorrelation`] for a subject without the correlation
+    /// claim a chained route names. After:
     /// [`OnwardError::Token`] with the upstream status for a refused or
     /// unreadable answer, [`OnwardError::InteractionRequired`],
     /// [`OnwardError::RefreshToken`], [`OnwardError::IssuedTokenType`], and
@@ -438,6 +440,13 @@ impl Onward {
                 .any(|listed| listed == subject.issuer())
         {
             return Err(Rejected::NotMapped.into());
+        }
+        // NOTE: no specification governs this: our own design; a chained route never
+        // sends a subject whose token lacks the correlation claim the issued one keeps.
+        if let Some(claim) = target.correlation_claim()
+            && crate::roles::lookup(subject.claims(), claim).is_none_or(Value::is_null)
+        {
+            return Err(OnwardError::NoCorrelation);
         }
         Ok(())
     }

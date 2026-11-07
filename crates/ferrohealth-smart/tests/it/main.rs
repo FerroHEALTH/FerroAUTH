@@ -30,6 +30,7 @@ mod client;
 mod config;
 mod consent;
 mod contact_point;
+mod correlation;
 #[cfg(feature = "test-support")]
 mod external;
 mod federation;

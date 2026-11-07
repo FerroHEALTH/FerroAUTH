@@ -25,6 +25,23 @@ and this project adheres to
   subject's reference, read under that issuer's own table, and refuses one
   that drops or changes it as `Rejected::Consent`. `CallerKind::external`
   returns what the token asserts for either external kind.
+- A `federation` issuer's table maps the field `correlation_id`, the log
+  correlation id of a chained organisation request, and
+  `Caller::correlation_id` returns it as a `federation::CorrelationId` for
+  an external person or organisation whose token carries it, read only from
+  a claim of the verified token or an attested `authorization_details`
+  member and never from a header (#287). A coded value refuses the token as
+  `Unclassified::Attribute`. The onward check holds the token a
+  `federation` issuer issues to the subject's id, read under that issuer's
+  own table, and refuses one that drops or changes it as
+  `Rejected::Correlation`.
+
+### Changed
+
+- A chained route (`Target::with_correlation_claim`) refuses a subject
+  token without its correlation claim before anything is sent, as
+  `OnwardError::NoCorrelation`, where the issued token was refused as
+  `Rejected::Correlation` after the exchange (#287).
 
 ## [0.9.2] - 2026-11-06
 
