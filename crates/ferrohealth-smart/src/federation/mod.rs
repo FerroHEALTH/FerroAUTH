@@ -152,6 +152,10 @@ pub enum Field {
     /// requester sets and each hop carries on. Text only.
     #[serde(rename = "correlation_id")]
     CorrelationId,
+    /// The format of the identity assertion's `NameID`, one of the three
+    /// eHDSI SAML Profile 10.0.0 §2.1 allows. Text only.
+    #[serde(rename = "assertion.name_id_format")]
+    AssertionNameIdFormat,
 }
 
 impl Field {
@@ -199,6 +203,7 @@ impl Field {
             Self::PatientPidIssuerCountry => "patient.pid_issuer_country",
             Self::ConsentReference => "consent.reference",
             Self::CorrelationId => "correlation_id",
+            Self::AssertionNameIdFormat => "assertion.name_id_format",
         }
     }
 
@@ -226,7 +231,10 @@ impl Field {
 
     /// Returns whether the field takes one string, never coded values.
     pub(crate) const fn text_only(self) -> bool {
-        matches!(self, Self::ConsentReference | Self::CorrelationId)
+        matches!(
+            self,
+            Self::ConsentReference | Self::CorrelationId | Self::AssertionNameIdFormat
+        )
     }
 
     /// Returns the longest value the field takes, in characters (no
@@ -379,8 +387,10 @@ impl Mapping {
 
 /// The fields a contact point's token carries under `ehdsi`: what NCPeH-A's
 /// authorization server read from the identity assertion (eHDSI SAML Profile
-/// 10.0.0 §2.1, §2.3) and the treatment relationship confirmation.
-const EHDSI_FIELDS: [Field; 23] = [
+/// 10.0.0 §2.1, §2.3) and the treatment relationship confirmation. The
+/// assertion's `NameID` is `professional.hp_identifier`, and its format
+/// `assertion.name_id_format`.
+const EHDSI_FIELDS: [Field; 24] = [
     Field::ProfessionalHpIdentifier,
     Field::ProfessionalName,
     Field::ProfessionalHpProfessionalRole,
@@ -397,6 +407,7 @@ const EHDSI_FIELDS: [Field; 23] = [
     Field::PurposeOfUse,
     Field::AssertionIssuer,
     Field::AssertionId,
+    Field::AssertionNameIdFormat,
     Field::AssertionNotBefore,
     Field::AssertionNotOnOrAfter,
     Field::TrcId,

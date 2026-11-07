@@ -1061,10 +1061,12 @@ The mandatory attributes are eHDSI SAML Profile 10.0.0 §2.3's, with the
 Catalogue 10.0.0 §1.25 code name (`contact::EhdsiCode`, `Unclassified::ContactPoint`):
 
 - no professional: `ERROR_HPI_NO_INFORMATION`;
-- a missing NameID, name or role, `on_behalf_of` missing for role 44, or a
-  purpose of use other than `TREATMENT` or `EMERGENCY`:
-  `ERROR_HPI_INSUFFICIENT_INFORMATION`, with the missing fields (the purpose
-  is our own design, as §1.25 has no code for it);
+- a missing NameID or NameID format, a format outside the three of §2.1,
+  a missing name or role, `on_behalf_of` missing for role 44, or a purpose
+  of use other than `TREATMENT` or `EMERGENCY`:
+  `ERROR_HPI_INSUFFICIENT_INFORMATION`, with the missing fields (the
+  format outside the three and the purpose are our own design, as §1.25 has
+  no code for them);
 - no `organization-id`: `ERROR_HPI_HAI_NO_INFORMATION`;
 - no point of care, facility type or `homeCommunityId`:
   `ERROR_HPI_POC_NO_INFORMATION`;
@@ -1083,6 +1085,14 @@ and 01.02), and no level is judged (Interoperability Specifications 8.0.1
 §2.4.3): the class is recorded as received. A contact point never admits
 an organisation. Whether a request is a patient-data request, which needs
 `patient.id`, is the product's to check.
+
+The IdA's `NameID` is `professional.hp_identifier` and its `@Format` is
+`assertion.name_id_format` (one string, a coded value refused naming the
+field), each `@Format` one of the three URNs of eHDSI SAML Profile 10.0.0
+§2.1. Both are mandatory there, and one string under two formats names two
+identifiers, so a product reads them as one pair, `Caller::name_id`, a
+`contact::NameId` with its `contact::NameIdFormat`, beside
+`assertion.issuer` (FerroHEALTH/FerroAUTH#291).
 
 **The `nl` profile** (`profile = "nl"`, `profiles/nl.toml`). The harmonised
 BgZ and eOverdracht authentication of the openEHR Federation Tier

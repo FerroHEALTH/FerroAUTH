@@ -18,6 +18,7 @@
 //! recorded.
 
 use std::fmt;
+use std::str::FromStr;
 
 use serde_json::Map;
 use serde_json::Value;
@@ -119,6 +120,116 @@ pub const AUTHENTICATION_CLASSES: [&str; 7] = [
     "urn:oasis:names:tc:SAML:2.0:ac:classes:TLSClient",
 ];
 
+/// The format of the HP Identity Assertion's `NameID`: one of the three
+/// eHDSI SAML Profile 10.0.0 §2.1 allows ("MUST be").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[non_exhaustive]
+pub enum NameIdFormat {
+    /// `urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified`.
+    Unspecified,
+    /// `urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName`.
+    X509SubjectName,
+    /// `urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress`.
+    EmailAddress,
+}
+
+impl NameIdFormat {
+    /// Every format §2.1 allows.
+    pub const ALL: [Self; 3] = [Self::Unspecified, Self::X509SubjectName, Self::EmailAddress];
+
+    /// Returns the format's URN, as §2.1 spells it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Unspecified => "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified",
+            Self::X509SubjectName => "urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName",
+            Self::EmailAddress => "urn:oasis:names:tc:SAML:1.1:nameid-format:emailAddress",
+        }
+    }
+}
+
+impl fmt::Display for NameIdFormat {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A `NameID` format other than the three eHDSI SAML Profile 10.0.0 §2.1
+/// allows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("not a NameID format of the eHDSI SAML Profile 10.0.0 §2.1")]
+#[non_exhaustive]
+pub struct UnknownNameIdFormat;
+
+impl FromStr for NameIdFormat {
+    type Err = UnknownNameIdFormat;
+
+    /// Reads the URN exactly as §2.1 spells it.
+    fn from_str(urn: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .into_iter()
+            .find(|format| format.as_str() == urn)
+            .ok_or(UnknownNameIdFormat)
+    }
+}
+
+/// The `NameID` of a contact-point token's HP Identity Assertion, with its
+/// format.
+///
+/// One identifier is the pair, since one string under two formats names two
+/// identifiers (eHDSI SAML Profile 10.0.0 §2.1).
+///
+/// The value is [`Field::ProfessionalHpIdentifier`] and the format
+/// [`Field::AssertionNameIdFormat`]. The `Debug` rendering never carries the
+/// value.
+#[derive(Clone, PartialEq, Eq)]
+pub struct NameId {
+    /// The identifier, as asserted.
+    value: String,
+    /// Its format.
+    format: NameIdFormat,
+}
+
+impl fmt::Debug for NameId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NameId")
+            .field("format", &self.format)
+            .finish_non_exhaustive()
+    }
+}
+
+impl NameId {
+    /// Returns the identifier, as asserted.
+    #[must_use]
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+
+    /// Returns the identifier's format.
+    #[must_use]
+    pub const fn format(&self) -> NameIdFormat {
+        self.format
+    }
+}
+
+impl External {
+    /// Returns the HP Identity Assertion's `NameID` with its format, when the
+    /// token carries `professional.hp_identifier` as one string and
+    /// `assertion.name_id_format` as one of the three formats; a
+    /// contact-point token is admitted only with both.
+    #[must_use]
+    pub fn name_id(&self) -> Option<NameId> {
+        let text = |field| self.field(field).and_then(Attribute::text);
+        // NOTE: a format outside eHDSI SAML Profile 10.0.0 §2.1's three is absent here,
+        // as the contact-point check refuses it.
+        let format = text(Field::AssertionNameIdFormat)?.parse().ok()?;
+        Some(NameId {
+            value: text(Field::ProfessionalHpIdentifier)?.to_owned(),
+            format,
+        })
+    }
+}
+
 /// The longest an HP Identity Assertion is valid: "MUST NOT be more than 4
 /// hours" (SAML Profile 10.0.0 §2.1).
 const IDA_WINDOW: i64 = 4 * 60 * 60;
@@ -149,13 +260,23 @@ pub(crate) fn check(external: &External, claims: &Map<String, Value>) -> Result<
     if !external.fields().keys().any(|field| asserted(&field)) {
         return refuse(EhdsiCode::HpiNoInformation, Vec::new());
     }
+    // NOTE: eHDSI SAML Profile 10.0.0 §2.1 requires the NameID and its @Format, one of
+    // three; a format outside them is refused beside a missing one (our own design).
+    let present = |field: &Field| match field {
+        Field::AssertionNameIdFormat => external
+            .field(*field)
+            .and_then(Attribute::text)
+            .is_some_and(|format| format.parse::<NameIdFormat>().is_ok()),
+        _ => has(*field),
+    };
     let mut missing: Vec<&'static str> = [
         Field::ProfessionalHpIdentifier,
+        Field::AssertionNameIdFormat,
         Field::ProfessionalName,
         Field::ProfessionalHpProfessionalRole,
     ]
     .into_iter()
-    .filter(|field| !has(*field))
+    .filter(|field| !present(field))
     .map(Field::as_str)
     .collect();
     // NOTE: eHDSI SAML Profile 10.0.0 §2.3: `on-behalf-of` is "Mandatory if a
