@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.3] - 2026-11-07
+
 ### Added
 
 - A `federation` issuer's table maps the field `consent.reference`, the
@@ -1168,7 +1170,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.2...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.3...HEAD
+[0.9.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.2...ferrohealth-smart-v0.9.3
 [0.9.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.1...ferrohealth-smart-v0.9.2
 [0.9.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.0...ferrohealth-smart-v0.9.1
 [0.9.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.9...ferrohealth-smart-v0.9.0
