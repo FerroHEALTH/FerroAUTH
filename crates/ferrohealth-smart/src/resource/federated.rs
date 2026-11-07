@@ -6,6 +6,7 @@
 
 use crate::federation::ConsentReference;
 use crate::federation::CorrelationId;
+use crate::federation::contact::NameId;
 use crate::resource::Caller;
 
 impl Caller {
@@ -29,5 +30,16 @@ impl Caller {
         self.kind()
             .external()
             .and_then(crate::federation::External::correlation_id)
+    }
+
+    /// Returns the `NameID` of the HP Identity Assertion with its format,
+    /// for an external person admitted through a MyHealth@EU contact point
+    /// (eHDSI SAML Profile 10.0.0 §2.1): `professional.hp_identifier` and
+    /// `assertion.name_id_format`, when the token carries both.
+    #[must_use]
+    pub fn name_id(&self) -> Option<NameId> {
+        self.kind()
+            .external()
+            .and_then(crate::federation::External::name_id)
     }
 }

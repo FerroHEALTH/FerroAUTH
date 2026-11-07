@@ -11,6 +11,27 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The MyHealth@EU contact-point profile reads the format of the HP
+  Identity Assertion's `NameID` as the field `assertion.name_id_format`
+  (eHDSI SAML Profile 10.0.0 §2.1), mapped by `mapping = "ehdsi"` from
+  `ehdsi.assertion.name_id_format`, and `Caller::name_id` returns the
+  `NameID` (`professional.hp_identifier`) with its format as a
+  `federation::contact::NameId`, so a product writes the professional's
+  identifier with the format it was asserted under (#291).
+  `federation::contact::NameIdFormat` names the three formats §2.1 allows
+  and parses each from its URN. The format is one string: a coded value
+  refuses the token as `Unclassified::Attribute` naming the field.
+
+### Changed
+
+- A contact-point token without `assertion.name_id_format`, or with a
+  format other than the three of eHDSI SAML Profile 10.0.0 §2.1, is
+  refused as `ERROR_HPI_INSUFFICIENT_INFORMATION` naming the field, as a
+  missing `NameID` is (#291). A contact point's authorization server must
+  now write the format into its tokens.
+
 ## [0.9.3] - 2026-11-07
 
 ### Added

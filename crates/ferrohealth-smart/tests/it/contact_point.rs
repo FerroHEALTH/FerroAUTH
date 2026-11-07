@@ -17,6 +17,7 @@ use ferrohealth_smart::federation::Mapping;
 use ferrohealth_smart::federation::Source;
 use ferrohealth_smart::federation::contact::AUTHENTICATION_CLASSES;
 use ferrohealth_smart::federation::contact::EhdsiCode;
+use ferrohealth_smart::federation::contact::NameIdFormat;
 use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::kind::Unclassified;
@@ -97,6 +98,7 @@ fn token() -> Value {
             "assertion": {
                 "issuer": "https://ncp-b.example.org",
                 "id": "urn:uuid:ida-1",
+                "name_id_format": "urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName",
                 "not_before": now - 60,
                 "not_on_or_after": now + 3600
             },
@@ -201,6 +203,11 @@ async fn each_missing_attribute_is_refused_with_its_code_name() -> Outcome {
             "professional.hp_identifier",
         ),
         (
+            "/assertion/name_id_format",
+            EhdsiCode::HpiInsufficientInformation,
+            "assertion.name_id_format",
+        ),
+        (
             "/professional/name",
             EhdsiCode::HpiInsufficientInformation,
             "professional.name",
@@ -255,6 +262,106 @@ async fn each_missing_attribute_is_refused_with_its_code_name() -> Outcome {
     assert_eq!(
         "ERROR_HPI_AUTHENTICATION_NOT_RECEIVED",
         EhdsiCode::HpiAuthenticationNotReceived.as_str()
+    );
+    Ok(())
+}
+
+// NOTE: eHDSI SAML Profile 10.0.0 §2.1: the NameID identifies the HP under its
+// @Format, so the caller carries the pair, read from one place.
+#[tokio::test]
+async fn the_caller_carries_the_name_id_with_its_format() -> Outcome {
+    let caller = Harness::new().admit(&token()).await?;
+    let name_id = caller.name_id().ok_or("a NameID")?;
+    assert_eq!("CN=Synthetic Doctor,O=Hospital,C=BE", name_id.value());
+    assert_eq!(NameIdFormat::X509SubjectName, name_id.format());
+    assert_eq!(
+        "urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName",
+        name_id.format().as_str()
+    );
+    let CallerKind::ExternalPerson(person) = caller.kind() else {
+        panic!("an external person: {caller:?}");
+    };
+    assert_eq!(
+        Some(name_id.value()),
+        person
+            .field(Field::ProfessionalHpIdentifier)
+            .and_then(Attribute::text),
+        "the NameID is professional.hp_identifier"
+    );
+    let rendered = format!("{name_id:?}");
+    assert!(!rendered.contains("Synthetic Doctor"), "{rendered}");
+    assert!(rendered.contains("X509SubjectName"), "{rendered}");
+    Ok(())
+}
+
+// NOTE: eHDSI SAML Profile 10.0.0 §2.1: the @Format "MUST be" one of three URNs.
+#[tokio::test]
+async fn each_of_the_three_formats_is_admitted_and_another_refused() -> Outcome {
+    let h = Harness::new();
+    for format in NameIdFormat::ALL {
+        let mut claims = token();
+        claims["ehdsi"]["assertion"]["name_id_format"] = json!(format.as_str());
+        let caller = h.admit(&claims).await?;
+        assert_eq!(
+            Some(format),
+            caller.name_id().map(|name_id| name_id.format()),
+            "{format}"
+        );
+        assert_eq!(Ok(format), format.as_str().parse::<NameIdFormat>());
+    }
+    for other in [
+        "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent",
+        "urn:oasis:names:tc:SAML:1.1:nameid-format:emailaddress",
+        "",
+    ] {
+        let mut claims = token();
+        claims["ehdsi"]["assertion"]["name_id_format"] = json!(other);
+        assert_eq!(
+            Some((
+                EhdsiCode::HpiInsufficientInformation,
+                vec!["assertion.name_id_format"]
+            )),
+            code(h.admit(&claims).await),
+            "{other:?}"
+        );
+        assert!(other.parse::<NameIdFormat>().is_err(), "{other:?}");
+    }
+    Ok(())
+}
+
+// NOTE: no specification governs the form: our own design, in which the format is
+// one string and a coded value refuses the token naming the field.
+#[tokio::test]
+async fn a_coded_format_is_refused_naming_the_field() -> Outcome {
+    let mut claims = token();
+    claims["ehdsi"]["assertion"]["name_id_format"] = json!([NameIdFormat::Unspecified.as_str()]);
+    let refused = Harness::new().admit(&claims).await;
+    assert!(
+        matches!(
+            refused,
+            Err(Rejection::Unclassified {
+                reason: Unclassified::Attribute {
+                    field: "assertion.name_id_format"
+                }
+            })
+        ),
+        "{refused:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn the_format_field_loads_from_toml_by_its_name() -> Outcome {
+    let section: FederationSection = toml::from_str(
+        "[fields]\n\"assertion.name_id_format\" = [{ claim = \"saml.name_id_format\" }]\n",
+    )?;
+    assert_eq!(
+        Some(&vec![Source::Claim(String::from("saml.name_id_format"))]),
+        section.fields.get(&Field::AssertionNameIdFormat)
+    );
+    assert_eq!(
+        "assertion.name_id_format",
+        Field::AssertionNameIdFormat.as_str()
     );
     Ok(())
 }
