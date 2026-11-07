@@ -216,8 +216,9 @@ fn patient(
 
 /// Checks that a `federation` issuer is trusted to map the subject token's
 /// issuer, that `issued` reads under its table, that it names the mapped
-/// professional, that it keeps the subject's consent decision reference,
-/// and that a chained route carries the correlation claim.
+/// professional, that it keeps the subject's consent decision reference
+/// and correlation id, and that a chained route carries the correlation
+/// claim.
 fn federation(
     settings: &Settings,
     target: &Target,
@@ -276,19 +277,21 @@ fn federation(
         CallerKind::ExternalOrganisation(_) if !subject_is_person => {}
         _ => return Err(Rejected::PersonMapping),
     }
+    let held = subject.kind().external();
+    let kept = classified.kind.external();
     // NOTE: IHE BALP 1.1.4 3:5.7.6 records the Consent an authorization rests on; an
     // onward token that drops or swaps the subject's is refused (our own design).
-    let kept = classified
-        .kind
-        .external()
-        .and_then(External::consent_reference);
-    if let Some(held) = subject
-        .kind()
-        .external()
-        .and_then(External::consent_reference)
-        && kept != Some(held)
+    if let Some(reference) = held.and_then(External::consent_reference)
+        && kept.and_then(External::consent_reference) != Some(reference)
     {
         return Err(Rejected::Consent);
+    }
+    // NOTE: no specification governs this: our own design; each hop of a chained
+    // organisation request carries the requester's correlation id unchanged.
+    if let Some(id) = held.and_then(External::correlation_id)
+        && kept.and_then(External::correlation_id) != Some(id)
+    {
+        return Err(Rejected::Correlation);
     }
     if let Some(claim) = target.correlation_claim() {
         let held = lookup(subject.claims(), claim).filter(|value| !value.is_null());

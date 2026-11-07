@@ -397,7 +397,8 @@ pub enum Rejected {
     /// reference with the same value.
     #[error("the issued token does not carry the subject token's consent decision reference")]
     Consent,
-    /// The token does not carry the subject token's correlation claim.
+    /// The token does not carry the subject token's correlation claim of a
+    /// chained route, or its correlation id, with the same value.
     #[error("the issued token does not carry the subject token's correlation claim")]
     Correlation,
     /// The token of a `patients` issuer does not read as a patient token of
@@ -451,6 +452,10 @@ pub enum OnwardError {
     /// keep.
     #[error("the patient's token names no patient context")]
     NoPatientContext,
+    /// A chained route's target names a correlation claim the subject token
+    /// does not carry.
+    #[error("the subject token carries no correlation claim for the chained route")]
+    NoCorrelation,
     /// A JWT bearer grant was asked for a caller that is not a user
     /// principal.
     #[error("the JWT bearer grant exchanges a user principal's token only")]

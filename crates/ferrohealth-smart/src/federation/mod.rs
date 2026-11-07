@@ -148,6 +148,10 @@ pub enum Field {
     /// consent decision record. Text only.
     #[serde(rename = "consent.reference")]
     ConsentReference,
+    /// The log correlation id of a chained organisation request, which the
+    /// requester sets and each hop carries on. Text only.
+    #[serde(rename = "correlation_id")]
+    CorrelationId,
 }
 
 impl Field {
@@ -194,6 +198,7 @@ impl Field {
             Self::PatientIdSource => "patient.id_source",
             Self::PatientPidIssuerCountry => "patient.pid_issuer_country",
             Self::ConsentReference => "consent.reference",
+            Self::CorrelationId => "correlation_id",
         }
     }
 
@@ -221,7 +226,7 @@ impl Field {
 
     /// Returns whether the field takes one string, never coded values.
     pub(crate) const fn text_only(self) -> bool {
-        matches!(self, Self::ConsentReference)
+        matches!(self, Self::ConsentReference | Self::CorrelationId)
     }
 
     /// Returns the longest value the field takes, in characters (no
@@ -564,6 +569,29 @@ impl ConsentReference {
     }
 }
 
+/// The correlation id of a chained organisation request a `federation`
+/// token asserts.
+///
+/// It is the value of [`Field::CorrelationId`], read only from the source
+/// the issuer's table maps, never from a request header. The `Debug`
+/// rendering never carries the value.
+#[derive(Clone, PartialEq, Eq)]
+pub struct CorrelationId(String);
+
+impl fmt::Debug for CorrelationId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("CorrelationId").finish_non_exhaustive()
+    }
+}
+
+impl CorrelationId {
+    /// Returns the id, as asserted.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// What a `federation` token asserts about another party, recorded as
 /// asserted and never bound to a local party.
 ///
@@ -628,6 +656,15 @@ impl External {
         self.field(Field::ConsentReference)
             .and_then(Attribute::text)
             .map(|text| ConsentReference(text.to_owned()))
+    }
+
+    /// Returns the correlation id the token asserts, when its issuer's table
+    /// maps [`Field::CorrelationId`] and the token carries it.
+    #[must_use]
+    pub fn correlation_id(&self) -> Option<CorrelationId> {
+        self.field(Field::CorrelationId)
+            .and_then(Attribute::text)
+            .map(|text| CorrelationId(text.to_owned()))
     }
 }
 

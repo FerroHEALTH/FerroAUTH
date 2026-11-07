@@ -1040,7 +1040,12 @@ issuer (`External::remote_subject`) and never bound to a local party, and a
 carries the reference of the consent decision the issuer rendered its
 authorization on, the Consent entity of the IHE BALP 1.1.4 3:5.7.6 consent
 decision record: one string, a coded value refused naming the field, read
-onto the caller as `Caller::consent_reference` when the table maps it.
+onto the caller as `Caller::consent_reference` when the table maps it. The
+field `correlation_id` carries the log correlation id of a chained
+organisation request, which the requester sets and each hop carries on,
+only from the source the table maps (a claim of the verified token or an
+attested `authorization_details` member, never a request header): one
+string, read onto the caller as `Caller::correlation_id`.
 
 **The contact-point profile** (`federation::contact`). A
 `contact_point = true` issuer is NCPeH-A's authorization server, and its
@@ -1278,9 +1283,11 @@ over the connection the client opened. It is refused unless:
   `professional.hp_identifier` equals the subject claim `person_mapping`
   names, a person's exchange never yields an organisation's token, the
   subject's consent decision reference (3.14), when it carries one, is
-  carried over with the same value (`Rejected::Consent`), and on a chained
-  route (`Target::with_correlation_claim`) the correlation claim is carried
-  over.
+  carried over with the same value (`Rejected::Consent`), so is its
+  correlation id (`Rejected::Correlation`), and on a chained route
+  (`Target::with_correlation_claim`) the correlation claim is carried over.
+  A chained route refuses a subject token without that claim before
+  anything is sent (`OnwardError::NoCorrelation`).
 
 Only a `persons`, a `patients` or a `federation` issuer issues onward
 tokens. A `patients` issuer, a deployment's separate patients realm or
