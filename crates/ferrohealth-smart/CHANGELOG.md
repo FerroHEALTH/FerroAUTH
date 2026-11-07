@@ -11,6 +11,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- A `federation` issuer's table maps the field `consent.reference`, the
+  reference of the consent decision the issuer rendered its authorization
+  on (the Consent entity of the IHE BALP 1.1.4 3:5.7.6 consent decision
+  record), and `Caller::consent_reference` returns it as a
+  `federation::ConsentReference` for an external person or organisation
+  whose token carries it, so a product reads it for a consent-conditioned
+  federation read (#286). The reference is one string: a coded value
+  refuses the token as `Unclassified::Attribute` naming the field. The
+  onward check holds the token a `federation` issuer issues to the
+  subject's reference, read under that issuer's own table, and refuses one
+  that drops or changes it as `Rejected::Consent`. `CallerKind::external`
+  returns what the token asserts for either external kind.
+
 ## [0.9.2] - 2026-11-06
 
 ### Added

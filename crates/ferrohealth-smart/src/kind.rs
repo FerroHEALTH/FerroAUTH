@@ -146,6 +146,17 @@ impl CallerKind {
             Self::ExternalOrganisation(_) => "external_organisation",
         }
     }
+
+    /// Returns what a `federation` token asserts about the other party,
+    /// for an [`CallerKind::ExternalPerson`] or an
+    /// [`CallerKind::ExternalOrganisation`].
+    #[must_use]
+    pub fn external(&self) -> Option<&External> {
+        match self {
+            Self::ExternalPerson(external) | Self::ExternalOrganisation(external) => Some(external),
+            _ => None,
+        }
+    }
 }
 
 /// Why a valid token matches no step of the classification for its issuer's

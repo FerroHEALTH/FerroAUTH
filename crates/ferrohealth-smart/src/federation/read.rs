@@ -284,9 +284,10 @@ fn attribute(value: &Value) -> Option<Attribute> {
     }
 }
 
-/// Refuses a value that holds a C0, C1 or bidi-control character, or is
-/// longer than the field's cap (no specification governs the checks: our
-/// own design, against a value that renders other than it reads).
+/// Refuses a value that holds a C0, C1 or bidi-control character, is longer
+/// than the field's cap, or is coded where the field takes one string (no
+/// specification governs the checks: our own design, against a value that
+/// renders other than it reads).
 fn check_attribute(field: Field, value: &Attribute) -> Result<(), Unclassified> {
     let refused = |text: &str| {
         text.chars().count() > field.cap()
@@ -297,7 +298,8 @@ fn check_attribute(field: Field, value: &Attribute) -> Result<(), Unclassified> 
                     || ('\u{2066}'..='\u{2069}').contains(&c)
             })
     };
-    if value.strings().into_iter().any(refused) {
+    let coded = matches!(value, Attribute::Codes(_));
+    if (coded && field.text_only()) || value.strings().into_iter().any(refused) {
         return Err(Unclassified::Attribute {
             field: field.as_str(),
         });

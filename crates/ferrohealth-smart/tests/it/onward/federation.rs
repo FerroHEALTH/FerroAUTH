@@ -52,7 +52,7 @@ const ROUTE: &str = "/token";
 /// Returns the table of the federation issuer: the IHE IUA mapping with
 /// the country and issuing authority it lacks, its bounds, the home issuer
 /// it maps, and the subject claim it maps from.
-fn section() -> FederationSection {
+pub(crate) fn section() -> FederationSection {
     FederationSection {
         issuer: String::from(FEDERATION),
         contact_point: Some(false),
@@ -89,7 +89,7 @@ fn settings(section: FederationSection) -> Settings {
 }
 
 /// The case's token endpoint, keys and client.
-struct Case {
+pub(crate) struct Case {
     /// The token endpoint.
     server: MockServer,
     /// The key both authorization servers sign with.
@@ -100,7 +100,7 @@ struct Case {
 
 impl Case {
     /// Starts the case over `section`.
-    async fn start(section: FederationSection) -> Self {
+    pub(crate) async fn start(section: FederationSection) -> Self {
         let server = MockServer::start().await;
         let client = ClientKey::new();
         let onward = Onward::with_clock(
@@ -118,7 +118,7 @@ impl Case {
 
     /// Returns the outcome of exchanging the claims `subject` of a caller
     /// of `kind`, answered with `issued`, for `target`.
-    async fn exchange(
+    pub(crate) async fn exchange(
         &self,
         subject: &Value,
         kind: CallerKind,
@@ -141,7 +141,7 @@ impl Case {
     }
 
     /// Returns how many requests reached the token endpoint.
-    async fn calls(&self) -> usize {
+    pub(crate) async fn calls(&self) -> usize {
         self.server
             .received_requests()
             .await
@@ -151,7 +151,7 @@ impl Case {
 }
 
 /// Returns the claims of a professional's token of the home issuer.
-fn professional() -> Value {
+pub(crate) fn professional() -> Value {
     json!({
         "iss": HOME, "sub": "local-person-1", "aud": "bridge", "client_id": "portal",
         "iat": now(), "exp": now() + 600, "jti": "subject-1",
@@ -161,7 +161,7 @@ fn professional() -> Value {
 
 /// Returns the claims of the IHE IUA token the federation issuer issues
 /// for the professional, shaped as IHE IUA §3.71.4.2.2.1.3.
-fn issued() -> Value {
+pub(crate) fn issued() -> Value {
     json!({
         "iss": FEDERATION, "sub": "b3ca1045-aa8b-42f9-9fd9-e0cbf5cb90a7",
         "client_id": "bridge", "aud": PARTNER, "jti": "issued-1",
@@ -186,7 +186,7 @@ fn issued() -> Value {
 }
 
 /// Returns the partner target.
-fn partner() -> Target {
+pub(crate) fn partner() -> Target {
     Target::new([PARTNER]).with_indicator(PARTNER)
 }
 
@@ -306,7 +306,7 @@ async fn a_token_carrying_only_the_tables_constants_is_an_incomplete_professiona
 
 /// Returns a table whose issuer states an organisation's access in an
 /// attested `authorization_details` entry and names no professional field.
-fn organisations() -> FederationSection {
+pub(crate) fn organisations() -> FederationSection {
     FederationSection {
         issuer: String::from(FEDERATION),
         contact_point: Some(false),
@@ -328,7 +328,7 @@ fn organisations() -> FederationSection {
 
 /// Returns the claims of an organisation's token, its access stated in an
 /// `authorization_details` entry naming the partner (RFC 9396 §2).
-fn organisation_token() -> Value {
+pub(crate) fn organisation_token() -> Value {
     json!({
         "iss": FEDERATION, "sub": "bridge", "client_id": "bridge", "aud": PARTNER,
         "jti": "issued-1", "iat": now(), "exp": now() + 300,

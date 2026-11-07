@@ -28,6 +28,7 @@ mod classify;
 #[cfg(feature = "fetch")]
 mod client;
 mod config;
+mod consent;
 mod contact_point;
 #[cfg(feature = "test-support")]
 mod external;

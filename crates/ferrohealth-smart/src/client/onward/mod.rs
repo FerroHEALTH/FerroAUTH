@@ -20,7 +20,8 @@
 //! profile's `expect`, it names the requesting client as its actor, and it
 //! names the caller's person: by the profile's `person_equality` claims on
 //! a `persons` issuer, by the attested `person_mapping` of its
-//! `[[auth.federation]]` table on a `federation` issuer. A `patients` issuer
+//! `[[auth.federation]]` table on a `federation` issuer, whose token also
+//! keeps the subject's consent decision reference. A `patients` issuer
 //! exchanges a patient's own token alone, and its token must read as a
 //! patient token of that issuer and name the subject token's patient
 //! context, beside `person_equality`. A failed exchange
@@ -392,6 +393,10 @@ pub enum Rejected {
     /// organisation's token.
     #[error("the issued token does not name the mapped person")]
     PersonMapping,
+    /// The token does not carry the subject token's consent decision
+    /// reference with the same value.
+    #[error("the issued token does not carry the subject token's consent decision reference")]
+    Consent,
     /// The token does not carry the subject token's correlation claim.
     #[error("the issued token does not carry the subject token's correlation claim")]
     Correlation,

@@ -50,7 +50,7 @@ const PREFIX: &str = "urn:oid:2.16.528.1.1007.3.3.";
 
 /// The table of a domestic IUA issuer: the IUA mapping, the country and the
 /// issuing authority configured, the bounds declared.
-fn iua() -> FederationSection {
+pub(crate) fn iua() -> FederationSection {
     FederationSection {
         issuer: String::from(ISSUER),
         contact_point: Some(false),
@@ -89,7 +89,7 @@ fn assurance() -> AssuranceSection {
 
 /// The claims of an IUA token naming a professional, shaped as the IHE IUA
 /// §3.71.4.2.2.1.3 example with the required claims of §3.71.4.2.2.1.
-fn professional() -> Value {
+pub(crate) fn professional() -> Value {
     json!({
         "iss": ISSUER, "sub": "b3ca1045-aa8b-42f9-9fd9-e0cbf5cb90a7",
         "client_id": "partner-app", "aud": AUDIENCE, "jti": "jti-1",
@@ -119,13 +119,13 @@ fn professional() -> Value {
 }
 
 /// The federation issuer of the JWT cases.
-struct Harness {
+pub(crate) struct Harness {
     /// The signing key, in the key set file.
     key: SigningKey,
 }
 
 impl Harness {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             key: ec_key("fed", Algorithm::ES256),
         }
@@ -145,7 +145,11 @@ impl Harness {
     }
 
     /// Returns the caller `claims` authenticate under `section`.
-    async fn admit(&self, section: FederationSection, claims: &Value) -> Result<Caller, Rejection> {
+    pub(crate) async fn admit(
+        &self,
+        section: FederationSection,
+        claims: &Value,
+    ) -> Result<Caller, Rejection> {
         let server = ResourceServer::discover(self.settings(section))
             .await
             .expect("the key set file reads");
@@ -159,7 +163,7 @@ impl Harness {
 }
 
 /// Returns the classification refusal of `outcome`.
-fn refused(outcome: Result<Caller, Rejection>) -> Option<Unclassified> {
+pub(crate) fn refused(outcome: Result<Caller, Rejection>) -> Option<Unclassified> {
     match outcome {
         Err(Rejection::Unclassified { reason }) => Some(reason),
         _ => None,

@@ -11,6 +11,8 @@
 
 mod cache;
 mod config;
+#[cfg(feature = "test-support")]
+mod consent;
 mod examples;
 mod federation;
 mod harness;
