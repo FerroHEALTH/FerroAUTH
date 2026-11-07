@@ -95,6 +95,7 @@ with the matrix.
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the end-session request (§2) and the `end_session_endpoint` metadata (§2.1) of the `oidc` relying party. |
 | Party binding references | IHE IUA Revision 2.5 (`IHE/ITI.IUA` tag `2.5`), Nuts RFC021 (`nuts-foundation/nuts-specification` at `7c0de533…`), the Microsoft Entra documents (`MicrosoftDocs/entra-docs` at `219d8d57…`), the SCIM workload identity federation guide (`AzureAD/SCIMReferenceCode` at `21b92c8f…`), Keycloak 26.8.2, and the Okta OpenID Connect and OAuth 2.0 API reference (cache only) | The access token of a federation issuer (IUA ITI-71, Nuts RFC021) and the deviations of each vendor profile from RFC 9068 (Entra ID, Keycloak, Okta) that the caller classification reads (FerroHEALTH/FerroAUTH#215). IUA and RFC021 are the editions FerroHEALTH/FerroFED vendors. The vendor documents are evidence for a profile's values, never the oracle for a core rule. The Okta page states "All rights reserved", so only its pin and provenance are committed. |
 | Contact-point references | The eHDSI SAML Profile, Section II Security Services, Service Location and Capability Lookup Profile and NCPeH Components Specifications 10.0.0 and the Interoperability Specifications 8.0.1 (supplied by the owner); the MyHealth@EU Requirements Catalogue 10.0.0 (read, recorded by sha256, never copied); Implementing Regulation (EU) 2026/2099 and Regulation (EU) 2016/679 (the Official Journal XHTML); the Federation Tier with AQL specification 1.0.1 Annex B (`syntaric/openehr-federation-spec` at `b4242c29…`) | The contact-point issuer profile of the caller classification (FerroHEALTH/FerroAUTH#215): the IdA issuer, attributes, authentication classes, lifetimes and refusal names from the eHDSI documents, the fields of 2026/2099 Annex Tables 1 and 2, GDPR Art. 9(3) and Art. 29 for guests, and the Dutch `authorization_details` of Annex B §B.4a. The eHDSI files and Annex B are the ones FerroHEALTH/FerroFED vendors. The Requirements Catalogue states no reuse terms, so it is cited by section only. |
+| Consent decision record | IHE Basic Audit Log Patterns (BALP) 1.1.4, the Volume 3 content page (3:5.7) as profiles.ihe.net renders it | The consent decision reference a `federation` token carries in `consent.reference` is the Consent entity of the 3:5.7.6 consent decision record (FerroHEALTH/FerroAUTH#286). The page is the one FerroHEALTH/FerroFED vendors. |
 | SMART on openEHR | DEVELOPMENT (the ITS-REST draft, `openEHR/specifications-ITS-REST` at commit `9d25ea78…`, its tree last changed at `5183c1f9…`, amendment record 1.1.0 of 2025-05-20) | The one specification of openEHR scopes, which FerroEHR, FerroFED and FerroBRIDGE reach. It is a draft the ITS-REST release does not stabilise, so it is pinned by commit, its status is checked on every vendor run, and a weekly job fails when upstream moves (3.9). |
 
 ## 3. The components
@@ -1035,7 +1036,11 @@ character, or over its length cap, is refused naming the field. A
 professional below level substantial, or below level high from 26 March
 2032 (2026/2099 Art. 6(3)), is refused. The `sub` is recorded with its
 issuer (`External::remote_subject`) and never bound to a local party, and a
-`federation` issuer contributes no role.
+`federation` issuer contributes no role. The field `consent.reference`
+carries the reference of the consent decision the issuer rendered its
+authorization on, the Consent entity of the IHE BALP 1.1.4 3:5.7.6 consent
+decision record: one string, a coded value refused naming the field, read
+onto the caller as `Caller::consent_reference` when the table maps it.
 
 **The contact-point profile** (`federation::contact`). A
 `contact_point = true` issuer is NCPeH-A's authorization server, and its
@@ -1271,9 +1276,11 @@ over the connection the client opened. It is refused unless:
   `[[auth.federation]]` table's `exchanges_from`, the token reads under
   that table as 3.14 reads a federation token, a professional's
   `professional.hp_identifier` equals the subject claim `person_mapping`
-  names, a person's exchange never yields an organisation's token, and on a
-  chained route (`Target::with_correlation_claim`) the correlation claim
-  is carried over.
+  names, a person's exchange never yields an organisation's token, the
+  subject's consent decision reference (3.14), when it carries one, is
+  carried over with the same value (`Rejected::Consent`), and on a chained
+  route (`Target::with_correlation_claim`) the correlation claim is carried
+  over.
 
 Only a `persons`, a `patients` or a `federation` issuer issues onward
 tokens. A `patients` issuer, a deployment's separate patients realm or

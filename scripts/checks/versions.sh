@@ -30,7 +30,8 @@
 #                        each record their row's pin-set digest and each
 #                        directory holds no other file; no
 #                        file under .vendor-cache/ is tracked.
-#   3f. pinned by sha256 the eHDSI specifications and the EU legal acts:
+#   3f. pinned by sha256 the eHDSI specifications, the EU legal acts and the
+#                        IHE BALP content page:
 #                        each PROVENANCE.md records its row's pin-set
 #                        digest, the tree hashes to the digest it records,
 #                        and the script's --check finds every committed file
@@ -258,7 +259,8 @@ tracked="$(git ls-files .vendor-cache | head -n1)"
 [ -z "$tracked" ] || fail ".vendor-cache/ is never committed, and $tracked is tracked"
 
 # ---- 3f. the corpora pinned file by file by sha256 --------------------------
-for tree in "ehdsi-specifications:eHDSI specifications" "eu-law:EU legal acts"; do
+for tree in "ehdsi-specifications:eHDSI specifications" "eu-law:EU legal acts" \
+  "ihe-balp-pages:IHE BALP narrative pages"; do
   dir="docs/specs/${tree%%:*}"
   item="${tree#*:}"
   if [ -f "$dir/PROVENANCE.md" ]; then

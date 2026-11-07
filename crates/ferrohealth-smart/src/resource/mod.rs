@@ -23,6 +23,7 @@
 
 mod caller;
 pub mod configuration;
+mod federated;
 #[cfg(feature = "fetch")]
 pub mod introspection;
 mod jwks;

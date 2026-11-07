@@ -31,9 +31,10 @@ version `docs/VERSIONS.md` pins, and the design of record,
    errata set 2), the authorization code flow and the ID Token check, and
    **OpenID Connect RP-Initiated Logout 1.0**, the end-session request.
 4. **IHE IUA** (ITI-71) and **Nuts RFC021** for the access token of a
-   federation issuer. The Microsoft Entra, Keycloak and Okta documents are
-   evidence for the values of a vendor's issuer profile, never the source
-   of a core rule.
+   federation issuer, and **IHE BALP** 1.1.4 (3:5.7.6, the consent decision
+   record) for the consent decision reference it carries. The Microsoft
+   Entra, Keycloak and Okta documents are evidence for the values of a
+   vendor's issuer profile, never the source of a core rule.
 5. **The eHDSI specifications** (the SAML Profile, Section II Security
    Services, the Service Location and Capability Lookup Profile and the
    NCPeH Components Specifications 10.0.0, the Interoperability

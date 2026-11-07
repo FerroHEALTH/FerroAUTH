@@ -44,6 +44,7 @@ hashes the vendored bytes again, failing when either disagrees with its row.
 | NIST SP 800-162 document | `NIST.SP.800-162.pdf` sha256 `ea90ee967a7011c8de5cfaffe0820d157167edefdea5fc2a84af730af4295cd7` (January 2014, with the updates of 2019-08-02) | `scripts/vendor/nist-sp-800-162.sh`, `docs/specs/nist-sp-800-162/PROVENANCE.md` |
 | Cedar language documentation | `cedar-policy/cedar-docs` commit `5d8a02fda9ddf629b9989b0e0e2fb16215d394e4` (the default branch head on 2026-10-25) paths `docs/collections/_policies`, `_auth` and `_schema` | `scripts/vendor/cedar-docs.sh`, `docs/specs/cedar-docs/PROVENANCE.md` |
 | IHE IUA supplement | `IHE/ITI.IUA` tag `2.5` commit `a8e20c92928b7560ee07a410922187757248c8b9`, the Revision 2.5 Trial Implementation supplement text (ITI-71, ITI-72, ITI-102, ITI-103) and its figures, the edition FerroHEALTH/FerroFED vendors (CC-BY-4.0) | `scripts/vendor/ihe-iua.sh`, `docs/specs/ihe-iua/PROVENANCE.md` |
+| IHE BALP narrative pages | pin-set digest `3fd80aafc7ddc31d12ca5c4a3d1a2cee9ee863b42da5731d07de146eff70c8b4` over the Volume 3 content page (3:5.7) of Basic Audit Log Patterns 1.1.4, pinned by URL and sha256 as profiles.ihe.net renders it, the bytes FerroHEALTH/FerroFED vendors (CC-BY-4.0) | `scripts/vendor/ihe-balp-pages.sh`, `docs/specs/ihe-balp-pages/PROVENANCE.md` |
 | Nuts RFC021 | `nuts-foundation/nuts-specification` commit `7c0de533b8cce537812b6647542e5719c93433a8`, RFC021 (VP Token Grant Type), the commit FerroHEALTH/FerroFED vendors (CC-BY-SA-4.0, per the document's Copyright Notice) | `scripts/vendor/nuts-rfc.sh`, `docs/specs/nuts-rfc/PROVENANCE.md` |
 | Microsoft Entra documentation | `MicrosoftDocs/entra-docs` commit `219d8d57b01779e72e6d5449dc9341334c1fb906` (the default branch head on 2026-11-05), the access token claims reference, the optional claims reference and the on-behalf-of flow (CC-BY-4.0 per the README, MIT per the LICENSE file) | `scripts/vendor/entra-docs.sh`, `docs/specs/entra-docs/PROVENANCE.md` |
 | SCIM workload identity federation guide | `AzureAD/SCIMReferenceCode` commit `21b92c8f28383e30f8c304908b126682af2370d7` (the default branch head on 2026-11-05), `Workload-Identity-Federation-for-SCIM-Provisioning.md` and its figures (MIT) | `scripts/vendor/scim-workload-identity.sh`, `docs/specs/scim-workload-identity/PROVENANCE.md` |
@@ -112,11 +113,12 @@ sources, the IETF Trust Legal Provisions for the RFCs, Apache License 2.0
 for the SMART on openEHR source and the Cedar language documentation, the
 OpenID Foundation's notice for the three OpenID Connect specifications, the
 public domain of a United States Government work for NIST SP 800-162, CC BY
-4.0 for the IHE IUA supplement, CC BY-SA 4.0 for Nuts RFC021, the README's
-CC BY 4.0 grant and the LICENSE file's MIT text for the Microsoft Entra
-documents, MIT for the SCIM workload identity federation guide and Apache
-License 2.0 for the Keycloak documentation, and CC BY-SA 3.0 Unported for
-the openEHR RM Common chapter. The Okta API reference states
+4.0 for the IHE IUA supplement and the IHE BALP content page, CC BY-SA 4.0
+for Nuts RFC021, the README's CC BY 4.0 grant and the LICENSE file's MIT
+text for the Microsoft Entra documents, MIT for the SCIM workload identity
+federation guide and Apache License 2.0 for the Keycloak documentation,
+and CC BY-SA 3.0 Unported for the openEHR RM Common chapter. The Okta API
+reference states
 "All rights reserved" and grants no licence, so `scripts/vendor/okta.sh`
 fetches it into the git-ignored `.vendor-cache/okta/` and only its
 `PROVENANCE.md` is committed. The Microsoft Graph reference pages carry
