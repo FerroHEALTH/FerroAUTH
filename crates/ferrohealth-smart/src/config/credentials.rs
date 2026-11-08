@@ -91,7 +91,8 @@ pub struct OauthSection {
     pub private_key_file: Option<PathBuf>,
     /// The `kid` the assertion names; the RFC 7638 thumbprint when empty.
     pub kid: String,
-    /// The algorithm the assertion is signed with; by key type when unset.
+    /// The algorithm the assertion is signed with; when unset, by key type,
+    /// an EC key by its curve (P-256 ES256, P-384 ES384).
     pub assertion_alg: Option<Algorithm>,
     /// The `scope` request parameter; empty for none.
     pub scope: String,
