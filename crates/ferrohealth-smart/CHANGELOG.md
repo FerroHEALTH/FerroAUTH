@@ -110,6 +110,22 @@ and this project adheres to
     that `ClientCredentials::validate` refuses.
   - The `[workspace.dependencies]` requirement of `ferrohealth-smart` moves
     to 0.11.0.
+- **Breaking:** `federation::assertion::Validator::new` takes a third
+  argument, the `replay::ReplayGuard` every admitted exchange is recorded
+  in, and `Validator::exchange(identity, treatment, now)`, async, replaces
+  `Validator::identity` and `Validator::treatment` (#317). It checks the
+  identity assertion alone, as the discovery phase presents it, or with
+  one TRC, and returns an `Exchange` with `identity()`, `treatment()`,
+  `ends()` and `claim()`. Upgrade: build the validator with
+  `Arc::new(MemoryReplayGuard::default())` in one process, or with a
+  `ReplayGuard` over a store every replica shares; call
+  `exchange(&ida, trc.as_deref(), now)` in place of the two checks; cap
+  the issued token's `exp` at `Exchange::ends()`; and answer
+  `ExchangeError::Guard` as a server error (`code()` is
+  `ERROR_SEC_GENERIC`). `IdentityAssertion` and `TreatmentAssertion`
+  replace `not_before()` and `not_on_or_after()` with `window()`, a
+  `Window` that also carries `session_not_on_or_after()` and `ends()`:
+  write `assertion.window().not_on_or_after()`.
 
 ### Fixed
 
@@ -124,7 +140,7 @@ and this project adheres to
 
 ### Security
 
-Shipped with functional changes because: the one other change is the eHDSI assertion check's line-end fix, which removes a false refusal in the same module, so the release carries both fixes of the same review.
+Shipped with functional changes because: the replay fix (#317) changes the `federation::assertion::Validator` API, so the eHDSI security fixes ship on the 0.11.0 line, whose other breaking change (#318) the products take in the same move.
 
 - `federation::assertion::Validator` bounds an assertion before it is
   parsed (#315). An input of 64 KiB with 2500 nested elements, each
@@ -136,6 +152,20 @@ Shipped with functional changes because: the one other change is the eHDSI asser
   128 namespaces as `Integrity::Malformed`, and the canonicalization keeps
   one namespace map with an undo log. The caps are our own design, well
   above an eHDSI assertion's 7 levels and about 50 declarations.
+- `federation::assertion::Validator` holds an eHDSI assertion's instants
+  to the clock and admits each exchange once (#317). It refused none of
+  these: an `IssueInstant` in the future or at or after `NotOnOrAfter`, an
+  `AuthnInstant` after the `IssueInstant`, or a `SessionNotOnOrAfter` in
+  the past. The same IdA and TRC could also be exchanged again while their
+  windows were open (since 0.10.0) (CWE-294, CWE-613, GHSA-vh6g-jqfw-g8pm).
+  Each is now refused within the 60 s drift (SAML 2.0 Core §2.3.3,
+  §2.7.2), as `Integrity::Issued`, `Authenticated`, `SessionEnded` and
+  `Replayed`. `session_not_on_or_after()` returns the session end. The
+  module docs state the caller's obligation: authenticate the presenting
+  party as acting for the sender-vouches issuer (eHDSI Messaging Profile
+  10.0.0 §5.5.2). An assertion whose `InclusiveNamespaces` lists `xs`, as
+  OpenSAML signers often do, stays refused (Cryptographic Algorithms 9.0.0
+  §4.1).
 
 ## [0.10.1] - 2026-11-08
 

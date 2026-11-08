@@ -79,13 +79,62 @@ pub trait ReplayStore: Send + Sync + 'static {
     ) -> Pin<Box<dyn Future<Output = Result<bool, ReplayStoreError>> + Send + 'a>>;
 }
 
-/// The records of a [`MemoryReplayStore`].
-#[derive(Debug, Default)]
-struct Seen {
-    /// Each recorded proof and when its record ends.
-    by_id: BTreeMap<ProofId, SystemTime>,
-    /// The same records in the order they end.
-    by_end: BTreeSet<(SystemTime, ProofId)>,
+/// Each record's end, by key, and the same records in the order they end.
+type Records<K, T> = (BTreeMap<K, T>, BTreeSet<(T, K)>);
+
+/// Single-use records kept in memory, each until the end of its window:
+/// the one in-memory store behind [`MemoryReplayStore`] and the eHDSI
+/// assertion replay guard.
+#[derive(Debug)]
+pub(crate) struct Ledger<K, T> {
+    /// The records.
+    seen: Mutex<Records<K, T>>,
+    /// The most records held at once.
+    capacity: usize,
+}
+
+impl<K: Ord + Clone, T: Ord + Copy> Ledger<K, T> {
+    /// Returns an empty ledger holding at most `capacity` records.
+    pub(crate) const fn new(capacity: usize) -> Self {
+        Self {
+            seen: Mutex::new((BTreeMap::new(), BTreeSet::new())),
+            capacity,
+        }
+    }
+
+    /// Returns how many records the ledger holds.
+    pub(crate) fn len(&self) -> usize {
+        self.seen
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .0
+            .len()
+    }
+
+    /// Records `key` until `until`, as of `now`, dropping every record that
+    /// ended first: `Some(true)` for a new record, `Some(false)` for one
+    /// held, and `None` when `capacity` records inside their windows are
+    /// held, so no record is forgotten inside its window.
+    pub(crate) fn record(&self, key: &K, until: T, now: T) -> Option<bool> {
+        let mut guard = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
+        let (by_key, by_end) = &mut *guard;
+        while let Some((end, id)) = by_end.first().cloned() {
+            if end >= now {
+                break;
+            }
+            by_end.remove(&(end, id.clone()));
+            by_key.remove(&id);
+        }
+        if by_key.contains_key(key) {
+            return Some(false);
+        }
+        if by_key.len() >= self.capacity {
+            return None;
+        }
+        by_key.insert(key.clone(), until);
+        by_end.insert((until, key.clone()));
+        Some(true)
+    }
 }
 
 /// A [`ReplayStore`] in the memory of one process.
@@ -99,17 +148,12 @@ struct Seen {
 #[derive(Debug)]
 pub struct MemoryReplayStore {
     /// The records.
-    seen: Mutex<Seen>,
-    /// The most records held at once.
-    capacity: usize,
+    ledger: Ledger<ProofId, SystemTime>,
 }
 
 impl Default for MemoryReplayStore {
     fn default() -> Self {
-        Self {
-            seen: Mutex::new(Seen::default()),
-            capacity: 100_000,
-        }
+        Self::with_capacity(100_000)
     }
 }
 
@@ -130,19 +174,14 @@ impl MemoryReplayStore {
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            capacity,
-            ..Self::default()
+            ledger: Ledger::new(capacity),
         }
     }
 
     /// Returns how many records the store holds.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .by_id
-            .len()
+        self.ledger.len()
     }
 
     /// Returns whether the store holds no record.
@@ -158,23 +197,7 @@ impl MemoryReplayStore {
         until: SystemTime,
         now: SystemTime,
     ) -> Result<bool, StoreFull> {
-        let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
-        while let Some((end, id)) = seen.by_end.first().cloned() {
-            if end >= now {
-                break;
-            }
-            seen.by_end.remove(&(end, id.clone()));
-            seen.by_id.remove(&id);
-        }
-        if seen.by_id.contains_key(proof) {
-            return Ok(false);
-        }
-        if seen.by_id.len() >= self.capacity {
-            return Err(StoreFull);
-        }
-        seen.by_id.insert(proof.clone(), until);
-        seen.by_end.insert((until, proof.clone()));
-        Ok(true)
+        self.ledger.record(proof, until, now).ok_or(StoreFull)
     }
 }
 

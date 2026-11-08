@@ -1611,6 +1611,36 @@ contact-point profile reads.
   FerroHEALTH/FerroFED#1620); the §4.4 EUDI Wallet attributes are held to
   their pairing.
 
+- **The instants.** `IssueInstant` no more than 60 s ahead and before
+  `NotOnOrAfter` (SAML 2.0 Core §2.3.3), `AuthnInstant` no more than 60 s
+  after the `IssueInstant` or now (§2.7.2), and `SessionNotOnOrAfter`, when
+  present, no more than 60 s behind (§2.7.2; SAML Profile 10.0.0 §2.1,
+  §4.1). The session end is returned, and `Exchange::ends` is the earliest
+  window or session end, the latest `exp` a token issued on it may carry.
+- **The exchange and its replay.** `Validator::exchange` checks the IdA
+  alone (the discovery phase) or the IdA with one TRC, and admits that
+  exchange once: the `ReplayGuard` `Validator::new` requires records it,
+  keyed by the issuer and `ID` of each assertion, until the earliest end
+  plus the drift (RFC 7522 §3, item 6). The key is the exchange, not the
+  IdA alone, since the IdA "always takes the role of a Supporting Token"
+  (Messaging Profile 10.0.0 §5.5.1) and comes again with each TRC of its
+  session (SAML Profile 10.0.0 §6, non-normative). The crate ships a
+  `MemoryReplayGuard` for one process; a product on several replicas
+  supplies a shared store. A guard that cannot answer admits nothing
+  (`ERROR_SEC_GENERIC`).
+- **The caller's obligation.** Sender-vouches names no presenter, so the
+  caller authenticates the presenting party as acting for the issuer:
+  NCPeH-A verifies NCP-B's message signature over the Body and the
+  assertions (Messaging Profile 10.0.0 §5.5.2), and an authorization
+  server acting for NCPeH-A authenticates its national connector, for
+  instance by its client certificate (RFC 8705 §2).
+- **Interoperability.** An `InclusiveNamespaces PrefixList` naming a
+  prefix outside SAML Profile 10.0.0 §1.4.2 is refused as
+  `Integrity::Canonicalization` (Cryptographic Algorithms 9.0.0 §4.1:
+  "other prefixes than the ones defined in [SAML Profile] MUST NOT be
+  used"). Signers built on OpenSAML often list `xs`, so their assertions
+  are refused until the issuer fixes its signer.
+
 Every refusal is an `AssertionError`, whose `code()` is its §1.25 code
 name: each `Integrity` refusal answers
 `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED`, the attribute refusals the codes of
@@ -2034,6 +2064,8 @@ four agree on and settles each difference:
 | An Entra ID groups overage is resolved by the `idp-entra` adapter, an optional feature a profile names by `adapter`, at the `getMemberObjects` URL it builds from the Graph root and the token's `oid` and `idtyp`, never at `_claim_sources`; every Graph failure is `GroupsUnavailable` carrying the status, the `Retry-After` or the timeout, under a 2 s budget of its own and with no cache (3.17) | Microsoft, "Access token claims reference", §Groups overage claim; "Optional claims reference", `idtyp`; Microsoft Graph v1.0 `directoryObject: getMemberObjects` and "Microsoft Graph throttling guidance"; the bounds are our own design (#221) | a deployment with users above the overage limit compiles `idp-entra`, sets `adapter = "idp-entra"` on its `entra` issuer, grants the Graph permission and registers the adapter |
 | The eHDSI IdA and TRC are checked in this crate behind `ehdsi-assertion`, by our own exclusive canonicalization over `roxmltree` and `x509-parser` with `aws-lc-rs` verifying, in one accepted signature shape against wrapping; a trusted signer is an issuer URI with its seal certificate, revocation is the deployment's, and an inclusive prefix outside SAML Profile 10.0.0 §1.4.2 or a canonicalization other than Exc-C14N is refused (3.18) | eHDSI Cryptographic Algorithms 9.0.0 §2, §4.1; SAML Profile 10.0.0 §2, §4; X.509 Certificates Profile 7.0.0 §2.4, §3.1; SOG-IS ACM 1.3 §4.1, §5.2; the shape, the caps and the trust set are our own design (#294) | an authorization server acting for NCPeH-A compiles `ehdsi-assertion` and supplies the SMP-published seal certificates |
 | An `@ID` is accepted as `urn:uuid:` or `_` followed by a UUID | SAML Profile 10.0.0 §2.1 writes a URN-encoded UUID, which SAML 2.0 Core §2.3.3's `xs:ID` cannot hold; accepting both is our own design (#294) | none |
+| An eHDSI exchange is admitted once: the `ReplayGuard` keys it by the issuer and `ID` of the IdA and, past the discovery phase, of the TRC, and keeps it until the earliest window or session end plus 60 s; a guard is required to build a `Validator`, and one that cannot answer admits nothing | RFC 7522 §3, item 6; eHDSI Messaging Profile 10.0.0 §5.5.1 (the IdA is a supporting token) and SAML Profile 10.0.0 §6 (non-normative, the IdA's session); keying by the exchange is our own design | the authorization server acting for NCPeH-A supplies a store its replicas share (FerroHEALTH/FerroAUTH#317) |
+| An eHDSI assertion whose `InclusiveNamespaces PrefixList` names a prefix outside SAML Profile 10.0.0 §1.4.2, such as the `xs` OpenSAML signers often list, is refused | eHDSI Cryptographic Algorithms 9.0.0 §4.1: "other prefixes than the ones defined in [SAML Profile] MUST NOT be used" | an NCP-B whose signer lists `xs` fixes its signer |
 
 ## 10. Verification
 
