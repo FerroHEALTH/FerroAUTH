@@ -305,15 +305,18 @@ impl GraphAdapter {
     async fn member_objects(&self, url: Url, caller: &Caller) -> Result<Vec<String>, AdapterError> {
         let answered = self
             .tokens
-            .call(|authorization| {
-                self.http
+            .send(&http::Method::POST, &url, |attempt| {
+                let mut request = self
+                    .http
                     .client()
                     .post(url.clone())
-                    .header(header::AUTHORIZATION, authorization)
+                    .header(header::AUTHORIZATION, attempt.authorization().clone())
                     .header(header::ACCEPT, "application/json")
-                    .header(header::CONTENT_TYPE, "application/json")
-                    .body(self.body)
-                    .send()
+                    .header(header::CONTENT_TYPE, "application/json");
+                if let Some(proof) = attempt.proof() {
+                    request = request.header(crate::client::dpop::HEADER, proof.clone());
+                }
+                request.body(self.body).send()
             })
             .await;
         let mut response = match answered {
@@ -327,6 +330,11 @@ impl GraphAdapter {
                 });
             }
             Err(CallError::Call { source }) => return Err(self.transport(source)),
+            Err(error @ (CallError::Proof { .. } | CallError::Unproven)) => {
+                return Err(AdapterError::Unreadable {
+                    source: Arc::new(error),
+                });
+            }
         };
         let status = response.status();
         tracing::debug!(%status, "Microsoft Graph answered getMemberObjects");

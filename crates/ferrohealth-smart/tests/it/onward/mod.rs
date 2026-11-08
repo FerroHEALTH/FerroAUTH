@@ -9,6 +9,7 @@
 //! Every token the cases exchange is signed when the case runs, with the
 //! times of the case: a published example's past times are moved to now.
 
+mod bound;
 mod cache;
 mod config;
 #[cfg(feature = "test-support")]
