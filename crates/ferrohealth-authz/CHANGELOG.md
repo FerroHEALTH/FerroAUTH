@@ -14,6 +14,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.5.0] - Unreleased
+
+Releases beside `ferrohealth-smart` 0.11.0, whose `resource::Caller` and
+`client::cache::TokenSource` this crate carries in its public API (#332).
+
+### Changed
+
+- Requires `ferrohealth-smart` 0.11.0 (caret `0.11.0`) in place of
+  `0.10.0`. `request::Subject::of` takes the 0.11.0 `resource::Caller` and
+  the remote decision point the 0.11.0 `client::cache::TokenSource`, so a
+  product on 0.10 that moves `ferrohealth-smart` to 0.11.0 alone builds two
+  copies of it and fails on the type. Upgrade: move `ferrohealth-smart` to
+  0.11.0 (its changelog lists what a product changes) and
+  `ferrohealth-authz` to 0.5.0 in one change; nothing else this crate
+  offers changes.
+
 ## [0.4.0] - 2026-11-08
 
 A policy reads who stands behind the credential (#262). This release
