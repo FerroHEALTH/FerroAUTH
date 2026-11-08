@@ -31,6 +31,16 @@ and this project adheres to
   `subject-id` verbatim, which they refused (#310). A TRC whose
   `subject-id` is not a CX with an ISO OID assigning authority is refused
   `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED`, naming `patient.id`.
+- The `keycloak` preset reads a Keycloak 26.8 impersonation as it is
+  issued (#308): every token of an impersonation session carries an RFC
+  8693 `act` claim naming the impersonator, with no `act.iss` (Keycloak
+  26.8.0 release notes), so it is admitted as `Delegated` only when
+  `delegates` lists the impersonator and refused as an unlisted actor
+  otherwise. The preset no longer says an impersonation reaches no claim.
+  To refuse every impersonation, add Keycloak's built-in IMPERSONATOR_ID
+  and IMPERSONATOR_USERNAME mappers and set `impersonation_marker =
+  "impersonator"`. The Keycloak release notes chapter and the two sources
+  it rests on are vendored under `docs/specs/keycloak-docs/`.
 
 ## [0.10.0] - 2026-11-08
 

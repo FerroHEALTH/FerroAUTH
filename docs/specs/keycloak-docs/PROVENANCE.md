@@ -9,16 +9,16 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 - Source: <https://github.com/keycloak/keycloak>, rendered as the Keycloak 26.8.2
   guides at <https://www.keycloak.org/documentation>
 - Pin: tag `26.8.2`, which resolves to commit `e514445f9dcdabc5bdcf67cab56c1e49655de067` (2026-11-05T15:27:24Z)
-- Fetched: 2026-11-05, each file from raw.githubusercontent.com at the commit
+- Fetched: 2026-11-08, each file from raw.githubusercontent.com at the commit
   and checked against the git blob id the commit records
 - Upstream licence: the repository's `LICENSE.txt`, the Apache License,
   Version 2.0, January 2004, vendored beside this file. Its §4 permits
   reproducing and distributing copies of the work in any medium, with a
   copy of the licence given to every recipient. The files are unmodified.
 - Layout: the upstream paths, unchanged
-- Files: 43
+- Files: 46
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `0ad45371c7bf31303c04ff39d18cf699d2941c32e483034a3b87c3daf2044936`
+  `PROVENANCE.md` excluded): `0b9007a9ec9adc2173dd464a27174b98ac9ab06de61629d65173d0bc6c258eca`
 - Read by: the `keycloak` issuer profile of #215, the token exchange
   grant of #217 and the live Keycloak case of #239, vendored by #222 and #239
 
@@ -69,6 +69,7 @@ index name, are not taken.
 | File | sha256 | git blob id |
 |---|---|---|
 | `LICENSE.txt` | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` | `d645695673349e3947e8e5ae42332d0ac3164cd7` |
+| `docs/documentation/release_notes/topics/26_8_0.adoc` | `651b61584ac2e9d92aca48211af99c8b4040a4d7b03d803d774a3bd731665051` | `6e83e13fe994c92507b29a5daf953903fee2ac7b` |
 | `docs/documentation/server_admin/topics/admin-cli.adoc` | `2443b1a18cf8ac9ff81062ba875fb854a69c0cc0cea6351d057d15fb16afa483` | `a698a8246357d1cbc48c4d7138dcdd1c6e78b8a6` |
 | `docs/documentation/server_admin/topics/clients/con-protocol-mappers.adoc` | `edb5a5ca0dcc2ff44a386a46420733a7f103f586efdc71bba46e8ea4a6dddcc2` | `ec681ceb05970357fed5af538209dbdad851f7a1` |
 | `docs/documentation/server_admin/topics/clients/oidc/con-audience.adoc` | `ff9f6c0adf79a2b16f94daac4596f1ed0aa67bae1bf4da6e55703df818882225` | `dfdb6995fc93b73d42ea899e5ab8d77b1a7140d2` |
@@ -108,6 +109,8 @@ index name, are not taken.
 | `docs/guides/securing-apps/token-exchange.adoc` | `99d6d660675f2d4d35cbdc0825ffab7f5aeeb39d970c580340b1d472a72d7afa` | `8b6b4f866dbfe084d062723687eadd2ec71e5abe` |
 | `docs/guides/server/containers.adoc` | `2c9fa7ff5e2017b5ea316248bdf3bacee792178ab463de7fc0feee1aa81a9699` | `daccd5b809cf9c1826e3172cbe6bf52ef33e3825` |
 | `docs/guides/templates/features.adoc` | `46d92510c4e2cafc8780518f1932784d29359a1c8088a8b643bc63c044d0dc03` | `9a6a96620d13ee8a9ba715240f3607e02e1e1576` |
+| `services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java` | `092a018ccfdc54d078dcb953d32e8c244dad854fa67aee3c1e16fd879eea6479` | `140e99c4c0c902c1902bcc8675a9ab2f7f605274` |
+| `services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java` | `ee8cc0bbb4e40acdb4eb401661542d8df9afffbee0efc2364a6e8284e35b929d` | `f7c8e3244b583272df6d16018fa23e9efea4bfe8` |
 | `services/src/main/java/org/keycloak/protocol/oidc/mappers/AudienceProtocolMapper.java` | `706653e426b063601795c1047e6b0f61cf04f378da24569fbb6ab6ff2c25341a` | `64d67834343c5726a630c708d6594664b0a776fd` |
 | `services/src/main/java/org/keycloak/protocol/oidc/mappers/OIDCAttributeMapperHelper.java` | `bd4be995ef4a84026472aa33dea151eba444cd9af68011a5a2165e07805c9b52` | `06af33df0a1a31b4727761d53e8b1fbae6da4f88` |
 | `services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json` | `9273aa73df4809754d5f1c1887492cdaa1616a3625d7ed01446c7c167e9b0cb0` | `ae5f62c5c5ebc07748665806bfff93faf1285e7e` |

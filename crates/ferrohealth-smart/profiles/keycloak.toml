@@ -23,11 +23,21 @@ client_claims = ["azp"]
 # client's. The deployment lists its service accounts' subjects; the empty
 # list refuses the issuer at load until it does.
 app_only = [{ subjects = [] }]
-# clients/con-protocol-mappers.adoc, "OIDC user session note mappers": an
-# impersonated session carries the notes IMPERSONATOR_ID and
-# IMPERSONATOR_USERNAME, which are notes, not claims, so the profile names no
-# impersonation marker. A deployment maps IMPERSONATOR_ID into a claim with a
-# User Session Note mapper and names that claim in `impersonation_marker`.
+# docs/documentation/release_notes/topics/26_8_0.adoc, "Track impersonation
+# across token lifecycle and downstream services": every token of an
+# impersonation session carries the RFC 8693 §4.1 `act` claim, which "is
+# always present and cannot be disabled". TokenManager.java at the tag fills
+# `act.sub` with the impersonator's user id and `act.preferred_username`
+# with the username, and names no `act.iss`, so the actor is read under the
+# token's own issuer. An impersonation is therefore a delegation, admitted
+# as `Delegated` only when `delegates` lists the impersonator and refused as
+# an unlisted actor otherwise; the profile names no impersonation marker.
+# A deployment that refuses every impersonation adds the built-in
+# IMPERSONATOR_ID and IMPERSONATOR_USERNAME session note mappers
+# (OIDCLoginProtocolFactory.java), which write `impersonator.id` and
+# `impersonator.username`, and sets `impersonation_marker = "impersonator"`.
+# A Keycloak older than 26.8 writes no `act`, so there the mappers and the
+# marker are the only way an impersonation is seen.
 #
 # The onward grant: docs/specs/keycloak-docs/docs/guides/securing-apps/
 # token-exchange.adoc at tag 26.8.2. No lifetime is stated there, so the
