@@ -60,6 +60,13 @@ pub struct OnwardSection {
     /// setting for a performance measurement's self-test, never for
     /// production. `true` by default.
     pub cache: bool,
+    /// Whether every token exchange sent without an actor token names the
+    /// lane's client as its actor with an assertion signed by the current
+    /// key of its `oauth` table's key ring (RFC 8693 §2.1;
+    /// [`Onward::with_actor_assertion`]). `false` by default.
+    ///
+    /// [`Onward::with_actor_assertion`]: crate::client::onward::exchange::Onward::with_actor_assertion
+    pub actor_assertion: bool,
 }
 
 impl Default for OnwardSection {
@@ -78,6 +85,7 @@ impl Default for OnwardSection {
             federation: None,
             assurance: None,
             cache: true,
+            actor_assertion: false,
         }
     }
 }
@@ -232,6 +240,14 @@ mod resolve {
                     "the onward token cache is off: every call exchanges a token at the issuer"
                 );
                 onward = onward.without_cache();
+            }
+            if self.actor_assertion {
+                onward =
+                    onward
+                        .with_actor_assertion()
+                        .map_err(|source| ConfigError::OnwardActor {
+                            source: Box::new(source),
+                        })?;
             }
             onward
                 .check_target(&target)
