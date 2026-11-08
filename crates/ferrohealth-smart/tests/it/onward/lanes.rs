@@ -8,7 +8,7 @@
 
 use ferrohealth_smart::client::onward::OnwardError;
 use ferrohealth_smart::config::ConfigError;
-use ferrohealth_smart::config::CredentialsSection;
+use ferrohealth_smart::config::credentials::CredentialsSection;
 use ferrohealth_smart::config::onward::OnwardLane;
 use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::profile::onward::OnwardGrant;

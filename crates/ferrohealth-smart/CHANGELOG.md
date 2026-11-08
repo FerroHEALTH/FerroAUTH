@@ -136,6 +136,13 @@ and this project adheres to
   `StoreError::Weak`, which `basic::Store::with_user` now applies too.
   Upgrade: rehash a weaker Basic password, and remove secret keys from a
   `jwks_file`.
+- **Breaking:** `config::CredentialsSection`, `config::OauthSection` and
+  `config::Outbound` move to `config::credentials`, the module that
+  resolves them, so `config/mod.rs` stays under the 750-line split
+  threshold (#329). The checks of one `[[auth.issuer]]` table move into
+  `config::issuer` and stay private. Nothing else changes. Upgrade: import
+  `ferrohealth_smart::config::credentials::{CredentialsSection,
+  OauthSection, Outbound}`.
 
 ### Fixed
 

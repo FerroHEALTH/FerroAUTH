@@ -49,7 +49,7 @@ use crate::client::CallError;
 use crate::client::TokenError;
 use crate::client::cache::TokenSource;
 use crate::config::ConfigError;
-use crate::config::OauthSection;
+use crate::config::credentials::OauthSection;
 use crate::metadata::DiscoveryError;
 use crate::metadata::Http;
 use crate::party::adapter::AdapterError;

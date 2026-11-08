@@ -9,7 +9,7 @@
 use ferrohealth_smart::client::onward::OnwardError;
 use ferrohealth_smart::client::onward::Rejected;
 use ferrohealth_smart::client::onward::SubjectToken;
-use ferrohealth_smart::config::CredentialsSection;
+use ferrohealth_smart::config::credentials::CredentialsSection;
 use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::kind::Unclassified;

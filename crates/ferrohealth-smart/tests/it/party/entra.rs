@@ -8,7 +8,7 @@
 use std::time::Instant;
 
 use ferrohealth_smart::client::TokenError;
-use ferrohealth_smart::config::OauthSection;
+use ferrohealth_smart::config::credentials::OauthSection;
 use ferrohealth_smart::idp::entra::GraphError;
 use ferrohealth_smart::idp::entra::GraphSection;
 use ferrohealth_smart::idp::entra::NAME;

@@ -5,8 +5,13 @@
 //! client credentials grant, every rule checked and every secret read.
 
 use std::path::Path;
+use std::path::PathBuf;
 use std::time::Duration;
 
+use jsonwebtoken::Algorithm;
+use secrecy::SecretString;
+use serde::Deserialize;
+use serde::Serialize;
 use url::Url;
 
 use crate::basic::Credential;
@@ -24,14 +29,118 @@ use crate::client::fapi2::ProfileKind;
 use crate::client::fapi2::SecurityProfile;
 use crate::client::keys::KeyRing;
 use crate::config::ConfigError;
-use crate::config::CredentialsSection;
-use crate::config::OauthSection;
-use crate::config::Outbound;
 use crate::config::REDACTED;
 use crate::config::mask_userinfo;
+use crate::config::onward;
 use crate::config::read::parse_url;
 use crate::config::read::secret;
+use crate::config::shapes;
 use crate::scope::is_scope_token;
+
+/// The `[<lane>.credentials]` table: HTTP Basic with `user` and `password`,
+/// or the client credentials grant under `oauth`; the two exclude each
+/// other.
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CredentialsSection {
+    /// The Basic user-id.
+    pub user: String,
+    /// The Basic password, rendered redacted.
+    #[serde(
+        serialize_with = "shapes::redact",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub password: Option<SecretString>,
+    /// The file holding the Basic password.
+    pub password_file: Option<PathBuf>,
+    /// The client credentials grant.
+    pub oauth: Option<OauthSection>,
+    /// The onward target the lane reaches on a caller's behalf, authenticating
+    /// with `oauth`.
+    pub onward: Option<onward::OnwardSection>,
+}
+
+/// The `[<lane>.credentials.oauth]` table.
+///
+/// Its rendering, serialized or `Debug`, shows `issuer` and
+/// `token_endpoint` with any userinfo masked and the secrets redacted, so a
+/// product can render its running configuration.
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct OauthSection {
+    /// The issuer whose metadata names the token endpoint; exclusive with
+    /// `token_endpoint`.
+    #[serde(serialize_with = "shapes::masked_url")]
+    pub issuer: String,
+    /// The token endpoint itself; exclusive with `issuer`.
+    #[serde(serialize_with = "shapes::masked_url")]
+    pub token_endpoint: String,
+    /// The client identifier.
+    pub client_id: String,
+    /// How the client authenticates.
+    pub client_auth: ClientAuth,
+    /// The client secret, rendered redacted.
+    #[serde(
+        serialize_with = "shapes::redact",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub client_secret: Option<SecretString>,
+    /// The file holding the client secret.
+    pub client_secret_file: Option<PathBuf>,
+    /// The PEM file holding the private key of the client assertion.
+    pub private_key_file: Option<PathBuf>,
+    /// The `kid` the assertion names; the RFC 7638 thumbprint when empty.
+    pub kid: String,
+    /// The algorithm the assertion is signed with; by key type when unset.
+    pub assertion_alg: Option<Algorithm>,
+    /// The `scope` request parameter; empty for none.
+    pub scope: String,
+    /// The RFC 8707 resource indicator; empty for none.
+    pub resource: String,
+    /// The `audience` request parameter; empty for none.
+    pub audience: String,
+    /// How long before the token expires a new one is fetched.
+    pub refresh_margin_ms: u64,
+    /// How long one call to the authorization server may take.
+    pub timeout_ms: u64,
+    /// The `aud` of a `private_key_jwt` assertion: `token_endpoint` (the
+    /// default) or `issuer`, which needs `issuer` set.
+    pub assertion_audience: AssertionAudience,
+    /// A PEM file of trust roots added to the built-in ones, for a token
+    /// endpoint behind a private certificate authority.
+    pub ca_file: Option<PathBuf>,
+    /// The PEM file of the client certificate chain presented over mutual
+    /// TLS (RFC 8705 §2); set with `client_key_file`.
+    pub client_certificate_file: Option<PathBuf>,
+    /// The PEM file of the client certificate's private key; set with
+    /// `client_certificate_file`.
+    pub client_key_file: Option<PathBuf>,
+    /// The PEM file of the `DPoP` key the tokens are bound to (RFC 9449).
+    pub dpop_key_file: Option<PathBuf>,
+    /// Whether the tokens are bound to the client certificate (RFC 8705 §3).
+    pub certificate_bound: bool,
+    /// The security profile: `oauth2` (the default) or `fapi2`.
+    pub security_profile: ProfileKind,
+    /// The hosts a FAPI 2.0 mutual-TLS alias may be on (RFC 8705 §5).
+    pub mtls_alias_hosts: Vec<String>,
+    /// The PEM file of the previous assertion key, published, never signing.
+    pub previous_private_key_file: Option<PathBuf>,
+    /// How long the previous key stays published; 0 for as long as it is set.
+    pub previous_key_overlap_ms: u64,
+    /// The PEM file of the next assertion key, published and never signing.
+    pub next_private_key_file: Option<PathBuf>,
+    /// The RFC 9396 `authorization_details` JSON text; empty for none.
+    pub authorization_details: String,
+}
+
+/// The outbound credential a `[<lane>.credentials]` table resolves to.
+#[derive(Debug, Clone)]
+pub enum Outbound {
+    /// HTTP Basic.
+    Basic(Credential),
+    /// The client credentials grant.
+    Oauth(Box<ClientCredentials>),
+}
 
 impl CredentialsSection {
     /// Resolves the table: `None` when it names no credential.

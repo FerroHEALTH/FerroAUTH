@@ -26,7 +26,7 @@ use ferrohealth_smart::client::fapi2::SecurityProfile;
 use ferrohealth_smart::client::keys::KeyRing;
 use ferrohealth_smart::client::keys::KeyRingError;
 use ferrohealth_smart::config::ConfigError;
-use ferrohealth_smart::config::OauthSection;
+use ferrohealth_smart::config::credentials::OauthSection;
 use jsonwebtoken::Algorithm;
 use secrecy::SecretString;
 use serde_json::Value;
