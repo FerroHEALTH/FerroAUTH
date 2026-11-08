@@ -253,6 +253,17 @@ pub enum ConfigError {
         #[source]
         source: Box<crate::client::onward::OnwardError>,
     },
+    /// `credentials.onward.actor_assertion` is set on a lane that cannot
+    /// sign an actor assertion: its `oauth` table holds no assertion key, or
+    /// its issuer exchanges by the JWT bearer grant, which has no actor
+    /// (RFC 7523 §2.1).
+    #[cfg(feature = "fetch")]
+    #[error("credentials.onward.actor_assertion is refused")]
+    OnwardActor {
+        /// Why.
+        #[source]
+        source: Box<crate::client::onward::OnwardError>,
+    },
     /// A key was removed; the error names what replaces it.
     #[error("{key} is removed: {replacement}")]
     Removed {

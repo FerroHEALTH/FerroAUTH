@@ -1323,7 +1323,8 @@ which `CredentialsSection::onward` resolves into the client and its
 - `token_exchange` (`rfc8693 §2.1`), the default: the caller's token as
   `subject_token` with its `subject_token_type`, an optional `actor_token`
   (an access token of the actor's own, with `actor_token_type`, or, under
-  `Onward::with_actor_assertion`, an RFC 7523 assertion of the requesting
+  `Onward::with_actor_assertion`, which the onward table's
+  `actor_assertion = true` asks for (FerroHEALTH/FerroAUTH#340), an RFC 7523 assertion of the requesting
   client signed for each request, with the claims and `aud` of its client
   assertion, a `jti` of its own and the JWT type of `rfc8693 §3`, whose
   issued token is held to the client as its actor, FerroHEALTH/FerroAUTH#321), `scope`
@@ -1794,6 +1795,8 @@ scope = "api://<cdr app id>/.default"
 # correlation_claim = "txn"          # a chained federation route
 # cache = false                      # default true; false exchanges on every call,
 #                                    # for a performance self-test, never production
+# actor_assertion = true             # default false; name the client the actor of
+#                                    # each exchange with an assertion (rfc8693 §2.1)
 
 [cdr.credentials.onward.keys]        # any profile key over the preset
 max_onward_lifetime = 5400           # required: no preset states one

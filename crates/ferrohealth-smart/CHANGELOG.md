@@ -11,14 +11,35 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.12.0] - Unreleased
+
 ### Added
 
+- The `[<lane>.credentials.onward]` table takes `actor_assertion`, `false`
+  by default. `true` resolves the lane with
+  `Onward::with_actor_assertion`, so every exchange sent without an actor
+  token names the lane's client as its actor with an assertion signed by
+  its `oauth` key ring (RFC 8693 §2.1, §3). A lane that cannot sign one,
+  with no assertion key or under the JWT bearer grant, is refused as the
+  new `ConfigError::OnwardActor` (#340).
 - `client::assertion::AssertionKey::sign(typ, claims)` returns the compact
   JWS of a product's own claims, signed with the key's algorithm under its
   `kid` and the `typ` the product names (RFC 7515 §7.1, RFC 8725 §3.11), so
   `KeyRing::current()` signs the product's own tokens with the key its JWK
   Set publishes (#338). The client assertion is signed through it, as
   before with `typ` `JWT`.
+
+### Changed
+
+- **Breaking:** `config::onward::OnwardSection` gains the public field
+  `actor_assertion` (#340). A struct literal that names every field no
+  longer compiles: add the field, or write `..OnwardSection::default()`. A
+  table read from TOML needs no change. Upgrade: pin
+  `ferrohealth-smart = "=0.12.0"`. The `[workspace.dependencies]`
+  requirement of `ferrohealth-smart` moves to 0.12.0.
+- The config tables stay constructible with a struct literal: they are not
+  `#[non_exhaustive]`, since products build them with
+  `..Section::default()`, which `#[non_exhaustive]` forbids (#340).
 
 ### Fixed
 

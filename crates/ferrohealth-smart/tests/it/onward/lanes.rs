@@ -106,9 +106,10 @@ async fn a_standards_only_lane_loads_and_exchanges_at_its_token_endpoint() {
     client.verify(form, "bridge", &format!("{}/token", server.uri()));
 }
 
-/// Returns how many token requests two calls of a standards-only lane whose
-/// onward table ends in `extra` send to its token endpoint.
-async fn exchanges_for_two_calls(extra: &str) -> (bool, usize) {
+/// Returns whether a standards-only lane whose onward table ends in `extra`
+/// caches, how many token requests two of its calls send to its token
+/// endpoint, and the `actor_token_type` of the first.
+async fn exchanges_for_two_calls(extra: &str) -> (bool, usize, Option<String>) {
     let server = MockServer::start().await;
     let section = lane(
         &private_key_jwt(&ClientKey::new(), "bridge"),
@@ -136,18 +137,67 @@ async fn exchanges_for_two_calls(extra: &str) -> (bool, usize) {
             .await
             .expect("the exchange succeeds");
     }
-    (lane.onward.caches(), received(&server).await.len())
+    let sent = received(&server).await;
+    let actor = sent
+        .first()
+        .and_then(|form| param(form, "actor_token_type"))
+        .map(str::to_owned);
+    (lane.onward.caches(), sent.len(), actor)
 }
 
 #[tokio::test]
 async fn a_lane_with_the_cache_off_exchanges_on_every_call() {
-    assert_eq!((false, 2), exchanges_for_two_calls("cache = false").await);
+    assert_eq!(
+        (false, 2, None),
+        exchanges_for_two_calls("cache = false").await
+    );
 }
 
 #[tokio::test]
 async fn a_lane_holds_its_token_by_default() {
-    assert_eq!((true, 1), exchanges_for_two_calls("").await);
-    assert_eq!((true, 1), exchanges_for_two_calls("cache = true").await);
+    assert_eq!((true, 1, None), exchanges_for_two_calls("").await);
+    assert_eq!(
+        (true, 1, None),
+        exchanges_for_two_calls("cache = true").await
+    );
+}
+
+#[tokio::test]
+async fn a_lane_asking_for_the_actor_assertion_names_its_client_the_actor() {
+    // NOTE: RFC 8693 §2.1 and §3, the actor assertion travels as a JWT actor token.
+    assert_eq!(
+        (
+            true,
+            1,
+            Some(String::from("urn:ietf:params:oauth:token-type:jwt"))
+        ),
+        exchanges_for_two_calls("actor_assertion = true").await
+    );
+    assert_eq!(
+        (true, 1, None),
+        exchanges_for_two_calls("actor_assertion = false").await
+    );
+}
+
+#[test]
+fn the_actor_assertion_without_an_assertion_key_fails_to_load_naming_the_key() {
+    let section = lane(
+        &secret_file("requester-client"),
+        "issuer = \"https://kc.example.org/realms/test\"\nkind = \"persons\"\nprofile = \"keycloak\"\n\
+         token_endpoint = \"https://kc.example.org/realms/test/protocol/openid-connect/token\"\n\
+         audiences = [\"target-client2\"]\nindicators = [\"target-client2\"]\nactor_assertion = true\n\
+         [onward.keys]\nmax_onward_lifetime = 300\napp_only = [{ subjects = [\"service-account-bridge\"] }]",
+    );
+    let refused = resolved(&section);
+    assert!(
+        matches!(&refused, Err(ConfigError::OnwardActor { .. })),
+        "{refused:?}"
+    );
+    let shown = refused.err().map(|error| error.to_string());
+    assert_eq!(
+        Some("credentials.onward.actor_assertion is refused"),
+        shown.as_deref()
+    );
 }
 
 #[test]
