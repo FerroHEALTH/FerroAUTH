@@ -11,6 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- `federation::assertion::Validator` translates every `\r\n` and every
+  lone `\r` of an assertion to `\n` before parsing it, as XML 1.0 §2.11
+  has a processor do (#316). `roxmltree` 0.21 left a literal carriage
+  return directly before an entity or character reference untranslated, so
+  the canonical form wrote `&#xD;` where a conformant signer wrote a line
+  feed, and a correctly signed assertion was refused as `Integrity::Digest`.
+  A carriage return written as `&#xD;` still canonicalizes to `&#xD;`
+  (C14N 1.0 §2.3).
+
 ## [0.10.1] - 2026-11-08
 
 ### Added

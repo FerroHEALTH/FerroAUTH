@@ -5,16 +5,30 @@
 //! 18 July 2002), of one element and its descendants, less one excluded
 //! subtree: the enveloped signature of XML-DSig §6.6.4.
 //!
-//! The input is the `XPath` data model `roxmltree` builds, so line ends,
-//! character references and attribute values arrive normalized (XML 1.0
-//! §2.11, §3.3.3); the prefixes are read from the source text, since the
-//! canonical form keeps the prefix the signer wrote (Exc-C14N §3).
+//! The input is the `XPath` data model `roxmltree` builds from text whose
+//! line ends [`line_ends`] normalized first (XML 1.0 §2.11), so character
+//! references and attribute values arrive normalized too (§3.3.3); the
+//! prefixes are read from the source text, since the canonical form keeps
+//! the prefix the signer wrote (Exc-C14N §3).
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use roxmltree::Node;
 use roxmltree::NodeId;
+
+/// Returns `xml` with every `\r\n` and every `\r` not followed by `\n`
+/// as one `\n`, the translation XML 1.0 §2.11 has a processor make before
+/// parsing. A carriage return written as `&#xD;` is no literal one, so it
+/// survives into the canonical form as C14N 1.0 §2.3 writes it.
+pub(super) fn line_ends(xml: &str) -> Cow<'_, str> {
+    if xml.contains('\r') {
+        Cow::Owned(xml.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        Cow::Borrowed(xml)
+    }
+}
 
 /// One step of the walk: entering a node, or leaving an element.
 enum Step<'a, 'input> {
@@ -212,9 +226,11 @@ fn escape_attribute(out: &mut String, value: &str) {
 #[cfg(test)]
 mod tests {
     use super::canonicalize;
+    use super::line_ends;
 
     fn canonical(xml: &str, inclusive: &[&str]) -> String {
-        let doc = roxmltree::Document::parse(xml).expect("the case is well formed");
+        let xml = line_ends(xml);
+        let doc = roxmltree::Document::parse(&xml).expect("the case is well formed");
         let bytes = canonicalize(doc.root_element(), None, inclusive).expect("canonicalizable");
         String::from_utf8(bytes).expect("UTF-8")
     }
@@ -290,5 +306,27 @@ mod tests {
             .map(|node| node.id());
         let bytes = canonicalize(doc.root_element(), excluded, &[]).expect("canonicalizable");
         assert_eq!(String::from_utf8(bytes).expect("UTF-8"), "<a>  <b></b></a>");
+    }
+
+    #[test]
+    fn a_lone_carriage_return_is_a_line_feed_as_libxml2_writes_it() {
+        // NOTE: XML 1.0 §2.11; the expectations are `xmllint --exc-c14n`'s (FerroHEALTH/FerroAUTH#316).
+        for (text, expected) in [
+            ("a\rb", "a\nb"),
+            ("a\r<b/>", "a\n<b></b>"),
+            ("a\r&amp;", "a\n&amp;"),
+            ("&amp;\r", "&amp;\n"),
+        ] {
+            assert_eq!(
+                canonical(&format!("<e>{text}</e>"), &[]),
+                format!("<e>{expected}</e>"),
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_carriage_return_written_as_a_reference_stays_one() {
+        assert_eq!(canonical("<e>a&#xD;\r\nb</e>", &[]), "<e>a&#xD;\nb</e>");
     }
 }
