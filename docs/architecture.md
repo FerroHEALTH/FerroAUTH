@@ -1488,7 +1488,9 @@ contact-point profile reads.
   declarations to 128 before `roxmltree` parses (our own design), since its
   namespace copies cost time quadratic in nested declarations, and the
   canonicalization keeps one rendered-namespace map with an undo log
-  (FerroHEALTH/FerroAUTH#315).
+  (FerroHEALTH/FerroAUTH#315). The line ends are translated before parsing
+  (XML 1.0 §2.11), since `roxmltree` 0.21 leaves a carriage return before a
+  reference untranslated (FerroHEALTH/FerroAUTH#316).
 - **The floor.** SOG-IS ACM 1.3 at "Legacy valid beyond 2025"
   (Cryptographic Algorithms 9.0.0 §2): an RSA modulus of at least 3000 bits
   (§4.1, Note 27), PKCS#1 v1.5 or PSS with SHA-256, SHA-384 or SHA-512

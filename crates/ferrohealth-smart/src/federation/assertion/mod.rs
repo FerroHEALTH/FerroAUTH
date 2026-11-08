@@ -255,7 +255,8 @@ impl Validator {
             nodes_limit: MAX_NODES,
             ..ParsingOptions::default()
         };
-        let document = Document::parse_with_options(xml, options)
+        let xml = c14n::line_ends(xml);
+        let document = Document::parse_with_options(&xml, options)
             .map_err(|_malformed| Integrity::Malformed)?;
         let envelope = Envelope::open(&document, self, window, now)?;
         read(&envelope)

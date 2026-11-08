@@ -1005,6 +1005,59 @@ fn the_claim_carries_the_contact_point_field_set() {
     );
 }
 
+/// An identity assertion whose `subject-id` is `name`, signed over the
+/// canonical form a conformant signer writes, with each literal carriage
+/// return as a line feed (XML 1.0 §2.11), and sent with the carriage return.
+fn signed_with_a_literal_carriage_return(case: &Case, name: &str) -> String {
+    let mut parts = Parts::identity();
+    *parts.attributes.get_mut(1).expect("the subject-id") =
+        attribute("urn:oasis:names:tc:xspa:1.0:subject:subject-id", name);
+    let normalized = |text: &str| text.replace("\r\n", "\n").replace('\r', "\n");
+    let signed = Signing::by(&case.seal, &parts.id).sign(&normalized(&parts.render()));
+    let sent = signed.replacen(&normalized(name), name, 1);
+    assert!(
+        sent.contains('\r'),
+        "the case sends a literal carriage return"
+    );
+    sent
+}
+
+#[test]
+fn a_literal_carriage_return_before_a_reference_keeps_the_signature() {
+    let case = Case::new();
+    let sent = signed_with_a_literal_carriage_return(&case, "Invented\r&amp;Doctor");
+    let identity = case
+        .validator
+        .identity(&sent, now())
+        .expect("the carriage return is a line feed before canonicalization");
+    assert_eq!(identity.name(), "Invented\n&Doctor");
+}
+
+#[test]
+fn a_literal_carriage_return_inside_text_keeps_the_signature() {
+    let case = Case::new();
+    let sent = signed_with_a_literal_carriage_return(&case, "Invented\r\nDoc\rtor");
+    let identity = case
+        .validator
+        .identity(&sent, now())
+        .expect("both line ends are line feeds before canonicalization");
+    assert_eq!(identity.name(), "Invented\nDoc\ntor");
+}
+
+#[test]
+fn a_carriage_return_reference_is_signed_as_one() {
+    let case = Case::new();
+    let mut parts = Parts::identity();
+    parts.attributes[1] = attribute(
+        "urn:oasis:names:tc:xspa:1.0:subject:subject-id",
+        "Invented&#xD;Doctor",
+    );
+    let identity = case
+        .identity(&parts)
+        .expect("C14N 1.0 §2.3 writes the surviving carriage return as &#xD;");
+    assert_eq!(identity.name(), "Invented\rDoctor");
+}
+
 /// 2500 nested elements, each declaring a fresh prefix: 65 000 bytes and
 /// 2500 nodes, inside the byte and node caps (FerroHEALTH/FerroAUTH#315).
 fn fresh_prefix_nesting(depth: usize) -> (String, String) {
