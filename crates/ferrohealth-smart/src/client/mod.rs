@@ -17,13 +17,20 @@
 //! bearer credential per attempt, and sends a call once more with a new
 //! token when the upstream refuses the held one with `401`.
 //!
+//! A grant may bind its tokens ([`binding::TokenBinding`]): to a `DPoP` key
+//! ([`dpop`]), whose proof every token request and every resource request
+//! carries (RFC 9449), or to the client certificate it presents, which every
+//! issued token that states a binding must name (RFC 8705 §3).
+//!
 //! `onward`, behind `fetch` as well, obtains a token for another service on behalf of a caller, by
 //! token exchange (RFC 8693 §2.1) or the JWT bearer grant (RFC 7523 §2.1),
 //! and refuses one that fails the onward check.
 
 pub mod assertion;
+pub mod binding;
 #[cfg(feature = "fetch")]
 pub mod cache;
+pub mod dpop;
 #[cfg(feature = "fetch")]
 pub(crate) mod endpoint;
 #[cfg(feature = "fetch")]
@@ -40,6 +47,8 @@ use serde::Serialize;
 use url::Url;
 
 use crate::client::assertion::AssertionKey;
+use crate::client::binding::TokenBinding;
+use crate::client::dpop::DpopKey;
 use crate::metadata::DiscoveryError;
 
 /// Where the token endpoint comes from.
@@ -212,6 +221,9 @@ pub struct ClientCredentials {
     /// The trust roots and the client certificate of the token endpoint
     /// connection.
     pub tls: Tls,
+    /// What the issued tokens are bound to, when they are sender-constrained
+    /// (RFC 9449, RFC 8705 §3); `None` for bearer tokens.
+    pub token_binding: Option<TokenBinding>,
 }
 
 impl ClientCredentials {
@@ -223,18 +235,8 @@ impl ClientCredentials {
     #[must_use]
     pub fn new(endpoint: Endpoint, client_id: String, client_secret: SecretString) -> Self {
         Self {
-            endpoint,
-            client_id,
-            client_auth: ClientAuth::default(),
             client_secret: Some(client_secret),
-            assertion_key: None,
-            scope: None,
-            audience: None,
-            resource: None,
-            refresh_margin: Duration::from_secs(30),
-            timeout: Duration::from_secs(10),
-            assertion_audience: AssertionAudience::default(),
-            tls: Tls::default(),
+            ..Self::authenticating(endpoint, client_id, ClientAuth::default())
         }
     }
 
@@ -243,18 +245,8 @@ impl ClientCredentials {
     #[must_use]
     pub fn with_private_key_jwt(endpoint: Endpoint, client_id: String, key: AssertionKey) -> Self {
         Self {
-            endpoint,
-            client_id,
-            client_auth: ClientAuth::PrivateKeyJwt,
-            client_secret: None,
             assertion_key: Some(key),
-            scope: None,
-            audience: None,
-            resource: None,
-            refresh_margin: Duration::from_secs(30),
-            timeout: Duration::from_secs(10),
-            assertion_audience: AssertionAudience::default(),
-            tls: Tls::default(),
+            ..Self::authenticating(endpoint, client_id, ClientAuth::PrivateKeyJwt)
         }
     }
 
@@ -269,14 +261,28 @@ impl ClientCredentials {
         identity: Arc<SecretSlice<u8>>,
         self_signed: bool,
     ) -> Self {
+        let client_auth = if self_signed {
+            ClientAuth::SelfSignedTlsClientAuth
+        } else {
+            ClientAuth::TlsClientAuth
+        };
+        Self {
+            tls: Tls {
+                root_certificates: None,
+                identity: Some(identity),
+            },
+            ..Self::authenticating(endpoint, client_id, client_auth)
+        }
+    }
+
+    /// Returns a grant for `client_id` at `endpoint` authenticating with
+    /// `client_auth`, holding no credential yet, with the defaults of
+    /// [`ClientCredentials::new`].
+    fn authenticating(endpoint: Endpoint, client_id: String, client_auth: ClientAuth) -> Self {
         Self {
             endpoint,
             client_id,
-            client_auth: if self_signed {
-                ClientAuth::SelfSignedTlsClientAuth
-            } else {
-                ClientAuth::TlsClientAuth
-            },
+            client_auth,
             client_secret: None,
             assertion_key: None,
             scope: None,
@@ -285,10 +291,47 @@ impl ClientCredentials {
             refresh_margin: Duration::from_secs(30),
             timeout: Duration::from_secs(10),
             assertion_audience: AssertionAudience::default(),
-            tls: Tls {
-                root_certificates: None,
-                identity: Some(identity),
-            },
+            tls: Tls::default(),
+            token_binding: None,
+        }
+    }
+
+    /// Returns this grant binding its tokens to `key`: every token request
+    /// and every resource request carries a proof of it, and only a token of
+    /// type `DPoP` is taken (RFC 9449 §5, §7.1).
+    #[must_use]
+    pub fn with_dpop(mut self, key: Arc<DpopKey>) -> Self {
+        self.token_binding = Some(TokenBinding::Dpop(key));
+        self
+    }
+
+    /// Returns this grant taking only tokens whose stated binding names the
+    /// client certificate of its TLS identity (RFC 8705 §3).
+    #[must_use]
+    pub fn with_certificate_binding(mut self) -> Self {
+        self.token_binding = Some(TokenBinding::Certificate);
+        self
+    }
+
+    /// Returns the `DPoP` key the grant's tokens are bound to, when they are.
+    #[must_use]
+    pub fn dpop_key(&self) -> Option<&Arc<DpopKey>> {
+        match &self.token_binding {
+            Some(TokenBinding::Dpop(key)) => Some(key),
+            Some(TokenBinding::Certificate) | None => None,
+        }
+    }
+
+    /// Returns the thumbprint of the certificate a certificate-bound grant
+    /// presents, when its tokens are bound to one and its identity holds one.
+    pub(crate) fn bound_certificate(&self) -> Option<crate::sender::ClientCertificate> {
+        match self.token_binding {
+            Some(TokenBinding::Certificate) => self
+                .tls
+                .identity
+                .as_deref()
+                .and_then(binding::presented_certificate),
+            Some(TokenBinding::Dpop(_)) | None => None,
         }
     }
 
@@ -297,9 +340,19 @@ impl ClientCredentials {
     /// # Errors
     ///
     /// Returns [`TokenError::Credential`] naming what is missing: a secret,
-    /// an assertion key, a client certificate under a mutual-TLS method, or
-    /// the issuer an issuer assertion audience names.
+    /// an assertion key, a client certificate under a mutual-TLS method or
+    /// a certificate binding, or the issuer an issuer assertion audience
+    /// names.
     pub fn validate(&self) -> Result<(), TokenError> {
+        // NOTE: RFC 8705 §3, a certificate-bound token is bound to the certificate
+        // the client presents, so a grant that presents none cannot take one.
+        if matches!(self.token_binding, Some(TokenBinding::Certificate))
+            && self.bound_certificate().is_none()
+        {
+            return Err(TokenError::Credential {
+                what: "client certificate for the certificate binding",
+            });
+        }
         if self.client_auth == ClientAuth::PrivateKeyJwt
             && self.assertion_audience == AssertionAudience::Issuer
             && !matches!(self.endpoint, Endpoint::Issuer(_))
@@ -406,17 +459,33 @@ pub enum TokenError {
         #[source]
         source: serde_json::Error,
     },
-    /// The token is not a bearer token, the one type the product sends
-    /// (RFC 6749 §7.1, RFC 6750).
-    #[error("the token endpoint issued a token of type {found:?}; the product sends bearer tokens")]
+    /// The token is not of the type the grant asks for: `Bearer` (RFC 6750),
+    /// or `DPoP` for a grant whose tokens are bound to a `DPoP` key (RFC 9449
+    /// §5).
+    #[error("the token endpoint issued a token of type {found:?}; the grant asks for {expected}")]
     TokenType {
         /// The `token_type` the response named.
         found: String,
+        /// The type the grant asks for.
+        expected: &'static str,
     },
-    /// The token cannot travel as an RFC 6750 §2.1 bearer credential: it
-    /// carries a byte outside the `b64token` alphabet.
-    #[error("the issued token cannot travel as a bearer credential")]
+    /// The token cannot travel as an RFC 6750 §2.1 or RFC 9449 §7.1
+    /// credential: it carries a byte outside the `b64token` alphabet.
+    #[error("the issued token cannot travel as a credential")]
     Unusable,
+    /// The `DPoP` proof of the token request could not be signed (RFC 9449
+    /// §4.2); nothing was sent.
+    #[error("the DPoP proof of the token request could not be signed")]
+    Proof {
+        /// Why.
+        #[source]
+        source: dpop::DpopError,
+    },
+    /// The issued token states a binding to another certificate than the
+    /// one the grant presents, or to another confirmation method, so it was
+    /// neither kept nor used (RFC 8705 §3).
+    #[error("the issued token is not bound to the certificate the client presents (RFC 8705 §3)")]
+    CertificateMismatch,
     /// The fetch ended without an outcome.
     #[error("the token fetch ended without an outcome")]
     Abandoned,
@@ -478,6 +547,18 @@ pub enum CallError<E> {
         /// What the call reported.
         #[source]
         source: E,
+    },
+    /// The source's tokens are bound to a `DPoP` key, so a call that is
+    /// handed the `Authorization` value alone cannot prove it; nothing was
+    /// sent (RFC 9449 §7.1).
+    #[error("the token is DPoP-bound and the call carries no proof; nothing was sent")]
+    Unproven,
+    /// The `DPoP` proof of the call could not be signed; nothing was sent.
+    #[error("the DPoP proof of the call could not be signed")]
+    Proof {
+        /// Why.
+        #[source]
+        source: dpop::DpopError,
     },
 }
 

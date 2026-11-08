@@ -8,8 +8,9 @@
 //! No specification governs the cache: our own design. An entry is keyed
 //! by a SHA-256 over the issuer, the grant, the hash of the subject token
 //! and of the actor token, the target's audiences and indicators, the
-//! scope and the profile's extra parameters, so a token issued for one
-//! target never reaches another (RFC 8707 §2). It lives until a margin
+//! scope, the profile's extra parameters and what the grant binds its tokens
+//! to, so a token issued for one target never reaches another (RFC 8707 §2)
+//! and one bound to one key never reaches a request proven with another. It lives until a margin
 //! before the earlier of the issued token's and the subject token's `exp`,
 //! and the onward check runs again on every hit. Concurrent misses each
 //! fetch; no token is ever logged.
@@ -28,6 +29,7 @@ use std::time::Duration;
 use http::HeaderValue;
 use http::StatusCode;
 use secrecy::ExposeSecret;
+use secrecy::SecretString;
 use serde::Deserialize;
 use serde_json::Map;
 use serde_json::Value;
@@ -38,7 +40,9 @@ use crate::client::ClientCredentials;
 use crate::client::Endpoint;
 use crate::client::OAuthError;
 use crate::client::TokenError;
-use crate::client::cache::bearer;
+use crate::client::binding::Confirmation;
+use crate::client::binding::IssuedToken;
+use crate::client::binding::TokenBinding;
 use crate::client::endpoint;
 use crate::client::endpoint::Answer;
 use crate::client::onward::ActorToken;
@@ -78,24 +82,23 @@ impl WallClock for SystemWallClock {
     }
 }
 
-/// One onward token, ready to send.
+/// One onward token, ready to send, and when the client stops using it.
 ///
-/// The `Debug` rendering never carries the token: the header value is
-/// marked sensitive.
+/// The `Debug` rendering never carries the token.
 #[derive(Debug, Clone)]
 pub struct OnwardToken {
-    /// The `Authorization` field value the token renders to.
-    header: HeaderValue,
+    /// The token.
+    issued: IssuedToken,
     /// When the client stops using it: the earlier of the issued token's
     /// and the subject token's `exp`.
     expires_at: i64,
 }
 
 impl OnwardToken {
-    /// Returns the `Authorization` field value of the token (RFC 6750 §2.1).
+    /// Returns the `Authorization` field value (RFC 6750 §2.1, RFC 9449 §7.1).
     #[must_use]
     pub const fn header(&self) -> &HeaderValue {
-        &self.header
+        self.issued.header()
     }
 
     /// Returns when the client stops using the token, in seconds since the
@@ -103,6 +106,12 @@ impl OnwardToken {
     #[must_use]
     pub const fn expires_at(&self) -> i64 {
         self.expires_at
+    }
+}
+
+impl AsRef<IssuedToken> for OnwardToken {
+    fn as_ref(&self) -> &IssuedToken {
+        &self.issued
     }
 }
 
@@ -139,6 +148,8 @@ struct Response {
     expires_in: Option<u64>,
     /// A refresh token, which the client refuses.
     refresh_token: Option<Value>,
+    /// The confirmation the token is bound by (RFC 8705 §3.2).
+    cnf: Option<Confirmation>,
 }
 
 impl fmt::Debug for Response {
@@ -364,7 +375,7 @@ impl Onward {
             tracing::debug!("served an onward token from the cache");
             return Ok(token);
         }
-        let (header, claims, expires_in) = self.fetch(subject, actor, target).await?;
+        let (credential, claims, expires_in) = self.fetch(subject, actor, target).await?;
         let now = inner.clock.now();
         check(
             &route,
@@ -384,7 +395,10 @@ impl Onward {
         .flatten()
         .min()
         .ok_or(Rejected::MissingClaim { claim: "exp" })?;
-        let token = OnwardToken { header, expires_at };
+        let token = OnwardToken {
+            issued: credential,
+            expires_at,
+        };
         let renew_at = renew_at(now, expires_at, inner.credentials.refresh_margin);
         tracing::debug!(
             grant = inner.issuer.profile.onward_grant.as_str(),
@@ -538,7 +552,7 @@ impl Onward {
             context.update(&length.to_be_bytes());
             context.update(bytes);
         };
-        let digest = |secret: &secrecy::SecretString| {
+        let digest = |secret: &SecretString| {
             aws_lc_rs::digest::digest(
                 &aws_lc_rs::digest::SHA256,
                 secret.expose_secret().as_bytes(),
@@ -573,17 +587,34 @@ impl Onward {
             field(name.as_bytes());
             field(value.as_bytes());
         }
+        match &self.inner.credentials.token_binding {
+            Some(TokenBinding::Dpop(key)) => {
+                field(b"dpop");
+                field(key.thumbprint().as_bytes());
+            }
+            Some(TokenBinding::Certificate) => {
+                field(b"certificate");
+                let certificate = self.inner.credentials.bound_certificate();
+                field(
+                    certificate
+                        .as_ref()
+                        .map_or("", |c| c.thumbprint())
+                        .as_bytes(),
+                );
+            }
+            None => field(b"bearer"),
+        }
         context.finish().as_ref().to_vec()
     }
 
-    /// Returns the bearer header, the claims and the `expires_in` of a new
+    /// Returns the credential, the claims and the `expires_in` of a new
     /// token from the token endpoint.
     async fn fetch(
         &self,
         subject: &SubjectToken,
         actor: Option<&ActorToken>,
         target: &Target,
-    ) -> Result<(HeaderValue, Map<String, Value>, Option<u64>), OnwardError> {
+    ) -> Result<(IssuedToken, Map<String, Value>, Option<u64>), OnwardError> {
         let inner = &self.inner;
         let url = self.token_endpoint().await?;
         let profile = &inner.issuer.profile;
@@ -647,15 +678,14 @@ impl Onward {
                 found: response.issued_token_type,
             });
         }
-        if !response.token_type.eq_ignore_ascii_case("bearer") {
-            return Err(TokenError::TokenType {
-                found: response.token_type,
-            }
-            .into());
-        }
-        let header = bearer(&response.access_token)?;
         let claims = decode(&response.access_token)?;
-        Ok((header, claims, response.expires_in))
+        let credential = endpoint::credential(
+            credentials,
+            &response.token_type,
+            response.access_token,
+            response.cnf.as_ref(),
+        )?;
+        Ok((credential, claims, response.expires_in))
     }
 
     /// Returns the token endpoint, discovered first when only the issuer is

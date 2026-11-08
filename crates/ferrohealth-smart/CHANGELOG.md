@@ -11,6 +11,59 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.11.0] - Unreleased
+
+### Added
+
+- The client half of sender-constrained tokens (#318).
+  - `client::dpop::DpopKey` reads a P-256 (ES256) or P-384 (ES384) key and
+    signs the RFC 9449 §4.2 proof of a request: `htm`, `htu` without query
+    or fragment, `iat`, a fresh `jti`, and `ath` over the access token the
+    request presents. It keeps the nonce each server sends per origin and
+    per `Role`, so the token endpoint's nonce never reaches a resource (§9).
+    `proof` and `remember` are public, which lets a product's own HTTP
+    client prove its requests.
+  - `ClientCredentials::with_dpop` binds a grant to a key. Every token
+    request then carries a proof. A `400 use_dpop_nonce` is answered once,
+    with a fresh client assertion (§8). Only a token of type `DPoP` is taken
+    (§5), and it is sent as `Authorization: DPoP` (§7.1).
+    `client::onward::exchange::Onward` does the same, and its cache key
+    names the key, so a token bound to one key never serves a request proven
+    with another.
+  - `TokenSource::send` sends a call under the current token. Each `Attempt`
+    carries the `Authorization` value and the attempt's proof. A resource's
+    `401` naming `use_dpop_nonce` is answered once with a new proof (§9),
+    and any other `401` renews the token once.
+  - `ClientCredentials::with_certificate_binding` takes only a token whose
+    stated `cnf."x5t#S256"`, in the token response or the JWT claim, names
+    the certificate the grant presents (RFC 8705 §3.1, §3.2). The check runs
+    before the token is cached or used. A token confirmed by another method
+    is refused, and an opaque token that states no binding passes as sent.
+  - The `[<lane>.credentials.oauth]` table takes `dpop_key_file` and
+    `certificate_bound`, one or the other.
+  - `client::binding::IssuedToken` holds the access token and its key for a
+    product that composes its own `Authorization` field. `Token` and
+    `OnwardToken` hand it out through `AsRef`.
+
+### Changed
+
+- **Breaking:** these changes ship with #318. To upgrade, pin
+  `ferrohealth-smart = "=0.11.0"`.
+  - `client::ClientCredentials` gains the public field `token_binding`, and
+    `config::OauthSection` gains `dpop_key_file` and `certificate_bound`. A
+    struct literal that names every field no longer compiles: add the new
+    fields, or write `..Default::default()` on the section. A table read
+    from TOML needs no change.
+  - `client::TokenError::TokenType` gains the field `expected`, the type the
+    grant asked for.
+  - `client::cache::Answered` gains the required method `headers`, which the
+    crate's `http::Response` and `reqwest::Response` implementations supply.
+  - `client::CallError` gains `Unproven`, which `TokenSource::call` returns
+    for a `DPoP`-bound source without sending anything, and `Proof`.
+    `TokenSource::send` is the call path for such a source.
+  - The `[workspace.dependencies]` requirement of `ferrohealth-smart` moves
+    to 0.11.0.
+
 ### Fixed
 
 - `federation::assertion::Validator` translates every `\r\n` and every
