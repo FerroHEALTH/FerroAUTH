@@ -8,6 +8,8 @@
 //! hostile variants are unsigned, wrongly signed, expired, short-keyed,
 //! weakly hashed and wrapped.
 
+use std::fmt::Write;
+
 use aws_lc_rs::digest;
 use aws_lc_rs::rand::SystemRandom;
 use aws_lc_rs::signature::RSA_PKCS1_SHA256;
@@ -1054,4 +1056,137 @@ fn a_carriage_return_reference_is_signed_as_one() {
         .identity(&parts)
         .expect("C14N 1.0 §2.3 writes the surviving carriage return as &#xD;");
     assert_eq!(identity.name(), "Invented\rDoctor");
+}
+
+/// 2500 nested elements, each declaring a fresh prefix: 65 000 bytes and
+/// 2500 nodes, inside the byte and node caps (FerroHEALTH/FerroAUTH#315).
+fn fresh_prefix_nesting(depth: usize) -> (String, String) {
+    let letters: Vec<char> = ('a'..='z').chain('A'..='Z').collect();
+    let names: Vec<String> = letters
+        .iter()
+        .flat_map(|a| letters.iter().map(move |b| format!("{a}{b}")))
+        .take(depth)
+        .collect();
+    let mut opens = String::new();
+    let mut closes = String::new();
+    for p in &names {
+        write!(opens, r#"<{p}:a xmlns:{p}="u">"#).expect("a String takes it");
+    }
+    for p in names.iter().rev() {
+        write!(closes, "</{p}:a>").expect("a String takes it");
+    }
+    (opens, closes)
+}
+
+#[test]
+fn deep_fresh_prefix_nesting_is_refused_before_parsing() {
+    let case = Case::new();
+    let (opens, closes) = fresh_prefix_nesting(2500);
+    let xml = format!("{opens}{closes}");
+    assert_eq!(xml.len(), 65_000);
+    let started = std::time::Instant::now();
+    let refused = case.validator.identity(&xml, now());
+    let elapsed = started.elapsed();
+    assert_eq!(integrity(refused), Some(Integrity::Malformed));
+    // NOTE: the parse alone took about 5.5 s in a release build before the caps (#315).
+    assert!(
+        elapsed < std::time::Duration::from_millis(50),
+        "took {elapsed:?}"
+    );
+}
+
+#[test]
+fn deep_nesting_beside_a_trusted_key_info_is_refused_before_canonicalizing() {
+    let case = Case::new();
+    let (opens, closes) = fresh_prefix_nesting(2000);
+    let mut parts = Parts::identity();
+    parts.attributes.push(format!(
+        r#"<saml:Attribute Name="urn:invented"><saml:AttributeValue>{opens}{closes}</saml:AttributeValue></saml:Attribute>"#
+    ));
+    let xml = case.signed(&parts);
+    let started = std::time::Instant::now();
+    let refused = case.validator.identity(&xml, now());
+    let elapsed = started.elapsed();
+    assert_eq!(integrity(refused), Some(Integrity::Malformed));
+    assert!(
+        elapsed < std::time::Duration::from_millis(50),
+        "took {elapsed:?}"
+    );
+}
+
+#[test]
+fn an_assertion_at_the_depth_and_namespace_caps_still_verifies() {
+    let case = Case::new();
+    let mut parts = Parts::identity();
+    let value = r#"<saml:AttributeValue xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:type="xs:string">urn:oasis:names:tc:xspa:1.0:subject:hl7:permission:PPD-046</saml:AttributeValue>"#;
+    parts.attributes[3] = format!(
+        r#"<saml:Attribute Name="urn:oasis:names:tc:xspa:1.0:subject:hl7:permission">{}</saml:Attribute>"#,
+        value.repeat(40)
+    );
+    // NOTE: eHDSI Section II Security Services 10.0.0 §10.1 declares xs and xsi on each value;
+    // Exc-C14N §3 drops the xs a value names only in its text, so the digest holds.
+    let sent = case.signed(&parts).replace(
+        "<saml:AttributeValue xmlns:xsi=",
+        r#"<saml:AttributeValue xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="#,
+    );
+    let identity = case
+        .validator
+        .identity(&sent, now())
+        .expect("80 declarations are inside the cap");
+    assert!(identity.has_permission("PPD-046"));
+}
+
+#[test]
+fn a_comment_added_inside_a_signed_value_changes_neither_digest_nor_value() {
+    let case = Case::new();
+    let xml = case.signed(&Parts::identity());
+    let commented = xml.replacen("Invented Doctor,O", "Invented Doc<!-- x -->tor,O", 1);
+    assert_ne!(xml, commented);
+    let identity = case
+        .validator
+        .identity(&commented, now())
+        .expect("Exc-C14N without comments drops the comment");
+    assert_eq!(identity.name_id().value(), NAME_ID);
+}
+
+#[test]
+fn a_signature_moved_into_advice_is_refused() {
+    let case = Case::new();
+    let xml = case.signed(&Parts::identity());
+    let (before, rest) = xml.split_once("<ds:Signature").expect("signed");
+    let (inner, after) = rest.split_once("</ds:Signature>").expect("signed");
+    let signature = format!("<ds:Signature{inner}</ds:Signature>");
+    let without = format!("{before}{after}");
+    let moved = without.replacen(
+        "<saml:AuthnStatement",
+        &format!("<saml:Advice>{signature}</saml:Advice><saml:AuthnStatement"),
+        1,
+    );
+    assert_eq!(
+        integrity(case.validator.identity(&moved, now())),
+        Some(Integrity::Wrapped)
+    );
+}
+
+#[test]
+fn content_injected_into_the_signature_is_refused() {
+    let case = Case::new();
+    let xml = case.signed(&Parts::identity());
+    for (inject, refusal) in [
+        (
+            "<ds:Object><saml:Assertion/></ds:Object></ds:Signature>",
+            Integrity::Wrapped,
+        ),
+        (
+            "<saml:AttributeStatement/></ds:Signature>",
+            Integrity::Structure("ds:Signature"),
+        ),
+    ] {
+        let injected = xml.replacen("</ds:Signature>", inject, 1);
+        assert_eq!(
+            integrity(case.validator.identity(&injected, now())),
+            Some(refusal),
+            "{inject}"
+        );
+    }
 }
