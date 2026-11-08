@@ -27,7 +27,7 @@ use ferrohealth_smart::client::cache::Clock;
 use ferrohealth_smart::client::cache::Token;
 use ferrohealth_smart::client::cache::TokenSource;
 use ferrohealth_smart::config::ConfigError;
-use ferrohealth_smart::config::OauthSection;
+use ferrohealth_smart::config::credentials::OauthSection;
 use ferrohealth_smart::metadata::DiscoveryError;
 use ferrohealth_smart::metadata::Http;
 use http::StatusCode;

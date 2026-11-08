@@ -11,7 +11,7 @@ use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::IntrospectionSection;
 use ferrohealth_smart::config::IssuerEntry;
 use ferrohealth_smart::config::IssuerKey;
-use ferrohealth_smart::config::OauthSection;
+use ferrohealth_smart::config::credentials::OauthSection;
 use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::resource::ResourceServer;
 use ferrohealth_smart::resource::introspection::Introspector;

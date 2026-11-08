@@ -22,7 +22,7 @@ use ferrohealth_smart::client::cache::TokenSource;
 use ferrohealth_smart::client::dpop;
 use ferrohealth_smart::client::dpop::DpopKey;
 use ferrohealth_smart::config::ConfigError;
-use ferrohealth_smart::config::OauthSection;
+use ferrohealth_smart::config::credentials::OauthSection;
 use http::Method;
 use jsonwebtoken::DecodingKey;
 use jsonwebtoken::Validation;

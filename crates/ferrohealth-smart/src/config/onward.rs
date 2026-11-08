@@ -100,7 +100,7 @@ mod resolve {
     use crate::client::onward::Target;
     use crate::client::onward::exchange::Onward;
     use crate::config::ConfigError;
-    use crate::config::CredentialsSection;
+    use crate::config::credentials::CredentialsSection;
     use crate::config::onward::OnwardLane;
     use crate::config::onward::OnwardSection;
     use crate::config::read::parse_url;
@@ -121,7 +121,7 @@ mod resolve {
         /// authenticates with, and as [`OauthSection::resolve`] and
         /// [`OnwardSection::resolve`] do.
         ///
-        /// [`OauthSection::resolve`]: crate::config::OauthSection::resolve
+        /// [`OauthSection::resolve`]: crate::config::credentials::OauthSection::resolve
         pub fn onward(&self) -> Result<Option<OnwardLane>, ConfigError> {
             let Some(section) = &self.onward else {
                 return Ok(None);

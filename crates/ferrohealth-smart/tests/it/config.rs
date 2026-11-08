@@ -13,9 +13,9 @@ use ferrohealth_smart::client::Endpoint;
 use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::BasicSection;
 use ferrohealth_smart::config::ConfigError;
-use ferrohealth_smart::config::CredentialsSection;
 use ferrohealth_smart::config::IssuerKey;
-use ferrohealth_smart::config::Outbound;
+use ferrohealth_smart::config::credentials::CredentialsSection;
+use ferrohealth_smart::config::credentials::Outbound;
 use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::resource::Settings;
 
@@ -406,10 +406,10 @@ fn a_rendered_section_carries_every_key_and_no_secret() {
 /// of the section, serialized or `Debug`.
 #[test]
 fn the_grant_masks_the_userinfo_of_its_urls() {
-    let oauth = ferrohealth_smart::config::OauthSection {
+    let oauth = ferrohealth_smart::config::credentials::OauthSection {
         token_endpoint: String::from("https://u:URL_PW_SENTINEL@idp.example.org/token"),
         client_id: String::from("svc"),
-        ..ferrohealth_smart::config::OauthSection::default()
+        ..ferrohealth_smart::config::credentials::OauthSection::default()
     };
     let rendered = toml::to_string(&oauth).expect("renders");
     let debug = format!("{oauth:?}");
@@ -417,9 +417,9 @@ fn the_grant_masks_the_userinfo_of_its_urls() {
         assert!(!shown.contains("URL_PW_SENTINEL"), "{shown}");
         assert!(shown.contains("idp.example.org/token"), "{shown}");
     }
-    let issuer = ferrohealth_smart::config::OauthSection {
+    let issuer = ferrohealth_smart::config::credentials::OauthSection {
         issuer: String::from("https://a:ISSUER_PW_SENTINEL@as.example.org"),
-        ..ferrohealth_smart::config::OauthSection::default()
+        ..ferrohealth_smart::config::credentials::OauthSection::default()
     };
     assert!(
         !toml::to_string(&issuer)
@@ -431,7 +431,7 @@ fn the_grant_masks_the_userinfo_of_its_urls() {
 /// Every problem of a grant is named under the product's own table, at once.
 #[test]
 fn the_grant_names_every_problem_under_the_products_table() {
-    let empty = ferrohealth_smart::config::OauthSection::default();
+    let empty = ferrohealth_smart::config::credentials::OauthSection::default();
     let problems = empty.problems("terminology.server.oauth");
     let joined = problems.join("\n");
     for key in [
@@ -442,7 +442,7 @@ fn the_grant_names_every_problem_under_the_products_table() {
         assert!(joined.contains(key), "{key} unnamed in {joined}");
     }
     assert!(!joined.contains("credentials.oauth"), "{joined}");
-    let both = ferrohealth_smart::config::OauthSection {
+    let both = ferrohealth_smart::config::credentials::OauthSection {
         issuer: String::from("https://as.example.org"),
         token_endpoint: String::from("https://as.example.org/token"),
         client_id: String::from("svc"),
@@ -450,7 +450,7 @@ fn the_grant_names_every_problem_under_the_products_table() {
         client_secret_file: Some(std::path::PathBuf::from("/run/secret")),
         resource: String::from("https://rs.example.org/#frag"),
         client_key_file: Some(std::path::PathBuf::from("/run/key")),
-        ..ferrohealth_smart::config::OauthSection::default()
+        ..ferrohealth_smart::config::credentials::OauthSection::default()
     };
     let problems = both.problems("audit.fhir_feed.oauth").join("\n");
     for key in [
@@ -461,11 +461,11 @@ fn the_grant_names_every_problem_under_the_products_table() {
     ] {
         assert!(problems.contains(key), "{key} unnamed in {problems}");
     }
-    let sound = ferrohealth_smart::config::OauthSection {
+    let sound = ferrohealth_smart::config::credentials::OauthSection {
         token_endpoint: String::from("https://as.example.org/token"),
         client_id: String::from("svc"),
         client_secret: Some(secrecy::SecretString::from("s")),
-        ..ferrohealth_smart::config::OauthSection::default()
+        ..ferrohealth_smart::config::credentials::OauthSection::default()
     };
     assert_eq!(sound.problems("x"), Vec::<String>::new());
 }
