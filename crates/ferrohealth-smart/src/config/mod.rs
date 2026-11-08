@@ -104,6 +104,41 @@ pub enum ConfigError {
         #[source]
         source: Box<ResourceError>,
     },
+    /// An `[[auth.issuer]]` URL carries userinfo, which an issuer
+    /// identifier never holds (OpenID Connect Core 1.0 §1.2), shown masked.
+    #[error("auth.issuer {issuer} carries userinfo, which an issuer identifier never holds")]
+    IssuerUserinfo {
+        /// The issuer, its userinfo masked ([`mask_userinfo`]).
+        issuer: String,
+    },
+    /// An issuer's `jwks_file` holds a symmetric key (`kty` `oct`), which
+    /// a verifier of asymmetric signatures never holds (RFC 8725 §3.1).
+    #[error(
+        "the jwks_file of auth.issuer {issuer} holds a symmetric key at index {index} (kid {kid:?})"
+    )]
+    JwksSymmetricKey {
+        /// The issuer whose file it is.
+        issuer: String,
+        /// The key's index in `keys`.
+        index: usize,
+        /// The key's `kid`, when it has one.
+        kid: Option<String>,
+    },
+    /// An issuer's `jwks_file` holds private key material, which a verifier
+    /// never needs (RFC 7517 Appendix A.2).
+    #[error(
+        "the jwks_file of auth.issuer {issuer} holds private key material ({member}) at index {index} (kid {kid:?})"
+    )]
+    JwksPrivateKey {
+        /// The issuer whose file it is.
+        issuer: String,
+        /// The key's index in `keys`.
+        index: usize,
+        /// The key's `kid`, when it has one.
+        kid: Option<String>,
+        /// The first private member the key carries, never its value.
+        member: &'static str,
+    },
     /// A Basic user or credential breaks a rule.
     #[error("a Basic user or credential is refused")]
     Basic {

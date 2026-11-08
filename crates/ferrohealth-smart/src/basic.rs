@@ -49,13 +49,21 @@ static BASIC_B64: GeneralPurpose = GeneralPurpose::new(
 static BASIC_B64_ENCODE: GeneralPurpose =
     GeneralPurpose::new(&alphabet::STANDARD, GeneralPurposeConfig::new());
 
+/// The OWASP Password Storage Cheat Sheet §Argon2id floor: the memory cost
+/// in KiB, the iteration count and the parallelism.
+const MIN_M_COST: u32 = 19_456;
+/// The iteration count of the floor.
+const MIN_T_COST: u32 = 2;
+/// The parallelism of the floor.
+const MIN_P_COST: u32 = 1;
+
 /// The PHC verified when no configured user matches the presented name.
 ///
 /// It is derived at the OWASP Password Storage Cheat Sheet §Argon2id floor,
 /// so the work matches a real verification; a fixed salt, because nothing
 /// verifies against it.
 static ENUMERATION_DEFENCE_PHC: LazyLock<Option<String>> = LazyLock::new(|| {
-    let params = argon2::Params::new(19_456, 2, 1, None).ok()?;
+    let params = argon2::Params::new(MIN_M_COST, MIN_T_COST, MIN_P_COST, None).ok()?;
     let argon2 = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
     argon2::password_hash::PasswordHasher::hash_password_with_salt(
         &argon2,
@@ -75,6 +83,22 @@ pub enum StoreError {
     Malformed {
         /// The user whose hash is malformed.
         username: String,
+    },
+    /// The hash of `username` costs less than the OWASP Password Storage
+    /// Cheat Sheet §Argon2id floor, `m=19456,t=2,p=1`; the verifier reads
+    /// its cost from the stored string, so a cheaper hash would verify.
+    #[error(
+        "the password hash of user {username:?} costs m={m},t={t},p={p}, below the floor m={MIN_M_COST},t={MIN_T_COST},p={MIN_P_COST}"
+    )]
+    Weak {
+        /// The user whose hash is weak.
+        username: String,
+        /// Its memory cost, in KiB.
+        m: u32,
+        /// Its iteration count.
+        t: u32,
+        /// Its parallelism.
+        p: u32,
     },
     /// The hash of `username` names an algorithm other than Argon2id.
     #[error("the password hash of user {username:?} is {found}, not argon2id")]
@@ -285,8 +309,9 @@ impl PasswordStore {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError`] for a hash that does not parse or names
-    /// another algorithm, a user-id that is empty or carries a colon or a
+    /// Returns [`StoreError`] for a hash that does not parse, names
+    /// another algorithm or costs less than the OWASP floor
+    /// ([`StoreError::Weak`]), a user-id that is empty or carries a colon or a
     /// control character, a scope token outside RFC 6749 §3.3, or a
     /// `system/` scope ([`StoreError::SystemScope`]).
     pub fn with_user(
@@ -325,6 +350,21 @@ impl PasswordStore {
             return Err(StoreError::Algorithm {
                 found: parsed.algorithm.as_str().to_owned(),
                 username,
+            });
+        }
+        let params =
+            argon2::Params::try_from(&parsed).map_err(|_malformed| StoreError::Malformed {
+                username: username.clone(),
+            })?;
+        if params.m_cost() < MIN_M_COST
+            || params.t_cost() < MIN_T_COST
+            || params.p_cost() < MIN_P_COST
+        {
+            return Err(StoreError::Weak {
+                username,
+                m: params.m_cost(),
+                t: params.t_cost(),
+                p: params.p_cost(),
             });
         }
         self.users.insert(
