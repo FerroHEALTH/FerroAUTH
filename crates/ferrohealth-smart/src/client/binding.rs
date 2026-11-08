@@ -25,6 +25,7 @@ use secrecy::SecretString;
 use serde::Deserialize;
 use url::Url;
 
+use crate::client::authorization_details::AuthorizationDetails;
 use crate::client::dpop;
 use crate::client::dpop::DpopError;
 use crate::client::dpop::DpopKey;
@@ -55,6 +56,9 @@ pub struct IssuedToken {
     access: SecretString,
     /// The key the token is bound to, when it is `DPoP`-bound.
     key: Option<Arc<DpopKey>>,
+    /// The authorization details the token response states it granted
+    /// (RFC 9396 §7).
+    granted: Option<AuthorizationDetails>,
 }
 
 impl IssuedToken {
@@ -65,12 +69,21 @@ impl IssuedToken {
         header: HeaderValue,
         access: SecretString,
         key: Option<Arc<DpopKey>>,
+        granted: Option<AuthorizationDetails>,
     ) -> Self {
         Self {
             header,
             access,
             key,
+            granted,
         }
+    }
+
+    /// Returns the authorization details the token response states it
+    /// granted, when it states any of RFC 9396 §2 shape (§7).
+    #[must_use]
+    pub const fn authorization_details(&self) -> Option<&AuthorizationDetails> {
+        self.granted.as_ref()
     }
 
     /// Returns the `Authorization` field value of the token: `Bearer` (RFC

@@ -44,6 +44,47 @@ and this project adheres to
   - `client::binding::IssuedToken` holds the access token and its key for a
     product that composes its own `Authorization` field. `Token` and
     `OnwardToken` hand it out through `AsRef`.
+- A rotating key ring, the FAPI 2.0 Security Profile and RFC 9396
+  `authorization_details` on a client grant (#319).
+  - `client::keys::KeyRing` signs with its current key and publishes its JWK
+    Set (RFC 7517 §5), each key under its RFC 7638 thumbprint unless a `kid`
+    is configured. The previous key stays published, never signing, for an
+    overlap window or until the ring is rebuilt without it. The next key is
+    published ahead of a rotation and never signs. The ring is shared as an
+    `Arc` through `ClientCredentials::with_key_ring` and
+    `ClientCredentials::assertion_keys`.
+  - `client::fapi2` holds a grant whose `profile` is `SecurityProfile::Fapi2`
+    to FAPI 2.0 §5.3.3.1 and §5.4.1 when it is built: a discovered issuer,
+    `private_key_jwt` with the issuer as the one-string `aud` or mutual TLS,
+    `PS256`, `ES256` or `EdDSA` keys, sender-constrained tokens, and a scope
+    or `authorization_details`. Before the token endpoint is reached, its
+    metadata must be `application/json` and list the client's method,
+    algorithm, grant types and proof algorithm. The token endpoint must sit
+    on the issuer's origin, or a mutual-TLS alias on a host the grant names
+    (RFC 8705 §5), and `tls_client_certificate_bound_access_tokens` must be
+    true for a certificate-bound grant (§3.3).
+  - `client::authorization_details::AuthorizationDetails` holds the RFC 9396
+    §2 shape. A grant sends its details on the client credentials request
+    and the token exchange (§6), refuses a type the discovered metadata does
+    not list (§10), and refuses a response that states no granted details,
+    or ones not of §2 shape (§7). `IssuedToken::authorization_details`
+    returns what was granted.
+  - The `[<lane>.credentials.oauth]` table takes `security_profile`,
+    `mtls_alias_hosts`, `previous_private_key_file`,
+    `previous_key_overlap_ms`, `next_private_key_file` and
+    `authorization_details`. It checks the resolved grant as
+    `ClientCredentials::validate` does, so a FAPI 2.0 table that breaks a
+    rule refuses the start.
+  - `ServerMetadata` reads `token_endpoint_auth_signing_alg_values_supported`,
+    `dpop_signing_alg_values_supported`,
+    `authorization_details_types_supported` and
+    `tls_client_certificate_bound_access_tokens`.
+- `client::onward::exchange::Onward::with_actor_assertion` names the
+  requesting client as the actor of a token exchange without an actor token
+  (#321). The `actor_token` is an RFC 7523 assertion signed for each request
+  with the current key of the grant's ring, with the claims and `aud` of its
+  client assertion and a `jti` of its own, and the JWT type (RFC 8693 §2.1,
+  §3). The cache key names the mode in place of a token hash.
 
 ### Changed
 
@@ -61,6 +102,12 @@ and this project adheres to
   - `client::CallError` gains `Unproven`, which `TokenSource::call` returns
     for a `DPoP`-bound source without sending anything, and `Proof`.
     `TokenSource::send` is the call path for such a source.
+  - `client::ClientCredentials::assertion_key`, one `AssertionKey`, becomes
+    `assertion_keys`, a shared `KeyRing`, and the struct gains
+    `authorization_details` and `profile` (#319). `with_private_key_jwt`
+    still takes one key. `ServerMetadata` and `config::OauthSection` gain
+    public fields, and `config::OauthSection::resolve` now refuses a grant
+    that `ClientCredentials::validate` refuses.
   - The `[workspace.dependencies]` requirement of `ferrohealth-smart` moves
     to 0.11.0.
 

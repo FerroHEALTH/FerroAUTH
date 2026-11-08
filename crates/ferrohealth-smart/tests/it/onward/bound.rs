@@ -117,3 +117,51 @@ async fn a_dpop_bound_exchange_refuses_a_bearer_token() {
         "{outcome:?}"
     );
 }
+
+#[tokio::test]
+async fn the_client_names_itself_the_actor_with_an_assertion_signed_per_request() {
+    use super::harness::Harness;
+    let harness = Harness::start(Flavor::Generic).await;
+    let onward = harness
+        .onward
+        .clone()
+        .with_actor_assertion()
+        .expect("a private_key_jwt client asserts itself");
+    assert!(onward.asserts_actor());
+    let (subject, claims) = harness.person();
+    harness
+        .issue(
+            &Flavor::Generic.issued_claims(&claims, harness.now()),
+            Some(Flavor::Generic.client_id()),
+        )
+        .await;
+    for _ in 0..2 {
+        onward
+            .token(&subject, None, &Flavor::Generic.target())
+            .await
+            .expect("the harness takes the actor assertion");
+    }
+    let sent = super::received(&harness.server).await;
+    assert_eq!(1, sent.len(), "one subject and one target hit the cache");
+    let form = sent.first().expect("one exchange");
+    // NOTE: RFC 8693 §3, the actor assertion is a JWT.
+    assert_eq!(
+        Some("urn:ietf:params:oauth:token-type:jwt"),
+        super::param(form, "actor_token_type")
+    );
+    assert_ne!(
+        super::param(form, "actor_token"),
+        super::param(form, "client_assertion"),
+        "the actor assertion has a jti of its own (RFC 7523 §3)"
+    );
+}
+
+#[tokio::test]
+async fn the_jwt_bearer_grant_carries_no_actor_assertion() {
+    use super::harness::Harness;
+    let harness = Harness::start(Flavor::GenericJwtBearer).await;
+    assert!(matches!(
+        harness.onward.clone().with_actor_assertion(),
+        Err(OnwardError::ActorToken)
+    ));
+}

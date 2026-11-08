@@ -17,6 +17,8 @@
 #   3. OpenID Connect    the vendored Discovery, Core and RP-Initiated
 #                        Logout documents each hash to their row's sha256,
 #                        which their PROVENANCE.md repeats.
+#   3a. FAPI 2.0         the vendored Security Profile hashes to its row's
+#                        sha256, which its PROVENANCE.md repeats.
 #   3b. NIST SP 800-162  the vendored PDF hashes to the row's sha256, which
 #                        its PROVENANCE.md repeats.
 #   3c. Cedar docs       the PROVENANCE.md names the pinned commit and the
@@ -177,6 +179,22 @@ for spec in discovery:"OpenID Connect Discovery 1.0" core:"OpenID Connect Core 1
     fail "$oidc/$file is missing"
   fi
 done
+
+# ---- 3a. the FAPI 2.0 Security Profile -------------------------------------
+fapi="docs/specs/fapi-security-profile"
+pin="$(corpus_pin_cell "FAPI 2.0 Security Profile document")"
+file="$(awk '{ print $1; exit }' <<< "$pin")"
+want="$(corpus_pin_field sha256 "$pin")"
+if [ -f "$fapi/$file" ]; then
+  before="$failures"
+  got="$(corpus_sha256 "$fapi/$file")"
+  [ "$got" = "$want" ] || fail "$fapi/$file hashes to $got, docs/VERSIONS.md pins $want"
+  recorded="$(provenance_line "$fapi/PROVENANCE.md" sha256)"
+  [ "$recorded" = "$want" ] || fail "$fapi/PROVENANCE.md records sha256 '$recorded', docs/VERSIONS.md pins $want"
+  [ "$failures" -ne "$before" ] || ok "FAPI 2.0 Security Profile ($file) at its checksum"
+else
+  fail "$fapi/$file is missing"
+fi
 
 # ---- 3b. NIST SP 800-162 ----------------------------------------------------
 nist="docs/specs/nist-sp-800-162"

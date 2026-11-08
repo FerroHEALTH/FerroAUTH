@@ -29,6 +29,8 @@ mod classify;
 mod client;
 #[cfg(feature = "fetch")]
 mod client_bound;
+#[cfg(feature = "fetch")]
+mod client_fapi2;
 mod config;
 mod consent;
 mod contact_point;

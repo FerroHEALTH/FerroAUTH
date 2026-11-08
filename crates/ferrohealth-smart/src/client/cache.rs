@@ -446,8 +446,9 @@ impl Inner {
         let endpoint = match (self.token_endpoint.get(), &self.config.endpoint) {
             (Some(url), _) | (None, Endpoint::Token(url)) => url.clone(),
             (None, Endpoint::Issuer(issuer)) => {
-                let mutual_tls = self.config.tls.identity.is_some();
-                let url = endpoint::discover(&self.http, issuer, mutual_tls).await?;
+                let url =
+                    endpoint::discover(&self.http, issuer, &self.config, &["client_credentials"])
+                        .await?;
                 self.token_endpoint.get_or_init(|| url).clone()
             }
         };
@@ -457,7 +458,10 @@ impl Inner {
             &self.config,
             &response.token_type,
             response.access_token,
-            response.cnf.as_ref(),
+            (
+                response.cnf.as_ref(),
+                response.authorization_details.as_ref(),
+            ),
         )?;
         tracing::debug!(
             expires_in = response.expires_in,
