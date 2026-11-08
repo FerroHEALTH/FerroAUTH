@@ -14,7 +14,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.4.0] - Unreleased
+## [0.4.0] - 2026-11-08
 
 A policy reads who stands behind the credential (#262). This release
 breaks a Cedar model that declares a subject attribute named `kind`.
@@ -40,6 +40,10 @@ breaks a Cedar model that declares a subject attribute named `kind`.
   kind, read after the resource attributes and before a subject attribute
   of that name. Upgrade: a remote point that read a product attribute
   named `kind` reads it under another name.
+- ferrohealth-authz builds on ferrohealth-smart 0.10.0 (#302), whose
+  `resource::Caller` and `kind::CallerKind` its `request::Subject` takes.
+  Upgrade: a product moves both crates together, pinning
+  `ferrohealth-smart = "=0.10.0"` beside `ferrohealth-authz = "=0.4.0"`.
 
 ## [0.3.0] - 2026-11-06
 
@@ -142,7 +146,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.3.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.4.0...HEAD
+[0.4.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.3.0...ferrohealth-authz-v0.4.0
 [0.3.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.2...ferrohealth-authz-v0.3.0
 [0.2.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.1...ferrohealth-authz-v0.2.2
 [0.2.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.0...ferrohealth-authz-v0.2.1
