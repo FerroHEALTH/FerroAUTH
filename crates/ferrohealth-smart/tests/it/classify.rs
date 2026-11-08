@@ -745,8 +745,58 @@ mod entra_profile {
 mod keycloak_profile {
     use super::*;
 
-    // NOTE: Keycloak 26.8.2 `con-protocol-mappers.adoc`: IMPERSONATOR_ID is a
-    // session note; the preset names no marker until the deployment maps one.
+    // NOTE: Keycloak 26.8.0 release notes: an impersonation session's tokens carry the RFC
+    // 8693 `act` claim, which TokenManager.java fills with `sub` and `preferred_username`.
+    #[tokio::test]
+    async fn an_impersonation_is_an_actor_delegated_only_when_listed() -> Outcome {
+        let h = Harness::new(keycloak())?;
+        let listed = |profile: &mut Profile| {
+            profile.delegates = vec![Delegate::Actor {
+                issuer: None,
+                sub: String::from("admin-user-uuid"),
+            }];
+        };
+        let mut claims = h.person("user/Observation.rs");
+        claims["act"] = json!({ "sub": "admin-user-uuid", "preferred_username": "admin" });
+        let caller = h.admit(IssuerKind::Persons, listed, &claims).await?;
+        assert_eq!(
+            &CallerKind::Delegated {
+                actor: Some(Actor {
+                    issuer: String::from(ISSUER),
+                    sub: String::from("admin-user-uuid"),
+                }),
+            },
+            caller.kind(),
+            "an act with no iss names an actor of the token's own issuer"
+        );
+        assert_eq!(
+            Some(Unclassified::UnlistedActor),
+            refused(h.admit(IssuerKind::Persons, keep, &claims).await),
+            "an impersonator no delegate names is refused"
+        );
+        Ok(())
+    }
+
+    // NOTE: Keycloak 26.8.2 OIDCLoginProtocolFactory.java: the built-in IMPERSONATOR_ID and
+    // IMPERSONATOR_USERNAME session note mappers write `impersonator.id` and `.username`.
+    #[tokio::test]
+    async fn the_built_in_impersonator_mappers_and_marker_refuse_every_impersonation() -> Outcome {
+        let h = Harness::new(keycloak())?;
+        assert_eq!(None, h.profile.impersonation_marker, "no default marker");
+        let mut claims = h.person("user/Observation.rs");
+        claims["impersonator"] = json!({ "id": "admin-user-uuid", "username": "admin" });
+        let marked = |profile: &mut Profile| {
+            profile.impersonation_marker = Some(String::from("impersonator"));
+        };
+        assert_eq!(
+            Some(Unclassified::Impersonation),
+            refused(h.admit(IssuerKind::Persons, marked, &claims).await)
+        );
+        Ok(())
+    }
+
+    // NOTE: Keycloak 26.8.2 `con-protocol-mappers.adoc`: a session note reaches a token only
+    // through a mapper, so the preset marks nothing until the deployment names a claim.
     #[tokio::test]
     async fn a_token_carrying_the_configured_impersonation_claim_is_refused() -> Outcome {
         let h = Harness::new(keycloak())?;

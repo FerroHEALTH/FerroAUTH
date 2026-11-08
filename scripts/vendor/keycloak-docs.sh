@@ -46,6 +46,7 @@ paths=(
   docs/guides/securing-apps/token-exchange.adoc
   docs/guides/templates/features.adoc
   docs/guides/server/containers.adoc
+  docs/documentation/release_notes/topics/26_8_0.adoc
   "$admin/clients/oidc/proc-using-a-service-account.adoc"
   "$admin/admin-cli.adoc"
   "$admin/clients/con-protocol-mappers.adoc"
@@ -56,6 +57,8 @@ paths=(
   "$admin/identity-broker/"
   "$mappers/AudienceProtocolMapper.java"
   "$mappers/OIDCAttributeMapperHelper.java"
+  services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java
+  services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java
   services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json
 )
 
