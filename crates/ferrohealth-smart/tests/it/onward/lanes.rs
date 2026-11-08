@@ -106,6 +106,50 @@ async fn a_standards_only_lane_loads_and_exchanges_at_its_token_endpoint() {
     client.verify(form, "bridge", &format!("{}/token", server.uri()));
 }
 
+/// Returns how many token requests two calls of a standards-only lane whose
+/// onward table ends in `extra` send to its token endpoint.
+async fn exchanges_for_two_calls(extra: &str) -> (bool, usize) {
+    let server = MockServer::start().await;
+    let section = lane(
+        &private_key_jwt(&ClientKey::new(), "bridge"),
+        &format!(
+            "issuer = \"https://as.example.org\"\nkind = \"persons\"\ntoken_endpoint = \"{}/token\"\n\
+             audiences = [\"https://ehr.example.org\"]\nindicators = [\"https://ehr.example.org/api\"]\n{extra}\n\
+             [onward.keys]\nmax_onward_lifetime = 3600\nfirst_party_clients = [\"portal\"]",
+            server.uri()
+        ),
+    );
+    let lane = resolved(&section).expect("the lane loads");
+    let key = ec_key("as-2026", jsonwebtoken::Algorithm::ES256);
+    let claims = Flavor::Generic.subject_claims(now());
+    let issued = Flavor::Generic.issued_claims(&claims, now());
+    answer(
+        &server,
+        "/token",
+        ResponseTemplate::new(200).set_body_json(Flavor::Generic.response(&sign(&key, &issued))),
+    )
+    .await;
+    let subject = subject_of(&sign(&key, &claims), &claims, CallerKind::Person);
+    for _ in 0..2 {
+        lane.onward
+            .token(&subject, None, &lane.target)
+            .await
+            .expect("the exchange succeeds");
+    }
+    (lane.onward.caches(), received(&server).await.len())
+}
+
+#[tokio::test]
+async fn a_lane_with_the_cache_off_exchanges_on_every_call() {
+    assert_eq!((false, 2), exchanges_for_two_calls("cache = false").await);
+}
+
+#[tokio::test]
+async fn a_lane_holds_its_token_by_default() {
+    assert_eq!((true, 1), exchanges_for_two_calls("").await);
+    assert_eq!((true, 1), exchanges_for_two_calls("cache = true").await);
+}
+
 #[test]
 fn an_entra_lane_loads_the_on_behalf_of_flow() {
     let section = lane(

@@ -11,8 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.0] - Unreleased
+
 ### Added
 
+- A `[<lane>.credentials.onward]` table takes `cache` (#299). `cache =
+  false` turns the lane's onward token cache off, so every call exchanges a
+  token at the issuer and none is held, with a warning logged at load; it
+  is a setting for a performance measurement's self-test
+  (FerroHEALTH/FerroFED#1712), never for production, and the cache stays
+  on by default. `client::onward::exchange::Onward::caches` reports the
+  setting.
 - `federation::assertion`, behind the new `ehdsi-assertion` feature,
   checks the eHDSI HP Identity Assertion and Treatment Relationship
   Confirmation for an authorization server acting for a MyHealth@EU
@@ -39,6 +48,16 @@ and this project adheres to
   `client::onward::AssertionWindow` names the window and its field; an
   unreadable window end is refused too. A caller without those fields is
   checked as before.
+
+### Changed
+
+- **Breaking:** `config::onward::OnwardSection` gains the public field
+  `cache` (#299), so a struct literal that names every field no longer
+  compiles. A product that builds an `OnwardSection` in code adds
+  `cache: true`, or writes `..OnwardSection::default()`; a table read from
+  TOML needs no change, since the key defaults to `true`. The
+  `[workspace.dependencies]` requirement of `ferrohealth-smart` moves to
+  0.10.0. To upgrade, pin `ferrohealth-smart = "=0.10.0"`.
 
 ## [0.9.4] - 2026-11-07
 

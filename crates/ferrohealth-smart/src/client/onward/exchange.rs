@@ -21,6 +21,8 @@ use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::OnceLock;
 use std::sync::PoisonError;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use http::HeaderValue;
@@ -173,6 +175,8 @@ struct Inner {
     token_endpoint: OnceLock<Url>,
     /// The cached tokens.
     cache: Mutex<BTreeMap<Vec<u8>, Entry>>,
+    /// Whether tokens are held at all.
+    cached: AtomicBool,
 }
 
 /// The client of one issuer's onward grants, with its cache.
@@ -275,8 +279,26 @@ impl Onward {
                 clock,
                 token_endpoint: OnceLock::new(),
                 cache: Mutex::new(BTreeMap::new()),
+                cached: AtomicBool::new(true),
             }),
         })
+    }
+
+    /// Returns the client with its cache off, as `cache = false` on a
+    /// `[<lane>.credentials.onward]` table asks: every call exchanges a
+    /// token at the issuer and none is held. Clones share the setting.
+    #[must_use]
+    pub(crate) fn without_cache(self) -> Self {
+        self.inner.cached.store(false, Ordering::Relaxed);
+        lock(&self.inner.cache).clear();
+        self
+    }
+
+    /// Whether the client holds the tokens it obtains: `false` when its
+    /// table set `cache = false`.
+    #[must_use]
+    pub fn caches(&self) -> bool {
+        self.inner.cached.load(Ordering::Relaxed)
     }
 
     /// Returns a token for `target` on behalf of `subject`, delegated to
@@ -318,10 +340,15 @@ impl Onward {
         };
         let key = self.key(subject, actor, target);
         let now = inner.clock.now();
-        let held = lock(&inner.cache)
-            .get(&key)
-            .filter(|entry| now < entry.renew_at)
-            .map(|entry| (entry.token.clone(), entry.claims.clone()));
+        let held = self
+            .caches()
+            .then(|| {
+                lock(&inner.cache)
+                    .get(&key)
+                    .filter(|entry| now < entry.renew_at)
+                    .map(|entry| (entry.token.clone(), entry.claims.clone()))
+            })
+            .flatten();
         if let Some((token, claims)) = held {
             if let Err(rejected) = check(
                 &route,
@@ -364,6 +391,9 @@ impl Onward {
             expires_at,
             "obtained an onward token"
         );
+        if !self.caches() {
+            return Ok(token);
+        }
         let mut cache = lock(&inner.cache);
         cache.retain(|_key, entry| entry.renew_at > now);
         if cache.len() >= MAX_ENTRIES
