@@ -27,6 +27,8 @@ mod ca_file;
 mod classify;
 #[cfg(feature = "fetch")]
 mod client;
+#[cfg(feature = "fetch")]
+mod client_bound;
 mod config;
 mod consent;
 mod contact_point;

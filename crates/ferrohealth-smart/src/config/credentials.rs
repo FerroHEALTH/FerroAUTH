@@ -16,6 +16,7 @@ use crate::client::ClientCredentials;
 use crate::client::Endpoint;
 use crate::client::Tls;
 use crate::client::assertion::AssertionKey;
+use crate::client::dpop::DpopKey;
 use crate::config::ConfigError;
 use crate::config::CredentialsSection;
 use crate::config::OauthSection;
@@ -178,7 +179,32 @@ impl OauthSection {
         }
         grant.refresh_margin = Duration::from_millis(self.refresh_margin_ms);
         grant.timeout = Duration::from_millis(self.timeout_ms);
-        Ok(grant)
+        self.bind(grant)
+    }
+
+    /// Returns `grant` with the token binding the table names: a `DPoP` key
+    /// (RFC 9449) or the client certificate (RFC 8705 §3), never both.
+    fn bind(&self, grant: ClientCredentials) -> Result<ClientCredentials, ConfigError> {
+        match (&self.dpop_key_file, self.certificate_bound) {
+            (Some(_), true) => Err(ConfigError::Exclusive {
+                left: "credentials.oauth.dpop_key_file",
+                right: "credentials.oauth.certificate_bound",
+            }),
+            (Some(path), false) => {
+                let pem = std::fs::read(path).map_err(|source| ConfigError::SecretFile {
+                    path: path.clone(),
+                    source,
+                })?;
+                let key =
+                    DpopKey::from_pem(&pem).map_err(|source| ConfigError::DpopKey { source })?;
+                Ok(grant.with_dpop(std::sync::Arc::new(key)))
+            }
+            (None, true) if grant.tls.identity.is_none() => Err(ConfigError::Missing {
+                key: "credentials.oauth.client_certificate_file, which certificate_bound names",
+            }),
+            (None, true) => Ok(grant.with_certificate_binding()),
+            (None, false) => Ok(grant),
+        }
     }
 
     /// Returns every problem of the table without reading a file, each
@@ -263,6 +289,16 @@ impl OauthSection {
                 "{table}.scope holds a token outside the RFC 6749 §3.3 character set"
             ));
         }
+        if self.dpop_key_file.is_some() && self.certificate_bound {
+            out.push(format!(
+                "{table}: set one of dpop_key_file and certificate_bound, not both"
+            ));
+        }
+        if self.certificate_bound && self.client_certificate_file.is_none() {
+            out.push(format!(
+                "{table}.client_certificate_file is required by certificate_bound"
+            ));
+        }
         if !self.resource.is_empty() {
             match self.resource.parse::<Url>() {
                 Err(_malformed) => out.push(format!("{table}.resource is not a URL")),
@@ -339,6 +375,8 @@ impl Default for OauthSection {
             ca_file: None,
             client_certificate_file: None,
             client_key_file: None,
+            dpop_key_file: None,
+            certificate_bound: false,
         }
     }
 }
@@ -360,6 +398,8 @@ impl std::fmt::Debug for OauthSection {
             .field("scope", &self.scope)
             .field("resource", &self.resource)
             .field("audience", &self.audience)
+            .field("dpop_key_file", &self.dpop_key_file)
+            .field("certificate_bound", &self.certificate_bound)
             .finish_non_exhaustive()
     }
 }

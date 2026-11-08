@@ -368,7 +368,7 @@ async fn rfc8693_figure_14_is_reproduced_and_the_figure_17_n_a_token_refused() {
         "Figure 14 parameter for parameter"
     );
     assert!(
-        matches!(&outcome, Err(OnwardError::Token(TokenError::TokenType { found })) if found == "N_A"),
+        matches!(&outcome, Err(OnwardError::Token(TokenError::TokenType { found, expected: "Bearer" })) if found == "N_A"),
         "{outcome:?}"
     );
 }
