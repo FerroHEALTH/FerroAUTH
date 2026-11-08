@@ -70,10 +70,16 @@ ferrohealth-smart = { version = "=0.10.1", features = ["axum", "openehr"] }
   certificate) verifies the enveloped XML signature in one accepted shape,
   holds the signer and the signature to the SOG-IS ACM 1.3 floor, and checks
   the window, the audience, sender-vouches and the attributes of eHDSI SAML
-  Profile 10.0.0 §2 and §4. It returns an `IdentityAssertion` and a
-  `TreatmentAssertion`, whose `Debug` carries no assertion content, and
-  `identity::ehdsi_claim` writes them as the contact-point token's `ehdsi`
-  claim. Every refusal's `code()` is its §1.25 code name.
+  Profile 10.0.0 §2 and §4, with every instant held to the clock.
+  `Validator::exchange` checks the identity assertion alone or with its
+  TRC, and admits that exchange once through the `ReplayGuard` the product
+  supplies (`MemoryReplayGuard` for one process). It returns an `Exchange`
+  of an `IdentityAssertion` and a `TreatmentAssertion`, whose `Debug`
+  carries no assertion content, with `ends()` capping the token's `exp`
+  and `claim()` writing the contact-point token's `ehdsi` claim. Every
+  refusal's `code()` is its §1.25 code name. The caller authenticates the
+  presenting party as acting for the issuer, since sender-vouches names no
+  presenter (eHDSI Messaging Profile 10.0.0 §5.5.2).
 - **`idp::entra`** (feature `idp-entra`): the vendor adapter for a
   Microsoft Entra ID groups overage. An `entra` issuer with
   `adapter = "idp-entra"` reads the groups of a token carrying
