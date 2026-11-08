@@ -90,8 +90,10 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 
 - `crates/ferrohealth-smart`: the library, with its own `CHANGELOG.md`. `src/` (`metadata`, `resource`
   with `jwks`, `token`, `configuration` and `introspection`, `scope`, `basic`, `client` with
-  `cache`, `endpoint`, `assertion` and `onward` (the token exchange and JWT
-  bearer onward grants with their check and cache), `kind` (the caller
+  `cache`, `endpoint`, `assertion`, `dpop` (the client's DPoP proofs and
+  nonces), `binding` (what a grant binds its tokens to, with the RFC 8705 §3
+  certificate check) and `onward` (the token exchange and JWT bearer onward
+  grants with their check and cache), `kind` (the caller
   classification), `profile` (the issuer profile with its `onward` keys, its
   presets under `profiles/`), `federation`
   (what a `federation` issuer asserts, with `assertion`, the eHDSI IdA and

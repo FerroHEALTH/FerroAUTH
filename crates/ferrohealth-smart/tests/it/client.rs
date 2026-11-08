@@ -638,7 +638,7 @@ async fn a_malformed_or_non_bearer_token_response_is_a_typed_error() -> Result<(
         .await
         .expect_err("the product sends bearer tokens");
     assert!(
-        matches!(error.as_ref(), TokenError::TokenType { found } if found == "DPoP"),
+        matches!(error.as_ref(), TokenError::TokenType { found, expected: "Bearer" } if found == "DPoP"),
         "{error:?}"
     );
     let error = source.token().await.expect_err("RFC 6750 §2.1 b64token");
