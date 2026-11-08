@@ -13,6 +13,12 @@
 //! subject confirmation and the attributes (SAML Profile 10.0.0 §2, §4), and
 //! the TRC's link to the identity assertion. Each refusal carries its MyHealth@EU
 //! Requirements Catalogue 10.0.0 §1.25 code name ([`AssertionError::code`]).
+//!
+//! The input is bounded before it is parsed: at most 64 KiB, nested at most
+//! 32 elements deep, with at most 128 namespace declarations, then parsed
+//! into at most 4096 nodes with no DTD. No specification governs these caps:
+//! they are our own design, set well above what an eHDSI assertion uses, so
+//! an unauthenticated input costs bounded work before any check runs.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -24,6 +30,7 @@ use roxmltree::ParsingOptions;
 
 use crate::federation::contact::EhdsiCode;
 
+mod bounds;
 mod c14n;
 mod dsig;
 pub mod identity;
@@ -50,7 +57,8 @@ const SENDER_VOUCHES: &str = "urn:oasis:names:tc:SAML:2.0:cm:sender-vouches";
 /// the validity window boundaries" (SAML Profile 10.0.0 §2.1, §4.1).
 const DRIFT: i64 = 60;
 /// The largest assertion read, in bytes (no specification governs the cap:
-/// our own design).
+/// our own design). The element depth and namespace declaration caps beside
+/// it are held before parsing ([`bounds`]).
 const MAX_BYTES: usize = 64 * 1024;
 /// The most nodes an assertion is parsed into (our own design).
 const MAX_NODES: u32 = 4096;
@@ -62,8 +70,8 @@ const MAX_NODES: u32 = 4096;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum Integrity {
-    /// The input is not well-formed XML, carries a DTD, or exceeds the size
-    /// or node cap.
+    /// The input is not well-formed XML, carries a DTD, or exceeds the size,
+    /// node, depth or namespace declaration cap.
     #[error("the assertion is not well-formed XML within the caps")]
     Malformed,
     /// The document element is not a `saml:Assertion`.
@@ -241,12 +249,14 @@ impl Validator {
         if xml.len() > MAX_BYTES {
             return Err(Integrity::Malformed.into());
         }
+        bounds::check(xml).map_err(|_out_of_bounds| Integrity::Malformed)?;
         let options = ParsingOptions {
             allow_dtd: false,
             nodes_limit: MAX_NODES,
             ..ParsingOptions::default()
         };
-        let document = Document::parse_with_options(xml, options)
+        let xml = c14n::line_ends(xml);
+        let document = Document::parse_with_options(&xml, options)
             .map_err(|_malformed| Integrity::Malformed)?;
         let envelope = Envelope::open(&document, self, window, now)?;
         read(&envelope)

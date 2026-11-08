@@ -5,16 +5,30 @@
 //! 18 July 2002), of one element and its descendants, less one excluded
 //! subtree: the enveloped signature of XML-DSig §6.6.4.
 //!
-//! The input is the `XPath` data model `roxmltree` builds, so line ends,
-//! character references and attribute values arrive normalized (XML 1.0
-//! §2.11, §3.3.3); the prefixes are read from the source text, since the
-//! canonical form keeps the prefix the signer wrote (Exc-C14N §3).
+//! The input is the `XPath` data model `roxmltree` builds from text whose
+//! line ends [`line_ends`] normalized first (XML 1.0 §2.11), so character
+//! references and attribute values arrive normalized too (§3.3.3); the
+//! prefixes are read from the source text, since the canonical form keeps
+//! the prefix the signer wrote (Exc-C14N §3).
 
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use roxmltree::Node;
 use roxmltree::NodeId;
+
+/// Returns `xml` with every `\r\n` and every `\r` not followed by `\n`
+/// as one `\n`, the translation XML 1.0 §2.11 has a processor make before
+/// parsing. A carriage return written as `&#xD;` is no literal one, so it
+/// survives into the canonical form as C14N 1.0 §2.3 writes it.
+pub(super) fn line_ends(xml: &str) -> Cow<'_, str> {
+    if xml.contains('\r') {
+        Cow::Owned(xml.replace("\r\n", "\n").replace('\r', "\n"))
+    } else {
+        Cow::Borrowed(xml)
+    }
+}
 
 /// One step of the walk: entering a node, or leaving an element.
 enum Step<'a, 'input> {
@@ -37,18 +51,74 @@ pub(super) fn canonicalize(
     excluded: Option<NodeId>,
     inclusive: &[&str],
 ) -> Result<Vec<u8>, Unrepresentable> {
+    walk(apex, excluded, inclusive, &mut Rendered::default())
+}
+
+/// The namespaces rendered in the scope of the open element, as one map
+/// with an undo log: each open element records what it changed, and its end
+/// tag restores that, so the work and memory stay linear in the document.
+#[derive(Default)]
+struct Rendered {
+    /// The URI each prefix is rendered with, in scope.
+    current: BTreeMap<String, String>,
+    /// For each open element, each prefix it rendered with the URI it
+    /// replaced.
+    undo: Vec<Vec<(String, Option<String>)>>,
+    /// The entries held in `undo`.
+    logged: usize,
+    /// The most entries held at once in `current` and `undo` together.
+    peak: usize,
+}
+
+impl Rendered {
+    /// Opens the scope of an element.
+    fn enter(&mut self) {
+        self.undo.push(Vec::new());
+    }
+
+    /// Records that the open element renders `prefix` as `uri`.
+    fn render(&mut self, prefix: String, uri: &str) {
+        let replaced = self.current.insert(prefix.clone(), uri.to_owned());
+        if let Some(frame) = self.undo.last_mut() {
+            frame.push((prefix, replaced));
+            self.logged = self.logged.saturating_add(1);
+        }
+        self.peak = self
+            .peak
+            .max(self.current.len().saturating_add(self.logged));
+    }
+
+    /// Closes the scope of the open element, restoring what it replaced.
+    fn leave(&mut self) {
+        let frame = self.undo.pop().unwrap_or_default();
+        self.logged = self.logged.saturating_sub(frame.len());
+        for (prefix, replaced) in frame.into_iter().rev() {
+            if let Some(uri) = replaced {
+                self.current.insert(prefix, uri);
+            } else {
+                self.current.remove(&prefix);
+            }
+        }
+    }
+}
+
+/// Writes the canonical form of `apex`, tracking namespaces in `rendered`.
+fn walk(
+    apex: Node<'_, '_>,
+    excluded: Option<NodeId>,
+    inclusive: &[&str],
+    rendered: &mut Rendered,
+) -> Result<Vec<u8>, Unrepresentable> {
     let mut out = String::new();
-    // NOTE: the walk keeps its own stack, so nesting cannot exhaust the thread's; each open
-    // element holds what it and its output ancestors rendered (Exc-C14N §3).
+    // NOTE: the walk keeps its own stack, so nesting cannot exhaust the thread's; the
+    // rendered map holds what the open element and its output ancestors rendered (Exc-C14N §3).
     let mut stack: Vec<Step<'_, '_>> = vec![Step::Open(apex)];
-    let mut scopes: Vec<BTreeMap<String, String>> = vec![BTreeMap::new()];
     while let Some(step) = stack.pop() {
         match step {
             Step::Open(node) if Some(node.id()) == excluded => {}
             Step::Open(node) if node.is_element() => {
-                let parent = scopes.last().cloned().unwrap_or_default();
-                let rendered = open(&mut out, node, parent, inclusive)?;
-                scopes.push(rendered);
+                rendered.enter();
+                open(&mut out, node, rendered, inclusive)?;
                 stack.push(Step::Close(node));
                 let children: Vec<Node<'_, '_>> = node.children().collect();
                 stack.extend(children.into_iter().rev().map(Step::Open));
@@ -68,7 +138,7 @@ pub(super) fn canonicalize(
                 }
             }
             Step::Close(node) => {
-                scopes.pop();
+                rendered.leave();
                 out.push_str("</");
                 out.push_str(qname(node)?);
                 out.push('>');
@@ -78,14 +148,14 @@ pub(super) fn canonicalize(
     Ok(out.into_bytes())
 }
 
-/// Writes the start tag of `node`, and returns the namespaces rendered in
-/// its scope.
+/// Writes the start tag of `node`, recording the namespaces it renders in
+/// `rendered`.
 fn open(
     out: &mut String,
     node: Node<'_, '_>,
-    mut rendered: BTreeMap<String, String>,
+    rendered: &mut Rendered,
     inclusive: &[&str],
-) -> Result<BTreeMap<String, String>, Unrepresentable> {
+) -> Result<(), Unrepresentable> {
     let name = qname(node)?;
     let source = node.document().input_text();
     let mut attributes = Vec::new();
@@ -128,7 +198,7 @@ fn open(
             node.lookup_namespace_uri(Some(&prefix))
                 .ok_or(Unrepresentable)?
         };
-        let inherited = rendered.get(&prefix).map_or("", String::as_str);
+        let inherited = rendered.current.get(&prefix).map_or("", String::as_str);
         if inherited == uri {
             continue;
         }
@@ -140,7 +210,7 @@ fn open(
         out.push_str("=\"");
         escape_attribute(out, uri);
         out.push('"');
-        rendered.insert(prefix, uri.to_owned());
+        rendered.render(prefix, uri);
     }
     // NOTE: C14N 1.0 §2.2: attributes sort by namespace URI, then local name, the
     // unqualified first; exclusive canonicalization inherits no xml:* attribute (Exc-C14N §3).
@@ -153,7 +223,7 @@ fn open(
         out.push('"');
     }
     out.push('>');
-    Ok(rendered)
+    Ok(())
 }
 
 /// Returns the qualified name of an element as the source spells it.
@@ -211,10 +281,18 @@ fn escape_attribute(out: &mut String, value: &str) {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::Write;
+    use std::time::Duration;
+    use std::time::Instant;
+
+    use super::Rendered;
     use super::canonicalize;
+    use super::line_ends;
+    use super::walk;
 
     fn canonical(xml: &str, inclusive: &[&str]) -> String {
-        let doc = roxmltree::Document::parse(xml).expect("the case is well formed");
+        let xml = line_ends(xml);
+        let doc = roxmltree::Document::parse(&xml).expect("the case is well formed");
         let bytes = canonicalize(doc.root_element(), None, inclusive).expect("canonicalizable");
         String::from_utf8(bytes).expect("UTF-8")
     }
@@ -290,5 +368,62 @@ mod tests {
             .map(|node| node.id());
         let bytes = canonicalize(doc.root_element(), excluded, &[]).expect("canonicalizable");
         assert_eq!(String::from_utf8(bytes).expect("UTF-8"), "<a>  <b></b></a>");
+    }
+
+    #[test]
+    fn a_lone_carriage_return_is_a_line_feed_as_libxml2_writes_it() {
+        // NOTE: XML 1.0 §2.11; the expectations are `xmllint --exc-c14n`'s (FerroHEALTH/FerroAUTH#316).
+        for (text, expected) in [
+            ("a\rb", "a\nb"),
+            ("a\r<b/>", "a\n<b></b>"),
+            ("a\r&amp;", "a\n&amp;"),
+            ("&amp;\r", "&amp;\n"),
+        ] {
+            assert_eq!(
+                canonical(&format!("<e>{text}</e>"), &[]),
+                format!("<e>{expected}</e>"),
+                "{text:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_carriage_return_written_as_a_reference_stays_one() {
+        assert_eq!(canonical("<e>a&#xD;\r\nb</e>", &[]), "<e>a&#xD;\nb</e>");
+    }
+
+    #[test]
+    fn fresh_prefixes_at_every_level_cost_linear_work_and_memory() {
+        let depth = 2000;
+        let mut xml = String::new();
+        for level in 0..depth {
+            write!(xml, "<p{level}:a xmlns:p{level}=\"urn:{level}\">").expect("a String takes it");
+        }
+        for level in (0..depth).rev() {
+            write!(xml, "</p{level}:a>").expect("a String takes it");
+        }
+        let doc = roxmltree::Document::parse(&xml).expect("the case is well formed");
+        let mut rendered = Rendered::default();
+        let started = Instant::now();
+        let bytes = walk(doc.root_element(), None, &[], &mut rendered).expect("canonicalizable");
+        let elapsed = started.elapsed();
+        assert!(bytes.starts_with(b"<p0:a xmlns:p0=\"urn:0\"><p1:a xmlns:p1=\"urn:1\">"));
+        // NOTE: a copy of the rendered map per element would hold depth * (depth + 1) / 2 entries.
+        assert!(
+            rendered.peak <= 2 * depth,
+            "held {} entries at once for {depth} levels",
+            rendered.peak
+        );
+        assert!(rendered.current.is_empty() && rendered.undo.is_empty());
+        assert!(elapsed < Duration::from_secs(1), "took {elapsed:?}");
+    }
+
+    #[test]
+    fn a_prefix_rebound_beneath_is_restored_for_its_siblings() {
+        let xml = r#"<p:a xmlns:p="urn:1"><p:b xmlns:p="urn:2"/><p:c/></p:a>"#;
+        assert_eq!(
+            canonical(xml, &[]),
+            r#"<p:a xmlns:p="urn:1"><p:b xmlns:p="urn:2"></p:b><p:c></p:c></p:a>"#
+        );
     }
 }
