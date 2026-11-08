@@ -112,6 +112,8 @@ pub struct IdentityAssertion {
     not_before: Timestamp,
     /// `@NotOnOrAfter`.
     not_on_or_after: Timestamp,
+    /// `@SessionNotOnOrAfter`, when present.
+    session_not_on_or_after: Option<Timestamp>,
     /// `AuthnContextClassRef`, one of the seven.
     authentication_class: String,
     /// `subject-id`, the full name.
@@ -178,6 +180,13 @@ impl IdentityAssertion {
     #[must_use]
     pub const fn not_on_or_after(&self) -> Timestamp {
         self.not_on_or_after
+    }
+
+    /// Returns `AuthnStatement/@SessionNotOnOrAfter`, "an upper bound on
+    /// sessions with the subject" (SAML 2.0 Core §2.7.2), when present.
+    #[must_use]
+    pub const fn session_not_on_or_after(&self) -> Option<Timestamp> {
+        self.session_not_on_or_after
     }
 
     /// Returns the authentication class, as received.
@@ -336,6 +345,7 @@ pub(super) fn read(envelope: &Envelope<'_, '_>) -> Result<IdentityAssertion, Ass
         name_id,
         not_before: envelope.not_before,
         not_on_or_after: envelope.not_on_or_after,
+        session_not_on_or_after: envelope.session_not_on_or_after,
         authentication_class,
         name,
         roles,
