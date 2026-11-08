@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-11-08
+
 ### Added
 
 - `federation::assertion`, behind the new `ehdsi-assertion` feature,
@@ -1222,7 +1224,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.4...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.5...HEAD
+[0.9.5]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.4...ferrohealth-smart-v0.9.5
 [0.9.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.3...ferrohealth-smart-v0.9.4
 [0.9.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.2...ferrohealth-smart-v0.9.3
 [0.9.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.1...ferrohealth-smart-v0.9.2
