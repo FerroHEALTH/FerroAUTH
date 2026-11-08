@@ -14,6 +14,7 @@ use aws_lc_rs::rand::SystemRandom;
 use aws_lc_rs::rsa::KeySize;
 use aws_lc_rs::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
 use aws_lc_rs::signature::ECDSA_P384_SHA384_FIXED_SIGNING;
+use aws_lc_rs::signature::ECDSA_P521_SHA512_FIXED_SIGNING;
 use aws_lc_rs::signature::EcdsaKeyPair;
 use aws_lc_rs::signature::Ed25519KeyPair;
 use aws_lc_rs::signature::RsaKeyPair;
@@ -69,6 +70,15 @@ pub(crate) fn ec_key(kid: &str, alg: Algorithm) -> SigningKey {
         EncodingKey::from_ec_der(pkcs8.as_ref()),
         pkcs8.as_ref(),
     )
+}
+
+/// Returns a fresh P-521 private key in PKCS#8 PEM, a curve no ES256 or
+/// ES384 key is on.
+pub(crate) fn p521_pem() -> Vec<u8> {
+    let pkcs8 =
+        EcdsaKeyPair::generate_pkcs8(&ECDSA_P521_SHA512_FIXED_SIGNING, &SystemRandom::new())
+            .expect("a key pair");
+    pem(pkcs8.as_ref())
 }
 
 /// Returns a fresh RSA key for `alg` (RS256, RS384, PS256 or PS384)

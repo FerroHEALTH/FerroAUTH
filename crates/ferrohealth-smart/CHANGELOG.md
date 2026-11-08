@@ -11,6 +11,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `client::assertion::AssertionKey::sign(typ, claims)` returns the compact
+  JWS of a product's own claims, signed with the key's algorithm under its
+  `kid` and the `typ` the product names (RFC 7515 §7.1, RFC 8725 §3.11), so
+  `KeyRing::current()` signs the product's own tokens with the key its JWK
+  Set publishes (#338). The client assertion is signed through it, as
+  before with `typ` `JWT`.
+
+### Fixed
+
+- `AssertionKey::from_pem` without an algorithm signs an EC key with the
+  algorithm of its curve: ES256 for P-256 and ES384 for P-384 (RFC 7518
+  §3.4). A P-256 key was refused as `AssertionError::Public`, so an
+  `[<lane>.credentials.oauth]` table with a P-256 `private_key_file` and no
+  `assertion_alg` failed to resolve. An EC key on another curve is refused
+  as the new `AssertionError::Curve` (#338).
+
 ## [0.11.0] - 2026-11-08
 
 ### Added

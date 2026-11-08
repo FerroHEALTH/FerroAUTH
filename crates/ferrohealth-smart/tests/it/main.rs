@@ -20,6 +20,8 @@
     )
 )]
 
+#[cfg(feature = "fetch")]
+mod assertion_key;
 mod audit;
 mod basic;
 #[cfg(feature = "fetch")]
