@@ -535,3 +535,99 @@ fn a_basic_user_with_a_system_scope_fails_to_load_naming_the_user_and_the_scope(
         "{message}"
     );
 }
+
+/// Returns an enabled section with one `persons` issuer at `issuer`, its
+/// key set read from `jwks_file` when one is given.
+fn issuer_at(issuer: &str, jwks_file: Option<&std::path::Path>) -> AuthSection {
+    let file = jwks_file.map_or_else(String::new, |path| {
+        format!("jwks_file = {:?}\n", path.display().to_string())
+    });
+    toml::from_str(&format!(
+        "enabled = true\n[[issuer]]\nissuer = \"{issuer}\"\nkind = \"persons\"\naudience = [\"a\"]\n{file}"
+    ))
+    .expect("the section parses")
+}
+
+#[test]
+fn an_issuer_with_userinfo_is_refused_masked() {
+    for issuer in [
+        "https://user:hunter2@as.example.org",
+        "https://user@as.example.org/realms/x",
+    ] {
+        let refused = issuer_at(issuer, None).resolve();
+        let Err(ConfigError::IssuerUserinfo { issuer: shown }) = &refused else {
+            panic!("{issuer} is refused for its userinfo, got {refused:?}");
+        };
+        assert!(
+            !shown.contains("hunter2") && !shown.contains("user@"),
+            "{shown}"
+        );
+        let message = refused.map(|_| ()).unwrap_err().to_string();
+        assert!(!message.contains("hunter2"), "{message}");
+    }
+}
+
+#[test]
+fn a_jwks_file_with_a_symmetric_key_is_refused_naming_the_key() {
+    let file = crate::support::temp_file(
+        "symmetric.jwks",
+        br#"{"keys":[{"kty":"RSA","kid":"rsa","n":"AQAB","e":"AQAB"},{"kty":"oct","kid":"shared","k":"c2VjcmV0"}]}"#,
+    );
+    let refused = issuer_at("https://as.example.org", Some(&file)).resolve();
+    assert!(
+        matches!(
+            &refused,
+            Err(ConfigError::JwksSymmetricKey { index: 1, kid: Some(kid), .. }) if kid == "shared"
+        ),
+        "{refused:?}"
+    );
+    assert!(!format!("{refused:?}").contains("c2VjcmV0"));
+}
+
+#[test]
+fn a_jwks_file_with_private_key_material_is_refused_naming_the_member() {
+    let file = crate::support::temp_file(
+        "private.jwks",
+        br#"{"keys":[{"kty":"EC","crv":"P-256","x":"AA","y":"AA","d":"cHJpdmF0ZQ"}]}"#,
+    );
+    let refused = issuer_at("https://as.example.org", Some(&file)).resolve();
+    assert!(
+        matches!(
+            &refused,
+            Err(ConfigError::JwksPrivateKey {
+                index: 0,
+                kid: None,
+                member: "d",
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
+    assert!(
+        !refused
+            .map(|_| ())
+            .unwrap_err()
+            .to_string()
+            .contains("cHJpdmF0ZQ")
+    );
+}
+
+#[test]
+fn a_basic_hash_below_the_owasp_floor_is_refused_naming_the_user_and_the_floor() {
+    for weak in ["m=8,t=1,p=1", "m=19456,t=1,p=1", "m=19455,t=2,p=1"] {
+        let phc = PHC.replace("m=19456,t=2,p=1", weak);
+        let section: AuthSection = toml::from_str(&format!(
+            "enabled = true\n[[basic.users]]\nuser = \"etl\"\npassword_hash = \"{phc}\"\n"
+        ))
+        .expect("the section parses");
+        let refused = section.resolve();
+        let Err(ConfigError::Basic {
+            source: source @ StoreError::Weak { username, .. },
+        }) = &refused
+        else {
+            panic!("{weak} is refused as weak, got {refused:?}");
+        };
+        assert_eq!(username, "etl");
+        assert!(source.to_string().contains("m=19456,t=2,p=1"), "{source}");
+    }
+}

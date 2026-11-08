@@ -126,6 +126,16 @@ and this project adheres to
   replace `not_before()` and `not_on_or_after()` with `window()`, a
   `Window` that also carries `session_not_on_or_after()` and `ends()`:
   write `assertion.window().not_on_or_after()`.
+- `config::AuthSection::resolve` refuses three things a verifier must not
+  start with (#320). It refuses an `[[auth.issuer]]` URL that carries
+  userinfo as `ConfigError::IssuerUserinfo`, masked (OpenID Connect Core
+  1.0 §1.2). It refuses a `jwks_file` holding a symmetric key or private
+  key material as `ConfigError::JwksSymmetricKey` or `JwksPrivateKey`,
+  naming the key's index, `kid` and member and never a value. It refuses a
+  Basic user's Argon2id hash below the OWASP floor `m=19456,t=2,p=1` as
+  `StoreError::Weak`, which `basic::Store::with_user` now applies too.
+  Upgrade: rehash a weaker Basic password, and remove secret keys from a
+  `jwks_file`.
 
 ### Fixed
 

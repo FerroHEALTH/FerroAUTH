@@ -592,6 +592,18 @@ fn check_entry(entry: &IssuerEntry) -> Result<IssuerKind, ConfigError> {
     if entry.issuer.is_empty() {
         return Err(ConfigError::Missing { key: "auth.issuer" });
     }
+    // NOTE: OpenID Connect Core 1.0 §1.2: an issuer identifier holds scheme, host, port and
+    // path; userinfo is refused before any later error could quote the URL.
+    if let Ok(url) = url::Url::parse(entry.issuer.trim())
+        && (!url.username().is_empty() || url.password().is_some())
+    {
+        return Err(ConfigError::IssuerUserinfo {
+            issuer: crate::config::mask_userinfo(&entry.issuer),
+        });
+    }
+    if !entry.jwks_file.is_empty() {
+        check_jwks_file(entry)?;
+    }
     let kind = entry.kind.ok_or(ConfigError::Missing {
         key: "auth.issuer.kind",
     })?;
@@ -612,6 +624,53 @@ fn check_entry(entry: &IssuerEntry) -> Result<IssuerKind, ConfigError> {
         });
     }
     Ok(kind)
+}
+
+/// The JWK members that carry private or symmetric key material, as the
+/// example private and symmetric keys of RFC 7517 Appendix A.2 and A.3 show.
+const SECRET_MEMBERS: [&str; 8] = ["d", "p", "q", "dp", "dq", "qi", "oth", "k"];
+
+/// Refuses a `jwks_file` that holds a symmetric key or private key
+/// material, which a verifier never holds (RFC 7517 §5; RFC 8725 §3.1).
+/// A file that cannot be read or parsed is left to the read of the key
+/// set, which refuses it; no key value is ever quoted.
+fn check_jwks_file(entry: &IssuerEntry) -> Result<(), ConfigError> {
+    let Ok(text) = std::fs::read_to_string(&entry.jwks_file) else {
+        return Ok(());
+    };
+    // NOTE: a file that is no JSON is legitimately left to the key set read, which refuses it.
+    let Ok(set) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return Ok(());
+    };
+    let keys = set
+        .get("keys")
+        .and_then(serde_json::Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    for (index, key) in keys.iter().enumerate() {
+        let kid = key
+            .get("kid")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        if key.get("kty").and_then(serde_json::Value::as_str) == Some("oct") {
+            return Err(ConfigError::JwksSymmetricKey {
+                issuer: entry.issuer.clone(),
+                index,
+                kid,
+            });
+        }
+        if let Some(member) = SECRET_MEMBERS
+            .iter()
+            .find(|member| key.get(**member).is_some())
+        {
+            return Err(ConfigError::JwksPrivateKey {
+                issuer: entry.issuer.clone(),
+                index,
+                kid,
+                member,
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Returns the profile of `entry`: its preset with its own keys over it.
