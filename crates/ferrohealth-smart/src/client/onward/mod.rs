@@ -41,6 +41,7 @@ use serde_json::Value;
 
 use crate::client::OAuthError;
 use crate::client::TokenError;
+use crate::federation::Field;
 use crate::kind::Actor;
 use crate::kind::CallerKind;
 use crate::kind::IssuerKind;
@@ -365,6 +366,10 @@ pub enum Rejected {
     /// The token, or the subject token it was issued for, has expired.
     #[error("the issued token or its subject token has expired")]
     Expired,
+    /// The token's `exp` lies past an assertion window the caller carries,
+    /// plus 60 s of drift.
+    #[error("the issued token outlives the caller's {0}")]
+    AssertionWindow(AssertionWindow),
     /// A claim of the profile's `expect` is absent or holds another value.
     #[error("the claim {claim} does not hold the value the profile expects")]
     Expected {
@@ -412,6 +417,37 @@ pub enum Rejected {
         /// The claim.
         claim: String,
     },
+}
+
+/// An eHDSI assertion window a MyHealth@EU contact-point caller carries,
+/// which no onward token issued on its behalf may outlive (SAML Profile
+/// 10.0.0 §2.1, §4.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum AssertionWindow {
+    /// The HP Identity Assertion's `NotOnOrAfter`,
+    /// [`Field::AssertionNotOnOrAfter`].
+    Identity,
+    /// The Treatment Relationship Confirmation's `NotOnOrAfter`,
+    /// [`Field::TrcNotOnOrAfter`].
+    Treatment,
+}
+
+impl AssertionWindow {
+    /// Returns the field that carries the window's end.
+    #[must_use]
+    pub const fn field(self) -> Field {
+        match self {
+            Self::Identity => Field::AssertionNotOnOrAfter,
+            Self::Treatment => Field::TrcNotOnOrAfter,
+        }
+    }
+}
+
+impl fmt::Display for AssertionWindow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.field().as_str())
+    }
 }
 
 /// An onward token the product could not obtain or may not use.

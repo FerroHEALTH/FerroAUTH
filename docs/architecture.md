@@ -1273,6 +1273,11 @@ over the connection the client opened. It is refused unless:
   configured on the `Target` and never derived from a scope;
 - its `iat` and `exp` are present, `exp` is no later than `iat` plus
   `max_onward_lifetime`, and neither it nor the subject token has expired;
+- for a MyHealth@EU contact-point caller, its `exp` is no later than the
+  caller's `assertion.not_on_or_after` or `trc.not_on_or_after`, each when
+  carried, plus 60 s of drift (eHDSI SAML Profile 10.0.0 §2.1, §4.1),
+  refused as `Rejected::AssertionWindow` naming the window; an unreadable
+  end is refused (our own design, FerroHEALTH/FerroAUTH#295);
 - it carries every claim and value of the profile's `expect`;
 - it names the requesting client as its actor: `act` (`rfc8693 §4.1`,
   `iss` and `sub`) equal to the actor token's actor, or to the issuer and

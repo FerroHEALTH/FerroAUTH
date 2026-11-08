@@ -11,6 +11,19 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The onward check holds a token issued for a MyHealth@EU contact-point
+  caller within the caller's assertion windows (#295): its `exp` may not
+  pass the HP Identity Assertion's `assertion.not_on_or_after` or the
+  Treatment Relationship Confirmation's `trc.not_on_or_after`, each when
+  the caller carries it, plus 60 s of drift (eHDSI SAML Profile 10.0.0
+  §2.1, §4.1). A token past either is refused as
+  `client::onward::Rejected::AssertionWindow`, whose
+  `client::onward::AssertionWindow` names the window and its field; an
+  unreadable window end is refused too. A caller without those fields is
+  checked as before.
+
 ## [0.9.4] - 2026-11-07
 
 ### Added
