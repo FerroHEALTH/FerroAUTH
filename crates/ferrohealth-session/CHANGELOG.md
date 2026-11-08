@@ -14,7 +14,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.4.0] - Unreleased
+## [0.4.0] - 2026-11-08
 
 Releases beside `ferrohealth-smart` 0.10.0, whose `oidc` types this crate
 carries in its public API (#303).
@@ -190,7 +190,8 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.3.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.4.0...HEAD
+[0.4.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.3.1...ferrohealth-session-v0.4.0
 [0.3.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.3.0...ferrohealth-session-v0.3.1
 [0.3.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.3...ferrohealth-session-v0.3.0
 [0.2.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.2...ferrohealth-session-v0.2.3
