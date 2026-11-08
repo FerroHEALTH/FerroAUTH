@@ -137,6 +137,14 @@ and this project adheres to
   feed, and a correctly signed assertion was refused as `Integrity::Digest`.
   A carriage return written as `&#xD;` still canonicalizes to `&#xD;`
   (C14N 1.0 §2.3).
+- A contact-point token that carries no TRC and no `patient.id`, the
+  discovery-phase token `identity::ehdsi_claim(identity, None)` writes, is
+  admitted and held to the identity assertion's window (#314). It was
+  refused `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED`, although the TRC is issued
+  only once the patient is identified (eHDSI SAML Profile 10.0.0 §4).
+  `External::trc_patient` reads no patient from such a token, so a product
+  still refuses patient data under it. A token that carries any TRC field
+  or a `patient.id` must carry `trc.id` and both TRC window bounds.
 
 ### Security
 

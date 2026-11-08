@@ -1125,6 +1125,16 @@ Catalogue 10.0.0 §1.25 code name (`contact::EhdsiCode`, `Unclassified::ContactP
   the TRC (2 h) window, with 60 s of drift:
   `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED` (requirement 11.01.02).
 
+A discovery-phase token carries no TRC field and no `patient.id`: the TRC
+is issued once the patient is identified (eHDSI SAML Profile 10.0.0 §4),
+so the professional's patient identification presents the IdA alone. It is
+admitted, held to the IdA window, and `External::trc_patient` reads no
+patient from it, so a product refuses every patient-data request under it
+(FerroFED and FerroEHR answer `trc-missing`). A token that carries any TRC
+field or a `patient.id` carries `trc.id` and both TRC window bounds, or is
+refused `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED` naming the missing ones
+(FerroHEALTH/FerroAUTH#314).
+
 `EhdsiCode::of` names any other invalid token, and an unreadable key set or
 upstream, `ERROR_SEC_GENERIC` (requirement 11): §1.25 has no code for an
 unreadable key set, and its `ERROR_REGISTRY_NOT_AVAILABLE` belongs to

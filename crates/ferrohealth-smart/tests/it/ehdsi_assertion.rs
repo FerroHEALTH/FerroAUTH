@@ -1261,6 +1261,19 @@ fn content_injected_into_the_signature_is_refused() {
     }
 }
 
+/// A validated identity assertion of the default parts, which the
+/// contact-point cases write a discovery-phase claim from.
+pub(crate) async fn validated_identity() -> IdentityAssertion {
+    let case = Case::new();
+    let ida = case.signed(&Parts::identity());
+    case.validator
+        .exchange(&ida, None, now())
+        .await
+        .expect("the identity assertion is valid")
+        .identity()
+        .clone()
+}
+
 /// A guard whose store cannot be reached.
 #[derive(Debug)]
 struct Unreachable;

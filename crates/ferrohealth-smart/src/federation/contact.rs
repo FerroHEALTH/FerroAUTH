@@ -364,6 +364,10 @@ impl TrcPatientId {
 impl External {
     /// Returns the patient the token's `patient.id` binds, when it carries
     /// one `system|value` ([`TrcPatientId::from_claim`]).
+    ///
+    /// A discovery-phase token, which carries no TRC (eHDSI SAML Profile
+    /// 10.0.0 §4), binds no patient: a product refuses every patient-data
+    /// request when this returns `None`.
     #[must_use]
     pub fn trc_patient(&self) -> Option<TrcPatientId> {
         // NOTE: eHDSI XCA Profile 8.0.1 §4.2.1: a request is held to the TRC's patient, so a
@@ -488,14 +492,21 @@ pub(crate) fn check(external: &External, claims: &Map<String, Value>) -> Result<
 /// profile admits (`ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED`, requirement
 /// 11.01.02).
 fn check_assertions(external: &External, claims: &Map<String, Value>) -> Result<(), Unclassified> {
+    // NOTE: eHDSI SAML Profile 10.0.0 §4: the TRC is issued once the patient is identified,
+    // so a discovery-phase token carries no TRC field; one that carries any carries all three.
+    let treatment = [Field::TrcId, Field::TrcNotBefore, Field::TrcNotOnOrAfter];
+    let past_discovery = treatment
+        .iter()
+        .chain([Field::PatientId].iter())
+        .any(|field| external.field(*field).is_some());
     let missing: Vec<&'static str> = [
         Field::AssertionIssuer,
         Field::AssertionId,
         Field::AssertionNotBefore,
         Field::AssertionNotOnOrAfter,
-        Field::TrcId,
     ]
     .into_iter()
+    .chain(treatment.into_iter().filter(|_| past_discovery))
     .filter(|field| external.field(*field).is_none())
     .map(Field::as_str)
     .collect();
