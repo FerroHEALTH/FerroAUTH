@@ -17,7 +17,9 @@ and this project adheres to
 ## [0.4.0] - Unreleased
 
 A policy reads who stands behind the credential (#262). This release
-breaks a Cedar model that declares a subject attribute named `kind`.
+breaks a Cedar model that declares a subject attribute named `kind`, and
+releases beside `ferrohealth-smart` 0.10.0, whose `resource::Caller` this
+crate carries in its public API (#302).
 
 ### Added
 
@@ -29,6 +31,15 @@ breaks a Cedar model that declares a subject attribute named `kind`.
 
 ### Changed
 
+- Requires `ferrohealth-smart` 0.10.0 (caret `0.10.0`) in place of
+  `0.9.0`. `request::Subject::of` takes the 0.10.0
+  `ferrohealth_smart::resource::Caller`, `Subject::with_kind` its
+  `kind::CallerKind`, and `remote::RemotePdp::new` its
+  `client::cache::TokenSource`, so a product on 0.9 that moves
+  `ferrohealth-smart` to 0.10.0 alone builds two copies of it and fails
+  on the type. Upgrade: move `ferrohealth-smart` to 0.10.0 (its changelog
+  lists the `[<lane>.credentials.onward]` change) and `ferrohealth-authz`
+  to 0.4.0 in one change.
 - The Cedar principal `User` declares `kind?: String`, holding the name
   `CallerKind::as_str` gives (`person`, `system`, `patient` and the rest
   the audit line records), so a policy reads `principal has kind &&
