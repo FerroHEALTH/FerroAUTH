@@ -28,6 +28,7 @@ use ferrohealth_smart::federation::assertion::signer::TrustedSigner;
 use ferrohealth_smart::federation::assertion::treatment::PatientIdSource;
 use ferrohealth_smart::federation::contact::EhdsiCode;
 use ferrohealth_smart::federation::contact::NameIdFormat;
+use ferrohealth_smart::federation::contact::TrcPatientId;
 use jiff::Timestamp;
 use rcgen::CertificateParams;
 use rcgen::DnType;
@@ -367,6 +368,8 @@ fn a_linked_treatment_confirmation_yields_the_patient() {
     assert_eq!(trc.id(), TRC_ID);
     assert_eq!(trc.identity_id(), IDA_ID);
     assert_eq!(trc.patient_id(), "invented-patient^^^&1.2.3&ISO");
+    assert_eq!(trc.patient().system(), "urn:oid:1.2.3");
+    assert_eq!(trc.patient().value(), "invented-patient");
     assert_eq!(trc.purpose_of_use(), None);
     assert_eq!(trc.not_on_or_after().as_second(), now().as_second() + 3600);
 }
@@ -849,6 +852,32 @@ fn a_treatment_confirmation_without_the_patient_is_refused() {
 }
 
 #[test]
+fn a_treatment_confirmation_whose_patient_is_no_cx_is_refused() {
+    let case = Case::new();
+    let identity = case.valid_identity();
+    for subject in [
+        "invented-patient",
+        "invented-patient^^^&amp;1.2.3&amp;DNS",
+        "invented-patient^^^&amp;not-an-oid&amp;ISO",
+        "^^^&amp;1.2.3&amp;ISO",
+    ] {
+        let mut parts = Parts::treatment().without("subject-id");
+        parts.attributes.push(attribute(
+            "urn:oasis:names:tc:xspa:1.0:subject:subject-id",
+            subject,
+        ));
+        let refused = case
+            .validator
+            .treatment(&case.signed(&parts), &identity, now());
+        assert_eq!(
+            attributes(refused),
+            Some((EhdsiCode::SecDataIntegrityNotEnsured, vec!["patient.id"])),
+            "{subject}"
+        );
+    }
+}
+
+#[test]
 fn a_treatment_confirmation_window_over_two_hours_is_refused() {
     let case = Case::new();
     let identity = case.valid_identity();
@@ -961,7 +990,12 @@ fn the_claim_carries_the_contact_point_field_set() {
         now().as_second() + 3 * 3600
     );
     assert_eq!(claim["trc"]["not_on_or_after"], now().as_second() + 3600);
-    assert_eq!(claim["patient"]["id"], "invented-patient^^^&1.2.3&ISO");
+    // NOTE: eHDSI SAML Profile 10.0.0 §4.3: the CX subject-id is written as the system|value
+    // token the family's resource servers read, its ISO authority as the urn:oid: system.
+    assert_eq!(claim["patient"]["id"], "urn:oid:1.2.3|invented-patient");
+    let read = TrcPatientId::from_claim(claim["patient"]["id"].as_str().expect("a string"))
+        .expect("the claim reads back");
+    assert_eq!(&read, trc.patient());
     let discovery = ehdsi_claim(&identity, None);
     assert!(
         discovery.get("trc").is_none(),

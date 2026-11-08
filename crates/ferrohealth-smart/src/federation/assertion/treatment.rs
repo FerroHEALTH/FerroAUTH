@@ -23,6 +23,7 @@ use crate::federation::assertion::identity::purpose;
 use crate::federation::assertion::required;
 use crate::federation::assertion::text;
 use crate::federation::contact::EhdsiCode;
+use crate::federation::contact::TrcPatientId;
 
 /// The longest TRC window: "MUST NOT be more than 2 hours" (SAML Profile
 /// 10.0.0 §4.1).
@@ -71,8 +72,10 @@ pub struct TreatmentAssertion {
     not_on_or_after: Timestamp,
     /// The `@ID` of the identity assertion it names.
     identity_id: String,
-    /// The patient identifier (`subject-id`).
+    /// The patient identifier (`subject-id`), as asserted.
     patient_id: String,
+    /// The patient it names.
+    patient: TrcPatientId,
     /// The purpose of use that overrides the identity assertion's.
     purpose_of_use: Option<PurposeOfUse>,
     /// How the patient identifier was obtained.
@@ -128,6 +131,12 @@ impl TreatmentAssertion {
         &self.patient_id
     }
 
+    /// Returns the patient the `subject-id` names, read from its CX form.
+    #[must_use]
+    pub fn patient(&self) -> &TrcPatientId {
+        &self.patient
+    }
+
     /// Returns the purpose of use that overrides the identity assertion's, when given.
     #[must_use]
     pub const fn purpose_of_use(&self) -> Option<PurposeOfUse> {
@@ -158,7 +167,7 @@ impl TreatmentAssertion {
     /// Returns the `patient` object of the `ehdsi` claim.
     pub(super) fn patient_claim(&self) -> Value {
         let mut patient = Map::new();
-        patient.insert("id".into(), json!(self.patient_id));
+        patient.insert("id".into(), json!(self.patient.claim()));
         if let Some(source) = self.patient_id_source {
             patient.insert("id_source".into(), json!(source.as_str()));
         }
@@ -193,6 +202,10 @@ pub(super) fn read(
     let patient_id = envelope
         .single(SUBJECT)?
         .ok_or_else(|| integrity(Field::PatientId))?;
+    // NOTE: eHDSI SAML Profile 10.0.0 §4.3: the subject-id is the identifier of the id traits
+    // handshake, the CX XCPD returns; one of another form binds no patient a token can name.
+    let patient =
+        TrcPatientId::from_cx(&patient_id).map_err(|_unread| integrity(Field::PatientId))?;
     let purpose_of_use = match envelope.values(PURPOSE) {
         [] => None,
         values => Some(purpose(values).ok_or_else(|| AssertionError::Attributes {
@@ -223,6 +236,7 @@ pub(super) fn read(
         not_on_or_after: envelope.not_on_or_after,
         identity_id: reference,
         patient_id,
+        patient,
         purpose_of_use,
         patient_id_source,
         pid_issuer_country,
