@@ -266,6 +266,90 @@ async fn each_missing_attribute_is_refused_with_its_code_name() -> Outcome {
     Ok(())
 }
 
+/// Returns the token with no TRC and no patient: a discovery-phase token.
+fn discovery() -> Value {
+    let mut claims = token();
+    let ehdsi = claims
+        .get_mut("ehdsi")
+        .and_then(Value::as_object_mut)
+        .expect("the ehdsi claim");
+    ehdsi.remove("trc");
+    ehdsi.remove("patient");
+    claims
+}
+
+// NOTE: eHDSI SAML Profile 10.0.0 §4: the TRC is issued once the patient is identified,
+// so the discovery phase presents the identity assertion alone (FerroHEALTH/FerroAUTH#314).
+#[tokio::test]
+async fn a_discovery_phase_token_is_admitted_with_no_patient() -> Outcome {
+    let caller = Harness::new().admit(&discovery()).await?;
+    let CallerKind::ExternalPerson(person) = caller.kind() else {
+        panic!("an external person: {caller:?}");
+    };
+    assert!(person.field(Field::TrcId).is_none(), "no TRC");
+    assert!(person.trc_patient().is_none(), "no patient to read data of");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_discovery_phase_token_is_held_to_the_identity_assertion_window() -> Outcome {
+    let h = Harness::new();
+    let mut late = discovery();
+    late["ehdsi"]["assertion"]["not_on_or_after"] = json!(now() + 120);
+    let integrity = Some((EhdsiCode::SecDataIntegrityNotEnsured, vec!["exp"]));
+    assert_eq!(integrity, code(h.admit(&late).await), "past the IdA");
+    let mut long = discovery();
+    long["ehdsi"]["assertion"]["not_before"] = json!(now() - 4 * 3600);
+    assert_eq!(integrity, code(h.admit(&long).await), "past 4 hours");
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_partial_treatment_confirmation_is_refused() -> Outcome {
+    let h = Harness::new();
+    let integrity = EhdsiCode::SecDataIntegrityNotEnsured;
+    let mut no_window = token();
+    let trc = no_window
+        .pointer_mut("/ehdsi/trc")
+        .and_then(Value::as_object_mut)
+        .ok_or("the trc object")?;
+    trc.remove("not_before");
+    trc.remove("not_on_or_after");
+    assert_eq!(
+        Some((integrity, vec!["trc.not_before", "trc.not_on_or_after"])),
+        code(h.admit(&no_window).await)
+    );
+    let mut patient_only = discovery();
+    patient_only["ehdsi"]["patient"] = json!({ "id": "synthetic-patient^^^&1.2.3&ISO" });
+    assert_eq!(
+        Some((
+            integrity,
+            vec!["trc.id", "trc.not_before", "trc.not_on_or_after"]
+        )),
+        code(h.admit(&patient_only).await)
+    );
+    Ok(())
+}
+
+#[cfg(feature = "ehdsi-assertion")]
+#[tokio::test]
+async fn the_discovery_phase_claim_the_crate_writes_is_admitted() -> Outcome {
+    let identity = crate::ehdsi_assertion::validated_identity();
+    let mut claims = token();
+    claims["ehdsi"] =
+        ferrohealth_smart::federation::assertion::identity::ehdsi_claim(&identity, None);
+    let caller = Harness::new().admit(&claims).await?;
+    let CallerKind::ExternalPerson(person) = caller.kind() else {
+        panic!("an external person: {caller:?}");
+    };
+    assert_eq!(
+        Some(identity.id()),
+        person.field(Field::AssertionId).and_then(Attribute::text)
+    );
+    assert!(person.trc_patient().is_none());
+    Ok(())
+}
+
 // NOTE: eHDSI SAML Profile 10.0.0 §2.1: the NameID identifies the HP under its
 // @Format, so the caller carries the pair, read from one place.
 #[tokio::test]

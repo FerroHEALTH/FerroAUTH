@@ -1190,3 +1190,9 @@ fn content_injected_into_the_signature_is_refused() {
         );
     }
 }
+
+/// A validated identity assertion of the default parts, which the
+/// contact-point cases write a discovery-phase claim from.
+pub(crate) fn validated_identity() -> IdentityAssertion {
+    Case::new().valid_identity()
+}
