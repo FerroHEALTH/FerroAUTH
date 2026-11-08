@@ -401,7 +401,7 @@ fn professional(
 
 /// Returns the structural roles, each an HL7 v3 `Role` with a `code`
 /// ("the Role SHALL be recorded under the `AttributeValue` with an element
-/// <Role>", SAML Profile 10.0.0 §2.3), or nothing when any value is not.
+/// `<Role>`", SAML Profile 10.0.0 §2.3), or nothing when any value is not.
 fn roles(envelope: &Envelope<'_, '_>) -> Option<Vec<Role>> {
     let values = envelope.values(name::ROLE);
     if values.is_empty() {

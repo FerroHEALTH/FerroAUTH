@@ -26,7 +26,7 @@
 #                        Annex B trees: each PROVENANCE.md names its row's
 #                        commit and the tree still hashes to the digest it
 #                        records.
-#   3e. cache only       the Okta and Microsoft Graph PROVENANCE.md files
+#   3e. cache only       the Okta, Microsoft Graph and SOG-IS ACM PROVENANCE.md files
 #                        each record their row's pin-set digest and each
 #                        directory holds no other file; no
 #                        file under .vendor-cache/ is tracked.
@@ -238,9 +238,10 @@ for tree in "ihe-iua:IHE IUA supplement" "nuts-rfc:Nuts RFC021" \
   fi
 done
 
-# ---- 3e. the cache-only sources ---------------------------------------------
+# ---- 3e. the cache-only and copy-free sources ------------------------------
 for tree in "okta:Okta OpenID Connect and OAuth 2.0 API" \
-  "microsoft-graph:Microsoft Graph documentation"; do
+  "microsoft-graph:Microsoft Graph documentation" \
+  "sogis-acm:SOG-IS Agreed Cryptographic Mechanisms"; do
   dir="docs/specs/${tree%%:*}"
   item="${tree#*:}"
   if [ -f "$dir/PROVENANCE.md" ]; then
@@ -260,7 +261,6 @@ tracked="$(git ls-files .vendor-cache | head -n1)"
 
 # ---- 3f. the corpora pinned file by file by sha256 --------------------------
 for tree in "ehdsi-specifications:eHDSI specifications" "eu-law:EU legal acts" \
-  "sogis-acm:SOG-IS Agreed Cryptographic Mechanisms" \
   "ihe-balp-pages:IHE BALP narrative pages"; do
   dir="docs/specs/${tree%%:*}"
   item="${tree#*:}"
