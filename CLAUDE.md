@@ -94,7 +94,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   bearer onward grants with their check and cache), `kind` (the caller
   classification), `profile` (the issuer profile with its `onward` keys, its
   presets under `profiles/`), `federation`
-  (what a `federation` issuer asserts), `sender` (sender-constrained tokens,
+  (what a `federation` issuer asserts, with `assertion`, the eHDSI IdA and
+  TRC check behind `ehdsi-assertion`), `sender` (sender-constrained tokens,
   with `proof`, the DPoP proof check, and `replay`, the proof replay store),
   `party` (the login's party through a product `PartySource`, with
   `binding`, `source`, `config` and `adapter`), `assurance`,
@@ -118,7 +119,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   IHE IUA supplement, the IHE BALP content page, Nuts RFC021, and the
   Microsoft Entra, SCIM workload identity and Keycloak documents the issuer
   profiles cite, the eHDSI
-  specifications the owner supplied, Implementing Regulation (EU)
+  specifications the owner supplied with SOG-IS ACM 1.3 recorded by sha256
+  and never copied, Implementing Regulation (EU)
   2026/2099, the GDPR and Commission Decision 2011/833/EU, and the
   Federation Tier Annex B, and the openEHR RM Common chapter the party
   states cite, each with a `PROVENANCE.md`; `okta/` and `microsoft-graph/`

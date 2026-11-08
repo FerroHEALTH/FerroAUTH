@@ -63,6 +63,17 @@ ferrohealth-smart = { version = "=0.9.4", features = ["axum", "openehr"] }
   `Outcome`: `Party`, `WrongMarker`, `Unbound`, `Ambiguous`, `Inactive`,
   `Abandoned`, `Deprovisioned`, `KeyClaimMissing` or `GroupsUnavailable`. A
   source failure is a `SourceError`, never no match.
+- **`federation::assertion`** (feature `ehdsi-assertion`): the check an
+  authorization server acting for a MyHealth@EU contact point runs on the
+  eHDSI HP Identity Assertion and Treatment Relationship Confirmation. A
+  `Validator` over `TrustedSigner`s (an issuer URI with its seal
+  certificate) verifies the enveloped XML signature in one accepted shape,
+  holds the signer and the signature to the SOG-IS ACM 1.3 floor, and checks
+  the window, the audience, sender-vouches and the attributes of eHDSI SAML
+  Profile 10.0.0 §2 and §4. It returns an `IdentityAssertion` and a
+  `TreatmentAssertion`, whose `Debug` carries no assertion content, and
+  `identity::ehdsi_claim` writes them as the contact-point token's `ehdsi`
+  claim. Every refusal's `code()` is its §1.25 code name.
 - **`idp::entra`** (feature `idp-entra`): the vendor adapter for a
   Microsoft Entra ID groups overage. An `entra` issuer with
   `adapter = "idp-entra"` reads the groups of a token carrying

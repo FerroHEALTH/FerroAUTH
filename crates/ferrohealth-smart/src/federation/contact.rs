@@ -199,6 +199,12 @@ impl fmt::Debug for NameId {
 }
 
 impl NameId {
+    /// Returns the identifier `value` under `format`.
+    #[cfg(feature = "ehdsi-assertion")]
+    pub(crate) const fn new(value: String, format: NameIdFormat) -> Self {
+        Self { value, format }
+    }
+
     /// Returns the identifier, as asserted.
     #[must_use]
     pub fn value(&self) -> &str {

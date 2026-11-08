@@ -4,10 +4,12 @@
 # scripts/vendor/ehdsi-specifications.sh
 #
 # Vendors the eHDSI documents the contact-point profile of the caller
-# classification (#215) reads into docs/specs/ehdsi-specifications/: the
-# SAML Profile, Section II Security Services, the Service Location and
-# Capability Lookup Profile and the NCPeH Components Specifications 10.0.0,
-# and the Interoperability Specifications 8.0.1. The owner retrieved them
+# classification (#215) and the assertion check (#294) read into
+# docs/specs/ehdsi-specifications/: the SAML Profile, Section II Security
+# Services, the Service Location and Capability Lookup Profile, the NCPeH
+# Components Specifications and the Messaging Profile 10.0.0, the
+# Cryptographic Algorithms 9.0.0, the X.509 Certificates Profile 7.0.0 and
+# the Interoperability Specifications 8.0.1. The owner retrieved them
 # from the eHDSI wiki, which sits behind EU Login, so this script downloads
 # nothing. The owner places the files in a local directory, and the script
 # finds each one by the sha256 it pins (scripts/vendor/lib/pinned.sh, mode
@@ -64,6 +66,7 @@ wiki='https://webgate.ec.europa.eu/fpfis/wikis/display/EHDSI/2.+eHDSI+INTEROPERA
 reuse='"Reuse is authorised, provided the source is acknowledged." and "Distribution level*: PU", where "PU = Public" (the cover and control page, read 2026-11-05)'
 docx_title='The docx core properties carry a stale title (dc:title "D3.7.2 Section I - Security Policies_v0.8"), so the sha256 identifies the file, not the metadata.'
 pdf_title='The PDF document information carries a stale title ("D3.7.2 Section I - Security Policies_v0.8"), so the sha256 identifies the file, not the metadata.'
+pdf_none='The PDF document information carries no title; the sha256 identifies the file.'
 
 # ack SOURCE_LINE: the acknowledgement the cover names, quoted from its
 # source line.
@@ -89,6 +92,18 @@ pin supplied ehdsi-ncpeh-components-specifications-10.0.0.pdf \
   'NCPeH Components Specifications, document version 10.0.0, 01/06/2026, status Wave 10 Operation Ready' \
   "$wiki" 5da44873fefdf3f9bb2a855d3d6c053990f8730a25a0b5ffe1ccfe75e0e73ba2 "$reuse" \
   "$(ack 'DG SANTE, CEF MyHealth@EU, 2026') The owner supplied eHDSI_NCPeH_Components_Specifications_v10.0.0.pdf. $pdf_title"
+pin supplied ehdsi-messaging-profile-10.0.0.pdf \
+  'eHDSI Messaging Profile, document version 10.0.0, 01/06/2026, status Wave 10 Operation Ready' \
+  "$wiki" 4b9aa0c6dd383417eb4c90944bb04b895f6b4b4095b46393957ab9f6e34c7976 "$reuse" \
+  "$(ack 'DG SANTE, MyHealth@EU, 2026') The owner supplied eHDSI_Messaging_Profile_v10.0.0.pdf. $pdf_title"
+pin supplied ehdsi-x509-certificates-profile-7.0.0.pdf \
+  'X.509 Certificates Profile (document name X.509 Certificate Profile), document version 7.0.0, 19/07/2023, status Wave 7 Operation Ready' \
+  "$wiki" c17ac1cc60ca686a805306856259f92d53a23e15652041474cf2008d20d40548 "$reuse" \
+  "$(ack 'DG SANTE, MyHealth@EU, 2023') The owner supplied eHDSI_X509_Certificates_Profile_v7.0.0.pdf. $pdf_none"
+pin supplied ehdsi-cryptographic-algorithms-9.0.0.pdf \
+  'Cryptographic Algorithms, document version 9.0.0, 04/06/2025, status Wave 9 Operation Ready' \
+  "$wiki" 2b2cf3612649f69b2b1e3b68ef0b4924c8d75ce00b02808a4a19fb28f942f952 "$reuse" \
+  "$(ack 'DG SANTE, CEF eHealth DSI, 2025') The owner supplied eHDSI_Cryptographic_Algorithms_v9.0.0.pdf. $pdf_none"
 pin withheld myhealth-eu-requirements-catalogue-10.0.0.pdf \
   'MyHealth@EU Requirements Catalogue, version 10.0.0 OR, target release W10-Operation Ready, document status DONE, status date 06 Mar 2026' \
   'https://webgate.ec.europa.eu/fpfis/wikis/display/EHDSI/1.+MyHealth@EU+Requirements+Catalogue' \
@@ -98,8 +113,10 @@ pin withheld myhealth-eu-requirements-catalogue-10.0.0.pdf \
 pinned_corpus ehdsi-specifications "eHDSI specifications" \
   "the eHDSI specifications supplied by the owner" \
   "The eHDSI SAML Profile, Section II Security Services, the Service Location
-and Capability Lookup Profile and the NCPeH Components Specifications
-10.0.0, and the eHDSI Interoperability Specifications 8.0.1, retrieved by
+and Capability Lookup Profile, the NCPeH Components Specifications and the
+Messaging Profile 10.0.0, the Cryptographic Algorithms 9.0.0, the X.509
+Certificates Profile 7.0.0, and the eHDSI Interoperability Specifications
+8.0.1, retrieved by
 the owner from the eHDSI wiki, which sits behind EU Login. Each cover states
 distribution level PU (Public) and \"Reuse is authorised, provided the
 source is acknowledged.\", so each is committed verbatim, as the owner
@@ -114,6 +131,8 @@ distribution terms. It is recorded here by version, date and sha256, and
 no copy of it enters the repository or the cache." none \
   "the contact-point profile of the caller classification (#215: the
   issuer, the attributes, the authentication classes, the IdA and TRC
-  lifetimes and the refusal names), vendored by #224"
+  lifetimes and the refusal names), vendored by #224, and the IdA and TRC
+  check (#294: the enveloped signature, the algorithm floor, the seal
+  certificate and the subject linkage)"
 
 say "done"
