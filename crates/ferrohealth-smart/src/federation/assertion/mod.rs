@@ -19,9 +19,44 @@
 //! into at most 4096 nodes with no DTD. No specification governs these caps:
 //! they are our own design, set well above what an eHDSI assertion uses, so
 //! an unauthenticated input costs bounded work before any check runs.
+//!
+//! # The exchange
+//!
+//! [`Validator::exchange`] checks the identity assertion alone, as the
+//! discovery phase presents it, or with one TRC, and admits that exchange
+//! once: the [`replay::ReplayGuard`] [`Validator::new`] requires records it
+//! until the earliest window end, plus the drift, and refuses it again as
+//! [`Integrity::Replayed`] (RFC 7522 §3, item 6). The instants are held to
+//! the clock with the same drift: an `IssueInstant` ahead of now, or not
+//! before `NotOnOrAfter`, an `AuthnInstant` after the `IssueInstant`, and a
+//! `SessionNotOnOrAfter` past (SAML 2.0 Core §2.3.3, §2.7.2; SAML Profile
+//! 10.0.0 §2.1, §4.1). [`Exchange::ends`] is the earliest end of every
+//! window and session, the latest `exp` a token issued on the exchange may
+//! carry.
+//!
+//! # What the caller holds
+//!
+//! The assertions are sender-vouches: NCP-B vouches for the subject, and
+//! nothing in them names who presents them. The caller authenticates the
+//! presenting party as acting for the issuer before it checks an exchange:
+//! NCPeH-A verifies NCP-B's message signature over the SOAP Body and the
+//! assertions (eHDSI Messaging Profile 10.0.0 §5.5.2), and an authorization
+//! server acting for NCPeH-A authenticates NCPeH-A's national connector,
+//! for instance by its client certificate (RFC 8705 §2). A product that
+//! runs more than one replica supplies a [`replay::ReplayGuard`] all of
+//! them share.
+//!
+//! # Interoperability
+//!
+//! An `InclusiveNamespaces PrefixList` may name only the prefixes of SAML
+//! Profile 10.0.0 §1.4.2: "other prefixes than the ones defined in [SAML
+//! Profile] MUST NOT be used" (Cryptographic Algorithms 9.0.0 §4.1). Signers
+//! built on `OpenSAML` often list `xs` as well, and such an assertion is
+//! refused as [`Integrity::Canonicalization`]; the issuer fixes its signer.
 
 use std::collections::BTreeMap;
 use std::fmt;
+use std::sync::Arc;
 
 use jiff::Timestamp;
 use roxmltree::Document;
@@ -34,10 +69,14 @@ mod bounds;
 mod c14n;
 mod dsig;
 pub mod identity;
+pub mod replay;
 pub mod signer;
 pub mod treatment;
 
 use crate::federation::assertion::identity::IdentityAssertion;
+use crate::federation::assertion::replay::ExchangeId;
+use crate::federation::assertion::replay::ReplayGuard;
+use crate::federation::assertion::replay::ReplayGuardError;
 use crate::federation::assertion::signer::TrustedSigner;
 use crate::federation::assertion::treatment::TreatmentAssertion;
 
@@ -136,6 +175,23 @@ pub enum Integrity {
     /// professional (SAML Profile 10.0.0 §4.1).
     #[error("the treatment confirmation is not linked to the identity assertion")]
     Link,
+    /// `@IssueInstant` lies more than 60 s ahead, or not before
+    /// `NotOnOrAfter` (SAML 2.0 Core §2.3.3).
+    #[error("the assertion's IssueInstant is outside its window")]
+    Issued,
+    /// `@AuthnInstant` lies more than 60 s after `@IssueInstant` or ahead
+    /// (SAML 2.0 Core §2.7.2).
+    #[error("the assertion's AuthnInstant is after its issue")]
+    Authenticated,
+    /// `@SessionNotOnOrAfter` lies more than 60 s behind: "an upper bound on
+    /// sessions with the subject derived from the enclosing assertion"
+    /// (SAML 2.0 Core §2.7.2).
+    #[error("the assertion's session has ended")]
+    SessionEnded,
+    /// The same exchange was admitted before, inside its window (RFC 7522
+    /// §3, item 6).
+    #[error("the exchange of these assertions was admitted before")]
+    Replayed,
 }
 
 /// The kind of algorithm below the floor of eHDSI Cryptographic Algorithms
@@ -192,48 +248,203 @@ impl AssertionError {
     }
 }
 
+/// A refused exchange: an assertion refused, or a replay guard that could
+/// not answer.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum ExchangeError {
+    /// An assertion is refused.
+    #[error(transparent)]
+    Assertion(#[from] AssertionError),
+    /// The replay guard failed, so the exchange is not admitted.
+    #[error("the exchange could not be checked for a replay")]
+    Guard(#[source] ReplayGuardError),
+}
+
+impl ExchangeError {
+    /// Returns the MyHealth@EU Requirements Catalogue 10.0.0 §1.25 code
+    /// name a contact point answers the refusal with:
+    /// `ERROR_SEC_GENERIC` for a guard that could not answer, as for any
+    /// upstream the check needs that cannot be read.
+    #[must_use]
+    pub fn code(&self) -> EhdsiCode {
+        match self {
+            Self::Assertion(refused) => refused.code(),
+            Self::Guard(_) => EhdsiCode::SecGeneric,
+        }
+    }
+}
+
+/// An admitted exchange: the identity assertion and, past the discovery
+/// phase, the TRC linked to it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Exchange {
+    /// The identity assertion.
+    identity: IdentityAssertion,
+    /// The TRC, when one was presented.
+    treatment: Option<TreatmentAssertion>,
+    /// The earliest window or session end of both.
+    ends: Timestamp,
+}
+
+impl Exchange {
+    /// Returns the identity assertion.
+    #[must_use]
+    pub const fn identity(&self) -> &IdentityAssertion {
+        &self.identity
+    }
+
+    /// Returns the TRC, when one was presented.
+    #[must_use]
+    pub const fn treatment(&self) -> Option<&TreatmentAssertion> {
+        self.treatment.as_ref()
+    }
+
+    /// Returns the earliest of each assertion's `NotOnOrAfter` and
+    /// `SessionNotOnOrAfter`: a token issued on the exchange expires no
+    /// later.
+    #[must_use]
+    pub const fn ends(&self) -> Timestamp {
+        self.ends
+    }
+
+    /// Returns the `ehdsi` claim of the token issued on the exchange
+    /// ([`identity::ehdsi_claim`]).
+    #[must_use]
+    pub fn claim(&self) -> serde_json::Value {
+        identity::ehdsi_claim(&self.identity, self.treatment.as_ref())
+    }
+}
+
+/// The instants an assertion is valid between.
+///
+/// `Conditions/@NotBefore` and `@NotOnOrAfter` bound the assertion, and
+/// `AuthnStatement/@SessionNotOnOrAfter`, when present, is "an upper bound
+/// on sessions with the subject" (SAML 2.0 Core §2.5.1, §2.7.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Window {
+    /// `@NotBefore`.
+    not_before: Timestamp,
+    /// `@NotOnOrAfter`.
+    not_on_or_after: Timestamp,
+    /// `@SessionNotOnOrAfter`, when present.
+    session_not_on_or_after: Option<Timestamp>,
+}
+
+impl Window {
+    /// Returns `Conditions/@NotBefore`.
+    #[must_use]
+    pub const fn not_before(&self) -> Timestamp {
+        self.not_before
+    }
+
+    /// Returns `Conditions/@NotOnOrAfter`.
+    #[must_use]
+    pub const fn not_on_or_after(&self) -> Timestamp {
+        self.not_on_or_after
+    }
+
+    /// Returns `AuthnStatement/@SessionNotOnOrAfter`, when present.
+    #[must_use]
+    pub const fn session_not_on_or_after(&self) -> Option<Timestamp> {
+        self.session_not_on_or_after
+    }
+
+    /// Returns the earlier of `NotOnOrAfter` and `SessionNotOnOrAfter`.
+    #[must_use]
+    pub fn ends(&self) -> Timestamp {
+        self.session_not_on_or_after
+            .map_or(self.not_on_or_after, |session| {
+                session.min(self.not_on_or_after)
+            })
+    }
+}
+
 /// The check of the assertions a contact point hands over.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Validator {
     /// The trusted signers.
     signers: Vec<TrustedSigner>,
     /// The audiences this node accepts.
     audiences: Vec<String>,
+    /// Where admitted exchanges are recorded.
+    guard: Arc<dyn ReplayGuard>,
+}
+
+impl fmt::Debug for Validator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Validator")
+            .field("signers", &self.signers)
+            .field("audiences", &self.audiences)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Validator {
-    /// Returns a validator that trusts `signers` and accepts an assertion
+    /// Returns a validator that trusts `signers`, accepts an assertion
     /// addressed to one of `audiences`, such as
-    /// `urn:ehdsi:assertions.audience:x-border` (SAML Profile 10.0.0 §2.1).
+    /// `urn:ehdsi:assertions.audience:x-border` (SAML Profile 10.0.0 §2.1),
+    /// and records each admitted exchange in `guard`.
     #[must_use]
-    pub fn new(signers: Vec<TrustedSigner>, audiences: Vec<String>) -> Self {
-        Self { signers, audiences }
+    pub fn new(
+        signers: Vec<TrustedSigner>,
+        audiences: Vec<String>,
+        guard: Arc<dyn ReplayGuard>,
+    ) -> Self {
+        Self {
+            signers,
+            audiences,
+            guard,
+        }
     }
 
-    /// Checks the HP Identity Assertion `xml` at `now`.
+    /// Checks the HP Identity Assertion `identity` and, past the discovery
+    /// phase, the Treatment Relationship Confirmation `treatment` linked to
+    /// it, at `now`, and admits the exchange once.
     ///
     /// # Errors
     ///
-    /// An [`AssertionError`] naming the first check it fails, in the order
-    /// of the module documentation.
-    pub fn identity(&self, xml: &str, now: Timestamp) -> Result<IdentityAssertion, AssertionError> {
-        self.read(xml, identity::WINDOW, now, identity::read)
-    }
-
-    /// Checks the Treatment Relationship Confirmation `xml` at `now`, linked
-    /// to `identity`.
-    ///
-    /// # Errors
-    ///
-    /// An [`AssertionError`] naming the first check it fails.
-    pub fn treatment(
+    /// [`ExchangeError::Assertion`] naming the first check an assertion
+    /// fails, in the order of the module documentation, the identity
+    /// assertion first, or [`Integrity::Replayed`] for an exchange admitted
+    /// before; [`ExchangeError::Guard`] when the replay guard cannot answer.
+    pub async fn exchange(
         &self,
-        xml: &str,
-        identity: &IdentityAssertion,
+        identity: &str,
+        treatment: Option<&str>,
         now: Timestamp,
-    ) -> Result<TreatmentAssertion, AssertionError> {
-        self.read(xml, treatment::WINDOW, now, |envelope| {
-            treatment::read(envelope, identity)
+    ) -> Result<Exchange, ExchangeError> {
+        let identity = self.read(identity, identity::WINDOW, now, identity::read)?;
+        let treatment = treatment
+            .map(|xml| {
+                self.read(xml, treatment::WINDOW, now, |envelope| {
+                    treatment::read(envelope, &identity)
+                })
+            })
+            .transpose()?;
+        let ends = treatment
+            .as_ref()
+            .map(|trc| trc.window().ends())
+            .into_iter()
+            .fold(identity.window().ends(), std::cmp::min);
+        let key = ExchangeId::of(
+            (identity.issuer(), identity.id()),
+            treatment.as_ref().map(|trc| (trc.issuer(), trc.id())),
+        );
+        let until = Timestamp::from_second(ends.as_second().saturating_add(DRIFT))
+            .unwrap_or(Timestamp::MAX);
+        let first = self
+            .guard
+            .first_use(&key, until)
+            .await
+            .map_err(ExchangeError::Guard)?;
+        if !first {
+            return Err(AssertionError::from(Integrity::Replayed).into());
+        }
+        Ok(Exchange {
+            identity,
+            treatment,
+            ends,
         })
     }
 
@@ -269,10 +480,8 @@ pub(crate) struct Envelope<'a, 'input> {
     id: String,
     /// `saml:Issuer`.
     issuer: String,
-    /// `Conditions/@NotBefore`.
-    not_before: Timestamp,
-    /// `Conditions/@NotOnOrAfter`.
-    not_on_or_after: Timestamp,
+    /// The window and the session.
+    window: Window,
     /// `Subject`.
     subject: Node<'a, 'input>,
     /// `Advice`, when present.
@@ -320,7 +529,6 @@ impl<'a, 'input> Envelope<'a, 'input> {
             return Err(Integrity::Untrusted.into());
         }
         dsig::verify(root, &signers, now)?;
-        time(root.attribute("IssueInstant"), "@IssueInstant")?;
         let conditions = required(root, "Conditions")?;
         let not_before = time(conditions.attribute("NotBefore"), "@NotBefore")?;
         let not_on_or_after = time(conditions.attribute("NotOnOrAfter"), "@NotOnOrAfter")?;
@@ -349,7 +557,7 @@ impl<'a, 'input> Envelope<'a, 'input> {
             return Err(Integrity::Confirmation.into());
         }
         let authn = required(root, "AuthnStatement")?;
-        time(authn.attribute("AuthnInstant"), "@AuthnInstant")?;
+        let session_not_on_or_after = instants(root, authn, not_on_or_after, now)?;
         let authentication_class =
             optional(required(authn, "AuthnContext")?, "AuthnContextClassRef")?
                 .and_then(|node| text(node, "saml:AuthnContextClassRef").ok());
@@ -366,8 +574,11 @@ impl<'a, 'input> Envelope<'a, 'input> {
         Ok(Self {
             id: id.to_owned(),
             issuer,
-            not_before,
-            not_on_or_after,
+            window: Window {
+                not_before,
+                not_on_or_after,
+                session_not_on_or_after,
+            },
             subject,
             advice: optional(root, "Advice")?,
             authentication_class,
@@ -410,6 +621,36 @@ impl<'a, 'input> Envelope<'a, 'input> {
             _ => Err(Integrity::Structure("saml:AttributeValue").into()),
         }
     }
+}
+
+/// Holds `@IssueInstant`, `@AuthnInstant` and `@SessionNotOnOrAfter` to
+/// `now` and the window ending `not_on_or_after`, each with the 60 s drift,
+/// and returns the session end, when present.
+fn instants(
+    root: Node<'_, '_>,
+    authn: Node<'_, '_>,
+    not_on_or_after: Timestamp,
+    now: Timestamp,
+) -> Result<Option<Timestamp>, AssertionError> {
+    let latest = now.as_second().saturating_add(DRIFT);
+    // NOTE: SAML 2.0 Core §2.3.3 and SAML Profile 10.0.0 §2.1: the instant of issuance is
+    // held to the window's 60 s drift, and to the window it opens.
+    let issuance = time(root.attribute("IssueInstant"), "@IssueInstant")?;
+    if issuance.as_second() > latest || issuance >= not_on_or_after {
+        return Err(Integrity::Issued.into());
+    }
+    let authentication = time(authn.attribute("AuthnInstant"), "@AuthnInstant")?;
+    if authentication.as_second() > latest.min(issuance.as_second().saturating_add(DRIFT)) {
+        return Err(Integrity::Authenticated.into());
+    }
+    let session = authn
+        .attribute("SessionNotOnOrAfter")
+        .map(|value| time(Some(value), "@SessionNotOnOrAfter"))
+        .transpose()?;
+    if session.is_some_and(|end| now.as_second() >= end.as_second().saturating_add(DRIFT)) {
+        return Err(Integrity::SessionEnded.into());
+    }
+    Ok(session)
 }
 
 /// Whether `node` is the element `name` of `namespace`.

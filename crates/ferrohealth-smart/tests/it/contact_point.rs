@@ -334,7 +334,7 @@ async fn a_partial_treatment_confirmation_is_refused() -> Outcome {
 #[cfg(feature = "ehdsi-assertion")]
 #[tokio::test]
 async fn the_discovery_phase_claim_the_crate_writes_is_admitted() -> Outcome {
-    let identity = crate::ehdsi_assertion::validated_identity();
+    let identity = crate::ehdsi_assertion::validated_identity().await;
     let mut claims = token();
     claims["ehdsi"] =
         ferrohealth_smart::federation::assertion::identity::ehdsi_claim(&identity, None);

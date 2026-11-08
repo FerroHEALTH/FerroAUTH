@@ -150,6 +150,8 @@ struct Response {
     refresh_token: Option<Value>,
     /// The confirmation the token is bound by (RFC 8705 §3.2).
     cnf: Option<Confirmation>,
+    /// The authorization details granted (RFC 9396 §7).
+    authorization_details: Option<Value>,
 }
 
 impl fmt::Debug for Response {
@@ -188,6 +190,9 @@ struct Inner {
     cache: Mutex<BTreeMap<Vec<u8>, Entry>>,
     /// Whether tokens are held at all.
     cached: AtomicBool,
+    /// Whether a request without an actor token names the client as the
+    /// actor with an assertion signed for it.
+    actor_assertion: AtomicBool,
 }
 
 /// The client of one issuer's onward grants, with its cache.
@@ -291,6 +296,7 @@ impl Onward {
                 token_endpoint: OnceLock::new(),
                 cache: Mutex::new(BTreeMap::new()),
                 cached: AtomicBool::new(true),
+                actor_assertion: AtomicBool::new(false),
             }),
         })
     }
@@ -303,6 +309,41 @@ impl Onward {
         self.inner.cached.store(false, Ordering::Relaxed);
         lock(&self.inner.cache).clear();
         self
+    }
+
+    /// Returns the client naming itself as the actor of every token exchange
+    /// sent without an actor token: an RFC 7523 assertion signed for each
+    /// request with the current key of its assertion key ring, with the
+    /// claims and the `aud` of its client assertion and a `jti` of its own,
+    /// as an `actor_token` of the JWT type (RFC 8693 §2.1, §3). The issued
+    /// token is then held to the requesting client as its actor, as one
+    /// exchanged without an actor token is. Clones share the setting.
+    ///
+    /// # Errors
+    ///
+    /// [`OnwardError::Token`] naming the missing credential when the client
+    /// holds no assertion key ring, and [`OnwardError::ActorToken`] under
+    /// the JWT bearer grant, which has no actor parameter (RFC 7523 §2.1).
+    pub fn with_actor_assertion(self) -> Result<Self, OnwardError> {
+        if self.inner.issuer.profile.onward_grant == OnwardGrant::JwtBearer {
+            return Err(OnwardError::ActorToken);
+        }
+        if self.inner.credentials.assertion_keys.is_none() {
+            return Err(TokenError::Credential {
+                what: "assertion key for the actor assertion",
+            }
+            .into());
+        }
+        self.inner.actor_assertion.store(true, Ordering::Relaxed);
+        lock(&self.inner.cache).clear();
+        Ok(self)
+    }
+
+    /// Whether a token exchange without an actor token names the client as
+    /// its actor with an assertion ([`Onward::with_actor_assertion`]).
+    #[must_use]
+    pub fn asserts_actor(&self) -> bool {
+        self.inner.actor_assertion.load(Ordering::Relaxed)
     }
 
     /// Whether the client holds the tokens it obtains: `false` when its
@@ -463,7 +504,9 @@ impl Onward {
                 return Err(OnwardError::NoPatientContext);
             }
         }
-        if actor.is_some() && profile.onward_preview.contains(&PreviewVariant::ActorToken) {
+        if (actor.is_some() || self.asserts_actor())
+            && profile.onward_preview.contains(&PreviewVariant::ActorToken)
+        {
             return Err(OnwardError::Preview {
                 variant: PreviewVariant::ActorToken,
             });
@@ -569,6 +612,7 @@ impl Onward {
                 field(actor.actor().issuer.as_bytes());
                 field(actor.actor().sub.as_bytes());
             }
+            None if self.asserts_actor() => field(b"client-assertion"),
             None => field(b""),
         }
         let mut audiences = target.audiences().to_vec();
@@ -619,6 +663,10 @@ impl Onward {
         let url = self.token_endpoint().await?;
         let profile = &inner.issuer.profile;
         let credentials = &inner.credentials;
+        let asserted = credentials
+            .assertion_keys
+            .as_deref()
+            .filter(|_keys| self.asserts_actor());
         let answer = endpoint::post(&inner.http, &url, credentials, |form| {
             let grant = profile.onward_grant;
             form.append_pair("grant_type", grant.grant_type());
@@ -635,6 +683,13 @@ impl Onward {
                     if let Some(actor) = actor {
                         form.append_pair("actor_token", actor.token().expose_secret());
                         form.append_pair("actor_token_type", actor.token_type().uri());
+                    } else if let Some(keys) = asserted {
+                        // NOTE: RFC 7523 §3, every assertion carries a jti of its own,
+                        // so each send, the DPoP nonce resend among them, signs anew.
+                        let assertion =
+                            endpoint::client_assertion(keys.current(), credentials, &url)?;
+                        form.append_pair("actor_token", &assertion);
+                        form.append_pair("actor_token_type", TokenType::Jwt.uri());
                     }
                 }
                 OnwardGrant::JwtBearer => {
@@ -647,6 +702,9 @@ impl Onward {
             for (name, value) in &profile.onward_parameters {
                 form.append_pair(name, value);
             }
+            if let Some(details) = credentials.authorization_details.as_ref() {
+                form.append_pair("authorization_details", details.as_str());
+            }
             // NOTE: RFC 7523 §3 leaves `client_id` optional beside a client
             // assertion; a profile that needs it names it.
             if profile.onward_client_id
@@ -657,6 +715,7 @@ impl Onward {
             {
                 form.append_pair("client_id", &credentials.client_id);
             }
+            Ok(())
         })
         .await?;
         if answer.status != StatusCode::OK {
@@ -683,7 +742,10 @@ impl Onward {
             credentials,
             &response.token_type,
             response.access_token,
-            response.cnf.as_ref(),
+            (
+                response.cnf.as_ref(),
+                response.authorization_details.as_ref(),
+            ),
         )?;
         Ok((credential, claims, response.expires_in))
     }
@@ -695,8 +757,10 @@ impl Onward {
         match (inner.token_endpoint.get(), &inner.credentials.endpoint) {
             (Some(url), _) | (None, Endpoint::Token(url)) => Ok(url.clone()),
             (None, Endpoint::Issuer(issuer)) => {
-                let mutual_tls = inner.credentials.tls.identity.is_some();
-                let url = endpoint::discover(&inner.http, issuer, mutual_tls).await?;
+                let grant_type = inner.issuer.profile.onward_grant.grant_type();
+                let url =
+                    endpoint::discover(&inner.http, issuer, &inner.credentials, &[grant_type])
+                        .await?;
                 Ok(inner.token_endpoint.get_or_init(|| url).clone())
             }
         }

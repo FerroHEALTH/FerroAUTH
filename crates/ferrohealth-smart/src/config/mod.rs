@@ -13,16 +13,13 @@
 //! own design).
 
 use std::collections::BTreeMap;
-use std::path::Path;
 use std::path::PathBuf;
 
 use ferrohealth_secret::secret_url::RedactedUrl;
 use jsonwebtoken::Algorithm;
-use secrecy::ExposeSecret;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde::Serialize;
-use url::Url;
 
 use crate::assurance::AssuranceSection;
 use crate::basic::Credential;
@@ -53,6 +50,7 @@ mod auth;
 mod credentials;
 mod issuer;
 pub mod onward;
+mod read;
 mod shapes;
 
 /// A section that breaks a rule, named by its key.
@@ -158,6 +156,33 @@ pub enum ConfigError {
         /// Why.
         #[source]
         source: crate::client::dpop::DpopKeyError,
+    },
+    /// The assertion keys form no ring.
+    #[error("the assertion keys form no key ring")]
+    KeyRing {
+        /// Why.
+        #[source]
+        source: crate::client::keys::KeyRingError,
+    },
+    /// The `authorization_details` is not of RFC 9396 §2 shape.
+    #[error("credentials.oauth.authorization_details is not of RFC 9396 §2 shape")]
+    AuthorizationDetails {
+        /// Why.
+        #[source]
+        source: crate::client::authorization_details::AuthorizationDetailsError,
+    },
+    /// A `mtls_alias_hosts` entry is no host.
+    #[error("credentials.oauth.mtls_alias_hosts holds {host:?}, which is no host")]
+    AliasHost {
+        /// The entry.
+        host: String,
+    },
+    /// The grant breaks a rule of its method or security profile.
+    #[error("the credentials.oauth grant is refused")]
+    Grant {
+        /// Why.
+        #[source]
+        source: Box<crate::client::TokenError>,
     },
     /// An issuer with `mode = "introspection"` in a build without the `fetch` feature,
     /// which links no HTTP client to call the endpoint with.
@@ -670,12 +695,22 @@ pub struct OauthSection {
     /// The PEM file of the client certificate's private key; set with
     /// `client_certificate_file`.
     pub client_key_file: Option<PathBuf>,
-    /// The PKCS#8 PEM file of the P-256 or P-384 key the tokens are bound to
-    /// with `DPoP` (RFC 9449); exclusive with `certificate_bound`.
+    /// The PEM file of the `DPoP` key the tokens are bound to (RFC 9449).
     pub dpop_key_file: Option<PathBuf>,
-    /// Whether every issued token that states a binding must name the client
-    /// certificate (RFC 8705 §3); needs `client_certificate_file`.
+    /// Whether the tokens are bound to the client certificate (RFC 8705 §3).
     pub certificate_bound: bool,
+    /// The security profile: `oauth2` (the default) or `fapi2`.
+    pub security_profile: crate::client::fapi2::ProfileKind,
+    /// The hosts a FAPI 2.0 mutual-TLS alias may be on (RFC 8705 §5).
+    pub mtls_alias_hosts: Vec<String>,
+    /// The PEM file of the previous assertion key, published, never signing.
+    pub previous_private_key_file: Option<PathBuf>,
+    /// How long the previous key stays published; 0 for as long as it is set.
+    pub previous_key_overlap_ms: u64,
+    /// The PEM file of the next assertion key, published and never signing.
+    pub next_private_key_file: Option<PathBuf>,
+    /// The RFC 9396 `authorization_details` JSON text; empty for none.
+    pub authorization_details: String,
 }
 
 /// The outbound credential a `[<lane>.credentials]` table resolves to.
@@ -685,34 +720,6 @@ pub enum Outbound {
     Basic(Credential),
     /// The client credentials grant.
     Oauth(Box<ClientCredentials>),
-}
-
-/// Returns the secret of `key`: the value or the trimmed content of its
-/// `_file` sibling, exactly one of which is set.
-pub(crate) fn secret(
-    value: Option<&SecretString>,
-    file: Option<&Path>,
-    key: &'static str,
-) -> Result<SecretString, ConfigError> {
-    match (value, file) {
-        (Some(_), Some(_)) | (None, None) => Err(ConfigError::Secret { key }),
-        (Some(value), None) => Ok(SecretString::from(value.expose_secret().to_owned())),
-        (None, Some(path)) => {
-            let text = std::fs::read_to_string(path).map_err(|source| ConfigError::SecretFile {
-                path: path.to_path_buf(),
-                source,
-            })?;
-            Ok(SecretString::from(
-                text.trim_end_matches(['\n', '\r']).to_owned(),
-            ))
-        }
-    }
-}
-
-/// Returns `text` as a URL, or the refusal naming `key`.
-pub(crate) fn parse_url(text: &str, key: &'static str) -> Result<Url, ConfigError> {
-    text.parse()
-        .map_err(|_malformed| ConfigError::Missing { key })
 }
 
 /// The text a set secret, or the userinfo and the query of a URL, is

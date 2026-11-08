@@ -44,6 +44,47 @@ and this project adheres to
   - `client::binding::IssuedToken` holds the access token and its key for a
     product that composes its own `Authorization` field. `Token` and
     `OnwardToken` hand it out through `AsRef`.
+- A rotating key ring, the FAPI 2.0 Security Profile and RFC 9396
+  `authorization_details` on a client grant (#319).
+  - `client::keys::KeyRing` signs with its current key and publishes its JWK
+    Set (RFC 7517 §5), each key under its RFC 7638 thumbprint unless a `kid`
+    is configured. The previous key stays published, never signing, for an
+    overlap window or until the ring is rebuilt without it. The next key is
+    published ahead of a rotation and never signs. The ring is shared as an
+    `Arc` through `ClientCredentials::with_key_ring` and
+    `ClientCredentials::assertion_keys`.
+  - `client::fapi2` holds a grant whose `profile` is `SecurityProfile::Fapi2`
+    to FAPI 2.0 §5.3.3.1 and §5.4.1 when it is built: a discovered issuer,
+    `private_key_jwt` with the issuer as the one-string `aud` or mutual TLS,
+    `PS256`, `ES256` or `EdDSA` keys, sender-constrained tokens, and a scope
+    or `authorization_details`. Before the token endpoint is reached, its
+    metadata must be `application/json` and list the client's method,
+    algorithm, grant types and proof algorithm. The token endpoint must sit
+    on the issuer's origin, or a mutual-TLS alias on a host the grant names
+    (RFC 8705 §5), and `tls_client_certificate_bound_access_tokens` must be
+    true for a certificate-bound grant (§3.3).
+  - `client::authorization_details::AuthorizationDetails` holds the RFC 9396
+    §2 shape. A grant sends its details on the client credentials request
+    and the token exchange (§6), refuses a type the discovered metadata does
+    not list (§10), and refuses a response that states no granted details,
+    or ones not of §2 shape (§7). `IssuedToken::authorization_details`
+    returns what was granted.
+  - The `[<lane>.credentials.oauth]` table takes `security_profile`,
+    `mtls_alias_hosts`, `previous_private_key_file`,
+    `previous_key_overlap_ms`, `next_private_key_file` and
+    `authorization_details`. It checks the resolved grant as
+    `ClientCredentials::validate` does, so a FAPI 2.0 table that breaks a
+    rule refuses the start.
+  - `ServerMetadata` reads `token_endpoint_auth_signing_alg_values_supported`,
+    `dpop_signing_alg_values_supported`,
+    `authorization_details_types_supported` and
+    `tls_client_certificate_bound_access_tokens`.
+- `client::onward::exchange::Onward::with_actor_assertion` names the
+  requesting client as the actor of a token exchange without an actor token
+  (#321). The `actor_token` is an RFC 7523 assertion signed for each request
+  with the current key of the grant's ring, with the claims and `aud` of its
+  client assertion and a `jti` of its own, and the JWT type (RFC 8693 §2.1,
+  §3). The cache key names the mode in place of a token hash.
 
 ### Changed
 
@@ -61,8 +102,30 @@ and this project adheres to
   - `client::CallError` gains `Unproven`, which `TokenSource::call` returns
     for a `DPoP`-bound source without sending anything, and `Proof`.
     `TokenSource::send` is the call path for such a source.
+  - `client::ClientCredentials::assertion_key`, one `AssertionKey`, becomes
+    `assertion_keys`, a shared `KeyRing`, and the struct gains
+    `authorization_details` and `profile` (#319). `with_private_key_jwt`
+    still takes one key. `ServerMetadata` and `config::OauthSection` gain
+    public fields, and `config::OauthSection::resolve` now refuses a grant
+    that `ClientCredentials::validate` refuses.
   - The `[workspace.dependencies]` requirement of `ferrohealth-smart` moves
     to 0.11.0.
+- **Breaking:** `federation::assertion::Validator::new` takes a third
+  argument, the `replay::ReplayGuard` every admitted exchange is recorded
+  in, and `Validator::exchange(identity, treatment, now)`, async, replaces
+  `Validator::identity` and `Validator::treatment` (#317). It checks the
+  identity assertion alone, as the discovery phase presents it, or with
+  one TRC, and returns an `Exchange` with `identity()`, `treatment()`,
+  `ends()` and `claim()`. Upgrade: build the validator with
+  `Arc::new(MemoryReplayGuard::default())` in one process, or with a
+  `ReplayGuard` over a store every replica shares; call
+  `exchange(&ida, trc.as_deref(), now)` in place of the two checks; cap
+  the issued token's `exp` at `Exchange::ends()`; and answer
+  `ExchangeError::Guard` as a server error (`code()` is
+  `ERROR_SEC_GENERIC`). `IdentityAssertion` and `TreatmentAssertion`
+  replace `not_before()` and `not_on_or_after()` with `window()`, a
+  `Window` that also carries `session_not_on_or_after()` and `ends()`:
+  write `assertion.window().not_on_or_after()`.
 
 ### Fixed
 
@@ -85,7 +148,7 @@ and this project adheres to
 
 ### Security
 
-Shipped with functional changes because: the one other change is the eHDSI assertion check's line-end fix, which removes a false refusal in the same module, so the release carries both fixes of the same review.
+Shipped with functional changes because: the replay fix (#317) changes the `federation::assertion::Validator` API, so the eHDSI security fixes ship on the 0.11.0 line, whose other breaking change (#318) the products take in the same move.
 
 - `federation::assertion::Validator` bounds an assertion before it is
   parsed (#315). An input of 64 KiB with 2500 nested elements, each
@@ -97,6 +160,20 @@ Shipped with functional changes because: the one other change is the eHDSI asser
   128 namespaces as `Integrity::Malformed`, and the canonicalization keeps
   one namespace map with an undo log. The caps are our own design, well
   above an eHDSI assertion's 7 levels and about 50 declarations.
+- `federation::assertion::Validator` holds an eHDSI assertion's instants
+  to the clock and admits each exchange once (#317). It refused none of
+  these: an `IssueInstant` in the future or at or after `NotOnOrAfter`, an
+  `AuthnInstant` after the `IssueInstant`, or a `SessionNotOnOrAfter` in
+  the past. The same IdA and TRC could also be exchanged again while their
+  windows were open (since 0.10.0) (CWE-294, CWE-613, GHSA-vh6g-jqfw-g8pm).
+  Each is now refused within the 60 s drift (SAML 2.0 Core §2.3.3,
+  §2.7.2), as `Integrity::Issued`, `Authenticated`, `SessionEnded` and
+  `Replayed`. `session_not_on_or_after()` returns the session end. The
+  module docs state the caller's obligation: authenticate the presenting
+  party as acting for the sender-vouches issuer (eHDSI Messaging Profile
+  10.0.0 §5.5.2). An assertion whose `InclusiveNamespaces` lists `xs`, as
+  OpenSAML signers often do, stays refused (Cryptographic Algorithms 9.0.0
+  §4.1).
 
 ## [0.10.1] - 2026-11-08
 

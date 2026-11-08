@@ -9,7 +9,6 @@
 
 use std::fmt;
 
-use jiff::Timestamp;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -22,6 +21,7 @@ use crate::federation::assertion::Integrity;
 use crate::federation::assertion::PURPOSE;
 use crate::federation::assertion::SAML;
 use crate::federation::assertion::SUBJECT;
+use crate::federation::assertion::Window;
 use crate::federation::assertion::elements;
 use crate::federation::assertion::is;
 use crate::federation::assertion::text;
@@ -108,10 +108,8 @@ pub struct IdentityAssertion {
     issuer: String,
     /// `NameID` with its format.
     name_id: NameId,
-    /// `@NotBefore`.
-    not_before: Timestamp,
-    /// `@NotOnOrAfter`.
-    not_on_or_after: Timestamp,
+    /// The window and the session.
+    window: Window,
     /// `AuthnContextClassRef`, one of the seven.
     authentication_class: String,
     /// `subject-id`, the full name.
@@ -168,16 +166,10 @@ impl IdentityAssertion {
         &self.name_id
     }
 
-    /// Returns `Conditions/@NotBefore`.
+    /// Returns the window and session the assertion is valid in.
     #[must_use]
-    pub const fn not_before(&self) -> Timestamp {
-        self.not_before
-    }
-
-    /// Returns `Conditions/@NotOnOrAfter`.
-    #[must_use]
-    pub const fn not_on_or_after(&self) -> Timestamp {
-        self.not_on_or_after
+    pub const fn window(&self) -> Window {
+        self.window
     }
 
     /// Returns the authentication class, as received.
@@ -334,8 +326,7 @@ pub(super) fn read(envelope: &Envelope<'_, '_>) -> Result<IdentityAssertion, Ass
         id: envelope.id.clone(),
         issuer: envelope.issuer.clone(),
         name_id,
-        not_before: envelope.not_before,
-        not_on_or_after: envelope.not_on_or_after,
+        window: envelope.window,
         authentication_class,
         name,
         roles,
@@ -517,8 +508,8 @@ pub fn ehdsi_claim(identity: &IdentityAssertion, treatment: Option<&TreatmentAss
             "issuer": identity.issuer,
             "id": identity.id,
             "name_id_format": identity.name_id.format().as_str(),
-            "not_before": identity.not_before.as_second(),
-            "not_on_or_after": identity.not_on_or_after.as_second(),
+            "not_before": identity.window.not_before.as_second(),
+            "not_on_or_after": identity.window.not_on_or_after.as_second(),
         },
     });
     if let (Some(treatment), Some(object)) = (treatment, claim.as_object_mut()) {

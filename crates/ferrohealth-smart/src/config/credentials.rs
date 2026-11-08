@@ -16,15 +16,21 @@ use crate::client::ClientCredentials;
 use crate::client::Endpoint;
 use crate::client::Tls;
 use crate::client::assertion::AssertionKey;
+use crate::client::authorization_details::AuthorizationDetails;
 use crate::client::dpop::DpopKey;
+use crate::client::fapi2::AliasHost;
+use crate::client::fapi2::Fapi2;
+use crate::client::fapi2::ProfileKind;
+use crate::client::fapi2::SecurityProfile;
+use crate::client::keys::KeyRing;
 use crate::config::ConfigError;
 use crate::config::CredentialsSection;
 use crate::config::OauthSection;
 use crate::config::Outbound;
 use crate::config::REDACTED;
 use crate::config::mask_userinfo;
-use crate::config::parse_url;
-use crate::config::secret;
+use crate::config::read::parse_url;
+use crate::config::read::secret;
 use crate::scope::is_scope_token;
 
 impl CredentialsSection {
@@ -120,22 +126,7 @@ impl OauthSection {
                 grant.client_auth = self.client_auth;
                 grant
             }
-            ClientAuth::PrivateKeyJwt => {
-                let path = self
-                    .private_key_file
-                    .as_deref()
-                    .ok_or(ConfigError::Missing {
-                        key: "credentials.oauth.private_key_file",
-                    })?;
-                let pem = std::fs::read(path).map_err(|source| ConfigError::SecretFile {
-                    path: path.to_path_buf(),
-                    source,
-                })?;
-                let kid = (!self.kid.is_empty()).then(|| self.kid.clone());
-                let key = AssertionKey::from_pem(&pem, self.assertion_alg, kid)
-                    .map_err(|source| ConfigError::Key { source })?;
-                ClientCredentials::with_private_key_jwt(endpoint, self.client_id.clone(), key)
-            }
+            ClientAuth::PrivateKeyJwt => self.private_key_jwt(endpoint)?,
             ClientAuth::TlsClientAuth | ClientAuth::SelfSignedTlsClientAuth => {
                 let identity = tls.identity.clone().ok_or(ConfigError::Missing {
                     key: "credentials.oauth.client_certificate_file",
@@ -179,7 +170,93 @@ impl OauthSection {
         }
         grant.refresh_margin = Duration::from_millis(self.refresh_margin_ms);
         grant.timeout = Duration::from_millis(self.timeout_ms);
-        self.bind(grant)
+        self.finish(self.bind(grant)?)
+    }
+
+    /// Returns the `private_key_jwt` grant at `endpoint`, signing with the
+    /// key ring of `private_key_file` and its previous and next keys.
+    fn private_key_jwt(&self, endpoint: Endpoint) -> Result<ClientCredentials, ConfigError> {
+        let path = self
+            .private_key_file
+            .as_deref()
+            .ok_or(ConfigError::Missing {
+                key: "credentials.oauth.private_key_file",
+            })?;
+        let pem = std::fs::read(path).map_err(|source| ConfigError::SecretFile {
+            path: path.to_path_buf(),
+            source,
+        })?;
+        let kid = (!self.kid.is_empty()).then(|| self.kid.clone());
+        let key = AssertionKey::from_pem(&pem, self.assertion_alg, kid)
+            .map_err(|source| ConfigError::Key { source })?;
+        Ok(ClientCredentials::with_key_ring(
+            endpoint,
+            self.client_id.clone(),
+            std::sync::Arc::new(self.ring(key)?),
+        ))
+    }
+
+    /// Returns `grant` with the table's `authorization_details` and security
+    /// profile, checked as [`ClientCredentials::validate`] checks it.
+    fn finish(&self, mut grant: ClientCredentials) -> Result<ClientCredentials, ConfigError> {
+        if !self.authorization_details.is_empty() {
+            grant.authorization_details = Some(
+                AuthorizationDetails::parse(&self.authorization_details)
+                    .map_err(|source| ConfigError::AuthorizationDetails { source })?,
+            );
+        }
+        grant.profile = self.profile()?;
+        grant.validate().map_err(|source| ConfigError::Grant {
+            source: Box::new(source),
+        })?;
+        Ok(grant)
+    }
+
+    /// Returns the key ring `current` signs in, with the previous and next
+    /// keys the table names published beside it.
+    fn ring(&self, current: AssertionKey) -> Result<KeyRing, ConfigError> {
+        let read = |path: &Path| -> Result<AssertionKey, ConfigError> {
+            let pem = std::fs::read(path).map_err(|source| ConfigError::SecretFile {
+                path: path.to_path_buf(),
+                source,
+            })?;
+            AssertionKey::from_pem(&pem, self.assertion_alg, None)
+                .map_err(|source| ConfigError::Key { source })
+        };
+        let mut ring = KeyRing::new(current);
+        if let Some(path) = &self.previous_private_key_file {
+            let previous = read(path)?;
+            ring = match self.previous_key_overlap_ms {
+                0 => ring.with_previous_until_removed(previous),
+                ms => ring.with_previous_for(previous, Duration::from_millis(ms)),
+            }
+            .map_err(|source| ConfigError::KeyRing { source })?;
+        }
+        if let Some(path) = &self.next_private_key_file {
+            ring = ring
+                .with_next(read(path)?)
+                .map_err(|source| ConfigError::KeyRing { source })?;
+        }
+        Ok(ring)
+    }
+
+    /// Returns the security profile the table names, with its alias hosts.
+    fn profile(&self) -> Result<SecurityProfile, ConfigError> {
+        match self.security_profile {
+            ProfileKind::OAuth2 if self.mtls_alias_hosts.is_empty() => Ok(SecurityProfile::OAuth2),
+            ProfileKind::OAuth2 => Err(ConfigError::Missing {
+                key: "credentials.oauth.security_profile = \"fapi2\", which mtls_alias_hosts needs",
+            }),
+            ProfileKind::Fapi2 => {
+                let mut profile = Fapi2::new();
+                for host in &self.mtls_alias_hosts {
+                    let host = AliasHost::parse(host)
+                        .map_err(|_invalid| ConfigError::AliasHost { host: host.clone() })?;
+                    profile = profile.with_alias_host(host);
+                }
+                Ok(SecurityProfile::Fapi2(profile))
+            }
+        }
     }
 
     /// Returns `grant` with the token binding the table names: a `DPoP` key
@@ -289,16 +366,7 @@ impl OauthSection {
                 "{table}.scope holds a token outside the RFC 6749 §3.3 character set"
             ));
         }
-        if self.dpop_key_file.is_some() && self.certificate_bound {
-            out.push(format!(
-                "{table}: set one of dpop_key_file and certificate_bound, not both"
-            ));
-        }
-        if self.certificate_bound && self.client_certificate_file.is_none() {
-            out.push(format!(
-                "{table}.client_certificate_file is required by certificate_bound"
-            ));
-        }
+        self.binding_problems(table, &mut out);
         if !self.resource.is_empty() {
             match self.resource.parse::<Url>() {
                 Err(_malformed) => out.push(format!("{table}.resource is not a URL")),
@@ -309,6 +377,41 @@ impl OauthSection {
             }
         }
         out
+    }
+
+    /// Adds to `out` the problems of the keys this table adds beside the
+    /// grant's credential: the token binding, the key ring, the security
+    /// profile and `authorization_details`.
+    fn binding_problems(&self, table: &str, out: &mut Vec<String>) {
+        if self.dpop_key_file.is_some() && self.certificate_bound {
+            out.push(format!(
+                "{table}: set one of dpop_key_file and certificate_bound, not both"
+            ));
+        }
+        if self.client_auth != ClientAuth::PrivateKeyJwt
+            && (self.previous_private_key_file.is_some() || self.next_private_key_file.is_some())
+        {
+            out.push(format!(
+                "{table}: previous_private_key_file and next_private_key_file need client_auth = \"private_key_jwt\""
+            ));
+        }
+        if self.security_profile != ProfileKind::Fapi2 && !self.mtls_alias_hosts.is_empty() {
+            out.push(format!(
+                "{table}.mtls_alias_hosts needs security_profile = \"fapi2\""
+            ));
+        }
+        if !self.authorization_details.is_empty()
+            && AuthorizationDetails::parse(&self.authorization_details).is_err()
+        {
+            out.push(format!(
+                "{table}.authorization_details is not of RFC 9396 §2 shape"
+            ));
+        }
+        if self.certificate_bound && self.client_certificate_file.is_none() {
+            out.push(format!(
+                "{table}.client_certificate_file is required by certificate_bound"
+            ));
+        }
     }
 
     /// Returns the TLS material the table names, each file read and, with
@@ -377,6 +480,12 @@ impl Default for OauthSection {
             client_key_file: None,
             dpop_key_file: None,
             certificate_bound: false,
+            security_profile: ProfileKind::OAuth2,
+            mtls_alias_hosts: Vec::new(),
+            previous_private_key_file: None,
+            previous_key_overlap_ms: 0,
+            next_private_key_file: None,
+            authorization_details: String::new(),
         }
     }
 }
@@ -400,6 +509,10 @@ impl std::fmt::Debug for OauthSection {
             .field("audience", &self.audience)
             .field("dpop_key_file", &self.dpop_key_file)
             .field("certificate_bound", &self.certificate_bound)
+            .field("security_profile", &self.security_profile)
+            .field("mtls_alias_hosts", &self.mtls_alias_hosts)
+            .field("previous_private_key_file", &self.previous_private_key_file)
+            .field("next_private_key_file", &self.next_private_key_file)
             .finish_non_exhaustive()
     }
 }

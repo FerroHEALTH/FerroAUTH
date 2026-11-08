@@ -91,6 +91,20 @@ pub struct ServerMetadata {
     /// conventional ones (RFC 8705 §5).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mtls_endpoint_aliases: Option<MtlsEndpointAliases>,
+    /// The algorithms the token endpoint takes a client assertion in (RFC
+    /// 8414 §2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_endpoint_auth_signing_alg_values_supported: Option<Vec<String>>,
+    /// The algorithms the server takes a `DPoP` proof in (RFC 9449 §5.1).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dpop_signing_alg_values_supported: Option<Vec<String>>,
+    /// The authorization details types the server supports (RFC 9396 §10).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub authorization_details_types_supported: Option<Vec<String>>,
+    /// Whether the server issues certificate-bound access tokens (RFC 8705
+    /// §3.3); absent means it does not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_client_certificate_bound_access_tokens: Option<bool>,
 }
 
 /// The `mtls_endpoint_aliases` member (RFC 8705 §5): the endpoints a
@@ -663,12 +677,23 @@ impl Http {
     /// document, and [`DiscoveryError::IssuerMismatch`] when the document
     /// names another issuer.
     pub async fn discover(&self, issuer: &str) -> Result<ServerMetadata, DiscoveryError> {
+        self.discover_document(issuer)
+            .await
+            .map(|(metadata, _media_type)| metadata)
+    }
+
+    /// Returns the metadata of `issuer`, as [`Http::discover`] does, with the
+    /// media type it was answered as.
+    pub(crate) async fn discover_document(
+        &self,
+        issuer: &str,
+    ) -> Result<(ServerMetadata, Option<String>), DiscoveryError> {
         let parsed = issuer_url(issuer)?;
         let [oauth, openid] = locations(&parsed);
-        let (url, status, body) = match self.get(oauth).await? {
-            (url, status, _) if status == StatusCode::NOT_FOUND => {
+        let (url, status, body, media_type) = match self.read(oauth).await? {
+            (url, status, _, _) if status == StatusCode::NOT_FOUND => {
                 tracing::debug!(%url, "no RFC 8414 metadata; reading the OpenID Connect location");
-                self.get(openid).await?
+                self.read(openid).await?
             }
             answered => answered,
         };
@@ -677,7 +702,7 @@ impl Http {
         }
         let metadata = parse_metadata(&url, &body)?;
         check_issuer(issuer, &metadata.issuer)?;
-        Ok(metadata)
+        Ok((metadata, media_type))
     }
 
     /// Returns the status and body `url` answers a `GET` with, the body
@@ -688,6 +713,16 @@ impl Http {
     /// Returns [`DiscoveryError::Transport`] when the call never completes
     /// and [`DiscoveryError::TooLarge`] when the body passes the cap.
     pub async fn get(&self, url: Url) -> Result<(Url, StatusCode, String), DiscoveryError> {
+        let (url, status, body, _media_type) = self.read(url).await?;
+        Ok((url, status, body))
+    }
+
+    /// Returns what [`Http::get`] returns, with the media type the answer
+    /// names.
+    async fn read(
+        &self,
+        url: Url,
+    ) -> Result<(Url, StatusCode, String, Option<String>), DiscoveryError> {
         let mut response = self
             .client
             .get(url.clone())
@@ -699,6 +734,13 @@ impl Http {
                 source,
             })?;
         let status = response.status();
+        // NOTE: RFC 9110 §8.3, a Content-Type that is no visible ASCII is
+        // legitimately unreadable, and the answer is read as one with none.
+        let media_type = response
+            .headers()
+            .get(http::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
         let mut bytes = Vec::new();
         loop {
             let chunk = response
@@ -715,7 +757,7 @@ impl Http {
             bytes.extend_from_slice(&chunk);
         }
         let body = String::from_utf8_lossy(&bytes).into_owned();
-        Ok((url, status, body))
+        Ok((url, status, body, media_type))
     }
 }
 

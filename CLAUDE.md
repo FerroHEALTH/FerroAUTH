@@ -92,7 +92,9 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   with `jwks`, `token`, `configuration` and `introspection`, `scope`, `basic`, `client` with
   `cache`, `endpoint`, `assertion`, `dpop` (the client's DPoP proofs and
   nonces), `binding` (what a grant binds its tokens to, with the RFC 8705 §3
-  certificate check) and `onward` (the token exchange and JWT bearer onward
+  certificate check), `keys` (the assertion key ring and its JWK Set),
+  `fapi2` (the FAPI 2.0 Security Profile on a grant), `authorization_details`
+  (RFC 9396) and `onward` (the token exchange and JWT bearer onward
   grants with their check and cache), `kind` (the caller
   classification), `profile` (the issuer profile with its `onward` keys, its
   presets under `profiles/`), `federation`
@@ -117,7 +119,7 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   Provider, a `wiremock` stub with a key generated when the case runs).
 - `docs/`: `architecture.md`, `VERSIONS.md`, `release.md`, `specs/` (the
   vendored SMART App Launch, RFC, OpenID Connect Discovery, Core and
-  RP-Initiated Logout, NIST SP 800-162 and Cedar language corpora, the
+  RP-Initiated Logout, FAPI 2.0 Security Profile, NIST SP 800-162 and Cedar language corpora, the
   IHE IUA supplement, the IHE BALP content page, Nuts RFC021, and the
   Microsoft Entra, SCIM workload identity and Keycloak documents the issuer
   profiles cite, the eHDSI
@@ -144,7 +146,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   upstream), RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725,
   9068, 9700, 8707, 7638, 8705, 9449, 9470, 8259, 6454, 7636, 7009, 7521,
   7522, 8693 and 3986, OpenID Connect Discovery 1.0, Core 1.0 and RP-Initiated
-  Logout 1.0, and IHE IUA and Nuts RFC021 for federation tokens, as
+  Logout 1.0, the FAPI 2.0 Security Profile for a client grant held to it,
+  and IHE IUA and Nuts RFC021 for federation tokens, as
   vendored under `docs/specs/`. Cite the section in every `// NOTE:`; never resolve a
   question from memory or from another implementation's behaviour. Where
   none governs a decision, say so: "no specification governs this: our own
