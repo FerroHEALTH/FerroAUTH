@@ -13,6 +13,18 @@ and this project adheres to
 
 ### Added
 
+- `client::onward::exchange::Onward::without_cache` turns a client's onward
+  token cache off, so every call exchanges a token at the issuer and none
+  is held, and `Onward::caches` reports the setting (#299). It serves a
+  performance measurement's self-test, which must show the measurement
+  fails without the cache (FerroHEALTH/FerroFED#1712); a production lane
+  keeps the cache, which stays on by default. It is a method on the client
+  and no `[<lane>.credentials.onward]` key: a new key would add a field to
+  the exhaustively constructible `OnwardSection`, a semver break on the
+  0.9 line. A product reaches it on `OnwardLane::onward`.
+
+### Added
+
 - `federation::assertion`, behind the new `ehdsi-assertion` feature,
   checks the eHDSI HP Identity Assertion and Treatment Relationship
   Confirmation for an authorization server acting for a MyHealth@EU
