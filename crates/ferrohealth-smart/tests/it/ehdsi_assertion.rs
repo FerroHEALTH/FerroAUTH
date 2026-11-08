@@ -922,15 +922,18 @@ fn debug_carries_no_assertion_content() {
         .treatment(&case.signed(&Parts::treatment()), &identity, now())
         .expect("the TRC is valid");
     let rendered = format!("{identity:?} {trc:?} {:?}", case.seal.trusted());
-    for secret in [
+    let values = [
         NAME_ID,
         "Invented Doctor",
         "invented-patient",
         "urn:oid:1.2.3.4",
         IDA_ID,
-    ] {
-        assert!(!rendered.contains(secret), "Debug renders {secret}");
-    }
+    ];
+    let rendered_values = values
+        .iter()
+        .filter(|value| rendered.contains(**value))
+        .count();
+    assert_eq!(rendered_values, 0, "Debug renders no assertion value");
 }
 
 #[test]
