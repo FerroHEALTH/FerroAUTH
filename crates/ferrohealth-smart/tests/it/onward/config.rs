@@ -166,7 +166,7 @@ async fn credentials_without_their_methods_credential_refuse_to_build() {
     let mut settings = Settings::new("https://as.example.org", "bridge", IssuerKind::Persons);
     settings.profile.max_onward_lifetime = Some(600);
     let mut credentials = ClientKey::new().credentials(endpoint(&server, "/token"), "bridge");
-    credentials.assertion_key = None;
+    credentials.assertion_keys = None;
     let built = Onward::new(settings, credentials);
     assert!(matches!(built, Err(OnwardError::Token(_))), "{built:?}");
 }
