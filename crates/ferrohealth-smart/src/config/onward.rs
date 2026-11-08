@@ -103,7 +103,7 @@ mod resolve {
     use crate::config::CredentialsSection;
     use crate::config::onward::OnwardLane;
     use crate::config::onward::OnwardSection;
-    use crate::config::parse_url;
+    use crate::config::read::parse_url;
     use crate::federation::FederationSection;
     use crate::kind::IssuerKind;
     use crate::profile::Profile;

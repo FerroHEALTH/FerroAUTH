@@ -18,10 +18,14 @@ use crate::client::Endpoint;
 use crate::client::OAuthError;
 use crate::client::TokenError;
 use crate::client::assertion::ASSERTION_TYPE;
+use crate::client::authorization_details::AuthorizationDetails;
 use crate::client::binding::Bound;
 use crate::client::binding::Confirmation;
 use crate::client::binding::IssuedToken;
 use crate::client::dpop;
+use crate::client::fapi2;
+use crate::client::fapi2::SecurityProfile;
+use crate::client::keys::KeyRing;
 use crate::metadata::DiscoveryError;
 use crate::metadata::Http;
 
@@ -38,6 +42,8 @@ pub(super) struct TokenResponse {
     /// The confirmation the token is bound by, in the form RFC 8705 §3.2
     /// gives an introspection response.
     pub(super) cnf: Option<Confirmation>,
+    /// The authorization details granted (RFC 9396 §7).
+    pub(super) authorization_details: Option<serde_json::Value>,
 }
 
 impl std::fmt::Debug for TokenResponse {
@@ -49,21 +55,43 @@ impl std::fmt::Debug for TokenResponse {
     }
 }
 
-/// Returns the token endpoint the metadata of `issuer` names, its mutual-TLS
-/// alias in preference when the client presents a certificate.
+/// Returns the token endpoint the metadata of `issuer` names for `config`,
+/// which sends `grant_types`: its mutual-TLS alias in preference when the
+/// client presents a certificate, held to the FAPI 2.0 rules under that
+/// profile, and refused when the metadata does not list an authorization
+/// details type the grant sends (RFC 9396 §10).
 pub(super) async fn discover(
     http: &Http,
     issuer: &str,
-    mutual_tls: bool,
+    config: &ClientCredentials,
+    grant_types: &[&'static str],
 ) -> Result<Url, TokenError> {
-    let metadata = http.discover(issuer).await?;
+    let (metadata, media_type) = http.discover_document(issuer).await?;
+    if let Some(details) = &config.authorization_details {
+        let listed = metadata
+            .authorization_details_types_supported
+            .as_deref()
+            .unwrap_or_default();
+        if let Some(kind) = details.types().iter().find(|kind| !listed.contains(kind)) {
+            return Err(TokenError::AuthorizationDetailsType { kind: kind.clone() });
+        }
+    }
+    if let SecurityProfile::Fapi2(profile) = &config.profile {
+        return fapi2::check_metadata(
+            config,
+            profile,
+            (&metadata, media_type.as_deref()),
+            grant_types,
+        )
+        .map_err(|source| TokenError::Fapi2 { source });
+    }
     // NOTE: RFC 8705 §5, a client intending to do mutual TLS "MUST use the alias
     // URL of the endpoint within the `mtls_endpoint_aliases`, when present".
     let alias = metadata
         .mtls_endpoint_aliases
         .as_ref()
         .and_then(|aliases| aliases.token_endpoint.as_deref())
-        .filter(|_alias| mutual_tls);
+        .filter(|_alias| config.tls.identity.is_some());
     alias
         .or(metadata.token_endpoint.as_deref())
         .ok_or(TokenError::NoTokenEndpoint)?
@@ -90,6 +118,10 @@ pub(super) async fn request_token(
         if let Some(resource) = config.resource.as_ref() {
             form.append_pair("resource", resource.as_str());
         }
+        if let Some(details) = config.authorization_details.as_ref() {
+            form.append_pair("authorization_details", details.as_str());
+        }
+        Ok(())
     })
     .await?;
     if answer.status != StatusCode::OK {
@@ -143,7 +175,7 @@ pub(crate) async fn post(
     http: &Http,
     endpoint: &Url,
     config: &ClientCredentials,
-    fill: impl Fn(&mut url::form_urlencoded::Serializer<'_, String>),
+    fill: impl Fn(&mut url::form_urlencoded::Serializer<'_, String>) -> Result<(), TokenError>,
 ) -> Result<Answer, TokenError> {
     let key = config.dpop_key();
     let mut resend = key.is_some();
@@ -167,13 +199,13 @@ async fn send(
     http: &Http,
     endpoint: &Url,
     config: &ClientCredentials,
-    fill: &impl Fn(&mut url::form_urlencoded::Serializer<'_, String>),
+    fill: &impl Fn(&mut url::form_urlencoded::Serializer<'_, String>) -> Result<(), TokenError>,
 ) -> Result<Answer, TokenError> {
     // NOTE: no specification governs this: our own design; the form encoder
     // is not `Sync`, so it is finished and dropped before the request awaits.
     let (mut request, body) = {
         let mut form = url::form_urlencoded::Serializer::new(String::new());
-        fill(&mut form);
+        fill(&mut form)?;
         let request = http
             .client()
             .post(endpoint.clone())
@@ -229,7 +261,7 @@ pub(crate) fn credential(
     config: &ClientCredentials,
     token_type: &str,
     access_token: String,
-    cnf: Option<&Confirmation>,
+    (cnf, granted): (Option<&Confirmation>, Option<&serde_json::Value>),
 ) -> Result<IssuedToken, TokenError> {
     // NOTE: RFC 6749 §5.1 makes token_type case-insensitive; RFC 9449 §5 names a
     // DPoP-bound token DPoP, and a grant that asked for one takes no other.
@@ -252,12 +284,32 @@ pub(crate) fn credential(
     {
         return Err(TokenError::CertificateMismatch);
     }
+    let granted = granted_details(config, granted)?;
     let header = authorization(expected, &access_token)?;
     Ok(IssuedToken::new(
         header,
         SecretString::from(access_token),
         config.dpop_key().cloned(),
+        granted,
     ))
+}
+
+/// Returns the authorization details `granted` states, held to RFC 9396 §2
+/// when the grant asked for some, which the response must then state (§7).
+fn granted_details(
+    config: &ClientCredentials,
+    granted: Option<&serde_json::Value>,
+) -> Result<Option<AuthorizationDetails>, TokenError> {
+    let read = |value: &serde_json::Value| AuthorizationDetails::parse(&value.to_string());
+    if config.authorization_details.is_none() {
+        // NOTE: RFC 9396 §7, the server determines the details at its discretion
+        // when none were asked for; ones not of §2 shape are legitimately unread.
+        return Ok(granted.and_then(|value| read(value).ok()));
+    }
+    let value = granted.ok_or(TokenError::AuthorizationDetails)?;
+    read(value)
+        .map(Some)
+        .map_err(|source| TokenError::GrantedDetails { source })
 }
 
 /// Returns the `Authorization` field value of `token` under `scheme`, marked
@@ -277,6 +329,22 @@ pub(crate) fn authorization(scheme: &str, token: &str) -> Result<HeaderValue, To
         .map_err(|_illegal| TokenError::Unusable)?;
     value.set_sensitive(true);
     Ok(value)
+}
+
+/// Returns a client assertion of `config` signed with `key` for `endpoint`:
+/// its `aud` the token endpoint, or the issuer identifier when the grant
+/// names one and asks for it (RFC 7523 §3).
+pub(crate) fn client_assertion(
+    key: &crate::client::assertion::AssertionKey,
+    config: &ClientCredentials,
+    endpoint: &Url,
+) -> Result<String, TokenError> {
+    let audience = match (config.assertion_audience, &config.endpoint) {
+        (AssertionAudience::Issuer, Endpoint::Issuer(issuer)) => issuer.as_str(),
+        (AssertionAudience::TokenEndpoint | AssertionAudience::Issuer, _) => endpoint.as_str(),
+    };
+    key.assertion(&config.client_id, audience)
+        .map_err(|source| TokenError::Assertion { source })
 }
 
 /// Returns `request`, posted to `endpoint`, authenticated as the client of
@@ -313,16 +381,8 @@ pub(crate) fn authenticate(
             }
         }
         ClientAuth::PrivateKeyJwt => {
-            if let Some(key) = &config.assertion_key {
-                let audience = match (config.assertion_audience, &config.endpoint) {
-                    (AssertionAudience::Issuer, Endpoint::Issuer(issuer)) => issuer.as_str(),
-                    (AssertionAudience::TokenEndpoint | AssertionAudience::Issuer, _) => {
-                        endpoint.as_str()
-                    }
-                };
-                let assertion = key
-                    .assertion(&config.client_id, audience)
-                    .map_err(|source| TokenError::Assertion { source })?;
+            if let Some(key) = config.assertion_keys.as_deref().map(KeyRing::current) {
+                let assertion = client_assertion(key, config, endpoint)?;
                 form.append_pair("client_assertion_type", ASSERTION_TYPE);
                 form.append_pair("client_assertion", &assertion);
             }

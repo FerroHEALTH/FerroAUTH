@@ -20,7 +20,7 @@ use crate::config::IssuerEntry;
 use crate::config::IssuerKey;
 use crate::config::Resolved;
 use crate::config::ScopelessSubject;
-use crate::config::secret;
+use crate::config::read::secret;
 use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
 use crate::profile::Profile;
@@ -417,7 +417,7 @@ impl AuthSection {
         let Some(section) = &self.dpop else {
             return Ok(None);
         };
-        let mut settings = ProofSettings::new(crate::config::parse_url(
+        let mut settings = ProofSettings::new(crate::config::read::parse_url(
             &section.external_url,
             "auth.dpop.external_url",
         )?);
@@ -531,7 +531,7 @@ impl AuthSection {
             IntrospectionSettings::new(entry.issuer.clone(), String::new(), auth, kind);
         settings.audience.clone_from(&entry.audience);
         if !section.endpoint.is_empty() {
-            settings.endpoint = Some(crate::config::parse_url(
+            settings.endpoint = Some(crate::config::read::parse_url(
                 &section.endpoint,
                 "auth.issuer.introspection.endpoint",
             )?);

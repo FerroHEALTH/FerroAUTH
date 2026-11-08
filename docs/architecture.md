@@ -89,10 +89,11 @@ with the matrix.
 | Item | Pin | Ground |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | The registry's `latest` on 2026-10-19 and the current 2.x publication; the 2.x line is where the `cruds` scope grammar, the `.well-known/smart-configuration` document and the asymmetric client profile live. Vendored as the package `hl7.fhir.uv.smart-app-launch` 2.2.0 and the page sources at the release tag. |
-| IETF RFCs | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693, 3986 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is vendored as the reference for the `authorization_details` claim a later release may read; this release reads none of it (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroAUTH#215, #217). RFC 3986 §6.2.2 and §6.2.3 are the normalizations RFC 9449 §4.3 has a server apply before it compares the `htu` (3.15), and §4.2 the network-path reference the session's return path refuses (FerroHEALTH/FerroAUTH#235). |
+| IETF RFCs | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693, 3986 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is the `authorization_details` a client grant sends and reads back (3.5); the resource server reads no `authorization_details` claim (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroAUTH#215, #217). RFC 3986 §6.2.2 and §6.2.3 are the normalizations RFC 9449 §4.3 has a server apply before it compares the `htu` (3.15), and §4.2 the network-path reference the session's return path refuses (FerroHEALTH/FerroAUTH#235). |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; the authorization code flow (§3.1) and the ID Token check (§3.1.3.7) of the `oidc` relying party. |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the end-session request (§2) and the `end_session_endpoint` metadata (§2.1) of the `oidc` relying party. |
+| FAPI 2.0 Security Profile | Final Specification (2025-02-22) | The profile a client grant can be held to (3.5): the authorization servers of the Dutch BgZ and eOverdracht track FerroFED reaches follow it. §5.3.3.1 sets the client's sender constraint, client authentication, assertion `aud` and metadata use, and §5.4.1 the admitted algorithms. |
 | Party binding references | IHE IUA Revision 2.5 (`IHE/ITI.IUA` tag `2.5`), Nuts RFC021 (`nuts-foundation/nuts-specification` at `7c0de533…`), the Microsoft Entra documents (`MicrosoftDocs/entra-docs` at `219d8d57…`), the SCIM workload identity federation guide (`AzureAD/SCIMReferenceCode` at `21b92c8f…`), Keycloak 26.8.2, and the Okta OpenID Connect and OAuth 2.0 API reference (cache only) | The access token of a federation issuer (IUA ITI-71, Nuts RFC021) and the deviations of each vendor profile from RFC 9068 (Entra ID, Keycloak, Okta) that the caller classification reads (FerroHEALTH/FerroAUTH#215). IUA and RFC021 are the editions FerroHEALTH/FerroFED vendors. The vendor documents are evidence for a profile's values, never the oracle for a core rule. The Okta page states "All rights reserved", so only its pin and provenance are committed. |
 | Contact-point references | The eHDSI SAML Profile, Section II Security Services, Service Location and Capability Lookup Profile, NCPeH Components Specifications and Messaging Profile 10.0.0, the Cryptographic Algorithms 9.0.0, the X.509 Certificates Profile 7.0.0 and the Interoperability Specifications 8.0.1 (supplied by the owner); SOG-IS Agreed Cryptographic Mechanisms 1.3 (read, recorded by sha256, never copied); the MyHealth@EU Requirements Catalogue 10.0.0 (read, recorded by sha256, never copied); Implementing Regulation (EU) 2026/2099 and Regulation (EU) 2016/679 (the Official Journal XHTML); the Federation Tier with AQL specification 1.0.1 Annex B (`syntaric/openehr-federation-spec` at `b4242c29…`) | The contact-point issuer profile of the caller classification (FerroHEALTH/FerroAUTH#215): the IdA issuer, attributes, authentication classes, lifetimes and refusal names from the eHDSI documents, the fields of 2026/2099 Annex Tables 1 and 2, GDPR Art. 9(3) and Art. 29 for guests, and the Dutch `authorization_details` of Annex B §B.4a. The eHDSI files and Annex B are the ones FerroHEALTH/FerroFED vendors. The Requirements Catalogue states no reuse terms, so it is cited by section only. |
 | Consent decision record | IHE Basic Audit Log Patterns (BALP) 1.1.4, the Volume 3 content page (3:5.7) as profiles.ihe.net renders it | The consent decision reference a `federation` token carries in `consent.reference` is the Consent entity of the 3:5.7.6 consent decision record (FerroHEALTH/FerroAUTH#286). The page is the one FerroHEALTH/FerroFED vendors. |
@@ -525,6 +526,54 @@ lifetime), concurrent callers sharing one fetch, a token without
 token, the product invalidates that token, fetches once, and retries once;
 a second `401` stands and reaches the caller as the upstream's refusal. A
 token another caller already renewed is not fetched again.
+
+**The key ring.** A `private_key_jwt` grant signs with the current key of a
+`client::keys::KeyRing`, shared as an `Arc` with whatever else signs or
+publishes with it. The ring renders its JWK Set (`rfc7517 §5`) in a fixed
+order: the current key first, then the previous key while it stays
+published (for an overlap window, or until the ring is rebuilt without it),
+then the next key. Only the current key signs. Each key is published under
+its configured `kid` or, by default, its `rfc7638 §3` thumbprint. A previous
+key equal to the current key is refused, and so is a next key equal to
+either. No specification governs the rotation: our own design, FerroFED's,
+moved into the crate (FerroHEALTH/FerroAUTH#319).
+
+**`authorization_details`.** A grant may send RFC 9396 `authorization_details`
+on its client credentials request and its token exchange (`rfc9396 §6`).
+The text goes out as written once it passes the `§2` shape check: a
+non-empty array of objects, each with a non-empty string `type`, the `§2.2`
+common fields in their stated types, and no repeated member name. When the
+endpoint is discovered, every `type` must be listed in
+`authorization_details_types_supported` (`§10`). A token response to a grant
+that asked for details must state the details it granted, in the `§2` shape
+(`§7`), and `IssuedToken::authorization_details` hands them to the product.
+
+**The FAPI 2.0 Security Profile.** A grant whose `profile` is `Fapi2` is
+held to the client rules of FAPI 2.0 §5.3.3.1 and §5.4.1 when it is built:
+
+- an issuer it discovers from;
+- `private_key_jwt` with the issuer as the one-string `aud`, or mutual TLS;
+- every ring key and the DPoP key signing `PS256`, `ES256` or `EdDSA`;
+- tokens bound by DPoP or the certificate;
+- a `scope` or `authorization_details`, so the authorization server never
+  chooses the token's reach (our own design);
+- mutual-TLS alias hosts only on a grant that uses mutual TLS.
+
+The metadata is held to the profile before anything reaches the token
+endpoint:
+
+- an `application/json` answer (`rfc8414 §3.2`);
+- a token endpoint on the issuer's origin, or a mutual-TLS alias on a host
+  the grant names (`rfc8705 §5`; the host list is our own design);
+- the client's method and assertion algorithm listed (`rfc8414 §2`);
+- `tls_client_certificate_bound_access_tokens` true for a certificate-bound
+  grant (`rfc8705 §3.3`);
+- each grant type it sends listed;
+- the proof algorithm listed when `dpop_signing_alg_values_supported` is
+  present (`rfc9449 §5.1`).
+
+The authorization-endpoint rules of §5.3.2.2 need a user agent, and no
+client grant has one.
 
 **Never forwarded.** A caller's bearer token is never passed upstream. An
 access token names the resource server it is for (`rfc9068 §4`, the `aud`
@@ -1263,7 +1312,11 @@ which `CredentialsSection::onward` resolves into the client and its
 
 - `token_exchange` (`rfc8693 §2.1`), the default: the caller's token as
   `subject_token` with its `subject_token_type`, an optional `actor_token`
-  (an access token of the actor's own, with `actor_token_type`), `scope`
+  (an access token of the actor's own, with `actor_token_type`, or, under
+  `Onward::with_actor_assertion`, an RFC 7523 assertion of the requesting
+  client signed for each request, with the claims and `aud` of its client
+  assertion, a `jti` of its own and the JWT type of `rfc8693 §3`, whose
+  issued token is held to the client as its actor, FerroHEALTH/FerroAUTH#321), `scope`
   when the target names one, and the target as `resource` (`rfc8707 §2`,
   an absolute URI without a fragment) or `audience`, as `onward_indicator`
   declares. The response must name `issued_token_type`
@@ -1558,6 +1611,36 @@ contact-point profile reads.
   FerroHEALTH/FerroFED#1620); the §4.4 EUDI Wallet attributes are held to
   their pairing.
 
+- **The instants.** `IssueInstant` no more than 60 s ahead and before
+  `NotOnOrAfter` (SAML 2.0 Core §2.3.3), `AuthnInstant` no more than 60 s
+  after the `IssueInstant` or now (§2.7.2), and `SessionNotOnOrAfter`, when
+  present, no more than 60 s behind (§2.7.2; SAML Profile 10.0.0 §2.1,
+  §4.1). The session end is returned, and `Exchange::ends` is the earliest
+  window or session end, the latest `exp` a token issued on it may carry.
+- **The exchange and its replay.** `Validator::exchange` checks the IdA
+  alone (the discovery phase) or the IdA with one TRC, and admits that
+  exchange once: the `ReplayGuard` `Validator::new` requires records it,
+  keyed by the issuer and `ID` of each assertion, until the earliest end
+  plus the drift (RFC 7522 §3, item 6). The key is the exchange, not the
+  IdA alone, since the IdA "always takes the role of a Supporting Token"
+  (Messaging Profile 10.0.0 §5.5.1) and comes again with each TRC of its
+  session (SAML Profile 10.0.0 §6, non-normative). The crate ships a
+  `MemoryReplayGuard` for one process; a product on several replicas
+  supplies a shared store. A guard that cannot answer admits nothing
+  (`ERROR_SEC_GENERIC`).
+- **The caller's obligation.** Sender-vouches names no presenter, so the
+  caller authenticates the presenting party as acting for the issuer:
+  NCPeH-A verifies NCP-B's message signature over the Body and the
+  assertions (Messaging Profile 10.0.0 §5.5.2), and an authorization
+  server acting for NCPeH-A authenticates its national connector, for
+  instance by its client certificate (RFC 8705 §2).
+- **Interoperability.** An `InclusiveNamespaces PrefixList` naming a
+  prefix outside SAML Profile 10.0.0 §1.4.2 is refused as
+  `Integrity::Canonicalization` (Cryptographic Algorithms 9.0.0 §4.1:
+  "other prefixes than the ones defined in [SAML Profile] MUST NOT be
+  used"). Signers built on OpenSAML often list `xs`, so their assertions
+  are refused until the issuer fixes its signer.
+
 Every refusal is an `AssertionError`, whose `code()` is its §1.25 code
 name: each `Integrity` refusal answers
 `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED`, the attribute refusals the codes of
@@ -1671,6 +1754,12 @@ refresh_margin_ms = 30000
 # ca_file = "/run/secrets/private-ca.pem"   # roots added to the built-in ones
 # dpop_key_file = "/run/secrets/dpop.pem"  # bind tokens to a P-256/P-384 key (RFC 9449)
 # certificate_bound = true                 # or to the client certificate (RFC 8705 §3)
+# security_profile = "fapi2"               # FAPI 2.0: issuer, private_key_jwt or mTLS, bound tokens
+# mtls_alias_hosts = ["mtls.example.org"]  # hosts a FAPI 2.0 mTLS alias may be on
+# previous_private_key_file = "/run/secrets/client-previous.pem"  # published, never signs
+# previous_key_overlap_ms = 0              # 0: published while the key is set
+# next_private_key_file = "/run/secrets/client-next.pem"          # published ahead of a rotation
+# authorization_details = '[{"type": "nl-gis-v1"}]'               # RFC 9396, sent as written
 ```
 
 `user`/`password` and `oauth` are exclusive; a lane that obtains no token of
@@ -1975,6 +2064,8 @@ four agree on and settles each difference:
 | An Entra ID groups overage is resolved by the `idp-entra` adapter, an optional feature a profile names by `adapter`, at the `getMemberObjects` URL it builds from the Graph root and the token's `oid` and `idtyp`, never at `_claim_sources`; every Graph failure is `GroupsUnavailable` carrying the status, the `Retry-After` or the timeout, under a 2 s budget of its own and with no cache (3.17) | Microsoft, "Access token claims reference", §Groups overage claim; "Optional claims reference", `idtyp`; Microsoft Graph v1.0 `directoryObject: getMemberObjects` and "Microsoft Graph throttling guidance"; the bounds are our own design (#221) | a deployment with users above the overage limit compiles `idp-entra`, sets `adapter = "idp-entra"` on its `entra` issuer, grants the Graph permission and registers the adapter |
 | The eHDSI IdA and TRC are checked in this crate behind `ehdsi-assertion`, by our own exclusive canonicalization over `roxmltree` and `x509-parser` with `aws-lc-rs` verifying, in one accepted signature shape against wrapping; a trusted signer is an issuer URI with its seal certificate, revocation is the deployment's, and an inclusive prefix outside SAML Profile 10.0.0 §1.4.2 or a canonicalization other than Exc-C14N is refused (3.18) | eHDSI Cryptographic Algorithms 9.0.0 §2, §4.1; SAML Profile 10.0.0 §2, §4; X.509 Certificates Profile 7.0.0 §2.4, §3.1; SOG-IS ACM 1.3 §4.1, §5.2; the shape, the caps and the trust set are our own design (#294) | an authorization server acting for NCPeH-A compiles `ehdsi-assertion` and supplies the SMP-published seal certificates |
 | An `@ID` is accepted as `urn:uuid:` or `_` followed by a UUID | SAML Profile 10.0.0 §2.1 writes a URN-encoded UUID, which SAML 2.0 Core §2.3.3's `xs:ID` cannot hold; accepting both is our own design (#294) | none |
+| An eHDSI exchange is admitted once: the `ReplayGuard` keys it by the issuer and `ID` of the IdA and, past the discovery phase, of the TRC, and keeps it until the earliest window or session end plus 60 s; a guard is required to build a `Validator`, and one that cannot answer admits nothing | RFC 7522 §3, item 6; eHDSI Messaging Profile 10.0.0 §5.5.1 (the IdA is a supporting token) and SAML Profile 10.0.0 §6 (non-normative, the IdA's session); keying by the exchange is our own design | the authorization server acting for NCPeH-A supplies a store its replicas share (FerroHEALTH/FerroAUTH#317) |
+| An eHDSI assertion whose `InclusiveNamespaces PrefixList` names a prefix outside SAML Profile 10.0.0 §1.4.2, such as the `xs` OpenSAML signers often list, is refused | eHDSI Cryptographic Algorithms 9.0.0 §4.1: "other prefixes than the ones defined in [SAML Profile] MUST NOT be used" | an NCP-B whose signer lists `xs` fixes its signer |
 
 ## 10. Verification
 

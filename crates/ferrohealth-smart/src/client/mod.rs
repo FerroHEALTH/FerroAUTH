@@ -27,12 +27,15 @@
 //! and refuses one that fails the onward check.
 
 pub mod assertion;
+pub mod authorization_details;
 pub mod binding;
 #[cfg(feature = "fetch")]
 pub mod cache;
 pub mod dpop;
 #[cfg(feature = "fetch")]
 pub(crate) mod endpoint;
+pub mod fapi2;
+pub mod keys;
 #[cfg(feature = "fetch")]
 pub mod onward;
 
@@ -47,8 +50,13 @@ use serde::Serialize;
 use url::Url;
 
 use crate::client::assertion::AssertionKey;
+use crate::client::authorization_details::AuthorizationDetails;
+use crate::client::authorization_details::AuthorizationDetailsError;
 use crate::client::binding::TokenBinding;
 use crate::client::dpop::DpopKey;
+use crate::client::fapi2::Fapi2Error;
+use crate::client::fapi2::SecurityProfile;
+use crate::client::keys::KeyRing;
 use crate::metadata::DiscoveryError;
 
 /// Where the token endpoint comes from.
@@ -199,9 +207,10 @@ pub struct ClientCredentials {
     /// The client secret, under `client_secret_basic` and
     /// `client_secret_post`.
     pub client_secret: Option<SecretString>,
-    /// The key the client assertion is signed with, under
-    /// `private_key_jwt`.
-    pub assertion_key: Option<AssertionKey>,
+    /// The keys the client assertion is signed with, under
+    /// `private_key_jwt`: the ring's current key signs, and the ring is
+    /// shared with whatever else publishes or signs with it.
+    pub assertion_keys: Option<Arc<KeyRing>>,
     /// The `scope` request parameter (RFC 6749 §3.3), when the deployment
     /// asks for one.
     pub scope: Option<String>,
@@ -224,6 +233,11 @@ pub struct ClientCredentials {
     /// What the issued tokens are bound to, when they are sender-constrained
     /// (RFC 9449, RFC 8705 §3); `None` for bearer tokens.
     pub token_binding: Option<TokenBinding>,
+    /// The `authorization_details` every token request carries (RFC 9396
+    /// §6), and the token response must state as granted (§7).
+    pub authorization_details: Option<AuthorizationDetails>,
+    /// The security profile the grant is held to.
+    pub profile: SecurityProfile,
 }
 
 impl ClientCredentials {
@@ -244,8 +258,15 @@ impl ClientCredentials {
     /// client assertion signed by `key`.
     #[must_use]
     pub fn with_private_key_jwt(endpoint: Endpoint, client_id: String, key: AssertionKey) -> Self {
+        Self::with_key_ring(endpoint, client_id, Arc::new(KeyRing::new(key)))
+    }
+
+    /// Returns a grant for `client_id` at `endpoint` authenticating with a
+    /// client assertion signed by the current key of `keys`.
+    #[must_use]
+    pub fn with_key_ring(endpoint: Endpoint, client_id: String, keys: Arc<KeyRing>) -> Self {
         Self {
-            assertion_key: Some(key),
+            assertion_keys: Some(keys),
             ..Self::authenticating(endpoint, client_id, ClientAuth::PrivateKeyJwt)
         }
     }
@@ -284,7 +305,7 @@ impl ClientCredentials {
             client_id,
             client_auth,
             client_secret: None,
-            assertion_key: None,
+            assertion_keys: None,
             scope: None,
             audience: None,
             resource: None,
@@ -293,6 +314,8 @@ impl ClientCredentials {
             assertion_audience: AssertionAudience::default(),
             tls: Tls::default(),
             token_binding: None,
+            authorization_details: None,
+            profile: SecurityProfile::OAuth2,
         }
     }
 
@@ -342,8 +365,18 @@ impl ClientCredentials {
     /// Returns [`TokenError::Credential`] naming what is missing: a secret,
     /// an assertion key, a client certificate under a mutual-TLS method or
     /// a certificate binding, or the issuer an issuer assertion audience
-    /// names.
+    /// names; and [`TokenError::Fapi2`] for a FAPI 2.0 grant that breaks a
+    /// rule of the profile.
     pub fn validate(&self) -> Result<(), TokenError> {
+        self.validate_credential()?;
+        if let SecurityProfile::Fapi2(profile) = &self.profile {
+            fapi2::check_grant(self, profile).map_err(|source| TokenError::Fapi2 { source })?;
+        }
+        Ok(())
+    }
+
+    /// Checks that the grant carries the credential its method needs.
+    fn validate_credential(&self) -> Result<(), TokenError> {
         // NOTE: RFC 8705 §3, a certificate-bound token is bound to the certificate
         // the client presents, so a grant that presents none cannot take one.
         if matches!(self.token_binding, Some(TokenBinding::Certificate))
@@ -369,7 +402,7 @@ impl ClientCredentials {
                     what: "a client secret",
                 })
             }
-            ClientAuth::PrivateKeyJwt if self.assertion_key.is_none() => {
+            ClientAuth::PrivateKeyJwt if self.assertion_keys.is_none() => {
                 Err(TokenError::Credential {
                     what: "an assertion key",
                 })
@@ -486,6 +519,33 @@ pub enum TokenError {
     /// neither kept nor used (RFC 8705 §3).
     #[error("the issued token is not bound to the certificate the client presents (RFC 8705 §3)")]
     CertificateMismatch,
+    /// A FAPI 2.0 grant, or its authorization server's metadata, breaks a
+    /// rule of the profile; nothing was sent to the token endpoint.
+    #[error("the grant breaks the FAPI 2.0 Security Profile")]
+    Fapi2 {
+        /// The rule.
+        #[source]
+        source: Fapi2Error,
+    },
+    /// The metadata does not list an authorization details type the grant
+    /// asks for (RFC 9396 §10); nothing was sent to the token endpoint.
+    #[error("the authorization server does not list the authorization details type {kind:?}")]
+    AuthorizationDetailsType {
+        /// The type.
+        kind: String,
+    },
+    /// The grant asked for `authorization_details` and the token response
+    /// states none it granted (RFC 9396 §7).
+    #[error("the token response states no authorization_details, which RFC 9396 §7 requires")]
+    AuthorizationDetails,
+    /// The `authorization_details` the token response states it granted
+    /// are not of RFC 9396 §2 shape.
+    #[error("the authorization_details the token response granted are not of RFC 9396 §2 shape")]
+    GrantedDetails {
+        /// Why.
+        #[source]
+        source: AuthorizationDetailsError,
+    },
     /// The fetch ended without an outcome.
     #[error("the token fetch ended without an outcome")]
     Abandoned,

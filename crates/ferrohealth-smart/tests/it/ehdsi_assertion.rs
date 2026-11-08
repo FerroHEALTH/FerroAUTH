@@ -9,6 +9,7 @@
 //! weakly hashed and wrapped.
 
 use std::fmt::Write;
+use std::future::Future;
 
 use aws_lc_rs::digest;
 use aws_lc_rs::rand::SystemRandom;
@@ -18,6 +19,8 @@ use aws_lc_rs::signature::RsaKeyPair;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use ferrohealth_smart::federation::assertion::AssertionError;
+use ferrohealth_smart::federation::assertion::Exchange;
+use ferrohealth_smart::federation::assertion::ExchangeError;
 use ferrohealth_smart::federation::assertion::Floor;
 use ferrohealth_smart::federation::assertion::Integrity;
 use ferrohealth_smart::federation::assertion::Validator;
@@ -25,9 +28,14 @@ use ferrohealth_smart::federation::assertion::identity::IdentityAssertion;
 use ferrohealth_smart::federation::assertion::identity::PurposeOfUse;
 use ferrohealth_smart::federation::assertion::identity::Role;
 use ferrohealth_smart::federation::assertion::identity::ehdsi_claim;
+use ferrohealth_smart::federation::assertion::replay::ExchangeId;
+use ferrohealth_smart::federation::assertion::replay::MemoryReplayGuard;
+use ferrohealth_smart::federation::assertion::replay::ReplayGuard;
+use ferrohealth_smart::federation::assertion::replay::ReplayGuardError;
 use ferrohealth_smart::federation::assertion::signer::SignerError;
 use ferrohealth_smart::federation::assertion::signer::TrustedSigner;
 use ferrohealth_smart::federation::assertion::treatment::PatientIdSource;
+use ferrohealth_smart::federation::assertion::treatment::TreatmentAssertion;
 use ferrohealth_smart::federation::contact::EhdsiCode;
 use ferrohealth_smart::federation::contact::NameIdFormat;
 use ferrohealth_smart::federation::contact::TrcPatientId;
@@ -40,6 +48,7 @@ use rcgen::KeyUsagePurpose;
 use rcgen::PKCS_ECDSA_P256_SHA256;
 use rcgen::PKCS_RSA_SHA256;
 use rcgen::RsaKeySize;
+use std::sync::Arc;
 
 /// NCP-B, the issuer of both assertions.
 const ISSUER: &str = "https://ncp-b.example.org/sts";
@@ -193,6 +202,12 @@ struct Parts {
     issuer: String,
     not_before: i64,
     not_on_or_after: i64,
+    /// `@IssueInstant`, `NotBefore` when `None`.
+    issued: Option<i64>,
+    /// `@AuthnInstant`, `NotBefore` when `None`.
+    authenticated: Option<i64>,
+    /// `@SessionNotOnOrAfter`, as written, when present.
+    session: Option<String>,
     audience: String,
     name_id: Option<String>,
     confirmation: String,
@@ -211,6 +226,9 @@ impl Parts {
             issuer: ISSUER.to_owned(),
             not_before: now - 60,
             not_on_or_after: now + 3 * 3600,
+            issued: None,
+            authenticated: None,
+            session: None,
             audience: AUDIENCE.to_owned(),
             name_id: Some(format!(
                 r#"<saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName">{NAME_ID}</saml:NameID>"#
@@ -261,22 +279,30 @@ impl Parts {
 
     /// Renders the assertion in canonical form, with the `{SIG}` mark.
     fn render(&self) -> String {
-        let instant = at(self.not_before);
+        let issued = at(self.issued.unwrap_or(self.not_before));
+        let authenticated = at(self.authenticated.unwrap_or(self.not_before));
+        let session = self
+            .session
+            .as_ref()
+            .map(|end| format!(r#" SessionNotOnOrAfter="{end}""#))
+            .unwrap_or_default();
         format!(
             concat!(
-                r#"<saml:Assertion xmlns:saml="{saml}" ID="{id}" IssueInstant="{instant}" Version="{version}">"#,
+                r#"<saml:Assertion xmlns:saml="{saml}" ID="{id}" IssueInstant="{issued}" Version="{version}">"#,
                 "<saml:Issuer>{issuer}</saml:Issuer>{{SIG}}",
                 "<saml:Subject>{name_id}{confirmation}</saml:Subject>",
                 r#"<saml:Conditions NotBefore="{nb}" NotOnOrAfter="{noa}">"#,
                 "<saml:AudienceRestriction><saml:Audience>{audience}</saml:Audience></saml:AudienceRestriction>",
                 "</saml:Conditions>{advice}",
-                r#"<saml:AuthnStatement AuthnInstant="{instant}"><saml:AuthnContext>"#,
+                r#"<saml:AuthnStatement AuthnInstant="{authenticated}"{session}><saml:AuthnContext>"#,
                 "<saml:AuthnContextClassRef>{class}</saml:AuthnContextClassRef></saml:AuthnContext></saml:AuthnStatement>",
                 "<saml:AttributeStatement>{attributes}</saml:AttributeStatement></saml:Assertion>"
             ),
             saml = SAML,
             id = self.id,
-            instant = instant,
+            issued = issued,
+            authenticated = authenticated,
+            session = session,
             version = self.version,
             issuer = self.issuer,
             name_id = self.name_id.clone().unwrap_or_default(),
@@ -291,7 +317,8 @@ impl Parts {
     }
 }
 
-/// The trusted seal and the validator that trusts it.
+/// The trusted seal, the validator that trusts it and the guard it
+/// records exchanges in.
 struct Case {
     seal: Seal,
     validator: Validator,
@@ -300,7 +327,11 @@ struct Case {
 impl Case {
     fn new() -> Self {
         let seal = Seal::new(RsaKeySize::_3072);
-        let validator = Validator::new(vec![seal.trusted()], vec![AUDIENCE.to_owned()]);
+        let validator = Validator::new(
+            vec![seal.trusted()],
+            vec![AUDIENCE.to_owned()],
+            Arc::new(MemoryReplayGuard::default()),
+        );
         Self { seal, validator }
     }
 
@@ -309,12 +340,63 @@ impl Case {
     }
 
     fn identity(&self, parts: &Parts) -> Result<IdentityAssertion, AssertionError> {
-        self.validator.identity(&self.signed(parts), now())
+        self.validator.check_identity(&self.signed(parts), now())
     }
 
     fn valid_identity(&self) -> IdentityAssertion {
         self.identity(&Parts::identity())
             .expect("the identity assertion is valid")
+    }
+
+    /// Exchanges the valid identity assertion with the TRC `xml` at `now`.
+    fn exchange(&self, xml: &str) -> Result<Exchange, ExchangeError> {
+        let identity = self.signed(&Parts::identity());
+        block_on(self.validator.exchange(&identity, Some(xml), now()))
+    }
+
+    /// Checks the TRC `xml`, exchanged with the valid identity assertion.
+    fn treatment(&self, xml: &str) -> Result<TreatmentAssertion, AssertionError> {
+        self.exchange(xml)
+            .map(|exchange| exchange.treatment().expect("a TRC").clone())
+            .map_err(refused)
+    }
+}
+
+/// Runs `future` to completion on a runtime of its own.
+fn block_on<F: Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("a runtime")
+        .block_on(future)
+}
+
+/// Returns the assertion refusal of `error`, failing the case on a guard
+/// that could not answer.
+fn refused(error: ExchangeError) -> AssertionError {
+    match error {
+        ExchangeError::Assertion(refused) => refused,
+        other => panic!("the guard answers: {other}"),
+    }
+}
+
+/// The discovery-phase exchange of one identity assertion.
+trait CheckIdentity {
+    fn check_identity(
+        &self,
+        xml: &str,
+        now: Timestamp,
+    ) -> Result<IdentityAssertion, AssertionError>;
+}
+
+impl CheckIdentity for Validator {
+    fn check_identity(
+        &self,
+        xml: &str,
+        now: Timestamp,
+    ) -> Result<IdentityAssertion, AssertionError> {
+        block_on(self.exchange(xml, None, now))
+            .map(|exchange| exchange.identity().clone())
+            .map_err(refused)
     }
 }
 
@@ -352,7 +434,10 @@ fn a_signed_identity_assertion_yields_its_values() {
     assert_eq!(identity.purpose_of_use(), PurposeOfUse::Treatment);
     assert!(identity.has_permission("PPD-046"), "PPD-046 is asserted");
     assert!(!identity.has_permission("PPD-029"), "PPD-029 is not");
-    assert_eq!(identity.not_before().as_second(), now().as_second() - 60);
+    assert_eq!(
+        identity.window().not_before().as_second(),
+        now().as_second() - 60
+    );
     assert_eq!(
         identity.authentication_class(),
         "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI"
@@ -362,10 +447,9 @@ fn a_signed_identity_assertion_yields_its_values() {
 #[test]
 fn a_linked_treatment_confirmation_yields_the_patient() {
     let case = Case::new();
-    let identity = case.valid_identity();
+    case.valid_identity();
     let trc = case
-        .validator
-        .treatment(&case.signed(&Parts::treatment()), &identity, now())
+        .treatment(&case.signed(&Parts::treatment()))
         .expect("the TRC is valid");
     assert_eq!(trc.id(), TRC_ID);
     assert_eq!(trc.identity_id(), IDA_ID);
@@ -373,7 +457,10 @@ fn a_linked_treatment_confirmation_yields_the_patient() {
     assert_eq!(trc.patient().system(), "urn:oid:1.2.3");
     assert_eq!(trc.patient().value(), "invented-patient");
     assert_eq!(trc.purpose_of_use(), None);
-    assert_eq!(trc.not_on_or_after().as_second(), now().as_second() + 3600);
+    assert_eq!(
+        trc.window().not_on_or_after().as_second(),
+        now().as_second() + 3600
+    );
 }
 
 #[test]
@@ -393,7 +480,7 @@ fn the_canonical_form_ignores_serialization_details() {
     let reserialized = format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\r\n{reserialized}");
     assert_ne!(signed, reserialized, "the case changes the serialization");
     case.validator
-        .identity(&reserialized, now())
+        .check_identity(&reserialized, now())
         .expect("the reserialized assertion keeps its signature");
 }
 
@@ -401,7 +488,7 @@ fn the_canonical_form_ignores_serialization_details() {
 fn an_unsigned_assertion_is_refused() {
     let case = Case::new();
     let unsigned = Parts::identity().render().replace("{SIG}", "");
-    let refused = case.validator.identity(&unsigned, now());
+    let refused = case.validator.check_identity(&unsigned, now());
     assert_eq!(integrity(refused.clone()), Some(Integrity::Unsigned));
     assert_eq!(
         refused.map(|_| ()).unwrap_err().code(),
@@ -418,7 +505,7 @@ fn a_signature_by_another_key_is_refused() {
     signing.key_info = case.seal.der.clone();
     let refused = case
         .validator
-        .identity(&signing.sign(&parts.render()), now());
+        .check_identity(&signing.sign(&parts.render()), now());
     assert_eq!(integrity(refused), Some(Integrity::BadSignature));
 }
 
@@ -426,7 +513,7 @@ fn a_signature_by_another_key_is_refused() {
 fn a_certificate_outside_the_trusted_set_is_refused() {
     let case = Case::new();
     let other = Seal::new(RsaKeySize::_3072);
-    let refused = case.validator.identity(
+    let refused = case.validator.check_identity(
         &Signing::by(&other, IDA_ID).sign(&Parts::identity().render()),
         now(),
     );
@@ -450,7 +537,7 @@ fn a_content_change_after_signing_is_refused() {
         .signed(&Parts::identity())
         .replace("urn:oid:1.2.3.4", "urn:oid:9.9.9.9");
     assert_eq!(
-        integrity(case.validator.identity(&tampered, now())),
+        integrity(case.validator.check_identity(&tampered, now())),
         Some(Integrity::Digest)
     );
 }
@@ -518,7 +605,7 @@ fn a_sha1_signature_method_is_refused() {
     signing.signature_method = "http://www.w3.org/2000/09/xmldsig#rsa-sha1";
     let refused = case
         .validator
-        .identity(&signing.sign(&Parts::identity().render()), now());
+        .check_identity(&signing.sign(&Parts::identity().render()), now());
     assert_eq!(integrity(refused), Some(Integrity::Floor(Floor::Hash)));
 }
 
@@ -529,7 +616,7 @@ fn a_sha1_digest_is_refused() {
     signing.digest_method = "http://www.w3.org/2000/09/xmldsig#sha1";
     let refused = case
         .validator
-        .identity(&signing.sign(&Parts::identity().render()), now());
+        .check_identity(&signing.sign(&Parts::identity().render()), now());
     assert_eq!(integrity(refused), Some(Integrity::Floor(Floor::Hash)));
 }
 
@@ -540,7 +627,7 @@ fn an_elliptic_curve_signature_method_is_refused() {
     signing.signature_method = "http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256";
     let refused = case
         .validator
-        .identity(&signing.sign(&Parts::identity().render()), now());
+        .check_identity(&signing.sign(&Parts::identity().render()), now());
     assert_eq!(
         integrity(refused),
         Some(Integrity::Floor(Floor::EllipticCurve))
@@ -554,7 +641,7 @@ fn a_reference_to_another_element_is_refused() {
     signing.uri = "#_11111111-2222-3333-4444-555555555555".to_owned();
     let refused = case
         .validator
-        .identity(&signing.sign(&Parts::identity().render()), now());
+        .check_identity(&signing.sign(&Parts::identity().render()), now());
     assert_eq!(integrity(refused), Some(Integrity::Wrapped));
 }
 
@@ -569,7 +656,7 @@ fn a_signed_assertion_wrapped_in_an_unsigned_one_is_refused() {
     .render()
     .replace("{SIG}", "");
     assert_eq!(
-        integrity(case.validator.identity(&evil, now())),
+        integrity(case.validator.check_identity(&evil, now())),
         Some(Integrity::Wrapped)
     );
 }
@@ -597,7 +684,7 @@ fn a_signature_away_from_the_assertion_element_is_refused() {
         .replace(signature, "")
         .replace("</saml:Subject>", &format!("{signature}</saml:Subject>"));
     assert_eq!(
-        integrity(case.validator.identity(&moved, now())),
+        integrity(case.validator.check_identity(&moved, now())),
         Some(Integrity::Wrapped)
     );
 }
@@ -609,11 +696,11 @@ fn an_expired_assertion_is_refused_past_the_drift() {
     let end = now().as_second() + 3 * 3600;
     let at_drift = Timestamp::from_second(end + 59).expect("a time");
     case.validator
-        .identity(&signed, at_drift)
+        .check_identity(&signed, at_drift)
         .expect("59 s past the end is within the drift");
     let past = Timestamp::from_second(end + 60).expect("a time");
     assert_eq!(
-        integrity(case.validator.identity(&signed, past)),
+        integrity(case.validator.check_identity(&signed, past)),
         Some(Integrity::Expired)
     );
 }
@@ -703,7 +790,7 @@ fn a_document_type_declaration_is_refused() {
     let signed = case.signed(&Parts::identity());
     let declared = format!("<!DOCTYPE saml:Assertion [<!ENTITY x \"y\">]>{signed}");
     assert_eq!(
-        integrity(case.validator.identity(&declared, now())),
+        integrity(case.validator.check_identity(&declared, now())),
         Some(Integrity::Malformed)
     );
 }
@@ -814,39 +901,33 @@ fn another_purpose_of_use_is_refused() {
 #[test]
 fn a_treatment_confirmation_naming_another_identity_assertion_is_refused() {
     let case = Case::new();
-    let identity = case.valid_identity();
+    case.valid_identity();
     let parts = Parts {
         advice: "<saml:Advice><saml:AssertionIDRef>urn:uuid:00000000-0000-0000-0000-000000000000</saml:AssertionIDRef></saml:Advice>".to_owned(),
         ..Parts::treatment()
     };
-    let refused = case
-        .validator
-        .treatment(&case.signed(&parts), &identity, now());
+    let refused = case.treatment(&case.signed(&parts));
     assert_eq!(integrity(refused), Some(Integrity::Link));
 }
 
 #[test]
 fn a_treatment_confirmation_for_another_professional_is_refused() {
     let case = Case::new();
-    let identity = case.valid_identity();
+    case.valid_identity();
     let parts = Parts {
         name_id: Some(r#"<saml:NameID Format="urn:oasis:names:tc:SAML:1.1:nameid-format:X509SubjectName">CN=Other</saml:NameID>"#.to_owned()),
         ..Parts::treatment()
     };
-    let refused = case
-        .validator
-        .treatment(&case.signed(&parts), &identity, now());
+    let refused = case.treatment(&case.signed(&parts));
     assert_eq!(integrity(refused), Some(Integrity::Link));
 }
 
 #[test]
 fn a_treatment_confirmation_without_the_patient_is_refused() {
     let case = Case::new();
-    let identity = case.valid_identity();
+    case.valid_identity();
     let parts = Parts::treatment().without("subject-id");
-    let refused = case
-        .validator
-        .treatment(&case.signed(&parts), &identity, now());
+    let refused = case.treatment(&case.signed(&parts));
     assert_eq!(
         attributes(refused),
         Some((EhdsiCode::SecDataIntegrityNotEnsured, vec!["patient.id"]))
@@ -856,7 +937,7 @@ fn a_treatment_confirmation_without_the_patient_is_refused() {
 #[test]
 fn a_treatment_confirmation_whose_patient_is_no_cx_is_refused() {
     let case = Case::new();
-    let identity = case.valid_identity();
+    case.valid_identity();
     for subject in [
         "invented-patient",
         "invented-patient^^^&amp;1.2.3&amp;DNS",
@@ -868,9 +949,7 @@ fn a_treatment_confirmation_whose_patient_is_no_cx_is_refused() {
             "urn:oasis:names:tc:xspa:1.0:subject:subject-id",
             subject,
         ));
-        let refused = case
-            .validator
-            .treatment(&case.signed(&parts), &identity, now());
+        let refused = case.treatment(&case.signed(&parts));
         assert_eq!(
             attributes(refused),
             Some((EhdsiCode::SecDataIntegrityNotEnsured, vec!["patient.id"])),
@@ -882,28 +961,24 @@ fn a_treatment_confirmation_whose_patient_is_no_cx_is_refused() {
 #[test]
 fn a_treatment_confirmation_window_over_two_hours_is_refused() {
     let case = Case::new();
-    let identity = case.valid_identity();
+    case.valid_identity();
     let parts = Parts {
         not_on_or_after: now().as_second() - 60 + 2 * 3600 + 1,
         ..Parts::treatment()
     };
-    let refused = case
-        .validator
-        .treatment(&case.signed(&parts), &identity, now());
+    let refused = case.treatment(&case.signed(&parts));
     assert_eq!(integrity(refused), Some(Integrity::Window));
 }
 
 #[test]
 fn a_treatment_confirmation_needs_the_previous_session_class() {
     let case = Case::new();
-    let identity = case.valid_identity();
+    case.valid_identity();
     let parts = Parts {
         authn_class: "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI".to_owned(),
         ..Parts::treatment()
     };
-    let refused = case
-        .validator
-        .treatment(&case.signed(&parts), &identity, now());
+    let refused = case.treatment(&case.signed(&parts));
     assert_eq!(
         integrity(refused),
         Some(Integrity::Structure("saml:AuthnContextClassRef"))
@@ -913,15 +988,13 @@ fn a_treatment_confirmation_needs_the_previous_session_class() {
 #[test]
 fn a_wallet_patient_id_needs_the_pid_issuer_country() {
     let case = Case::new();
-    let identity = case.valid_identity();
+    case.valid_identity();
     let mut parts = Parts::treatment();
     parts.attributes.push(attribute(
         "urn:ehdsi:names:subject:patient-id-source",
         "EUDI_WALLET_PID",
     ));
-    let refused = case
-        .validator
-        .treatment(&case.signed(&parts), &identity, now());
+    let refused = case.treatment(&case.signed(&parts));
     assert_eq!(
         attributes(refused),
         Some((
@@ -934,8 +1007,7 @@ fn a_wallet_patient_id_needs_the_pid_issuer_country() {
         "BE",
     ));
     let trc = case
-        .validator
-        .treatment(&case.signed(&parts), &identity, now())
+        .treatment(&case.signed(&parts))
         .expect("the wallet-sourced TRC is valid");
     assert_eq!(
         trc.patient_id_source(),
@@ -949,8 +1021,7 @@ fn debug_carries_no_assertion_content() {
     let case = Case::new();
     let identity = case.valid_identity();
     let trc = case
-        .validator
-        .treatment(&case.signed(&Parts::treatment()), &identity, now())
+        .treatment(&case.signed(&Parts::treatment()))
         .expect("the TRC is valid");
     let rendered = format!("{identity:?} {trc:?} {:?}", case.seal.trusted());
     let values = [
@@ -972,8 +1043,7 @@ fn the_claim_carries_the_contact_point_field_set() {
     let case = Case::new();
     let identity = case.valid_identity();
     let trc = case
-        .validator
-        .treatment(&case.signed(&Parts::treatment()), &identity, now())
+        .treatment(&case.signed(&Parts::treatment()))
         .expect("the TRC is valid");
     let claim = ehdsi_claim(&identity, Some(&trc));
     assert_eq!(claim["professional"]["hp_identifier"], NAME_ID);
@@ -1028,7 +1098,7 @@ fn a_literal_carriage_return_before_a_reference_keeps_the_signature() {
     let sent = signed_with_a_literal_carriage_return(&case, "Invented\r&amp;Doctor");
     let identity = case
         .validator
-        .identity(&sent, now())
+        .check_identity(&sent, now())
         .expect("the carriage return is a line feed before canonicalization");
     assert_eq!(identity.name(), "Invented\n&Doctor");
 }
@@ -1039,7 +1109,7 @@ fn a_literal_carriage_return_inside_text_keeps_the_signature() {
     let sent = signed_with_a_literal_carriage_return(&case, "Invented\r\nDoc\rtor");
     let identity = case
         .validator
-        .identity(&sent, now())
+        .check_identity(&sent, now())
         .expect("both line ends are line feeds before canonicalization");
     assert_eq!(identity.name(), "Invented\nDoc\ntor");
 }
@@ -1085,7 +1155,7 @@ fn deep_fresh_prefix_nesting_is_refused_before_parsing() {
     let xml = format!("{opens}{closes}");
     assert_eq!(xml.len(), 65_000);
     let started = std::time::Instant::now();
-    let refused = case.validator.identity(&xml, now());
+    let refused = case.validator.check_identity(&xml, now());
     let elapsed = started.elapsed();
     assert_eq!(integrity(refused), Some(Integrity::Malformed));
     // NOTE: the parse alone took about 5.5 s in a release build before the caps (#315).
@@ -1105,7 +1175,7 @@ fn deep_nesting_beside_a_trusted_key_info_is_refused_before_canonicalizing() {
     ));
     let xml = case.signed(&parts);
     let started = std::time::Instant::now();
-    let refused = case.validator.identity(&xml, now());
+    let refused = case.validator.check_identity(&xml, now());
     let elapsed = started.elapsed();
     assert_eq!(integrity(refused), Some(Integrity::Malformed));
     assert!(
@@ -1131,7 +1201,7 @@ fn an_assertion_at_the_depth_and_namespace_caps_still_verifies() {
     );
     let identity = case
         .validator
-        .identity(&sent, now())
+        .check_identity(&sent, now())
         .expect("80 declarations are inside the cap");
     assert!(identity.has_permission("PPD-046"));
 }
@@ -1144,7 +1214,7 @@ fn a_comment_added_inside_a_signed_value_changes_neither_digest_nor_value() {
     assert_ne!(xml, commented);
     let identity = case
         .validator
-        .identity(&commented, now())
+        .check_identity(&commented, now())
         .expect("Exc-C14N without comments drops the comment");
     assert_eq!(identity.name_id().value(), NAME_ID);
 }
@@ -1163,7 +1233,7 @@ fn a_signature_moved_into_advice_is_refused() {
         1,
     );
     assert_eq!(
-        integrity(case.validator.identity(&moved, now())),
+        integrity(case.validator.check_identity(&moved, now())),
         Some(Integrity::Wrapped)
     );
 }
@@ -1184,9 +1254,208 @@ fn content_injected_into_the_signature_is_refused() {
     ] {
         let injected = xml.replacen("</ds:Signature>", inject, 1);
         assert_eq!(
-            integrity(case.validator.identity(&injected, now())),
+            integrity(case.validator.check_identity(&injected, now())),
             Some(refusal),
             "{inject}"
         );
     }
+}
+
+/// A guard whose store cannot be reached.
+#[derive(Debug)]
+struct Unreachable;
+
+impl ReplayGuard for Unreachable {
+    fn first_use<'a>(
+        &'a self,
+        _exchange: &'a ExchangeId,
+        _until: Timestamp,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<bool, ReplayGuardError>> + Send + 'a>> {
+        Box::pin(std::future::ready(Err(ReplayGuardError::new(
+            std::io::Error::other("the store is down"),
+        ))))
+    }
+}
+
+/// Exchanges the identity assertion `ida` and the TRC `trc` at `now`.
+fn exchange(case: &Case, ida: &str, trc: Option<&str>) -> Result<Exchange, ExchangeError> {
+    block_on(case.validator.exchange(ida, trc, now()))
+}
+
+#[test]
+fn an_issue_instant_ahead_of_the_drift_is_refused() {
+    let case = Case::new();
+    let mut parts = Parts::identity();
+    parts.issued = Some(now().as_second() + 86_400);
+    assert_eq!(integrity(case.identity(&parts)), Some(Integrity::Issued));
+    parts.issued = Some(now().as_second() + 61);
+    assert_eq!(integrity(case.identity(&parts)), Some(Integrity::Issued));
+}
+
+#[test]
+fn an_issue_instant_within_the_drift_is_accepted() {
+    let case = Case::new();
+    let mut parts = Parts::identity();
+    parts.issued = Some(now().as_second() + 60);
+    parts.authenticated = Some(now().as_second());
+    case.identity(&parts)
+        .expect("60 s of drift (SAML Profile 10.0.0 §2.1)");
+}
+
+#[test]
+fn an_issue_instant_at_the_window_end_is_refused() {
+    let case = Case::new();
+    let mut parts = Parts::identity();
+    parts.not_on_or_after = now().as_second() + 30;
+    parts.issued = Some(parts.not_on_or_after);
+    assert_eq!(integrity(case.identity(&parts)), Some(Integrity::Issued));
+}
+
+#[test]
+fn an_authn_instant_after_the_issue_beyond_the_drift_is_refused() {
+    let case = Case::new();
+    let mut parts = Parts::identity();
+    parts.authenticated = Some(parts.not_before + 61);
+    assert_eq!(
+        integrity(case.identity(&parts)),
+        Some(Integrity::Authenticated)
+    );
+    parts.authenticated = Some(parts.not_before + 60);
+    case.identity(&parts)
+        .expect("an AuthnInstant within the drift of the IssueInstant");
+}
+
+#[test]
+fn an_authn_instant_in_the_future_is_refused() {
+    let case = Case::new();
+    let mut parts = Parts::identity();
+    parts.issued = Some(now().as_second() + 60);
+    parts.authenticated = Some(now().as_second() + 61);
+    assert_eq!(
+        integrity(case.identity(&parts)),
+        Some(Integrity::Authenticated)
+    );
+}
+
+#[test]
+fn an_ended_session_is_refused_past_the_drift() {
+    let case = Case::new();
+    let mut parts = Parts::identity();
+    parts.session = Some(at(now().as_second() - 60));
+    assert_eq!(
+        integrity(case.identity(&parts)),
+        Some(Integrity::SessionEnded)
+    );
+}
+
+#[test]
+fn a_session_end_within_the_drift_is_returned_and_ends_the_exchange() {
+    let case = Case::new();
+    let mut parts = Parts::identity();
+    let end = now().as_second() - 59;
+    parts.session = Some(at(end));
+    let ida = case.signed(&parts);
+    let exchanged = exchange(&case, &ida, None).expect("the session ends within the drift");
+    assert_eq!(
+        exchanged
+            .identity()
+            .window()
+            .session_not_on_or_after()
+            .map(Timestamp::as_second),
+        Some(end)
+    );
+    assert_eq!(exchanged.ends().as_second(), end);
+}
+
+#[test]
+fn an_unreadable_session_end_is_refused() {
+    let case = Case::new();
+    let mut parts = Parts::identity();
+    parts.session = Some(String::from("tomorrow"));
+    assert_eq!(
+        integrity(case.identity(&parts)),
+        Some(Integrity::Structure("@SessionNotOnOrAfter"))
+    );
+}
+
+#[test]
+fn the_exchange_ends_at_the_earliest_window_or_session() {
+    let case = Case::new();
+    let ida = case.signed(&Parts::identity());
+    let mut trc = Parts::treatment();
+    let end = now().as_second() + 600;
+    trc.session = Some(at(end));
+    let exchanged = exchange(&case, &ida, Some(&case.signed(&trc))).expect("a full exchange");
+    assert_eq!(
+        exchanged
+            .treatment()
+            .and_then(|trc| trc.window().session_not_on_or_after())
+            .map(Timestamp::as_second),
+        Some(end)
+    );
+    assert_eq!(exchanged.ends().as_second(), end);
+    assert_eq!(
+        exchanged.claim(),
+        ehdsi_claim(exchanged.identity(), exchanged.treatment())
+    );
+}
+
+#[test]
+fn a_discovery_exchange_is_admitted_once() {
+    let case = Case::new();
+    let ida = case.signed(&Parts::identity());
+    exchange(&case, &ida, None).expect("the first discovery exchange");
+    let replayed = exchange(&case, &ida, None).map_err(refused);
+    assert_eq!(integrity(replayed), Some(Integrity::Replayed));
+}
+
+#[test]
+fn a_treatment_confirmation_is_admitted_once_beside_the_discovery() {
+    let case = Case::new();
+    let ida = case.signed(&Parts::identity());
+    let trc = case.signed(&Parts::treatment());
+    exchange(&case, &ida, None).expect("the discovery exchange");
+    exchange(&case, &ida, Some(&trc))
+        .expect("the IdA again, with its TRC (Messaging Profile 10.0.0 §5.5.1)");
+    let replayed = exchange(&case, &ida, Some(&trc)).map_err(refused);
+    assert_eq!(integrity(replayed), Some(Integrity::Replayed));
+    let mut second = Parts::treatment();
+    second.id = String::from("_1f8fad5b-d9cb-469f-a165-70867728950e");
+    exchange(&case, &ida, Some(&case.signed(&second))).expect("a second TRC of the same session");
+}
+
+#[test]
+fn a_refused_exchange_records_nothing() {
+    let case = Case::new();
+    let ida = case.signed(&Parts::identity());
+    let mut late = Parts::treatment();
+    late.not_on_or_after = now().as_second() + 3 * 3600;
+    let refused_trc = exchange(&case, &ida, Some(&case.signed(&late))).map_err(refused);
+    assert_eq!(integrity(refused_trc), Some(Integrity::Window));
+    exchange(&case, &ida, None).expect("the refusal recorded no discovery exchange");
+}
+
+#[test]
+fn a_guard_that_cannot_answer_admits_nothing() {
+    let seal = Seal::new(RsaKeySize::_3072);
+    let case = Case {
+        validator: Validator::new(
+            vec![seal.trusted()],
+            vec![AUDIENCE.to_owned()],
+            Arc::new(Unreachable),
+        ),
+        seal,
+    };
+    let ida = case.signed(&Parts::identity());
+    let failed = exchange(&case, &ida, None).expect_err("the guard cannot answer");
+    assert!(matches!(failed, ExchangeError::Guard(_)), "{failed:?}");
+    assert_eq!(failed.code(), EhdsiCode::SecGeneric);
+}
+
+#[test]
+fn the_exchange_future_is_send() {
+    fn send<T: Send>(_: &T) {}
+    let case = Case::new();
+    let future = case.validator.exchange("", None, now());
+    send(&future);
 }

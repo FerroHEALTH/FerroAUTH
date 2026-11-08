@@ -6,7 +6,6 @@
 
 use std::fmt;
 
-use jiff::Timestamp;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -17,6 +16,7 @@ use crate::federation::assertion::Envelope;
 use crate::federation::assertion::Integrity;
 use crate::federation::assertion::PURPOSE;
 use crate::federation::assertion::SUBJECT;
+use crate::federation::assertion::Window;
 use crate::federation::assertion::identity::IdentityAssertion;
 use crate::federation::assertion::identity::PurposeOfUse;
 use crate::federation::assertion::identity::purpose;
@@ -66,10 +66,8 @@ pub struct TreatmentAssertion {
     id: String,
     /// `saml:Issuer`.
     issuer: String,
-    /// `@NotBefore`.
-    not_before: Timestamp,
-    /// `@NotOnOrAfter`.
-    not_on_or_after: Timestamp,
+    /// The window and the session.
+    window: Window,
     /// The `@ID` of the identity assertion it names.
     identity_id: String,
     /// The patient identifier (`subject-id`), as asserted.
@@ -106,16 +104,10 @@ impl TreatmentAssertion {
         &self.issuer
     }
 
-    /// Returns `Conditions/@NotBefore`.
+    /// Returns the window and session the assertion is valid in.
     #[must_use]
-    pub const fn not_before(&self) -> Timestamp {
-        self.not_before
-    }
-
-    /// Returns `Conditions/@NotOnOrAfter`.
-    #[must_use]
-    pub const fn not_on_or_after(&self) -> Timestamp {
-        self.not_on_or_after
+    pub const fn window(&self) -> Window {
+        self.window
     }
 
     /// Returns the `@ID` of the identity assertion the TRC names in `AssertionIDRef`.
@@ -159,8 +151,8 @@ impl TreatmentAssertion {
     pub(super) fn trc_claim(&self) -> Value {
         json!({
             "id": self.id,
-            "not_before": self.not_before.as_second(),
-            "not_on_or_after": self.not_on_or_after.as_second(),
+            "not_before": self.window.not_before.as_second(),
+            "not_on_or_after": self.window.not_on_or_after.as_second(),
         })
     }
 
@@ -232,8 +224,7 @@ pub(super) fn read(
     Ok(TreatmentAssertion {
         id: envelope.id.clone(),
         issuer: envelope.issuer.clone(),
-        not_before: envelope.not_before,
-        not_on_or_after: envelope.not_on_or_after,
+        window: envelope.window,
         identity_id: reference,
         patient_id,
         patient,
