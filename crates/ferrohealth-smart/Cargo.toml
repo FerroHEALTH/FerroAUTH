@@ -46,6 +46,11 @@ openehr = ["openehr-scopes"]
 # Microsoft Graph (`idp::entra`), named by a profile as `adapter = "idp-entra"`.
 # A profile naming it fails to load in a build without this feature.
 idp-entra = ["fetch", "tokio/time"]
+# The eHDSI HP Identity Assertion and Treatment Relationship Confirmation
+# check (`federation::assertion`): the enveloped XML signature by a trusted
+# signer, the SOG-IS floor and the SAML Profile 10.0.0 §2 and §4 rules, for
+# an authorization server acting for a MyHealth@EU contact point.
+ehdsi-assertion = ["dep:roxmltree", "dep:x509-parser"]
 # Constructors a downstream crate's tests build values with that only a
 # token would otherwise carry, such as `federation::External::new` for the
 # two external caller kinds. A product never enables it outside its tests.
@@ -72,6 +77,8 @@ tracing.workspace = true
 url.workspace = true
 tower = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
+roxmltree = { workspace = true, optional = true }
+x509-parser = { workspace = true, optional = true }
 
 [dev-dependencies]
 http-body-util.workspace = true

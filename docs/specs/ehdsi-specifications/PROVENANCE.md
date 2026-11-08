@@ -8,21 +8,25 @@ URL and the sha256 of its bytes. Never edit a file here: change the pins in
 the script and the pin-set digest in docs/VERSIONS.md, and re-run the script.
 
 - Pin-set digest (sha256 over the sorted `mode  file  url  sha256` lines of
-  the pins): `c08730ff34b06631cea5422a1fca8a98752acccbf2cb05817f08b5cbae8a2cae`
-- Fetched: 2026-11-05, from the owner's local copies; nothing is downloaded
-- Artefacts: 5 committed, 0 cache only, 0 needing
+  the pins): `85e062f853f90a98c993ee5aa349bf19392d021deefc5505e1e5eebad9783839`
+- Fetched: 2026-11-08, from the owner's local copies; nothing is downloaded
+- Artefacts: 8 committed, 0 cache only, 0 needing
   manual retrieval, 1 read and not redistributed
-- Files in this directory: 5 besides this one, each verbatim as the
+- Files in this directory: 8 besides this one, each verbatim as the
   owner supplied it
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `cb2f95fecb76a43e7dab401d48cded879dc417b848960b08c150600cc09e5a4c`
+  `PROVENANCE.md` excluded): `4166b9e1b5cd8bc02037f6a64cdd79b994d15cb78791e1ee0448d022df669978`
 - Read by: the contact-point profile of the caller classification (#215: the
   issuer, the attributes, the authentication classes, the IdA and TRC
-  lifetimes and the refusal names), vendored by #224
+  lifetimes and the refusal names), vendored by #224, and the IdA and TRC
+  check (#294: the enveloped signature, the algorithm floor, the seal
+  certificate and the subject linkage)
 
 The eHDSI SAML Profile, Section II Security Services, the Service Location
-and Capability Lookup Profile and the NCPeH Components Specifications
-10.0.0, and the eHDSI Interoperability Specifications 8.0.1, retrieved by
+and Capability Lookup Profile, the NCPeH Components Specifications and the
+Messaging Profile 10.0.0, the Cryptographic Algorithms 9.0.0, the X.509
+Certificates Profile 7.0.0, and the eHDSI Interoperability Specifications
+8.0.1, retrieved by
 the owner from the eHDSI wiki, which sits behind EU Login. Each cover states
 distribution level PU (Public) and "Reuse is authorised, provided the
 source is acknowledged.", so each is committed verbatim, as the owner
@@ -92,6 +96,39 @@ no copy of it enters the repository or the cache.
   login, so the owner places the file in a local directory and the script
   copies it verbatim after finding it by its sha256; it downloads nothing.
 - Note: Acknowledgement: "Source: DG SANTE, CEF MyHealth@EU, 2026", the source line of the cover. The owner supplied eHDSI_NCPeH_Components_Specifications_v10.0.0.pdf. The PDF document information carries a stale title ("D3.7.2 Section I - Security Policies_v0.8"), so the sha256 identifies the file, not the metadata.
+
+### `ehdsi-messaging-profile-10.0.0.pdf` (committed, supplied by the owner)
+
+- Source: <https://webgate.ec.europa.eu/fpfis/wikis/display/EHDSI/2.+eHDSI+INTEROPERABILITY+SPECIFICATIONS%2C+Requirements+and+Frameworks>
+- Version: eHDSI Messaging Profile, document version 10.0.0, 01/06/2026, status Wave 10 Operation Ready
+- sha256: `4b9aa0c6dd383417eb4c90944bb04b895f6b4b4095b46393957ab9f6e34c7976`
+- Licence: "Reuse is authorised, provided the source is acknowledged." and "Distribution level*: PU", where "PU = Public" (the cover and control page, read 2026-11-05)
+- Supplied by the owner: the source answers an automated client with a
+  login, so the owner places the file in a local directory and the script
+  copies it verbatim after finding it by its sha256; it downloads nothing.
+- Note: Acknowledgement: "Source: DG SANTE, MyHealth@EU, 2026", the source line of the cover. The owner supplied eHDSI_Messaging_Profile_v10.0.0.pdf. The PDF document information carries a stale title ("D3.7.2 Section I - Security Policies_v0.8"), so the sha256 identifies the file, not the metadata.
+
+### `ehdsi-x509-certificates-profile-7.0.0.pdf` (committed, supplied by the owner)
+
+- Source: <https://webgate.ec.europa.eu/fpfis/wikis/display/EHDSI/2.+eHDSI+INTEROPERABILITY+SPECIFICATIONS%2C+Requirements+and+Frameworks>
+- Version: X.509 Certificates Profile (document name X.509 Certificate Profile), document version 7.0.0, 19/07/2023, status Wave 7 Operation Ready
+- sha256: `c17ac1cc60ca686a805306856259f92d53a23e15652041474cf2008d20d40548`
+- Licence: "Reuse is authorised, provided the source is acknowledged." and "Distribution level*: PU", where "PU = Public" (the cover and control page, read 2026-11-05)
+- Supplied by the owner: the source answers an automated client with a
+  login, so the owner places the file in a local directory and the script
+  copies it verbatim after finding it by its sha256; it downloads nothing.
+- Note: Acknowledgement: "Source: DG SANTE, MyHealth@EU, 2023", the source line of the cover. The owner supplied eHDSI_X509_Certificates_Profile_v7.0.0.pdf. The PDF document information carries no title; the sha256 identifies the file.
+
+### `ehdsi-cryptographic-algorithms-9.0.0.pdf` (committed, supplied by the owner)
+
+- Source: <https://webgate.ec.europa.eu/fpfis/wikis/display/EHDSI/2.+eHDSI+INTEROPERABILITY+SPECIFICATIONS%2C+Requirements+and+Frameworks>
+- Version: Cryptographic Algorithms, document version 9.0.0, 04/06/2025, status Wave 9 Operation Ready
+- sha256: `2b2cf3612649f69b2b1e3b68ef0b4924c8d75ce00b02808a4a19fb28f942f952`
+- Licence: "Reuse is authorised, provided the source is acknowledged." and "Distribution level*: PU", where "PU = Public" (the cover and control page, read 2026-11-05)
+- Supplied by the owner: the source answers an automated client with a
+  login, so the owner places the file in a local directory and the script
+  copies it verbatim after finding it by its sha256; it downloads nothing.
+- Note: Acknowledgement: "Source: DG SANTE, CEF eHealth DSI, 2025", the source line of the cover. The owner supplied eHDSI_Cryptographic_Algorithms_v9.0.0.pdf. The PDF document information carries no title; the sha256 identifies the file.
 
 ### `myhealth-eu-requirements-catalogue-10.0.0.pdf` (read, not redistributed)
 

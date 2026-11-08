@@ -94,7 +94,7 @@ with the matrix.
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; the authorization code flow (§3.1) and the ID Token check (§3.1.3.7) of the `oidc` relying party. |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the end-session request (§2) and the `end_session_endpoint` metadata (§2.1) of the `oidc` relying party. |
 | Party binding references | IHE IUA Revision 2.5 (`IHE/ITI.IUA` tag `2.5`), Nuts RFC021 (`nuts-foundation/nuts-specification` at `7c0de533…`), the Microsoft Entra documents (`MicrosoftDocs/entra-docs` at `219d8d57…`), the SCIM workload identity federation guide (`AzureAD/SCIMReferenceCode` at `21b92c8f…`), Keycloak 26.8.2, and the Okta OpenID Connect and OAuth 2.0 API reference (cache only) | The access token of a federation issuer (IUA ITI-71, Nuts RFC021) and the deviations of each vendor profile from RFC 9068 (Entra ID, Keycloak, Okta) that the caller classification reads (FerroHEALTH/FerroAUTH#215). IUA and RFC021 are the editions FerroHEALTH/FerroFED vendors. The vendor documents are evidence for a profile's values, never the oracle for a core rule. The Okta page states "All rights reserved", so only its pin and provenance are committed. |
-| Contact-point references | The eHDSI SAML Profile, Section II Security Services, Service Location and Capability Lookup Profile and NCPeH Components Specifications 10.0.0 and the Interoperability Specifications 8.0.1 (supplied by the owner); the MyHealth@EU Requirements Catalogue 10.0.0 (read, recorded by sha256, never copied); Implementing Regulation (EU) 2026/2099 and Regulation (EU) 2016/679 (the Official Journal XHTML); the Federation Tier with AQL specification 1.0.1 Annex B (`syntaric/openehr-federation-spec` at `b4242c29…`) | The contact-point issuer profile of the caller classification (FerroHEALTH/FerroAUTH#215): the IdA issuer, attributes, authentication classes, lifetimes and refusal names from the eHDSI documents, the fields of 2026/2099 Annex Tables 1 and 2, GDPR Art. 9(3) and Art. 29 for guests, and the Dutch `authorization_details` of Annex B §B.4a. The eHDSI files and Annex B are the ones FerroHEALTH/FerroFED vendors. The Requirements Catalogue states no reuse terms, so it is cited by section only. |
+| Contact-point references | The eHDSI SAML Profile, Section II Security Services, Service Location and Capability Lookup Profile, NCPeH Components Specifications and Messaging Profile 10.0.0, the Cryptographic Algorithms 9.0.0, the X.509 Certificates Profile 7.0.0 and the Interoperability Specifications 8.0.1 (supplied by the owner); SOG-IS Agreed Cryptographic Mechanisms 1.3 (read, recorded by sha256, never copied); the MyHealth@EU Requirements Catalogue 10.0.0 (read, recorded by sha256, never copied); Implementing Regulation (EU) 2026/2099 and Regulation (EU) 2016/679 (the Official Journal XHTML); the Federation Tier with AQL specification 1.0.1 Annex B (`syntaric/openehr-federation-spec` at `b4242c29…`) | The contact-point issuer profile of the caller classification (FerroHEALTH/FerroAUTH#215): the IdA issuer, attributes, authentication classes, lifetimes and refusal names from the eHDSI documents, the fields of 2026/2099 Annex Tables 1 and 2, GDPR Art. 9(3) and Art. 29 for guests, and the Dutch `authorization_details` of Annex B §B.4a. The eHDSI files and Annex B are the ones FerroHEALTH/FerroFED vendors. The Requirements Catalogue states no reuse terms, so it is cited by section only. |
 | Consent decision record | IHE Basic Audit Log Patterns (BALP) 1.1.4, the Volume 3 content page (3:5.7) as profiles.ihe.net renders it | The consent decision reference a `federation` token carries in `consent.reference` is the Consent entity of the 3:5.7.6 consent decision record (FerroHEALTH/FerroAUTH#286). The page is the one FerroHEALTH/FerroFED vendors. |
 | SMART on openEHR | DEVELOPMENT (the ITS-REST draft, `openEHR/specifications-ITS-REST` at commit `9d25ea78…`, its tree last changed at `5183c1f9…`, amendment record 1.1.0 of 2025-05-20) | The one specification of openEHR scopes, which FerroEHR, FerroFED and FerroBRIDGE reach. It is a draft the ITS-REST release does not stabilise, so it is pinned by commit, its status is checked on every vendor run, and a weekly job fails when upstream moves (3.9). |
 
@@ -1462,6 +1462,64 @@ the banned list of 3.14 (`oidc-core §5.7`) fail too, as
 (3.6), and no `Debug` rendering carries the key value, a group or a
 represented subject.
 
+### 3.18 The eHDSI assertion check
+
+`federation::assertion`, behind `ehdsi-assertion`, is the check an
+authorization server acting for NCPeH-A runs on the HP Identity Assertion
+and the Treatment Relationship Confirmation before it issues the
+contact-point token of 3.14 (FerroHEALTH/FerroAUTH#294). The library still
+issues nothing: it reads two signed SAML 2.0 assertions and returns typed
+values, and `identity::ehdsi_claim` writes them as the `ehdsi` claim the
+contact-point profile reads.
+
+- **The signature.** The assertion is the document element, signed by an
+  enveloped `ds:Signature` (eHDSI Cryptographic Algorithms 9.0.0 §4.1;
+  SAML Profile 10.0.0 §2.2, §4.2). One shape is accepted, which is what
+  rules out signature wrapping: one `ds:Signature` in the document, a child
+  of the document element; no nested `saml:Assertion`; one `ds:Reference`
+  whose URI names the document element's `ID`, carried by no other
+  attribute named `ID`, `Id` or `id`; the enveloped transform then
+  exclusive canonicalization; `KeyInfo` naming the signer by its
+  certificate or its subject key identifier. Every value is read from that
+  element by child path, never by ID lookup. Exclusive canonicalization
+  (W3C Exc-C14N 1.0) is our own implementation over `roxmltree`, which
+  refuses a DTD, under a 64 KiB and 4096-node cap (our own design).
+- **The floor.** SOG-IS ACM 1.3 at "Legacy valid beyond 2025"
+  (Cryptographic Algorithms 9.0.0 §2): an RSA modulus of at least 3000 bits
+  (§4.1, Note 27), PKCS#1 v1.5 or PSS with SHA-256, SHA-384 or SHA-512
+  (§5.2). SHA-1 and SHA-224 are refused as `Floor::Hash`, an ECDSA method
+  or key as `Floor::EllipticCurve` ("if agreed by all countries").
+- **The signer.** A `TrustedSigner` pairs the `saml:Issuer` URI with the
+  seal certificate the SMP publishes for it (SMP Profile 10.0.0 §3.1.3,
+  §3.1.6). It is refused at registration below the floor, on an elliptic
+  curve, or outside the X.509 Certificates Profile 7.0.0 §3.1 seal profile
+  (`KeyUsage` critical with `digitalSignature` and `keyEncipherment` alone,
+  no `ExtendedKeyUsage`, `BasicConstraints` naming no CA, a
+  `SubjectKeyIdentifier`); its validity is checked at each assertion
+  (§2.4). Revocation is the deployment's: it removes a revoked
+  certificate from the set (our own design).
+- **The assertion.** `@Version` 2.0; `@ID` a UUID, as `urn:uuid:` (SAML
+  Profile 10.0.0 §2.1) or behind the `_` that makes it an `xs:ID` (SAML 2.0
+  Core §2.3.3), since the profile's URN is no `NCName`; `IssueInstant`,
+  `NotBefore`, `NotOnOrAfter` and `AuthnInstant` in UTC; a window of at most
+  4 h (IdA) or 2 h (TRC), with 60 s of drift at each boundary; an `Audience`
+  the validator accepts; `sender-vouches`; and for the IdA no
+  `SubjectConfirmationData` (§2.1).
+- **The attributes.** The IdA's in the order of 3.14, so an assertion and
+  its token are refused with the same §1.25 code; the `Role` and
+  `PurposeOfUse` values are the HL7 v3 elements §2.3 requires. The TRC
+  carries `PreviousSession`, names the IdA in `Advice/AssertionIDRef` with
+  the same `NameID` and format (§4.1; Messaging Profile 10.0.0 §5.5.1), and
+  its patient `subject-id`, whose absence answers
+  `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED` (the owner's decision on
+  FerroHEALTH/FerroFED#1620); the §4.4 EUDI Wallet attributes are held to
+  their pairing.
+
+Every refusal is an `AssertionError`, whose `code()` is its §1.25 code
+name: each `Integrity` refusal answers
+`ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED`, the attribute refusals the codes of
+3.14.
+
 ## 4. The configuration model
 
 Every product embeds the same `[auth]` section, deserialized with
@@ -1868,6 +1926,8 @@ four agree on and settles each difference:
 | An active introspection response is held until its `exp` and at most `cache_max_age_seconds`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
 | Onward tokens are obtained by token exchange or the JWT bearer grant as the issuer's profile names, refused unless they pass the onward check of 3.16, cached by issuer, grant, subject and actor token, target, scope and extra parameters until the earlier `exp`, and never refreshed; only a `persons`, `patients` or `federation` issuer issues them, a `patients` one for a patient's own token that keeps its patient context | `rfc8693 §2.1`, `§2.2`, `§4.1`; `rfc7523 §2.1`, `§2.2`; `rfc8707 §2`; the check, the cache and the profile keys are our own design (#217) | a deployment sets `max_onward_lifetime` on each onward issuer, and `exchanges_from` and `person_mapping` on a federation issuer's table |
 | An Entra ID groups overage is resolved by the `idp-entra` adapter, an optional feature a profile names by `adapter`, at the `getMemberObjects` URL it builds from the Graph root and the token's `oid` and `idtyp`, never at `_claim_sources`; every Graph failure is `GroupsUnavailable` carrying the status, the `Retry-After` or the timeout, under a 2 s budget of its own and with no cache (3.17) | Microsoft, "Access token claims reference", §Groups overage claim; "Optional claims reference", `idtyp`; Microsoft Graph v1.0 `directoryObject: getMemberObjects` and "Microsoft Graph throttling guidance"; the bounds are our own design (#221) | a deployment with users above the overage limit compiles `idp-entra`, sets `adapter = "idp-entra"` on its `entra` issuer, grants the Graph permission and registers the adapter |
+| The eHDSI IdA and TRC are checked in this crate behind `ehdsi-assertion`, by our own exclusive canonicalization over `roxmltree` and `x509-parser` with `aws-lc-rs` verifying, in one accepted signature shape against wrapping; a trusted signer is an issuer URI with its seal certificate, revocation is the deployment's, and an inclusive prefix outside SAML Profile 10.0.0 §1.4.2 or a canonicalization other than Exc-C14N is refused (3.18) | eHDSI Cryptographic Algorithms 9.0.0 §2, §4.1; SAML Profile 10.0.0 §2, §4; X.509 Certificates Profile 7.0.0 §2.4, §3.1; SOG-IS ACM 1.3 §4.1, §5.2; the shape, the caps and the trust set are our own design (#294) | an authorization server acting for NCPeH-A compiles `ehdsi-assertion` and supplies the SMP-published seal certificates |
+| An `@ID` is accepted as `urn:uuid:` or `_` followed by a UUID | SAML Profile 10.0.0 §2.1 writes a URN-encoded UUID, which SAML 2.0 Core §2.3.3's `xs:ID` cannot hold; accepting both is our own design (#294) | none |
 
 ## 10. Verification
 

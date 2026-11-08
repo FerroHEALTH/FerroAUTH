@@ -13,6 +13,22 @@ and this project adheres to
 
 ### Added
 
+- `federation::assertion`, behind the new `ehdsi-assertion` feature,
+  checks the eHDSI HP Identity Assertion and Treatment Relationship
+  Confirmation for an authorization server acting for a MyHealth@EU
+  contact point (#294). `Validator::identity` and `Validator::treatment`
+  verify the enveloped XML signature (eHDSI Cryptographic Algorithms 9.0.0
+  §4.1) by a `TrustedSigner` in one accepted shape, refusing an unsigned,
+  wrongly signed or wrapped assertion; refuse an RSA key below 3000 bits, a
+  hash below SHA-256 and an elliptic curve (SOG-IS ACM 1.3, Cryptographic
+  Algorithms 9.0.0 §2); and check the issuer, the audience, the window with
+  60 s of drift, sender-vouches, the attributes of SAML Profile 10.0.0 §2.3
+  and the TRC's link to the IdA (§4.1). The values come back as typed
+  `IdentityAssertion` and `TreatmentAssertion`, whose `Debug` carries no
+  assertion content, and `identity::ehdsi_claim` writes them as the
+  contact-point token's `ehdsi` claim. `AssertionError::code` names each
+  refusal's MyHealth@EU Requirements Catalogue 10.0.0 §1.25 code. The
+  feature adds `roxmltree` and `x509-parser`.
 - The onward check holds a token issued for a MyHealth@EU contact-point
   caller within the caller's assertion windows (#295): its `exp` may not
   pass the HP Identity Assertion's `assertion.not_on_or_after` or the
