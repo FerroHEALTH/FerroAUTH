@@ -316,6 +316,50 @@ impl Exchange {
     }
 }
 
+/// The instants an assertion is valid between.
+///
+/// `Conditions/@NotBefore` and `@NotOnOrAfter` bound the assertion, and
+/// `AuthnStatement/@SessionNotOnOrAfter`, when present, is "an upper bound
+/// on sessions with the subject" (SAML 2.0 Core §2.5.1, §2.7.2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Window {
+    /// `@NotBefore`.
+    not_before: Timestamp,
+    /// `@NotOnOrAfter`.
+    not_on_or_after: Timestamp,
+    /// `@SessionNotOnOrAfter`, when present.
+    session_not_on_or_after: Option<Timestamp>,
+}
+
+impl Window {
+    /// Returns `Conditions/@NotBefore`.
+    #[must_use]
+    pub const fn not_before(&self) -> Timestamp {
+        self.not_before
+    }
+
+    /// Returns `Conditions/@NotOnOrAfter`.
+    #[must_use]
+    pub const fn not_on_or_after(&self) -> Timestamp {
+        self.not_on_or_after
+    }
+
+    /// Returns `AuthnStatement/@SessionNotOnOrAfter`, when present.
+    #[must_use]
+    pub const fn session_not_on_or_after(&self) -> Option<Timestamp> {
+        self.session_not_on_or_after
+    }
+
+    /// Returns the earlier of `NotOnOrAfter` and `SessionNotOnOrAfter`.
+    #[must_use]
+    pub fn ends(&self) -> Timestamp {
+        self.session_not_on_or_after
+            .map_or(self.not_on_or_after, |session| {
+                session.min(self.not_on_or_after)
+            })
+    }
+}
+
 /// The check of the assertions a contact point hands over.
 #[derive(Clone)]
 pub struct Validator {
@@ -378,16 +422,11 @@ impl Validator {
                 })
             })
             .transpose()?;
-        let ends = [
-            identity.session_not_on_or_after(),
-            treatment.as_ref().map(TreatmentAssertion::not_on_or_after),
-            treatment
-                .as_ref()
-                .and_then(TreatmentAssertion::session_not_on_or_after),
-        ]
-        .into_iter()
-        .flatten()
-        .fold(identity.not_on_or_after(), std::cmp::min);
+        let ends = treatment
+            .as_ref()
+            .map(|trc| trc.window().ends())
+            .into_iter()
+            .fold(identity.window().ends(), std::cmp::min);
         let key = ExchangeId::of(
             (identity.issuer(), identity.id()),
             treatment.as_ref().map(|trc| (trc.issuer(), trc.id())),
@@ -441,12 +480,8 @@ pub(crate) struct Envelope<'a, 'input> {
     id: String,
     /// `saml:Issuer`.
     issuer: String,
-    /// `Conditions/@NotBefore`.
-    not_before: Timestamp,
-    /// `Conditions/@NotOnOrAfter`.
-    not_on_or_after: Timestamp,
-    /// `AuthnStatement/@SessionNotOnOrAfter`, when present.
-    session_not_on_or_after: Option<Timestamp>,
+    /// The window and the session.
+    window: Window,
     /// `Subject`.
     subject: Node<'a, 'input>,
     /// `Advice`, when present.
@@ -539,9 +574,11 @@ impl<'a, 'input> Envelope<'a, 'input> {
         Ok(Self {
             id: id.to_owned(),
             issuer,
-            not_before,
-            not_on_or_after,
-            session_not_on_or_after,
+            window: Window {
+                not_before,
+                not_on_or_after,
+                session_not_on_or_after,
+            },
             subject,
             advice: optional(root, "Advice")?,
             authentication_class,

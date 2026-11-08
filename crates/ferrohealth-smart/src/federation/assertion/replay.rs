@@ -22,14 +22,12 @@
 //! refusal holds within one process only: a product that runs more than one
 //! replica supplies a store all of them share.
 
-use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Mutex;
-use std::sync::PoisonError;
 
 use jiff::Timestamp;
+
+use crate::sender::replay::Ledger;
 
 /// The key one exchange is recorded under: the base64url SHA-256 of the
 /// issuer and `ID` of each assertion presented, so a store holds a hash of
@@ -106,15 +104,6 @@ pub trait ReplayGuard: Send + Sync + 'static {
     ) -> Pin<Box<dyn Future<Output = Result<bool, ReplayGuardError>> + Send + 'a>>;
 }
 
-/// The records of a [`MemoryReplayGuard`].
-#[derive(Debug, Default)]
-struct Seen {
-    /// Each recorded exchange and when its record ends.
-    by_id: BTreeMap<ExchangeId, Timestamp>,
-    /// The same records in the order they end.
-    by_end: BTreeSet<(Timestamp, ExchangeId)>,
-}
-
 /// A [`ReplayGuard`] in the memory of one process.
 ///
 /// It refuses a replay to the process that recorded the exchange alone.
@@ -125,16 +114,14 @@ struct Seen {
 #[derive(Debug)]
 pub struct MemoryReplayGuard {
     /// The records.
-    seen: Mutex<Seen>,
-    /// The most records held at once.
-    capacity: usize,
+    ledger: Ledger<ExchangeId, Timestamp>,
 }
 
 impl Default for MemoryReplayGuard {
+    /// Returns an empty store holding at most 100 000 records.
     fn default() -> Self {
         Self {
-            seen: Mutex::new(Seen::default()),
-            capacity: 100_000,
+            ledger: Ledger::new(100_000),
         }
     }
 }
@@ -146,35 +133,12 @@ impl Default for MemoryReplayGuard {
 pub struct GuardFull;
 
 impl MemoryReplayGuard {
-    /// Returns an empty store holding at most 100 000 records.
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Returns an empty store holding at most `capacity` records.
     #[must_use]
     pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            capacity,
-            ..Self::default()
+            ledger: Ledger::new(capacity),
         }
-    }
-
-    /// Returns how many records the store holds.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.seen
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .by_id
-            .len()
-    }
-
-    /// Returns whether the store holds no record.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 
     /// Records `exchange` until `until`, as of `now`.
@@ -184,23 +148,7 @@ impl MemoryReplayGuard {
         until: Timestamp,
         now: Timestamp,
     ) -> Result<bool, GuardFull> {
-        let mut seen = self.seen.lock().unwrap_or_else(PoisonError::into_inner);
-        while let Some((end, id)) = seen.by_end.first().cloned() {
-            if end >= now {
-                break;
-            }
-            seen.by_end.remove(&(end, id.clone()));
-            seen.by_id.remove(&id);
-        }
-        if seen.by_id.contains_key(exchange) {
-            return Ok(false);
-        }
-        if seen.by_id.len() >= self.capacity {
-            return Err(GuardFull);
-        }
-        seen.by_id.insert(exchange.clone(), until);
-        seen.by_end.insert((until, exchange.clone()));
-        Ok(true)
+        self.ledger.record(exchange, until, now).ok_or(GuardFull)
     }
 }
 
@@ -229,7 +177,7 @@ mod tests {
 
     #[test]
     fn an_exchange_is_recorded_once_within_its_window() {
-        let guard = MemoryReplayGuard::new();
+        let guard = MemoryReplayGuard::default();
         let discovery = ExchangeId::of(("ncp-b", "ida"), None);
         let full = ExchangeId::of(("ncp-b", "ida"), Some(("ncp-b", "trc")));
         assert_eq!(Ok(true), guard.record(&discovery, at(100), at(0)));
@@ -250,7 +198,7 @@ mod tests {
         assert_eq!(Ok(true), guard.record(&first, at(10), at(0)));
         assert_eq!(Err(GuardFull), guard.record(&second, at(10), at(0)));
         assert_eq!(Ok(true), guard.record(&second, at(20), at(11)));
-        assert_eq!(1, guard.len(), "the ended record was dropped");
+        assert_eq!(1, guard.ledger.len(), "the ended record was dropped");
     }
 
     #[test]

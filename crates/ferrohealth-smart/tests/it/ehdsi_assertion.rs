@@ -330,7 +330,7 @@ impl Case {
         let validator = Validator::new(
             vec![seal.trusted()],
             vec![AUDIENCE.to_owned()],
-            Arc::new(MemoryReplayGuard::new()),
+            Arc::new(MemoryReplayGuard::default()),
         );
         Self { seal, validator }
     }
@@ -434,7 +434,10 @@ fn a_signed_identity_assertion_yields_its_values() {
     assert_eq!(identity.purpose_of_use(), PurposeOfUse::Treatment);
     assert!(identity.has_permission("PPD-046"), "PPD-046 is asserted");
     assert!(!identity.has_permission("PPD-029"), "PPD-029 is not");
-    assert_eq!(identity.not_before().as_second(), now().as_second() - 60);
+    assert_eq!(
+        identity.window().not_before().as_second(),
+        now().as_second() - 60
+    );
     assert_eq!(
         identity.authentication_class(),
         "urn:oasis:names:tc:SAML:2.0:ac:classes:SmartcardPKI"
@@ -454,7 +457,10 @@ fn a_linked_treatment_confirmation_yields_the_patient() {
     assert_eq!(trc.patient().system(), "urn:oid:1.2.3");
     assert_eq!(trc.patient().value(), "invented-patient");
     assert_eq!(trc.purpose_of_use(), None);
-    assert_eq!(trc.not_on_or_after().as_second(), now().as_second() + 3600);
+    assert_eq!(
+        trc.window().not_on_or_after().as_second(),
+        now().as_second() + 3600
+    );
 }
 
 #[test]
@@ -1353,6 +1359,7 @@ fn a_session_end_within_the_drift_is_returned_and_ends_the_exchange() {
     assert_eq!(
         exchanged
             .identity()
+            .window()
             .session_not_on_or_after()
             .map(Timestamp::as_second),
         Some(end)
@@ -1382,7 +1389,7 @@ fn the_exchange_ends_at_the_earliest_window_or_session() {
     assert_eq!(
         exchanged
             .treatment()
-            .and_then(TreatmentAssertion::session_not_on_or_after)
+            .and_then(|trc| trc.window().session_not_on_or_after())
             .map(Timestamp::as_second),
         Some(end)
     );

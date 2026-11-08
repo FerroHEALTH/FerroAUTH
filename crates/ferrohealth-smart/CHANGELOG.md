@@ -70,12 +70,15 @@ and this project adheres to
   identity assertion alone, as the discovery phase presents it, or with
   one TRC, and returns an `Exchange` with `identity()`, `treatment()`,
   `ends()` and `claim()`. Upgrade: build the validator with
-  `Arc::new(MemoryReplayGuard::new())` in one process, or with a
+  `Arc::new(MemoryReplayGuard::default())` in one process, or with a
   `ReplayGuard` over a store every replica shares; call
   `exchange(&ida, trc.as_deref(), now)` in place of the two checks; cap
   the issued token's `exp` at `Exchange::ends()`; and answer
   `ExchangeError::Guard` as a server error (`code()` is
-  `ERROR_SEC_GENERIC`).
+  `ERROR_SEC_GENERIC`). `IdentityAssertion` and `TreatmentAssertion`
+  replace `not_before()` and `not_on_or_after()` with `window()`, a
+  `Window` that also carries `session_not_on_or_after()` and `ends()`:
+  write `assertion.window().not_on_or_after()`.
 
 ### Fixed
 
