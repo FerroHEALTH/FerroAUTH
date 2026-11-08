@@ -22,6 +22,8 @@ mod lanes;
 mod patients;
 mod refusals;
 mod vendors;
+#[cfg(feature = "test-support")]
+mod windows;
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicI64;

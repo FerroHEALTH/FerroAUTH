@@ -14,6 +14,7 @@
 use serde_json::Map;
 use serde_json::Value;
 
+use crate::client::onward::AssertionWindow;
 use crate::client::onward::Rejected;
 use crate::client::onward::SubjectToken;
 use crate::client::onward::Target;
@@ -140,6 +141,34 @@ fn lifetime(
         .is_some_and(|subject_exp| subject_exp <= now);
     if exp <= now || subject_expired {
         return Err(Rejected::Expired);
+    }
+    windows(subject, exp)
+}
+
+/// The clock drift the eHDSI windows admit: "within 60 seconds of the
+/// validity window boundaries" (SAML Profile 10.0.0 §2.1, §4.1).
+const DRIFT: i64 = 60;
+
+/// Checks that an `exp` does not outlive the identity assertion or the
+/// treatment confirmation window a contact-point caller carries, plus the
+/// drift; a caller without them is not held.
+fn windows(subject: &SubjectToken, exp: i64) -> Result<(), Rejected> {
+    let Some(external) = subject.kind().external() else {
+        return Ok(());
+    };
+    for window in [AssertionWindow::Identity, AssertionWindow::Treatment] {
+        let Some(end) = external.field(window.field()) else {
+            continue;
+        };
+        // NOTE: SAML Profile 10.0.0 §2.1 and §4.1 bound the assertions; a token issued on
+        // their strength may not outlive them, and an unreadable end fails closed (our own design).
+        let within = end
+            .text()
+            .and_then(|text| text.parse::<i64>().ok())
+            .is_some_and(|end| exp <= end.saturating_add(DRIFT));
+        if !within {
+            return Err(Rejected::AssertionWindow(window));
+        }
     }
     Ok(())
 }
