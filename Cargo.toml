@@ -73,6 +73,13 @@ tracing-subscriber = { version = "0.3.23", default-features = false, features = 
 rustls = { version = "0.23.46", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
 tokio-rustls = { version = "0.26.6", default-features = false }
 rcgen = { version = "0.14.10", default-features = false, features = ["aws_lc_rs", "pem"] }
+# ferrohealth-smart's eHDSI assertion check behind `ehdsi-assertion`: the
+# XML reader (no DTD, by default) of the HP Identity Assertion and the
+# Treatment Relationship Confirmation, and the X.509 reader of the signer
+# certificate, on the lines FerroFED and FerroBRIDGE resolve. Verified
+# against crates.io on 2026-11-08.
+roxmltree = { version = "0.21.2", default-features = false, features = ["std", "positions"] }
+x509-parser = { version = "0.18.1", default-features = false }
 
 # The reliability bar (no specification governs it: our own design), the
 # FerroHEALTH family's lint set as FerroBRIDGE, FerroFED and FerroUI carry it.

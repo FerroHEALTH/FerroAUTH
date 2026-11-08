@@ -260,6 +260,7 @@ tracked="$(git ls-files .vendor-cache | head -n1)"
 
 # ---- 3f. the corpora pinned file by file by sha256 --------------------------
 for tree in "ehdsi-specifications:eHDSI specifications" "eu-law:EU legal acts" \
+  "sogis-acm:SOG-IS Agreed Cryptographic Mechanisms" \
   "ihe-balp-pages:IHE BALP narrative pages"; do
   dir="docs/specs/${tree%%:*}"
   item="${tree#*:}"

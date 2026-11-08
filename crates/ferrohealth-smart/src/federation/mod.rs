@@ -26,6 +26,8 @@ use serde::Serialize;
 
 use crate::assurance::AssuranceLevel;
 
+#[cfg(feature = "ehdsi-assertion")]
+pub mod assertion;
 pub mod contact;
 pub(crate) mod read;
 mod section;
