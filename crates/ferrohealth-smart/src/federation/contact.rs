@@ -236,6 +236,143 @@ impl External {
     }
 }
 
+/// The patient a Treatment Relationship Confirmation binds, one definition
+/// for the TRC's `subject-id` and the contact-point token's `patient.id`.
+///
+/// eHDSI SAML Profile 10.0.0 §4.3 gives the TRC
+/// `urn:oasis:names:tc:xspa:1.0:subject:subject-id` as the "URI encoded
+/// identifier of the patient as obtained by the id traits handshake", the
+/// HL7 v2 CX the XCPD handshake returns: `value^^^&<oid>&ISO`, its
+/// assigning authority an ISO OID. [`TrcPatientId::from_cx`] reads that
+/// form; the token carries the patient as one `system|value`, the FHIR R4
+/// search token form, with the authority as the system `urn:oid:<oid>`
+/// ([`TrcPatientId::claim`], [`TrcPatientId::from_claim`]); the claim form
+/// is our own design, the one every family resource server reads. The
+/// `Debug` rendering never carries the value.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TrcPatientId {
+    /// The namespace the value is assigned in.
+    system: String,
+    /// The identifier.
+    value: String,
+}
+
+/// A patient identifier that is neither a CX with an ISO OID assigning
+/// authority nor a `system|value` token.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("the patient identifier is not of the form the treatment relationship confirmation binds")]
+pub struct UnreadPatientId;
+
+impl fmt::Debug for TrcPatientId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TrcPatientId")
+            .field("system", &self.system)
+            .finish_non_exhaustive()
+    }
+}
+
+/// The prefix of an OID written as a URI (RFC 3001 §3).
+const URN_OID: &str = "urn:oid:";
+
+/// Whether `oid` is an OID in dotted decimal form: two arcs or more, each
+/// digits with no leading zero (ITU-T X.660 §A.3).
+fn is_oid(oid: &str) -> bool {
+    let arcs: Vec<&str> = oid.split('.').collect();
+    arcs.len() >= 2
+        && arcs.iter().all(|arc| {
+            !arc.is_empty()
+                && arc.bytes().all(|byte| byte.is_ascii_digit())
+                && (arc.len() == 1 || !arc.starts_with('0'))
+        })
+}
+
+/// Whether `value` can be an identifier's value: not empty, and no
+/// control character, `|`, or CX delimiter (`^`, `&`, `~`, backslash).
+fn is_value(value: &str) -> bool {
+    !value.is_empty()
+        && !value
+            .chars()
+            .any(|c| c.is_control() || matches!(c, '|' | '^' | '&' | '~' | '\\'))
+}
+
+impl TrcPatientId {
+    /// Reads the TRC's `subject-id` in its CX form, `value^^^&<oid>&ISO`
+    /// (an assigning authority namespace before the first `&` is admitted
+    /// and dropped).
+    ///
+    /// # Errors
+    ///
+    /// [`UnreadPatientId`] for any other form: another number of
+    /// components, an empty or delimited value, an authority that is no
+    /// dotted OID or whose type is not `ISO`.
+    pub fn from_cx(cx: &str) -> Result<Self, UnreadPatientId> {
+        let [value, "", "", authority] = cx.split('^').collect::<Vec<_>>()[..] else {
+            return Err(UnreadPatientId);
+        };
+        let [_namespace, oid, "ISO"] = authority.split('&').collect::<Vec<_>>()[..] else {
+            return Err(UnreadPatientId);
+        };
+        if !is_value(value) || !is_oid(oid) {
+            return Err(UnreadPatientId);
+        }
+        Ok(Self {
+            system: format!("{URN_OID}{oid}"),
+            value: value.to_owned(),
+        })
+    }
+
+    /// Reads the token's `patient.id`, one `system|value`.
+    ///
+    /// # Errors
+    ///
+    /// [`UnreadPatientId`] for a text with no `|`, an empty system or one
+    /// with whitespace, or a value that [`TrcPatientId::from_cx`] would
+    /// refuse.
+    pub fn from_claim(claim: &str) -> Result<Self, UnreadPatientId> {
+        let (system, value) = claim.split_once('|').ok_or(UnreadPatientId)?;
+        let system_ok =
+            !system.is_empty() && !system.chars().any(|c| c.is_control() || c.is_whitespace());
+        if !system_ok || !is_value(value) {
+            return Err(UnreadPatientId);
+        }
+        Ok(Self {
+            system: system.to_owned(),
+            value: value.to_owned(),
+        })
+    }
+
+    /// Returns the token's `patient.id`, `system|value`.
+    #[must_use]
+    pub fn claim(&self) -> String {
+        format!("{}|{}", self.system, self.value)
+    }
+
+    /// Returns the namespace the identifier is assigned in, such as
+    /// `urn:oid:1.2.3`.
+    #[must_use]
+    pub fn system(&self) -> &str {
+        &self.system
+    }
+
+    /// Returns the identifier.
+    #[must_use]
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+}
+
+impl External {
+    /// Returns the patient the token's `patient.id` binds, when it carries
+    /// one `system|value` ([`TrcPatientId::from_claim`]).
+    #[must_use]
+    pub fn trc_patient(&self) -> Option<TrcPatientId> {
+        // NOTE: eHDSI XCA Profile 8.0.1 §4.2.1: a request is held to the TRC's patient, so a
+        // token whose patient.id does not read binds none and the resource server refuses it.
+        let claim = self.field(Field::PatientId).and_then(Attribute::text)?;
+        TrcPatientId::from_claim(claim).ok()
+    }
+}
+
 /// The longest an HP Identity Assertion is valid: "MUST NOT be more than 4
 /// hours" (SAML Profile 10.0.0 §2.1).
 const IDA_WINDOW: i64 = 4 * 60 * 60;
@@ -401,5 +538,61 @@ fn check_assertions(external: &External, claims: &Map<String, Value>) -> Result<
         Ok(())
     } else {
         integrity(vec!["exp"])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{TrcPatientId, UnreadPatientId};
+
+    #[test]
+    fn a_cx_patient_id_reads_and_round_trips_through_the_claim() {
+        let read = TrcPatientId::from_cx("PAT-1^^^&1.2.3.4&ISO").expect("a CX");
+        assert_eq!(read.system(), "urn:oid:1.2.3.4");
+        assert_eq!(read.value(), "PAT-1");
+        assert_eq!(read.claim(), "urn:oid:1.2.3.4|PAT-1");
+        assert_eq!(TrcPatientId::from_claim(&read.claim()), Ok(read.clone()));
+        let named = TrcPatientId::from_cx("PAT-1^^^NS&1.2.3.4&ISO").expect("a namespace");
+        assert_eq!(named, read);
+        assert!(!format!("{read:?}").contains("PAT-1"));
+    }
+
+    #[test]
+    fn a_hostile_patient_id_is_refused() {
+        for cx in [
+            "",
+            "PAT-1",
+            "^^^&1.2.3&ISO",
+            "PAT-1^^^&1.2.3&DNS",
+            "PAT-1^^^&1.2.3",
+            "PAT-1^^^1.2.3&ISO",
+            "PAT-1^^^&1&ISO",
+            "PAT-1^^^&1..2&ISO",
+            "PAT-1^^^&1.02&ISO",
+            "PAT-1^^^&1.x&ISO",
+            "PAT-1^^^&1.2.3&ISO^PI",
+            "PAT-1^X^^&1.2.3&ISO",
+            "PAT|1^^^&1.2.3&ISO",
+            "PAT\n1^^^&1.2.3&ISO",
+            "PAT-1^^^&1.2.3&ISO&extra",
+        ] {
+            assert_eq!(TrcPatientId::from_cx(cx), Err(UnreadPatientId), "{cx:?}");
+        }
+        for claim in [
+            "",
+            "PAT-1",
+            "|PAT-1",
+            "urn:oid:1.2.3|",
+            "urn oid|PAT-1",
+            "urn:oid:1.2.3|PAT|1",
+            "urn:oid:1.2.3|PAT^1",
+            "urn:oid:1.2.3|PAT\u{0}1",
+        ] {
+            assert_eq!(
+                TrcPatientId::from_claim(claim),
+                Err(UnreadPatientId),
+                "{claim:?}"
+            );
+        }
     }
 }

@@ -11,6 +11,27 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `federation::contact::TrcPatientId`, the one definition of the patient a
+  Treatment Relationship Confirmation binds (#310). `from_cx` reads the
+  TRC's `subject-id` in its CX form, `value^^^&<oid>&ISO` (eHDSI SAML
+  Profile 10.0.0 §4.3), with the assigning authority as the system
+  `urn:oid:<oid>`. `claim` and `from_claim` write and read the
+  contact-point token's `patient.id` as one `system|value`, and its `Debug`
+  carries no value. `External::trc_patient` reads a token's patient through
+  it, and `TreatmentAssertion::patient` returns the TRC's. A resource
+  server reads the TRC patient through this type in place of a parser of
+  its own.
+
+### Fixed
+
+- `identity::ehdsi_claim` writes `patient.id` as `urn:oid:<oid>|<value>`,
+  the `system|value` token FerroFED and FerroEHR read, in place of the TRC
+  `subject-id` verbatim, which they refused (#310). A TRC whose
+  `subject-id` is not a CX with an ISO OID assigning authority is refused
+  `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED`, naming `patient.id`.
+
 ## [0.10.0] - 2026-11-08
 
 ### Added
