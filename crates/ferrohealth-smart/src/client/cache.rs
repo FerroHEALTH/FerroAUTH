@@ -5,7 +5,9 @@
 //!
 //! It is fetched on first use, reused until a margin before it expires,
 //! refreshed by one fetch that concurrent callers share, and renewed once
-//! when the upstream refuses it.
+//! when the upstream refuses it. A `DPoP`-bound token is sent through
+//! [`TokenSource::send`], which proves each attempt and answers a resource's
+//! nonce demand once (RFC 9449 §9).
 //!
 //! No specification governs the cache: our own design. The slot sits behind
 //! a `std::sync::Mutex` that is only ever held to read or replace it, never
@@ -21,7 +23,9 @@ use std::sync::PoisonError;
 use std::time::Duration;
 use std::time::Instant;
 
+use http::HeaderMap;
 use http::HeaderValue;
+use http::Method;
 use http::StatusCode;
 use tokio::sync::watch;
 use url::Url;
@@ -31,6 +35,10 @@ use crate::client::ClientCredentials;
 use crate::client::Endpoint;
 use crate::client::RenewalError;
 use crate::client::TokenError;
+use crate::client::binding::IssuedToken;
+use crate::client::dpop;
+use crate::client::dpop::DpopError;
+use crate::client::dpop::DpopKey;
 use crate::client::endpoint;
 use crate::metadata::Http;
 
@@ -50,23 +58,22 @@ impl Clock for SystemClock {
     }
 }
 
-/// One issued token, ready to send.
+/// One issued token, ready to send, and when it is renewed.
 ///
-/// The `Debug` rendering never carries the token: the header value is
-/// marked sensitive.
+/// The `Debug` rendering never carries the token.
 #[derive(Debug)]
 pub struct Token {
-    /// The `Authorization` field value the token renders to.
-    header: HeaderValue,
+    /// The token.
+    issued: IssuedToken,
     /// The instant a new token is fetched from, when the token expires.
     renew_at: Option<Instant>,
 }
 
 impl Token {
-    /// Returns the `Authorization` field value of the token (RFC 6750 §2.1).
+    /// Returns the `Authorization` field value (RFC 6750 §2.1, RFC 9449 §7.1).
     #[must_use]
     pub const fn header(&self) -> &HeaderValue {
-        &self.header
+        self.issued.header()
     }
 
     /// Returns whether the token is still served at `now`.
@@ -75,22 +82,90 @@ impl Token {
     }
 }
 
-/// A response that names its status, so a call can be sent once more when
-/// the upstream refused the token.
+/// The credential of one attempt of [`TokenSource::send`]: the
+/// `Authorization` value, and the `DPoP` proof of the attempt when the token
+/// is `DPoP`-bound.
+///
+/// The `Debug` rendering carries neither: both values are marked sensitive.
+#[derive(Debug, Clone)]
+pub struct Attempt {
+    /// The `Authorization` field value.
+    authorization: HeaderValue,
+    /// The value of the [`dpop::HEADER`], when the token is `DPoP`-bound.
+    proof: Option<HeaderValue>,
+}
+
+impl Attempt {
+    /// Returns the credential of `token` for a `method` request to `url`.
+    fn of<E>(token: &Token, method: &Method, url: &Url) -> Result<Self, CallError<E>> {
+        let proof = token
+            .issued
+            .proof(method, url)
+            .map_err(|source| CallError::Proof { source })?
+            .map(|proof| {
+                HeaderValue::from_str(&proof).map(|mut value| {
+                    value.set_sensitive(true);
+                    value
+                })
+            })
+            .transpose()
+            .map_err(|_illegal| CallError::Proof {
+                source: DpopError::Header,
+            })?;
+        Ok(Self {
+            authorization: token.header().clone(),
+            proof,
+        })
+    }
+
+    /// Returns the `Authorization` field value.
+    #[must_use]
+    pub const fn authorization(&self) -> &HeaderValue {
+        &self.authorization
+    }
+
+    /// Returns the value of the [`dpop::HEADER`], when the token is
+    /// `DPoP`-bound.
+    #[must_use]
+    pub const fn proof(&self) -> Option<&HeaderValue> {
+        self.proof.as_ref()
+    }
+}
+
+impl AsRef<IssuedToken> for Token {
+    fn as_ref(&self) -> &IssuedToken {
+        &self.issued
+    }
+}
+
+/// A response that names its status and headers, so a call can be sent
+/// once more when the upstream refused the token or demanded a `DPoP`
+/// nonce.
 pub trait Answered {
     /// Returns the status the upstream answered.
     fn status(&self) -> StatusCode;
+
+    /// Returns the headers the upstream answered with.
+    fn headers(&self) -> &HeaderMap;
 }
 
 impl<B> Answered for http::Response<B> {
     fn status(&self) -> StatusCode {
         http::Response::status(self)
     }
+
+    fn headers(&self) -> &HeaderMap {
+        http::Response::headers(self)
+    }
 }
 
 impl Answered for reqwest::Response {
     fn status(&self) -> StatusCode {
         reqwest::Response::status(self)
+    }
+
+    fn headers(&self) -> &HeaderMap {
+        reqwest::Response::headers(self)
     }
 }
 
@@ -172,6 +247,13 @@ impl TokenSource {
         Self::assemble(config, http, Arc::new(SystemClock))
     }
 
+    /// Returns the `DPoP` key the source's tokens are bound to, when they
+    /// are.
+    #[must_use]
+    pub fn dpop_key(&self) -> Option<&Arc<DpopKey>> {
+        self.inner.config.dpop_key()
+    }
+
     /// Returns the trust roots of the grant's TLS material, which the
     /// introspection calls of a bearer source trust beside the platform's.
     pub(crate) fn root_certificates(&self) -> Option<&[u8]> {
@@ -227,7 +309,7 @@ impl TokenSource {
     /// A token another caller has already renewed stays.
     pub fn invalidate(&self, stale: &HeaderValue) {
         let mut slot = lock(&self.inner.slot);
-        if matches!(&*slot, Slot::Ready(token) if token.header == *stale) {
+        if matches!(&*slot, Slot::Ready(token) if token.header() == stale) {
             *slot = Slot::Empty;
         }
     }
@@ -240,9 +322,14 @@ impl TokenSource {
     /// once per refusal, never in a loop (RFC 6750 §3.1 makes `401` the
     /// answer to an invalid token, which a renewal settles or not).
     ///
+    /// A source whose tokens are `DPoP`-bound sends through
+    /// [`TokenSource::send`], since a call handed the `Authorization` value
+    /// alone cannot prove the key.
+    ///
     /// # Errors
     ///
-    /// Returns [`CallError::Token`] when no token could be obtained for the
+    /// Returns [`CallError::Unproven`] for a `DPoP`-bound source, with nothing
+    /// sent, [`CallError::Token`] when no token could be obtained for the
     /// first attempt, [`CallError::Renewal`] when the upstream refused the
     /// token and no new one could be obtained, and [`CallError::Call`] when
     /// the call itself failed.
@@ -252,23 +339,85 @@ impl TokenSource {
         Fut: Future<Output = Result<R, E>>,
         R: Answered,
     {
+        if self.dpop_key().is_some() {
+            return Err(CallError::Unproven);
+        }
         let first = self
             .token()
             .await
             .map_err(|source| CallError::Token { source })?;
-        let answered = call(first.header.clone())
+        let answered = call(first.header().clone())
             .await
             .map_err(|source| CallError::Call { source })?;
         if answered.status() != StatusCode::UNAUTHORIZED {
             return Ok(answered);
         }
         tracing::debug!("the upstream refused the token; renewing it once");
-        self.invalidate(&first.header);
+        self.invalidate(first.header());
         let renewed = self
             .token()
             .await
             .map_err(|source| CallError::Renewal(RenewalError::new(source)))?;
-        call(renewed.header.clone())
+        call(renewed.header().clone())
+            .await
+            .map_err(|source| CallError::Call { source })
+    }
+
+    /// Sends `call`, a `method` request to `url`, under the current token,
+    /// and once more when the upstream refuses it.
+    ///
+    /// Each [`Attempt`] carries the `Authorization` value and, for a
+    /// `DPoP`-bound token, a proof of `method` and `url` signed for that
+    /// attempt (RFC 9449 §4.2, §7.1), which the call sends in the
+    /// [`dpop::HEADER`]. A `401` whose `DPoP` challenge demands a nonce is
+    /// answered once with the same token and a new proof carrying the nonce,
+    /// kept for `url`'s origin (RFC 9449 §9). Any other `401` renews the
+    /// token once, as [`TokenSource::call`] does.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CallError::Token`] when no token could be obtained for the
+    /// first attempt, [`CallError::Renewal`] when the upstream refused the
+    /// token and no new one could be obtained, [`CallError::Proof`] when a
+    /// proof could not be signed, with that attempt not sent, and
+    /// [`CallError::Call`] when the call itself failed.
+    pub async fn send<F, Fut, R, E>(
+        &self,
+        method: &Method,
+        url: &Url,
+        mut call: F,
+    ) -> Result<R, CallError<E>>
+    where
+        F: FnMut(Attempt) -> Fut,
+        Fut: Future<Output = Result<R, E>>,
+        R: Answered,
+    {
+        let token = self
+            .token()
+            .await
+            .map_err(|source| CallError::Token { source })?;
+        let mut answered = call(Attempt::of(&token, method, url)?)
+            .await
+            .map_err(|source| CallError::Call { source })?;
+        if let Some(key) = token.issued.dpop_key()
+            && let Some(nonce) = dpop::resource_challenge(answered.status(), answered.headers())
+        {
+            tracing::debug!("the upstream demands a DPoP nonce; sending once more");
+            key.remember(dpop::Role::Resource, url, nonce);
+            answered = call(Attempt::of(&token, method, url)?)
+                .await
+                .map_err(|source| CallError::Call { source })?;
+        }
+        if answered.status() != StatusCode::UNAUTHORIZED {
+            return Ok(answered);
+        }
+        tracing::debug!("the upstream refused the token; renewing it once");
+        self.invalidate(token.header());
+        let renewed = self
+            .token()
+            .await
+            .map_err(|source| CallError::Renewal(RenewalError::new(source)))?;
+        call(Attempt::of(&renewed, method, url)?)
             .await
             .map_err(|source| CallError::Call { source })
     }
@@ -304,40 +453,21 @@ impl Inner {
         };
         let issued = self.clock.now();
         let response = endpoint::request_token(&self.http, &endpoint, &self.config).await?;
-        if !response.token_type.eq_ignore_ascii_case("bearer") {
-            return Err(TokenError::TokenType {
-                found: response.token_type,
-            });
-        }
-        let header = bearer(&response.access_token)?;
+        let token = endpoint::credential(
+            &self.config,
+            &response.token_type,
+            response.access_token,
+            response.cnf.as_ref(),
+        )?;
         tracing::debug!(
             expires_in = response.expires_in,
             "obtained an upstream token with the client credentials grant"
         );
         Ok(Token {
-            header,
+            issued: token,
             renew_at: renew_at(issued, response.expires_in, self.config.refresh_margin),
         })
     }
-}
-
-/// Returns the `Authorization` field value of `token` as an RFC 6750 §2.1
-/// bearer credential, marked sensitive.
-pub(crate) fn bearer(token: &str) -> Result<HeaderValue, TokenError> {
-    // NOTE: RFC 6750 §2.1, b64token is 1*( ALPHA / DIGIT / "-" / "." / "_" /
-    // "~" / "+" / "/" ) *"=", so anything else cannot travel.
-    let b64token = !token.is_empty()
-        && token
-            .trim_end_matches('=')
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || b"-._~+/".contains(&byte));
-    if !b64token {
-        return Err(TokenError::Unusable);
-    }
-    let mut value = HeaderValue::from_str(&format!("Bearer {token}"))
-        .map_err(|_illegal| TokenError::Unusable)?;
-    value.set_sensitive(true);
-    Ok(value)
 }
 
 /// Returns the instant a token issued at `issued` for `expires_in` seconds is
@@ -361,7 +491,8 @@ fn lock(slot: &Mutex<Slot>) -> MutexGuard<'_, Slot> {
 
 #[cfg(test)]
 mod tests {
-    use super::{bearer, renew_at};
+    use super::renew_at;
+    use crate::client::endpoint::authorization;
     use std::time::{Duration, Instant};
 
     #[test]
@@ -392,11 +523,18 @@ mod tests {
 
     #[test]
     fn a_bearer_credential_is_a_b64token_and_sensitive() {
+        let bearer = |token| authorization("Bearer", token);
         let value = bearer("abc.DEF-ghi_~+/==").expect("a b64token");
         assert_eq!("Bearer abc.DEF-ghi_~+/==", value.to_str().expect("ASCII"));
         assert!(value.is_sensitive());
         assert!(bearer("").is_err());
         assert!(bearer("with space").is_err());
         assert!(bearer("a=b").is_err());
+        let dpop = authorization("DPoP", "Kz~8mXK1EalYznwH-LC-1fBAo.4Ljp~zsPE_NeO.gxU")
+            .expect("the RFC 9449 §7.1 example token");
+        assert_eq!(
+            "DPoP Kz~8mXK1EalYznwH-LC-1fBAo.4Ljp~zsPE_NeO.gxU",
+            dpop.to_str().expect("ASCII")
+        );
     }
 }

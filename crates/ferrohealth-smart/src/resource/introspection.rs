@@ -230,6 +230,14 @@ pub enum IntrospectionError {
         #[source]
         source: Arc<TokenError>,
     },
+    /// The `DPoP` proof of the introspection call could not be signed
+    /// (RFC 9449 §4.2); nothing was sent.
+    #[error("the DPoP proof of the introspection call could not be signed")]
+    Proof {
+        /// Why.
+        #[source]
+        source: crate::client::dpop::DpopError,
+    },
     /// The endpoint refused the bearer token (`401`) and no new one could
     /// be obtained.
     #[error(transparent)]
@@ -522,11 +530,14 @@ impl Introspector {
                     .map_err(|source| self.transport(source))?
             }
             IntrospectionAuth::Bearer(source) => source
-                .call(|header| {
-                    self.request()
-                        .header(http::header::AUTHORIZATION, header)
-                        .body(body.clone())
-                        .send()
+                .send(&http::Method::POST, &self.endpoint, |attempt| {
+                    let mut request = self
+                        .request()
+                        .header(http::header::AUTHORIZATION, attempt.authorization().clone());
+                    if let Some(proof) = attempt.proof() {
+                        request = request.header(crate::client::dpop::HEADER, proof.clone());
+                    }
+                    request.body(body.clone()).send()
                 })
                 .await
                 .map_err(|error| match error {
@@ -537,6 +548,12 @@ impl Introspector {
                         IntrospectionError::Renewal { source }
                     }
                     crate::client::CallError::Call { source } => self.transport(source),
+                    crate::client::CallError::Proof { source } => {
+                        IntrospectionError::Proof { source }
+                    }
+                    crate::client::CallError::Unproven => IntrospectionError::Credential {
+                        source: Arc::new(TokenError::Credential { what: "DPoP proof" }),
+                    },
                 })?,
         };
         let status = response.status();

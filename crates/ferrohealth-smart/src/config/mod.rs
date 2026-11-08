@@ -152,6 +152,13 @@ pub enum ConfigError {
         #[source]
         source: AssertionError,
     },
+    /// The `DPoP` key could not be loaded.
+    #[error("the DPoP key is refused")]
+    DpopKey {
+        /// Why.
+        #[source]
+        source: crate::client::dpop::DpopKeyError,
+    },
     /// An issuer with `mode = "introspection"` in a build without the `fetch` feature,
     /// which links no HTTP client to call the endpoint with.
     #[error("auth.issuer.mode = \"introspection\" needs the fetch feature")]
@@ -663,6 +670,12 @@ pub struct OauthSection {
     /// The PEM file of the client certificate's private key; set with
     /// `client_certificate_file`.
     pub client_key_file: Option<PathBuf>,
+    /// The PKCS#8 PEM file of the P-256 or P-384 key the tokens are bound to
+    /// with `DPoP` (RFC 9449); exclusive with `certificate_bound`.
+    pub dpop_key_file: Option<PathBuf>,
+    /// Whether every issued token that states a binding must name the client
+    /// certificate (RFC 8705 §3); needs `client_certificate_file`.
+    pub certificate_bound: bool,
 }
 
 /// The outbound credential a `[<lane>.credentials]` table resolves to.

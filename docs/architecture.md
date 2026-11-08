@@ -508,8 +508,8 @@ ways, configured, never guessed from the server's metadata:
   thumbprint is the RFC's.
 
 The response is read under `rfc6749 §5.1`: `access_token`, `token_type`
-(`bearer`, compared case-insensitively, the one type the products send;
-`rfc6750`), `expires_in` and `scope`. SMART Backend Services makes
+(`bearer`, compared case-insensitively; `rfc6750`; or `DPoP` for a grant
+bound to a DPoP key, 3.15), `expires_in` and `scope`. SMART Backend Services makes
 `expires_in` required and short ("SHOULD NOT exceed 300"), so the cache below
 is sized for five-minute tokens. A non-`200` is read as the `rfc6749 §5.2`
 error body (`error`, `error_description`, `error_uri`) when it is one, and
@@ -1211,6 +1211,42 @@ left out. Outside the gate, `ResourceServer::authenticate_bound`,
 whole `DPoP` request; a product verifier that does not implement
 `verify_bound` refuses every `DPoP` request (`Check::Unsupported`).
 
+**The client half.** A client grant binds the tokens it is issued, as its
+`token_binding` says (FerroHEALTH/FerroAUTH#318):
+
+- **to a DPoP key** (`client::dpop::DpopKey`, P-256 signing ES256 or P-384
+  signing ES384, `rfc7518 §3.4`). Every token request carries a proof whose
+  header has `typ` `dpop+jwt` and the public `jwk`, and whose claims are
+  `htm`, `htu` (the URL with no query or fragment), `iat` and a fresh `jti`
+  (`rfc9449 §4.2`). A request that presents the token adds `ath`, the
+  base64url SHA-256 of the token, and sends `Authorization: DPoP` (`§7.1`).
+  Only a token of type `DPoP` is taken (`§5`). A `400 use_dpop_nonce` from
+  the token endpoint (`§8`), or a `401` whose `DPoP` challenge names
+  `use_dpop_nonce` from a resource (`§9`), is answered once with a new
+  proof carrying the nonce. The resend signs a new client assertion, since
+  `rfc7523 §3` makes each one single-use. Nonces are kept per origin and per
+  role, so an authorization server's nonce and a resource server's are never
+  confused (`§9`). `DpopKey::proof` and `DpopKey::remember` are the seam a
+  product's own HTTP client calls. `TokenSource::send` is the crate's own
+  call path: each `Attempt` carries the `Authorization` value and that
+  attempt's proof, and `TokenSource::call` refuses a DPoP-bound source
+  without sending anything, since a call handed the `Authorization` value
+  alone cannot prove the key;
+- **to the client certificate** of its TLS identity. Every token that states
+  a binding must name that certificate: a `cnf` member of the token
+  response, in the form `rfc8705 §3.2` gives introspection, or the `cnf`
+  claim of a JWT access token (`§3.1`). A binding to another certificate or
+  another confirmation method is refused before the token is cached or used.
+  An opaque token that states nothing passes as sent, since an access token
+  is opaque to its client (`rfc6749 §1.4`). The thumbprint comes from the
+  identity the grant presents, never from a separate setting, so the check
+  can never compare against a certificate the connection does not present.
+
+`Onward` carries both bindings, and its cache key names the key or the
+certificate, so a token bound to one never serves a request proven with
+another. The `[<lane>.credentials.oauth]` table takes `dpop_key_file` or
+`certificate_bound`, and never both.
+
 ### 3.16 The onward grants
 
 A product that calls another service on behalf of its caller obtains an
@@ -1626,6 +1662,8 @@ refresh_margin_ms = 30000
 # client_certificate_file = "/run/secrets/client.crt"
 # client_key_file = "/run/secrets/client.key"
 # ca_file = "/run/secrets/private-ca.pem"   # roots added to the built-in ones
+# dpop_key_file = "/run/secrets/dpop.pem"  # bind tokens to a P-256/P-384 key (RFC 9449)
+# certificate_bound = true                 # or to the client certificate (RFC 8705 §3)
 ```
 
 `user`/`password` and `oauth` are exclusive; a lane that obtains no token of
