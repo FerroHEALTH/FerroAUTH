@@ -11,20 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
-### Added
-
-- `client::onward::exchange::Onward::without_cache` turns a client's onward
-  token cache off, so every call exchanges a token at the issuer and none
-  is held, and `Onward::caches` reports the setting (#299). It serves a
-  performance measurement's self-test, which must show the measurement
-  fails without the cache (FerroHEALTH/FerroFED#1712); a production lane
-  keeps the cache, which stays on by default. It is a method on the client
-  and no `[<lane>.credentials.onward]` key: a new key would add a field to
-  the exhaustively constructible `OnwardSection`, a semver break on the
-  0.9 line. A product reaches it on `OnwardLane::onward`.
+## [0.10.0] - Unreleased
 
 ### Added
 
+- A `[<lane>.credentials.onward]` table takes `cache` (#299). `cache =
+  false` turns the lane's onward token cache off, so every call exchanges a
+  token at the issuer and none is held, with a warning logged at load; it
+  is a setting for a performance measurement's self-test
+  (FerroHEALTH/FerroFED#1712), never for production, and the cache stays
+  on by default. `client::onward::exchange::Onward::caches` reports the
+  setting.
 - `federation::assertion`, behind the new `ehdsi-assertion` feature,
   checks the eHDSI HP Identity Assertion and Treatment Relationship
   Confirmation for an authorization server acting for a MyHealth@EU
@@ -51,6 +48,16 @@ and this project adheres to
   `client::onward::AssertionWindow` names the window and its field; an
   unreadable window end is refused too. A caller without those fields is
   checked as before.
+
+### Changed
+
+- **Breaking:** `config::onward::OnwardSection` gains the public field
+  `cache` (#299), so a struct literal that names every field no longer
+  compiles. A product that builds an `OnwardSection` in code adds
+  `cache: true`, or writes `..OnwardSection::default()`; a table read from
+  TOML needs no change, since the key defaults to `true`. The
+  `[workspace.dependencies]` requirement of `ferrohealth-smart` moves to
+  0.10.0. To upgrade, pin `ferrohealth-smart = "=0.10.0"`.
 
 ## [0.9.4] - 2026-11-07
 

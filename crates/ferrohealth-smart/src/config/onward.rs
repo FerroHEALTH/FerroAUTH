@@ -21,7 +21,7 @@ use crate::profile::Preset;
 use crate::profile::ProfileKeys;
 
 /// One `[<lane>.credentials.onward]` table.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OnwardSection {
     /// The identifier of the issuer of the onward tokens, whose metadata
@@ -55,6 +55,31 @@ pub struct OnwardSection {
     pub federation: Option<FederationSection>,
     /// The assurance level the issuer's tokens carry.
     pub assurance: Option<AssuranceSection>,
+    /// Whether the lane holds the tokens it obtains until they near their
+    /// `exp`. `false` exchanges a token at the issuer on every call, a
+    /// setting for a performance measurement's self-test, never for
+    /// production. `true` by default.
+    pub cache: bool,
+}
+
+impl Default for OnwardSection {
+    fn default() -> Self {
+        Self {
+            issuer: String::new(),
+            kind: None,
+            profile: Preset::default(),
+            keys: ProfileKeys::default(),
+            token_endpoint: String::new(),
+            client_id: String::new(),
+            audiences: Vec::new(),
+            indicators: Vec::new(),
+            scope: String::new(),
+            correlation_claim: String::new(),
+            federation: None,
+            assurance: None,
+            cache: true,
+        }
+    }
 }
 
 /// What a `[<lane>.credentials.onward]` table resolves to: the client and
@@ -197,10 +222,17 @@ mod resolve {
             if !self.correlation_claim.is_empty() {
                 target = target.with_correlation_claim(self.correlation_claim.clone());
             }
-            let onward =
+            let mut onward =
                 Onward::new(settings, credentials).map_err(|source| ConfigError::Onward {
                     source: Box::new(source),
                 })?;
+            if !self.cache {
+                tracing::warn!(
+                    issuer = self.issuer.as_str(),
+                    "the onward token cache is off: every call exchanges a token at the issuer"
+                );
+                onward = onward.without_cache();
+            }
             onward
                 .check_target(&target)
                 .map_err(|source| ConfigError::Onward {

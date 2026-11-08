@@ -284,20 +284,18 @@ impl Onward {
         })
     }
 
-    /// Returns the client with its cache off: every call exchanges a token
-    /// at the issuer and none is held. Clones share the setting.
-    ///
-    /// It exists for a performance measurement's self-test, which must
-    /// show the measurement fails without the cache; a production lane keeps
-    /// the cache on (no specification governs the cache: our own design).
+    /// Returns the client with its cache off, as `cache = false` on a
+    /// `[<lane>.credentials.onward]` table asks: every call exchanges a
+    /// token at the issuer and none is held. Clones share the setting.
     #[must_use]
-    pub fn without_cache(self) -> Self {
+    pub(crate) fn without_cache(self) -> Self {
         self.inner.cached.store(false, Ordering::Relaxed);
         lock(&self.inner.cache).clear();
         self
     }
 
-    /// Whether the client holds the tokens it obtains.
+    /// Whether the client holds the tokens it obtains: `false` when its
+    /// table set `cache = false`.
     #[must_use]
     pub fn caches(&self) -> bool {
         self.inner.cached.load(Ordering::Relaxed)
