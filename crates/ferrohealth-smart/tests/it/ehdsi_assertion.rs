@@ -1092,7 +1092,7 @@ fn a_literal_carriage_return_before_a_reference_keeps_the_signature() {
     let sent = signed_with_a_literal_carriage_return(&case, "Invented\r&amp;Doctor");
     let identity = case
         .validator
-        .identity(&sent, now())
+        .check_identity(&sent, now())
         .expect("the carriage return is a line feed before canonicalization");
     assert_eq!(identity.name(), "Invented\n&Doctor");
 }
@@ -1103,7 +1103,7 @@ fn a_literal_carriage_return_inside_text_keeps_the_signature() {
     let sent = signed_with_a_literal_carriage_return(&case, "Invented\r\nDoc\rtor");
     let identity = case
         .validator
-        .identity(&sent, now())
+        .check_identity(&sent, now())
         .expect("both line ends are line feeds before canonicalization");
     assert_eq!(identity.name(), "Invented\nDoc\ntor");
 }
