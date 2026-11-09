@@ -141,6 +141,15 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 
 ## IMPORTANT hard rules
 
+- **Family rules carried in `.claude/memory/` (index `MEMORY.md`).** A removal
+  aid (a named refusal of a removed or renamed config key, flag, env variable,
+  route or format) lives exactly one release and the next release deletes it
+  fully; no legacy support is ever kept (owner hard rule 2026-11-09,
+  `no-compat-shims.md`). Build the proper solution even when it breaks an API
+  and moves the minor version (owner 2026-11-08, `no-half-solutions.md`).
+  Where the EHDS Regulation conflicts with an openEHR or other standard's
+  text, the Regulation wins, and EHDS work is never reverted to pass a
+  conformance row (owner 2026-11-09, `ehds-above-openehr.md`).
 - **The specifications are the authority**: SMART App Launch 2.2.0, the
   SMART on openEHR draft (DEVELOPMENT, pinned by commit and read weekly
   upstream), RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725,
