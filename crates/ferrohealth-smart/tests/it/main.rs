@@ -75,6 +75,7 @@ mod redaction;
 #[cfg(feature = "fetch")]
 mod roles;
 mod schema;
+mod section_eq;
 #[cfg(feature = "fetch")]
 mod sender;
 #[cfg(feature = "fetch")]

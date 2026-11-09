@@ -726,6 +726,84 @@ impl std::fmt::Debug for OauthSection {
     }
 }
 
+// The exhaustive pattern makes a new field a compile error here until it is compared.
+impl PartialEq for CredentialsSection {
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            user,
+            password,
+            password_file,
+            oauth,
+            onward,
+        } = self;
+        shapes::same_secret(password.as_ref(), other.password.as_ref())
+            && *user == other.user
+            && *password_file == other.password_file
+            && *oauth == other.oauth
+            && *onward == other.onward
+    }
+}
+
+impl Eq for CredentialsSection {}
+
+// The exhaustive pattern makes a new field a compile error here until it is compared.
+impl PartialEq for OauthSection {
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            issuer,
+            token_endpoint,
+            client_id,
+            client_auth,
+            client_secret,
+            client_secret_file,
+            private_key_file,
+            kid,
+            assertion_alg,
+            scope,
+            resource,
+            audience,
+            refresh_margin,
+            timeout,
+            assertion_audience,
+            tls,
+            dpop_key_file,
+            certificate_bound,
+            security_profile,
+            mtls_alias_hosts,
+            previous_private_key_file,
+            previous_key_overlap,
+            next_private_key_file,
+            authorization_details,
+        } = self;
+        shapes::same_secret(client_secret.as_ref(), other.client_secret.as_ref())
+            && *issuer == other.issuer
+            && *token_endpoint == other.token_endpoint
+            && *client_id == other.client_id
+            && *client_auth == other.client_auth
+            && *client_secret_file == other.client_secret_file
+            && *private_key_file == other.private_key_file
+            && *kid == other.kid
+            && *assertion_alg == other.assertion_alg
+            && *scope == other.scope
+            && *resource == other.resource
+            && *audience == other.audience
+            && *refresh_margin == other.refresh_margin
+            && *timeout == other.timeout
+            && *assertion_audience == other.assertion_audience
+            && *tls == other.tls
+            && *dpop_key_file == other.dpop_key_file
+            && *certificate_bound == other.certificate_bound
+            && *security_profile == other.security_profile
+            && *mtls_alias_hosts == other.mtls_alias_hosts
+            && *previous_private_key_file == other.previous_private_key_file
+            && *previous_key_overlap == other.previous_key_overlap
+            && *next_private_key_file == other.next_private_key_file
+            && *authorization_details == other.authorization_details
+    }
+}
+
+impl Eq for OauthSection {}
+
 /// The problem of a table whose `what` needs a client certificate it has
 /// none of: from `client_certificate_file`, or from the product's built TLS
 /// configuration when `presented`.

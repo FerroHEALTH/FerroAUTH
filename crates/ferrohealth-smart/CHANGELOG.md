@@ -11,6 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The configuration sections implement `PartialEq` and `Eq`: `AuthSection`,
+  `IssuerEntry`, `IntrospectionSection`, `BasicSection`, `BasicUser`,
+  `credentials::CredentialsSection`, `credentials::OauthSection`,
+  `endpoint::EndpointSection`, `idp::section::IdpSection` and
+  `idp::entra::GraphSection`, so a product diffs a reloaded configuration
+  against the running one without serializing either. A secret
+  (`client_secret`, `password`, `password_hash`) compares by its value and
+  stays out of every `Debug` and serialized rendering (#414).
+
 ## [0.16.0] - 2026-11-09
 
 ### Added
