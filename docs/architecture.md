@@ -1579,8 +1579,8 @@ group_identifier_issuer = "urn:example:ferroehr:groups"   # set with group_claim
 guests = false                                     # whether a guest is looked up
 ```
 
-A table has no `claim` key: one that sets it fails to load naming the
-issuer profile's `person_key` (`PartyError::Claim`). A table naming no
+A table has no `claim` key: the issuer profile's `person_key` names the
+key claim, and `claim` is refused as an unknown key. A table naming no
 trusted `persons` issuer, two tables naming one issuer or sharing an
 `identifier_issuer` (two subject spaces would merge, naming both), a
 `group_claim` without its `group_identifier_issuer`, and a `person_key` on
@@ -1753,12 +1753,10 @@ roles = ["auditor"]                  # one word each (3.11)
 ```
 
 Every setting of an issuer lives on its own table: no section-level value
-stands in for one an issuer leaves out, and a section-level `audience`,
-`algorithms`, `mode`, `introspection`, `role_claims` or other issuer setting
-refuses the start naming the table (`ConfigError::RemovedKeys`, every
-retired key at once through `ferrohealth_config::removed`), as do the flat
-`issuer = "…"` form, `token_profile`, `acting_for_claim`, `client_tokens` and
-a string `scopeless_subjects` entry. `Resolved` holds each JWT issuer's
+stands in for one an issuer leaves out, and a section-level issuer setting
+is an unknown key. A named refusal of a retired key lives for the one
+release that retires it (owner rule, 2026-11-09); after it the strict load
+refuses the key as unknown. `Resolved` holds each JWT issuer's
 `Settings`, each introspected issuer's settings, and every issuer's kind,
 which `Resolved::check_role_issuers` holds a product's administrator,
 emergency or identifier-reader role list to: only `persons` issuers. An
@@ -1815,8 +1813,7 @@ implements as `config::ServerTls` over `ferrohealth-server`'s
 `tls_client::TlsClient`, so the family has one reader of TLS material and
 the table's minimum version holds; `resolve` refuses such a table
 (`ConfigError::TlsNotBuilt`). Every span of time is a
-`ferrohealth_config::units::Duration` (`"30s"`), and a retired key is
-refused naming its replacement. No specification governs the seam: our own
+`ferrohealth_config::units::Duration` (`"30s"`). No specification governs the seam: our own
 design.
 
 An outbound integration is one table, `config::endpoint::EndpointSection`:

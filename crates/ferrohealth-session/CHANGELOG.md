@@ -14,6 +14,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0] - Unreleased
+
+### Removed
+
+- Breaking: the named refusals of the keys 0.8.0 retired are deleted,
+  under the owner's rule that a removal aid lives for the one release
+  that retires it (#388). `oidc.ca_file`, `oidc.timeout_s`,
+  `session.sign_in_timeout_s`, `idle_timeout_s`, `absolute_timeout_s` and
+  `[oidc.tls] client_certificate`, `client_key` and `client_key_file` are
+  refused as unknown keys when the section loads. The fields
+  `OidcSection::ca_file`, `timeout_s` and `SessionSection::sign_in_timeout_s`,
+  `idle_timeout_s`, `absolute_timeout_s` and the variant
+  `ConfigError::Removed` are gone. A console moves to `ferrohealth-smart`
+  0.15 in the same change.
+
 ## [0.8.0] - 2026-11-09
 
 ### Changed

@@ -44,16 +44,18 @@ fn an_issuer_without_kind_fails_to_load() {
 }
 
 #[test]
-fn the_flat_issuer_form_fails_to_load_naming_the_table_form() {
-    let refused = section("issuer = \"https://as.example.org\"").resolve();
-    assert!(
-        matches!(&refused, Err(ConfigError::Removed { replacement, .. }) if replacement.contains("[[auth.issuer]]")),
-        "{refused:?}"
-    );
-}
-
-#[test]
-fn every_section_level_issuer_setting_fails_to_load_naming_the_issuer_table() {
+fn every_retired_key_and_form_is_an_unknown_key_at_load() {
+    let persons = issuer("persons", "");
+    let mut retired = vec![
+        String::from("issuer = \"https://as.example.org\""),
+        format!(
+            "scopeless_subjects = [\"https://as.example.org#svc\"]\n{}",
+            issuer("machines", "")
+        ),
+        issuer("persons", "token_profile = \"rfc9068\""),
+        issuer("persons", "acting_for_claim = \"act.sub\""),
+        issuer("persons", "client_tokens = \"claim_absent\""),
+    ];
     for key in [
         "audience = [\"a\"]",
         "algorithms = [\"ES256\"]",
@@ -64,76 +66,19 @@ fn every_section_level_issuer_setting_fails_to_load_naming_the_issuer_table() {
         "timeout_ms = 500",
         "mode = \"jwt\"",
         "role_claims = []",
+        "token_profile = \"jwt\"",
+        "acting_for_claim = \"act.sub\"",
+        "client_tokens = \"sub_is_client\"",
+        "ca_file = \"/etc/ca.pem\"",
     ] {
-        let refused = section(&format!("{key}\n{}", issuer("persons", ""))).resolve();
+        retired.push(format!("{key}\n{persons}"));
+    }
+    for text in retired {
         assert!(
-            matches!(&refused, Err(ConfigError::RemovedKeys(_)))
-                && refused
-                    .as_ref()
-                    .err()
-                    .is_some_and(|error| error.to_string().contains("[[auth.issuer]]")),
-            "{key}: {refused:?}"
+            toml::from_str::<AuthSection>(&text).is_err(),
+            "{text} is no key or form of the section"
         );
     }
-}
-
-#[test]
-fn token_profile_fails_to_load_naming_the_profile_keys() {
-    for text in [
-        format!("token_profile = \"jwt\"\n{}", issuer("persons", "")),
-        issuer("persons", "token_profile = \"rfc9068\""),
-    ] {
-        let refused = section(&text).resolve();
-        let shown = refused
-            .as_ref()
-            .err()
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        assert!(
-            matches!(&refused, Err(ConfigError::RemovedKeys(_)))
-                && shown.contains("token_types")
-                && shown.contains("required_claims"),
-            "{text}: {refused:?}"
-        );
-    }
-}
-
-#[test]
-fn acting_for_claim_and_client_tokens_fail_to_load_naming_the_delegated_token() {
-    for text in [
-        format!("acting_for_claim = \"act.sub\"\n{}", issuer("persons", "")),
-        format!(
-            "client_tokens = \"sub_is_client\"\n{}",
-            issuer("persons", "")
-        ),
-        issuer("persons", "acting_for_claim = \"act.sub\""),
-        issuer("persons", "client_tokens = \"claim_absent\""),
-    ] {
-        let refused = section(&text).resolve();
-        let shown = refused
-            .as_ref()
-            .err()
-            .map(ToString::to_string)
-            .unwrap_or_default();
-        assert!(
-            matches!(&refused, Err(ConfigError::RemovedKeys(_)))
-                && shown.contains("delegated token whose subject is the person"),
-            "{text}: {refused:?}"
-        );
-    }
-}
-
-#[test]
-fn an_issuer_qualified_string_entry_fails_to_load() {
-    let refused = section(&format!(
-        "scopeless_subjects = [\"https://as.example.org#svc\"]\n{}",
-        issuer("machines", "")
-    ))
-    .resolve();
-    assert!(
-        matches!(refused, Err(ConfigError::Removed { .. })),
-        "{refused:?}"
-    );
 }
 
 // NOTE: OpenID Connect Core 1.0 §5.7: "email, phone_number, preferred_username,

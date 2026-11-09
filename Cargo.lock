@@ -1129,7 +1129,7 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-session"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aws-lc-rs",
  "axum",
@@ -1160,7 +1160,7 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-smart"
-version = "0.14.0"
+version = "0.15.0"
 dependencies = [
  "argon2",
  "aws-lc-rs",

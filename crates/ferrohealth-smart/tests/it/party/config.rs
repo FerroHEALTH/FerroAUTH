@@ -42,29 +42,18 @@ fn party_error(party: &str) -> Result<PartyError, Box<dyn StdError>> {
     }
 }
 
-// NOTE: no specification governs the configuration: our own design; the profile's
-// person_key names the key claim, so a table that sets `claim` fails naming it.
 #[test]
-fn a_table_that_sets_claim_fails_to_load_naming_the_person_key() -> Outcome2 {
-    let error = party_error(
-        r#"
+fn a_table_that_sets_claim_is_an_unknown_key_at_load() {
+    let read = section(&format!(
+        r#"{ISSUERS}
 [[party]]
 issuer = "https://login.example.org/tenant-1/v2.0"
 identifier_issuer = "urn:example:ferro:login"
 identifier_type = "guid"
 claim = "sub"
-"#,
-    )?;
-    assert_eq!(
-        PartyError::Claim {
-            issuer: String::from(ISSUER),
-            person_key: String::from("oid"),
-        },
-        error,
-        "the entra preset's person_key"
-    );
-    assert!(error.to_string().contains("\"oid\""), "{error}");
-    Ok(())
+"#
+    ));
+    assert!(read.is_err(), "claim is no key of the table");
 }
 
 // NOTE: no specification governs the configuration: our own design, in which two tables

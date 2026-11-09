@@ -12,7 +12,6 @@ use std::error::Error as StdError;
 use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::IssuerEntry;
-use ferrohealth_smart::config::IssuerKey;
 use ferrohealth_smart::config::ScopelessSubject;
 use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::kind::IssuerKind;
@@ -48,7 +47,7 @@ fn entry(issuer: &str, roles: &[&str]) -> IssuerEntry {
 /// Returns a section trusting `entries` with the `scopeless` allowlist.
 fn section(entries: Vec<IssuerEntry>, scopeless: Vec<ScopelessSubject>) -> AuthSection {
     AuthSection {
-        issuer: IssuerKey::List(entries),
+        issuer: entries,
         scopeless_subjects: scopeless,
         ..AuthSection::default()
     }
@@ -56,7 +55,7 @@ fn section(entries: Vec<IssuerEntry>, scopeless: Vec<ScopelessSubject>) -> AuthS
 
 /// Returns the entry `{ issuer, sub }`.
 fn subject(issuer: &str, sub: &str) -> ScopelessSubject {
-    ScopelessSubject::Qualified {
+    ScopelessSubject {
         issuer: issuer.to_owned(),
         sub: sub.to_owned(),
     }
@@ -91,39 +90,17 @@ fn each_issuer_receives_only_its_own_entries() -> Result<(), Box<dyn StdError>> 
 }
 
 #[test]
-fn a_string_scopeless_subject_is_refused_naming_the_table_form() {
+fn a_string_scopeless_subject_and_a_section_level_role_claims_are_refused_at_load() {
     for text in [
         "scopeless_subjects = [\"svc\"]",
         "scopeless_subjects = [\"https://one.example.org#svc\"]",
+        "role_claims = [\"https://one.example.org#roles\"]",
     ] {
-        let section: AuthSection = toml::from_str(&format!(
+        let read = toml::from_str::<AuthSection>(&format!(
             "{text}\n[[issuer]]\nissuer = \"{ONE}\"\nkind = \"persons\"\naudience = [\"a\"]\n"
-        ))
-        .expect("parses");
-        let refused = section.resolve();
-        assert!(
-            matches!(
-                &refused,
-                Err(ConfigError::Removed { replacement, .. }) if replacement.contains("{ issuer, sub }")
-            ),
-            "{text}: {refused:?}"
-        );
+        ));
+        assert!(read.is_err(), "{text} is no key or shape of the section");
     }
-}
-
-#[test]
-fn a_section_level_role_claims_is_refused_naming_the_issuer_table() {
-    let section: AuthSection = toml::from_str(&format!(
-        "role_claims = [\"https://one.example.org#roles\"]\n[[issuer]]\nissuer = \"{ONE}\"\nkind = \"persons\"\naudience = [\"a\"]\n"
-    ))
-    .expect("parses");
-    assert!(matches!(
-        section.resolve(),
-        Err(ConfigError::RemovedKeys(keys)) if keys.removals().iter().any(|removal| {
-            removal.key() == "auth.role_claims"
-                && removal.replacement().is_some_and(|text| text.contains("[[auth.issuer]]"))
-        })
-    ));
 }
 
 #[test]

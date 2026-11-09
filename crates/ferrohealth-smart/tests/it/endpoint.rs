@@ -7,7 +7,6 @@
 
 use ferrohealth_config::units::Duration;
 use ferrohealth_smart::config::AuthSection;
-use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::endpoint::EndpointSection;
 
 #[test]
@@ -64,19 +63,15 @@ fn the_issuer_durations_read_with_their_units_and_the_old_keys_are_refused() {
     assert_eq!(Duration::from_hours(1), entry.jwks_max_age);
     assert_eq!(Duration::from_mins(5), entry.jwks_refresh_interval);
     assert_eq!(Duration::from_secs(3), entry.timeout);
-    let retired: AuthSection = toml::from_str(&format!(
-        "{issuer}clock_skew_seconds = 30\ntimeout_ms = 500\n\n[basic]\ncache_ttl_seconds = 1\n"
-    ))
-    .expect("the section parses");
-    let err = retired.resolve().expect_err("the old keys are refused");
-    assert!(matches!(err, ConfigError::RemovedKeys(_)), "{err:?}");
-    let shown = err.to_string();
-    for line in [
-        "auth.issuer[0].clock_skew_seconds was replaced by clock_skew",
-        "auth.issuer[0].timeout_ms was replaced by timeout",
-        "auth.basic.cache_ttl_seconds was replaced by auth.basic.cache_ttl",
+    for retired in [
+        format!("{issuer}clock_skew_seconds = 30\n"),
+        format!("{issuer}timeout_ms = 500\n"),
+        format!("{issuer}\n[basic]\ncache_ttl_seconds = 1\n"),
     ] {
-        assert!(shown.contains(line), "{line} in {shown}");
+        assert!(
+            toml::from_str::<AuthSection>(&retired).is_err(),
+            "an old key is an unknown key: {retired}"
+        );
     }
     assert!(
         toml::from_str::<AuthSection>(&format!("{issuer}timeout = 500\n")).is_err(),

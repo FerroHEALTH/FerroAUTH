@@ -144,32 +144,6 @@ pub struct DpopSection {
     /// The signature algorithms a proof may use; asymmetric only.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub algorithms: Vec<Algorithm>,
-    /// Removed: `max_age`, a duration.
-    #[serde(skip_serializing)]
-    pub max_age_seconds: ferrohealth_config::removed::Removed,
-    /// Removed: `clock_skew`, a duration.
-    #[serde(skip_serializing)]
-    pub clock_skew_seconds: ferrohealth_config::removed::Removed,
-}
-
-impl DpopSection {
-    /// The retired keys this table sets, under `table`, each with what
-    /// replaced it.
-    #[must_use]
-    pub fn removals(&self, table: &str) -> ferrohealth_config::removed::Removals {
-        let mut removals = ferrohealth_config::removed::Removals::new();
-        removals.replaced(
-            self.max_age_seconds,
-            format!("{table}.max_age_seconds"),
-            format!("{table}.max_age, a duration such as `60s`"),
-        );
-        removals.replaced(
-            self.clock_skew_seconds,
-            format!("{table}.clock_skew_seconds"),
-            format!("{table}.clock_skew, a duration such as `10s`"),
-        );
-        removals
-    }
 }
 
 impl Default for DpopSection {
@@ -188,8 +162,6 @@ impl Default for DpopSection {
                 Algorithm::ES256,
                 Algorithm::ES384,
             ],
-            max_age_seconds: ferrohealth_config::removed::Removed::default(),
-            clock_skew_seconds: ferrohealth_config::removed::Removed::default(),
         }
     }
 }

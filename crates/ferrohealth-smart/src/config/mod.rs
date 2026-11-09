@@ -15,7 +15,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use ferrohealth_config::removed::{Removed, RemovedKeys};
 use ferrohealth_config::tls::TlsClientSection;
 use ferrohealth_config::units::Duration;
 use ferrohealth_secret::secret_url::RedactedUrl;
@@ -294,19 +293,6 @@ pub enum ConfigError {
         #[source]
         source: Box<crate::client::onward::OnwardError>,
     },
-    /// A form of a key was removed, such as the flat `issuer = "…"`; the
-    /// error names the form that replaces it.
-    #[error("{key} is removed: {replacement}")]
-    Removed {
-        /// The key in its removed form.
-        key: &'static str,
-        /// What replaces it.
-        replacement: &'static str,
-    },
-    /// Keys were removed; every one the configuration sets is named with
-    /// what replaced it, all at once.
-    #[error(transparent)]
-    RemovedKeys(#[from] RemovedKeys),
     /// A product role list names an issuer that is not a `persons` issuer
     /// the section trusts.
     #[error("the {key} list names the issuer {issuer:?}, which is not a trusted persons issuer")]
@@ -366,9 +352,8 @@ pub enum ConfigError {
 pub struct AuthSection {
     /// Whether inbound authentication is on; a product may refuse `false`.
     pub enabled: bool,
-    /// The `[[auth.issuer]]` tables; the flat `issuer = "…"` form is
-    /// refused.
-    pub issuer: IssuerKey,
+    /// The `[[auth.issuer]]` tables, each issuer with its own settings.
+    pub issuer: Vec<IssuerEntry>,
     /// The subjects granted system-wide access without a scope, each
     /// `{ issuer, sub }`; only a [`CallerKind::System`] caller of a
     /// `persons` or `machines` issuer is ever admitted by an entry.
@@ -408,49 +393,6 @@ pub struct AuthSection {
     /// The `[[auth.party]]` tables, one per `persons` issuer whose logins
     /// are bound to a party.
     pub party: Vec<PartySection>,
-    /// Removed: set `audience` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub audience: Removed,
-    /// Removed: set `algorithms` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub algorithms: Removed,
-    /// Removed: set the profile keys on each `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub token_profile: Removed,
-    /// Removed: set `clock_skew_seconds` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub clock_skew_seconds: Removed,
-    /// Removed: set `jwks_max_age_seconds` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub jwks_max_age_seconds: Removed,
-    /// Removed: set `jwks_refresh_interval_seconds` on each
-    /// `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub jwks_refresh_interval_seconds: Removed,
-    /// Removed: set `jwks_file` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub jwks_file: Removed,
-    /// Removed: set `timeout_ms` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub timeout_ms: Removed,
-    /// Removed: set `role_claims` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub role_claims: Removed,
-    /// Removed: set `mode` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub mode: Removed,
-    /// Removed: set `introspection` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing)]
-    pub introspection: Removed,
-    /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing)]
-    pub acting_for_claim: Removed,
-    /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing)]
-    pub client_tokens: Removed,
-    /// Removed: `tls.trust_roots_file`.
-    #[serde(skip_serializing)]
-    pub ca_file: Removed,
 }
 
 /// How a bearer token is checked.
@@ -490,38 +432,18 @@ pub struct IntrospectionSection {
     pub client: Option<OauthSection>,
     /// The client credentials grant whose token authorizes the call.
     pub bearer: Option<OauthSection>,
-    /// Removed: `cache_max_age`, a duration.
-    #[serde(skip_serializing)]
-    pub cache_max_age_seconds: Removed,
 }
 
-/// The `issuer` key: the `[[auth.issuer]]` list, or the flat identifier,
-/// which [`AuthSection::resolve`] refuses naming the table form.
+/// One `scopeless_subjects` entry: the subject `sub` of the issuer
+/// `issuer`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub enum IssuerKey {
-    /// The removed flat form.
-    Flat(String),
-    /// The issuers, each with its own settings.
-    List(Vec<IssuerEntry>),
-}
-
-/// One `scopeless_subjects` entry: `{ issuer, sub }`, or the removed string
-/// form, which [`AuthSection::resolve`] refuses naming the table form.
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(untagged)]
-pub enum ScopelessSubject {
-    /// The subject `sub` of the issuer `issuer`.
-    Qualified {
-        /// The issuer.
-        issuer: String,
-        /// The `sub`.
-        sub: String,
-    },
-    /// The removed string form, bare or `<issuer>#<sub>`.
-    Text(String),
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScopelessSubject {
+    /// The issuer.
+    pub issuer: String,
+    /// The `sub`.
+    pub sub: String,
 }
 
 /// One `[[auth.issuer]]` table: the issuer, its kind, how its tokens are
@@ -646,27 +568,6 @@ pub struct IssuerEntry {
     /// [`ProfileKeys::onward_preview`](crate::profile::ProfileKeys::onward_preview).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub onward_preview: Option<Vec<PreviewVariant>>,
-    /// Removed: the profile keys replace it.
-    #[serde(skip_serializing)]
-    pub token_profile: Removed,
-    /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing)]
-    pub acting_for_claim: Removed,
-    /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing)]
-    pub client_tokens: Removed,
-    /// Removed: `clock_skew`, a duration.
-    #[serde(skip_serializing)]
-    pub clock_skew_seconds: Removed,
-    /// Removed: `jwks_max_age`, a duration.
-    #[serde(skip_serializing)]
-    pub jwks_max_age_seconds: Removed,
-    /// Removed: `jwks_refresh_interval`, a duration.
-    #[serde(skip_serializing)]
-    pub jwks_refresh_interval_seconds: Removed,
-    /// Removed: `timeout`, a duration.
-    #[serde(skip_serializing)]
-    pub timeout_ms: Removed,
 }
 
 /// The `[auth.basic]` table.
@@ -679,9 +580,6 @@ pub struct BasicSection {
     /// How long a credential that verified is kept, so a repeat request
     /// skips the key derivation; `5min` by default, `0s` keeps none.
     pub cache_ttl: Duration,
-    /// Removed: `cache_ttl`, a duration.
-    #[serde(skip_serializing)]
-    pub cache_ttl_seconds: Removed,
 }
 
 /// One `[[auth.basic.users]]` entry: a person's credential, never a

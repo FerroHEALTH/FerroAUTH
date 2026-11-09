@@ -51,9 +51,7 @@ absolute_timeout = "12h"
 file: a console checks a section that names TLS material with
 `OidcSection::check_with_tls`, handing it `ferrohealth-smart`'s
 `config::ServerTls` (feature `server-tls`). Every duration is a whole
-number and a unit (`"30min"`), and a retired key (`oidc.ca_file`,
-`oidc.timeout_s`, `session.idle_timeout_s` and the others) is refused naming
-its replacement.
+number and a unit (`"30min"`), and an unknown key is refused.
 
 A `sealed` store needs `key` or `key_file` (base64 of at least 64 bytes, the
 same on every instance) and refuses `offline_access`, so a refresh token is
