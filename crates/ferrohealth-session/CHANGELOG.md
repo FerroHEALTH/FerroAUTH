@@ -25,9 +25,11 @@ and this project adheres to
   `OidcSection::check_with_tls`, handing it its `TlsBuilder` (such as
   `ferrohealth-smart`'s `config::ServerTls`); `OidcSection::check` refuses
   it as `ConfigError::TlsNotBuilt`. `oidc.ca_file` is refused naming
-  `oidc.tls.trust_roots_file`; `[oidc.tls] client_certificate`,
-  `client_key` and `client_key_file` are no keys of the shared table, which
-  takes the chain and the key in one `client_identity_file` (#382).
+  `oidc.tls.trust_roots_file`. `[oidc.tls] client_certificate`,
+  `client_key` and `client_key_file` are refused when the section loads,
+  all of them at once, each naming `oidc.tls.client_identity_file` or
+  `oidc.tls.client_identity`, the one PEM that holds the chain and the
+  key (#382).
 - Breaking: `oidc.timeout`, `session.sign_in_timeout`, `idle_timeout` and
   `absolute_timeout` are `ferrohealth_config::units::Duration`s (`"30min"`),
   and `oidc.timeout_s`, `session.sign_in_timeout_s`, `idle_timeout_s` and

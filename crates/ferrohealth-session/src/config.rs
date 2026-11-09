@@ -179,6 +179,8 @@ pub struct OidcSection {
     /// `[oidc.tls]`: the trust roots, the client certificate (RFC 8705 §2)
     /// and the TLS floor of the provider connection, built by the console's
     /// [`TlsBuilder`]; the crate reads no TLS file.
+    #[serde(deserialize_with = "oidc_tls")]
+    #[cfg_attr(feature = "schema", schemars(with = "TlsClientSection"))]
     pub tls: TlsClientSection,
     /// How long one call to the provider may take; never zero.
     pub timeout: ConfigDuration,
@@ -213,6 +215,47 @@ impl Default for OidcSection {
             timeout_s: Removed::default(),
         }
     }
+}
+
+/// The keys `[oidc.tls]` held before it became the shared table, each with
+/// what takes its place.
+const RETIRED_TLS: [(&str, &str); 3] = [
+    (
+        "client_certificate",
+        "oidc.tls.client_identity_file, one PEM holding the certificate chain and its private key",
+    ),
+    (
+        "client_key",
+        "oidc.tls.client_identity, one PEM holding the certificate chain and its private key",
+    ),
+    (
+        "client_key_file",
+        "oidc.tls.client_identity_file, one PEM holding the certificate chain and its private key",
+    ),
+];
+
+/// Reads `[oidc.tls]` as the shared [`TlsClientSection`], after refusing
+/// every key the table held before, each named with its replacement.
+///
+/// The shared table refuses an unknown key, so the retired ones are taken
+/// out of the raw table first and refused through [`Removals`], which keeps
+/// the refusal naming the replacement without a local copy of the table.
+fn oidc_tls<'de, D>(deserializer: D) -> Result<TlsClientSection, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+
+    let mut table = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
+    let mut removals = Removals::new();
+    for (key, replacement) in RETIRED_TLS {
+        if let Some(value) = table.remove(key) {
+            let removed = Removed::deserialize(value).map_err(D::Error::custom)?;
+            removals.replaced(removed, format!("oidc.tls.{key}"), replacement);
+        }
+    }
+    removals.finish().map_err(D::Error::custom)?;
+    TlsClientSection::deserialize(serde_json::Value::Object(table)).map_err(D::Error::custom)
 }
 
 /// The checked `[oidc]`.
@@ -1124,5 +1167,42 @@ mod tests {
             "{shown}"
         );
         assert!(toml::from_str::<SessionSection>("idle_timeout = 60").is_err());
+    }
+
+    #[test]
+    fn the_retired_tls_keys_are_refused_naming_their_replacement_all_at_once() {
+        let refused = toml::from_str::<OidcSection>(
+            "[tls]\nclient_certificate = \"/run/cert.pem\"\nclient_key = \"inline-private-key\"\nclient_key_file = \"/run/key.pem\"\n",
+        )
+        .expect_err("the retired keys are refused")
+        .to_string();
+        for line in [
+            "oidc.tls.client_certificate was replaced by oidc.tls.client_identity_file",
+            "oidc.tls.client_key was replaced by oidc.tls.client_identity,",
+            "oidc.tls.client_key_file was replaced by oidc.tls.client_identity_file",
+        ] {
+            assert!(refused.contains(line), "{line} in {refused}");
+        }
+        assert!(
+            !refused.contains("inline-private-key"),
+            "no value is shown: {refused}"
+        );
+    }
+
+    #[test]
+    fn the_tls_table_still_refuses_an_unknown_key_and_reads_its_own() {
+        assert!(toml::from_str::<OidcSection>("[tls]\nca_file = \"/run/ca.pem\"\n").is_err());
+        let oidc: OidcSection = toml::from_str(
+            "[tls]\ntrust_roots_file = \"/run/ca.pem\"\nclient_identity_file = \"/run/id.pem\"\nmin_version = \"1.2\"\n",
+        )
+        .expect("the shared table reads");
+        assert_eq!(
+            oidc.tls.trust_roots_file.as_deref(),
+            Some(std::path::Path::new("/run/ca.pem"))
+        );
+        assert_eq!(
+            oidc.tls.min_version,
+            ferrohealth_config::tls::TlsVersion::Tls12
+        );
     }
 }
