@@ -353,6 +353,28 @@ impl Onward {
         self.inner.cached.load(Ordering::Relaxed)
     }
 
+    /// Drops the cached token [`Onward::token`] reads for `subject`, `actor`
+    /// and `target` when it is the one `stale` renders, so the next call for
+    /// them exchanges again: the answer to a resource server's `401`
+    /// `invalid_token` (RFC 6750 §3.1). Other entries stay, and a token
+    /// another caller has already renewed, or none, is left as it is.
+    pub fn invalidate(
+        &self,
+        subject: &SubjectToken,
+        actor: Option<&ActorToken>,
+        target: &Target,
+        stale: &HeaderValue,
+    ) {
+        let key = self.key(subject, actor, target);
+        let mut cache = lock(&self.inner.cache);
+        if cache
+            .get(&key)
+            .is_some_and(|entry| entry.token.header() == stale)
+        {
+            cache.remove(&key);
+        }
+    }
+
     /// Returns a token for `target` on behalf of `subject`, delegated to
     /// `actor` when one is given, from the cache when it holds one that
     /// still passes the onward check.
