@@ -398,7 +398,7 @@ pub struct AuthSection {
     /// calls of every issuer: trust roots beside the platform's, for an
     /// issuer behind a private certificate authority, a client identity and
     /// the minimum version. The crate reads none of it: the product's
-    /// [`TlsBuilder`](crate::config::TlsBuilder) builds it once at start.
+    /// [`TlsBuilder`] builds it once at start.
     pub tls: TlsClientSection,
     /// The `[[auth.federation]]` tables, one per `federation` issuer.
     pub federation: Vec<FederationSection>,
@@ -745,7 +745,7 @@ pub struct Resolved {
 /// The crate reads no TLS material itself: every table that names some is
 /// handed to the builder with its dotted key, so the family has one reader
 /// of TLS material, `ferrohealth-server`'s `TlsClient` (feature
-/// `server-tls` implements this trait over it as [`ServerTls`]). No
+/// `server-tls` implements this trait over it as `ServerTls`). No
 /// specification governs the seam: our own design.
 pub trait TlsBuilder {
     /// Builds the configuration `section` names, at the dotted `key`.

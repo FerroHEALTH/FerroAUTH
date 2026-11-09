@@ -124,7 +124,7 @@ pub struct OauthSection {
     /// platform's, the client identity presented over mutual TLS (RFC 8705
     /// §2) and the minimum version. The crate reads none of it: a table that
     /// names material resolves through the product's
-    /// [`TlsBuilder`](crate::config::TlsBuilder).
+    /// [`TlsBuilder`].
     pub tls: TlsClientSection,
     /// The PEM file of the `DPoP` key the tokens are bound to (RFC 9449).
     pub dpop_key_file: Option<PathBuf>,

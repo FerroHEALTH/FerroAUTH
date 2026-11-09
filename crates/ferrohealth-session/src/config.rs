@@ -287,7 +287,7 @@ impl fmt::Debug for OidcSettings {
 }
 
 impl OidcSection {
-    /// Checks the section and reads its secret and its trust roots.
+    /// Checks the section and reads its client secret.
     ///
     /// # Errors
     ///
@@ -298,12 +298,11 @@ impl OidcSection {
     /// URL with a host, no userinfo and no fragment,
     /// [`ConfigError::NoOpenId`] and [`ConfigError::OfflineAccessScope`] for
     /// `scopes` without `openid` or with `offline_access`,
-    /// [`ConfigError::Zero`] for a zero `timeout_s`,
+    /// [`ConfigError::Zero`] for a zero `timeout`,
     /// [`ConfigError::Resolve`] for a `resolve` entry that is not
-    /// `host=ip:port`, [`ConfigError::ClientIdentityHalf`] for a client
-    /// certificate without its key or a key without its certificate, and the
-    /// errors of reading `client_secret`, `ca_file`, the client certificate
-    /// and its key.
+    /// `host=ip:port`, [`ConfigError::TlsNotBuilt`] when `tls` names TLS
+    /// material, [`ConfigError::Removed`] for a retired key, and the errors
+    /// of reading `client_secret`.
     pub fn check(&self) -> Result<OidcSettings, ConfigError> {
         if self.tls.names_material() {
             return Err(ConfigError::TlsNotBuilt);
