@@ -679,7 +679,9 @@ impl RelyingParty {
         if status != StatusCode::OK {
             // NOTE: RFC 6749 §5.2 makes the error body JSON with `error`; a body
             // that is not one is a refusal without a code, never another fault.
-            let error = serde_json::from_str::<OAuthError>(&body).ok();
+            let error = serde_json::from_str::<OAuthError>(&body)
+                .ok()
+                .map(OAuthError::bounded);
             return Err(OidcError::Refused { status, error });
         }
         let tokens: TokenResponse =

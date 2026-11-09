@@ -504,7 +504,7 @@ async fn a_refused_exchange_is_a_typed_error_with_the_upstream_status() {
 }
 
 #[tokio::test]
-async fn a_server_error_is_refused_with_its_status_and_raw_body() {
+async fn a_server_error_is_refused_with_its_status_and_none_of_its_body() {
     let harness = Harness::start(Flavor::Generic).await;
     let (subject, _) = harness.person();
     harness
@@ -513,7 +513,34 @@ async fn a_server_error_is_refused_with_its_status_and_raw_body() {
     let error = harness.token(&subject, None).await.expect_err("refused");
     assert_eq!(Some(StatusCode::SERVICE_UNAVAILABLE), error.status());
     assert!(
-        matches!(&error, OnwardError::Token(TokenError::Refused { error: None, body, .. }) if body == "maintenance"),
+        matches!(
+            &error,
+            OnwardError::Token(TokenError::Refused { error: None, .. })
+        ),
+        "{error:?}"
+    );
+    assert!(
+        !error.to_string().contains("maintenance") && !format!("{error:?}").contains("maintenance"),
+        "the refusal keeps nothing of the body: {error:?}"
+    );
+}
+
+#[tokio::test]
+async fn an_exchange_answer_past_the_ceiling_is_refused_unread() {
+    let harness = Harness::start(Flavor::Generic).await;
+    let (subject, _) = harness.person();
+    let oversized = "x".repeat(ferrohealth_smart::metadata::MAX_DOCUMENT_BYTES + 1);
+    harness
+        .answer(ResponseTemplate::new(200).set_body_string(oversized))
+        .await;
+    let error = harness.token(&subject, None).await.expect_err("refused");
+    assert!(
+        matches!(
+            &error,
+            OnwardError::Token(TokenError::Discovery(
+                ferrohealth_smart::metadata::DiscoveryError::TooLarge { .. }
+            ))
+        ),
         "{error:?}"
     );
 }

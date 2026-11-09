@@ -551,6 +551,10 @@ impl ClientCredentials {
     }
 }
 
+/// The most characters a refusal keeps of each member of an upstream
+/// [`OAuthError`]; no specification governs the bound: our own design.
+pub const MAX_ERROR_TEXT: usize = 256;
+
 /// The error response of a token endpoint (RFC 6749 §5.2).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[non_exhaustive]
@@ -562,6 +566,21 @@ pub struct OAuthError {
     pub error_description: Option<String>,
     /// The page describing the error, when the server sent one.
     pub error_uri: Option<String>,
+}
+
+#[cfg(feature = "fetch")]
+impl OAuthError {
+    /// Returns the error with each member cut to [`MAX_ERROR_TEXT`]
+    /// characters, as a refusal keeps it.
+    #[must_use]
+    pub(crate) fn bounded(self) -> Self {
+        let cut = |text: String| text.chars().take(MAX_ERROR_TEXT).collect::<String>();
+        Self {
+            error: cut(self.error),
+            error_description: self.error_description.map(cut),
+            error_uri: self.error_uri.map(cut),
+        }
+    }
 }
 
 impl std::fmt::Display for OAuthError {
@@ -620,15 +639,15 @@ pub enum TokenError {
         source: url::ParseError,
     },
     /// The token endpoint answered anything other than `200`, with the OAuth
-    /// error when the body carried one (RFC 6749 §5.2).
+    /// error when the body carried one (RFC 6749 §5.2), each of its members
+    /// cut to [`MAX_ERROR_TEXT`] characters; nothing else of the body is
+    /// kept.
     #[error("the token endpoint answered {status}{}", oauth_clause(error.as_ref()))]
     Refused {
         /// The status it answered.
         status: StatusCode,
         /// The OAuth error, when the body was one.
         error: Option<OAuthError>,
-        /// The body, as received.
-        body: String,
     },
     /// The `200` body is not the access token response of RFC 6749 §5.1.
     #[error("the token endpoint answered a body that is not an access token response")]
@@ -787,7 +806,6 @@ mod tests {
                 error_description: Some(String::from("unknown client")),
                 error_uri: None,
             }),
-            body: String::new(),
         };
         assert_eq!(
             "the token endpoint answered 401 Unauthorized: invalid_client (unknown client)",

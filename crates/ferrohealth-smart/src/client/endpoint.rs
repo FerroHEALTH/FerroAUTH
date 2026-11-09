@@ -165,12 +165,13 @@ impl Answer {
     /// error when the body is one (RFC 6749 §5.2).
     pub(crate) fn refused(self) -> TokenError {
         // NOTE: RFC 6749 §5.2 makes the error body JSON with `error`; a body
-        // that is not one is legitimately absent, and the raw body stays.
-        let error = serde_json::from_str::<OAuthError>(&self.body).ok();
+        // that is not one is legitimately absent, and nothing of it is kept.
+        let error = serde_json::from_str::<OAuthError>(&self.body)
+            .ok()
+            .map(OAuthError::bounded);
         TokenError::Refused {
             status: self.status,
             error,
-            body: self.body,
         }
     }
 }
@@ -238,7 +239,7 @@ async fn send(
             .map_err(|source| TokenError::Proof { source })?;
         request = request.header(dpop::HEADER, proof);
     }
-    let response = request
+    let mut response = request
         .header(
             http::header::CONTENT_TYPE,
             "application/x-www-form-urlencoded",
@@ -252,13 +253,7 @@ async fn send(
         })?;
     let status = response.status();
     let nonce = dpop::nonce(response.headers()).map(str::to_owned);
-    let body = response
-        .text()
-        .await
-        .map_err(|source| DiscoveryError::Transport {
-            url: endpoint.clone(),
-            source,
-        })?;
+    let body = crate::metadata::capped_body(&mut response, endpoint).await?;
     Ok(Answer {
         status,
         body,

@@ -54,6 +54,16 @@ change, so the line moves to 0.13.0.
   `ConfigError::Unused`, and `previous_private_key_file` and
   `next_private_key_file` need `private_key_file` in place of
   `private_key_jwt` (#360).
+- `client::TokenError::Refused` keeps the status and the RFC 6749 §5.2
+  error, each member cut to the new `client::MAX_ERROR_TEXT` (256)
+  characters, and no longer the raw body: its `body` field is removed, and
+  neither its `Display` nor its `Debug` renders anything else of the
+  answer. The onward refusal and `OnwardError::InteractionRequired` and
+  `oidc::OidcError::Refused` bound their OAuth error the same way. The
+  token endpoint's answer, of the client credentials grant and of the
+  onward exchange, is read up to `metadata::MAX_DOCUMENT_BYTES` and a
+  longer one is refused as `DiscoveryError::TooLarge`, which names the URL
+  and quotes nothing (#361).
 - The variants that refuse a JSON document carry `json::JsonError` in
   place of `serde_json::Error`: `resource::ResourceError::KeySet` and
   `KeySetRepeatedName`, `client::TokenError::Malformed`,
