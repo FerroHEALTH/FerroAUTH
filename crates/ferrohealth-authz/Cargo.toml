@@ -4,7 +4,7 @@
 name = "ferrohealth-authz"
 description = "The policy decision of the FerroHEALTH products: the attribute-based request a policy enforcement point puts about the subject ferrohealth-smart authenticated, with an embedded Cedar engine and a remote decision point"
 # Its own version line, released by the tag ferrohealth-authz-v<version>.
-version = "0.8.0"
+version = "0.8.1"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -28,8 +28,17 @@ default = []
 # validates.
 cedar = ["dep:cedar-policy", "dep:arc-swap", "tokio/rt", "tokio/time", "dep:tracing"]
 # A remote policy decision point over HTTP, authorized with the client
-# credentials token of ferrohealth-smart.
-remote = ["dep:reqwest", "dep:http", "dep:serde_json", "dep:url", "ferrohealth-smart/fetch"]
+# credentials token of ferrohealth-smart, with the Tokio timer of the retry
+# backoff.
+remote = [
+  "dep:reqwest",
+  "dep:http",
+  "dep:serde_json",
+  "dep:url",
+  "dep:tracing",
+  "tokio/time",
+  "ferrohealth-smart/fetch",
+]
 
 [dependencies]
 async-trait.workspace = true
@@ -50,9 +59,15 @@ ferrohealth-smart = { workspace = true, default-features = false, features = ["t
 secrecy.workspace = true
 serde_json.workspace = true
 url.workspace = true
-tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "io-util"] }
 wiremock.workspace = true
 tempfile.workspace = true
+# The decision point over TLS, its certificates generated when the case runs.
+ferrohealth-config.workspace = true
+rcgen.workspace = true
+reqwest.workspace = true
+rustls.workspace = true
+tokio-rustls.workspace = true
 
 [lints]
 workspace = true

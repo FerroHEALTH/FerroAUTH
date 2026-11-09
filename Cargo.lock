@@ -1041,19 +1041,23 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "ferrohealth-authz"
-version = "0.8.0"
+version = "0.8.1"
 dependencies = [
  "arc-swap",
  "async-trait",
  "cedar-policy",
+ "ferrohealth-config",
  "ferrohealth-smart",
  "http",
+ "rcgen",
  "reqwest",
+ "rustls",
  "secrecy",
  "serde_json",
  "tempfile",
  "thiserror",
  "tokio",
+ "tokio-rustls",
  "tracing",
  "url",
  "wiremock",

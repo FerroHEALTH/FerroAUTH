@@ -14,6 +14,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-09
+
+### Added
+
+- `remote::RemotePdp::with_client` builds the remote decision point over
+  the product's own `reqwest::Client` and the `retry` table of
+  `ferrohealth-smart`'s `config::endpoint::EndpointSection`, so the point
+  of `[authz.abac.remote.endpoint]` is reached with that section's TLS and
+  connect timeout. A call is tried again, up to `retry.max_attempts` tries
+  with a backoff that doubles from `retry.initial_backoff` to
+  `retry.max_backoff`, when the point could not be reached, the try timed
+  out, or it answered a `5xx`; a `4xx`, a redirect and a refused token are
+  tried once. `RemotePdp::new` is unchanged and tries each call once
+  (#401).
+
 ## [0.8.0] - 2026-11-09
 
 Releases beside `ferrohealth-smart` 0.15.0, whose `resource::Caller` and
@@ -205,7 +220,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.8.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.8.1...HEAD
+[0.8.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.8.0...ferrohealth-authz-v0.8.1
 [0.8.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.7.0...ferrohealth-authz-v0.8.0
 [0.7.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.6.0...ferrohealth-authz-v0.7.0
 [0.6.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.5.0...ferrohealth-authz-v0.6.0
