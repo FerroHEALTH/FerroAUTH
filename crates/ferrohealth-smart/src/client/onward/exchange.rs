@@ -777,7 +777,7 @@ impl Onward {
 /// with its claims challenge, or the refusal with its status.
 fn refusal(answer: Answer) -> OnwardError {
     // NOTE: RFC 6749 §5.2 makes the error body JSON; one that is not is
-    // legitimately absent here, and the refusal keeps the raw body.
+    // legitimately absent here, and the refusal keeps none of it.
     match serde_json::from_str::<OAuthError>(&answer.body) {
         Ok(error) if error.error == "interaction_required" => {
             // NOTE: OpenID Connect Core 1.0 §5.5 names a claims request `claims`;
@@ -787,7 +787,7 @@ fn refusal(answer: Answer) -> OnwardError {
                 .and_then(|challenge| challenge.claims);
             OnwardError::InteractionRequired {
                 status: answer.status,
-                error,
+                error: error.bounded(),
                 challenge,
             }
         }

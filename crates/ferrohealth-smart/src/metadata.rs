@@ -762,24 +762,37 @@ impl Http {
             .get(http::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .map(str::to_owned);
-        let mut bytes = Vec::new();
-        loop {
-            let chunk = response
-                .chunk()
-                .await
-                .map_err(|source| DiscoveryError::Transport {
-                    url: url.clone(),
-                    source,
-                })?;
-            let Some(chunk) = chunk else { break };
-            if bytes.len().saturating_add(chunk.len()) > MAX_DOCUMENT_BYTES {
-                return Err(DiscoveryError::TooLarge { url });
-            }
-            bytes.extend_from_slice(&chunk);
-        }
-        let body = String::from_utf8_lossy(&bytes).into_owned();
+        let body = capped_body(&mut response, &url).await?;
         Ok((url, status, body, media_type))
     }
+}
+
+/// Returns the body of `response`, the answer of `url`, read up to
+/// [`MAX_DOCUMENT_BYTES`].
+///
+/// No specification governs the ceiling: our own design, so a misdirected
+/// or hostile server cannot make the process buffer a body of any size.
+#[cfg(feature = "fetch")]
+pub(crate) async fn capped_body(
+    response: &mut reqwest::Response,
+    url: &Url,
+) -> Result<String, DiscoveryError> {
+    let mut bytes = Vec::new();
+    loop {
+        let chunk = response
+            .chunk()
+            .await
+            .map_err(|source| DiscoveryError::Transport {
+                url: url.clone(),
+                source,
+            })?;
+        let Some(chunk) = chunk else { break };
+        if bytes.len().saturating_add(chunk.len()) > MAX_DOCUMENT_BYTES {
+            return Err(DiscoveryError::TooLarge { url: url.clone() });
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 #[cfg(test)]

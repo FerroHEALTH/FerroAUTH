@@ -586,8 +586,12 @@ async fn a_failing_token_endpoint_keeps_its_status_and_is_not_cached()
     let source = TokenSource::new(grant(&server)?)?;
     let error = source.token().await.expect_err("a 503 is no token");
     assert!(
-        matches!(error.as_ref(), TokenError::Refused { status, error: None, body } if *status == StatusCode::SERVICE_UNAVAILABLE && body == "restarting"),
+        matches!(error.as_ref(), TokenError::Refused { status, error: None } if *status == StatusCode::SERVICE_UNAVAILABLE),
         "{error:?}"
+    );
+    assert!(
+        !error.to_string().contains("restarting") && !format!("{error:?}").contains("restarting"),
+        "the refusal keeps nothing of the body: {error:?}"
     );
     assert_eq!(Some(StatusCode::SERVICE_UNAVAILABLE), error.status());
     assert!(source.token().await.is_ok(), "the next call fetches again");
