@@ -39,9 +39,9 @@ ferrohealth-secret = "0.2.0"
 # The family configuration types: Duration, ByteSize, the retired-key
 # refusal and the outbound TLS section. Verified against crates.io on
 # 2026-11-09.
-ferrohealth-config = "0.3.0"
+ferrohealth-config = "0.4.0"
 # The TLS reader of every FerroHEALTH product, behind `server-tls`.
-ferrohealth-server = { version = "0.7.0", default-features = false, features = ["platform-verifier"] }
+ferrohealth-server = { version = "0.8.0", default-features = false, features = ["platform-verifier"] }
 # The JSON Schema of the configuration sections, behind `schema`.
 schemars = { version = "1.2.2", default-features = false, features = ["derive", "std"] }
 # ferrohealth-authz reads the subject ferrohealth-smart authenticates; the

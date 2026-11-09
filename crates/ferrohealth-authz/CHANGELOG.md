@@ -14,6 +14,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0] - Unreleased
+
+Releases beside `ferrohealth-smart` 0.15.0, whose `resource::Caller` and
+`client::cache::TokenSource` this crate carries in its public API.
+
+### Changed
+
+- Breaking: the crate builds on `ferrohealth-smart` 0.15 and
+  `ferrohealth-config` 0.4, the family's one breaking round of
+  2026-11-09, so a product moves every family crate once (#396).
+
 ## [0.7.0] - 2026-11-09
 
 Releases beside `ferrohealth-smart` 0.13.0, whose `resource::Caller` and
