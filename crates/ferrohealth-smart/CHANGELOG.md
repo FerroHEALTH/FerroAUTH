@@ -43,6 +43,17 @@ change, so the line moves to 0.13.0.
   identity beside it as the new `DiscoveryError::PresentedTlsTwice`. The
   introspection calls of a bearer source use the grant's presented
   configuration (#357).
+- `OauthSection::resolve` reads `private_key_file`, with its previous and
+  next keys, whatever the `client_auth`, so `[<lane>.credentials.onward]
+  actor_assertion = true` names a mutual-TLS or client-secret client the
+  actor with an assertion signed by that key (RFC 8693 §2.1). Under a
+  method other than `private_key_jwt` the key signs the actor token alone
+  and the request carries no `client_assertion`; under FAPI 2.0 it is held
+  to §5.4.1's algorithms. A lane whose `private_key_file` signs nothing,
+  under another method and without `actor_assertion`, is refused as the new
+  `ConfigError::Unused`, and `previous_private_key_file` and
+  `next_private_key_file` need `private_key_file` in place of
+  `private_key_jwt` (#360).
 - The variants that refuse a JSON document carry `json::JsonError` in
   place of `serde_json::Error`: `resource::ResourceError::KeySet` and
   `KeySetRepeatedName`, `client::TokenError::Malformed`,

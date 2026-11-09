@@ -143,6 +143,7 @@ mod resolve {
             let oauth = self.oauth.as_ref().ok_or(ConfigError::Missing {
                 key: "credentials.oauth, which credentials.onward authenticates with",
             })?;
+            self.check_actor_key(oauth)?;
             section.resolve(oauth.resolve()?).map(Some)
         }
     }

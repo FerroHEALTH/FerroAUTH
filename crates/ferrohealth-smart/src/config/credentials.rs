@@ -88,7 +88,10 @@ pub struct OauthSection {
     pub client_secret: Option<SecretString>,
     /// The file holding the client secret.
     pub client_secret_file: Option<PathBuf>,
-    /// The PEM file holding the private key of the client assertion.
+    /// The PEM file holding the private key of the client assertion under
+    /// `private_key_jwt`, and of the actor assertion of an onward exchange
+    /// (`credentials.onward.actor_assertion`) whatever the client
+    /// authentication.
     pub private_key_file: Option<PathBuf>,
     /// The `kid` the assertion names; the RFC 7638 thumbprint when empty.
     pub kid: String,
@@ -179,10 +182,33 @@ impl CredentialsSection {
                     .map_err(|source| ConfigError::Basic { source })?;
                 Ok(Some(Outbound::Basic(credential)))
             }
-            (_, Some(oauth)) => oauth
-                .resolve()
-                .map(|grant| Some(Outbound::Oauth(Box::new(grant)))),
+            (_, Some(oauth)) => {
+                self.check_actor_key(oauth)?;
+                oauth
+                    .resolve()
+                    .map(|grant| Some(Outbound::Oauth(Box::new(grant))))
+            }
         }
+    }
+
+    /// Refuses a `private_key_file` that signs nothing: neither the client
+    /// assertion of `private_key_jwt` nor the actor assertion the onward
+    /// table asks for.
+    pub(crate) fn check_actor_key(&self, oauth: &OauthSection) -> Result<(), ConfigError> {
+        let actor = self
+            .onward
+            .as_ref()
+            .is_some_and(|onward| onward.actor_assertion);
+        if oauth.private_key_file.is_some()
+            && oauth.client_auth != ClientAuth::PrivateKeyJwt
+            && !actor
+        {
+            return Err(ConfigError::Unused {
+                key: "credentials.oauth.private_key_file",
+                needs: "client_auth = \"private_key_jwt\" or credentials.onward.actor_assertion = true",
+            });
+        }
+        Ok(())
     }
 }
 
@@ -282,6 +308,11 @@ impl OauthSection {
             });
         }
         grant.assertion_audience = self.assertion_audience;
+        // NOTE: RFC 8693 §2.1, the actor token is independent of the client
+        // authentication, so the key that signs it is read whatever the method.
+        if self.client_auth != ClientAuth::PrivateKeyJwt {
+            grant.assertion_keys = self.assertion_ring()?;
+        }
         grant.tls = tls;
         if !self.scope.is_empty() {
             if let Some(bad) = self.scope.split(' ').find(|token| !is_scope_token(token)) {
@@ -313,12 +344,22 @@ impl OauthSection {
     /// Returns the `private_key_jwt` grant at `endpoint`, signing with the
     /// key ring of `private_key_file` and its previous and next keys.
     fn private_key_jwt(&self, endpoint: Endpoint) -> Result<ClientCredentials, ConfigError> {
-        let path = self
-            .private_key_file
-            .as_deref()
-            .ok_or(ConfigError::Missing {
-                key: "credentials.oauth.private_key_file",
-            })?;
+        let ring = self.assertion_ring()?.ok_or(ConfigError::Missing {
+            key: "credentials.oauth.private_key_file",
+        })?;
+        Ok(ClientCredentials::with_key_ring(
+            endpoint,
+            self.client_id.clone(),
+            ring,
+        ))
+    }
+
+    /// Returns the key ring of `private_key_file` with its previous and next
+    /// keys, or `None` when the table names no `private_key_file`.
+    fn assertion_ring(&self) -> Result<Option<std::sync::Arc<KeyRing>>, ConfigError> {
+        let Some(path) = self.private_key_file.as_deref() else {
+            return Ok(None);
+        };
         let pem = std::fs::read(path).map_err(|source| ConfigError::SecretFile {
             path: path.to_path_buf(),
             source,
@@ -326,11 +367,7 @@ impl OauthSection {
         let kid = (!self.kid.is_empty()).then(|| self.kid.clone());
         let key = AssertionKey::from_pem(&pem, self.assertion_alg, kid)
             .map_err(|source| ConfigError::Key { source })?;
-        Ok(ClientCredentials::with_key_ring(
-            endpoint,
-            self.client_id.clone(),
-            std::sync::Arc::new(self.ring(key)?),
-        ))
+        Ok(Some(std::sync::Arc::new(self.ring(key)?)))
     }
 
     /// Returns `grant` with the table's `authorization_details` and security
@@ -618,11 +655,11 @@ impl OauthSection {
                 "{table}: set one of dpop_key_file and certificate_bound, not both"
             ));
         }
-        if self.client_auth != ClientAuth::PrivateKeyJwt
+        if self.private_key_file.is_none()
             && (self.previous_private_key_file.is_some() || self.next_private_key_file.is_some())
         {
             out.push(format!(
-                "{table}: previous_private_key_file and next_private_key_file need client_auth = \"private_key_jwt\""
+                "{table}: previous_private_key_file and next_private_key_file need private_key_file"
             ));
         }
         if self.security_profile != ProfileKind::Fapi2 && !self.mtls_alias_hosts.is_empty() {

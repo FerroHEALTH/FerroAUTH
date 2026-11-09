@@ -179,6 +179,102 @@ async fn a_lane_asking_for_the_actor_assertion_names_its_client_the_actor() {
     );
 }
 
+/// Returns the `oauth` body of a client authenticating with `client_auth`
+/// (`client_secret_basic` or `tls_client_auth`) that also names `client`'s
+/// key as its `private_key_file`.
+fn with_actor_key(client: &ClientKey, client_auth: &str) -> String {
+    let key = temp_file("onward-actor.pem", &client.key.pem);
+    let credential = if client_auth == "tls_client_auth" {
+        let pair = rcgen::KeyPair::generate().expect("a key pair");
+        let certificate = rcgen::CertificateParams::new(vec![String::from("bridge.example.org")])
+            .expect("the parameters")
+            .self_signed(&pair)
+            .expect("a certificate");
+        let certificate_file = temp_file("onward-client.crt", certificate.pem().as_bytes());
+        let key_file = temp_file("onward-client.key", pair.serialize_pem().as_bytes());
+        format!(
+            "client_certificate_file = \"{}\"\nclient_key_file = \"{}\"",
+            certificate_file.display(),
+            key_file.display()
+        )
+    } else {
+        let secret = temp_file("onward-secret", b"password\n");
+        format!("client_secret_file = \"{}\"", secret.display())
+    };
+    format!(
+        "issuer = \"https://as.example.org\"\nclient_id = \"bridge\"\nclient_auth = \"{client_auth}\"\n{credential}\nprivate_key_file = \"{}\"\nkid = \"{}\"\nassertion_alg = \"ES384\"",
+        key.display(),
+        client.key.kid
+    )
+}
+
+#[tokio::test]
+async fn a_secret_or_mutual_tls_client_names_itself_the_actor_with_its_own_key() {
+    // NOTE: RFC 8693 §2.1, the actor token is independent of the client authentication.
+    for client_auth in ["client_secret_basic", "tls_client_auth"] {
+        let server = MockServer::start().await;
+        let client = ClientKey::new();
+        let section = lane(
+            &with_actor_key(&client, client_auth),
+            &format!(
+                "issuer = \"https://as.example.org\"\nkind = \"persons\"\ntoken_endpoint = \"{}/token\"\n\
+                 audiences = [\"https://ehr.example.org\"]\nindicators = [\"https://ehr.example.org/api\"]\nactor_assertion = true\n\
+                 [onward.keys]\nmax_onward_lifetime = 3600\nfirst_party_clients = [\"portal\"]",
+                server.uri()
+            ),
+        );
+        let lane = resolved(&section).expect("the lane loads");
+        assert!(lane.onward.asserts_actor(), "{client_auth}");
+        let key = ec_key("as-2026", jsonwebtoken::Algorithm::ES256);
+        let claims = Flavor::Generic.subject_claims(now());
+        let issued = Flavor::Generic.issued_claims(&claims, now());
+        answer(
+            &server,
+            "/token",
+            ResponseTemplate::new(200)
+                .set_body_json(Flavor::Generic.response(&sign(&key, &issued))),
+        )
+        .await;
+        let subject = subject_of(&sign(&key, &claims), &claims, CallerKind::Person);
+        lane.onward
+            .token(&subject, None, &lane.target)
+            .await
+            .expect("the exchange succeeds");
+        let sent = received(&server).await;
+        let form = sent.first().expect("one request");
+        assert_eq!(
+            Some("urn:ietf:params:oauth:token-type:jwt"),
+            param(form, "actor_token_type"),
+            "{client_auth}"
+        );
+        assert!(param(form, "actor_token").is_some(), "{client_auth}");
+        assert_eq!(None, param(form, "client_assertion"), "{client_auth}");
+        assert_eq!(None, param(form, "client_assertion_type"), "{client_auth}");
+    }
+}
+
+#[test]
+fn a_private_key_file_that_signs_nothing_fails_to_load_naming_the_key() {
+    let section = lane(
+        &with_actor_key(&ClientKey::new(), "client_secret_basic"),
+        "issuer = \"https://as.example.org\"\nkind = \"persons\"\ntoken_endpoint = \"https://as.example.org/token\"\n\
+         audiences = [\"https://ehr.example.org\"]\nindicators = [\"https://ehr.example.org/api\"]\n\
+         [onward.keys]\nmax_onward_lifetime = 3600\nfirst_party_clients = [\"portal\"]",
+    );
+    let refused = resolved(&section);
+    assert!(
+        matches!(
+            &refused,
+            Err(ConfigError::Unused {
+                key: "credentials.oauth.private_key_file",
+                ..
+            })
+        ),
+        "{refused:?}"
+    );
+    assert!(matches!(section.resolve(), Err(ConfigError::Unused { .. })));
+}
+
 #[test]
 fn the_actor_assertion_without_an_assertion_key_fails_to_load_naming_the_key() {
     let section = lane(
