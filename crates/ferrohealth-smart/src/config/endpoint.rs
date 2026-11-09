@@ -77,6 +77,21 @@ impl Default for RetrySection {
     }
 }
 
+impl RetrySection {
+    /// Returns the waits between the tries of one call: `max_attempts - 1`
+    /// of them, the first `initial_backoff` and each later one twice the one
+    /// before, never longer than `max_backoff`.
+    pub fn delays(&self) -> impl Iterator<Item = std::time::Duration> + use<> {
+        let max = self.max_backoff.get();
+        let first = self.initial_backoff.get().min(max);
+        let retries = usize::try_from(self.max_attempts.saturating_sub(1)).unwrap_or(usize::MAX);
+        std::iter::successors(Some(first), move |delay: &std::time::Duration| {
+            Some(delay.saturating_mul(2).min(max))
+        })
+        .take(retries)
+    }
+}
+
 impl EndpointSection {
     /// Checks the table and returns its URL: a URL is set and parses, the
     /// timeouts are not zero, a call is tried at least once, and the
