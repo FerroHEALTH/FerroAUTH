@@ -349,9 +349,12 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The pull request's merge commit and its first parent, the base, so
+      # the check judges only a change that reaches a crate.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 2
       - uses: ./.github/actions/setup-rust
         with:
           cache-save-if: "false"
@@ -361,7 +364,7 @@ jobs:
       - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
           tool: cargo-semver-checks@${{ steps.pin.outputs.version }}
-      - run: bash scripts/checks/semver.sh
+      - run: bash scripts/checks/semver.sh --changed HEAD^1
 
   # No cache: the dry run checks the bytes a publish would upload.
   publish-dry-run:
