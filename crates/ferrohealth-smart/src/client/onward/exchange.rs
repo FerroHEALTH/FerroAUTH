@@ -757,7 +757,11 @@ impl Onward {
     async fn token_endpoint(&self) -> Result<Url, OnwardError> {
         let inner = &self.inner;
         match (inner.token_endpoint.get(), &inner.credentials.endpoint) {
-            (Some(url), _) | (None, Endpoint::Token(url)) => Ok(url.clone()),
+            (Some(url), _) => Ok(url.clone()),
+            (None, Endpoint::Token(url)) => {
+                crate::client::check_token_endpoint(url, "configured token endpoint")?;
+                Ok(url.clone())
+            }
             (None, Endpoint::Issuer(issuer)) => {
                 let grant_type = inner.issuer.profile.onward_grant.grant_type();
                 let url =

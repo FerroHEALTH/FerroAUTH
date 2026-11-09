@@ -450,7 +450,11 @@ impl Inner {
     /// only the issuer is configured.
     async fn fetch(&self) -> Result<Token, TokenError> {
         let endpoint = match (self.token_endpoint.get(), &self.config.endpoint) {
-            (Some(url), _) | (None, Endpoint::Token(url)) => url.clone(),
+            (Some(url), _) => url.clone(),
+            (None, Endpoint::Token(url)) => {
+                crate::client::check_token_endpoint(url, "configured token endpoint")?;
+                url.clone()
+            }
             (None, Endpoint::Issuer(issuer)) => {
                 let url =
                     endpoint::discover(&self.http, issuer, &self.config, &["client_credentials"])
