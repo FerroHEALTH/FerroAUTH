@@ -87,3 +87,5 @@ mod support;
 mod tls;
 #[cfg(feature = "fetch")]
 mod token;
+#[cfg(feature = "fetch")]
+mod token_endpoint_shape;

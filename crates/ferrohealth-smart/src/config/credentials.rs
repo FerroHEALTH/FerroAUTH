@@ -242,10 +242,16 @@ impl OauthSection {
                     .map_err(|source| ConfigError::OauthIssuer { source })?;
                 Endpoint::Issuer(self.issuer.clone())
             }
-            (true, false) => Endpoint::Token(parse_url(
-                &self.token_endpoint,
-                "credentials.oauth.token_endpoint",
-            )?),
+            (true, false) => {
+                let url = parse_url(&self.token_endpoint, "credentials.oauth.token_endpoint")?;
+                if let Some(part) = crate::client::forbidden_part(&url) {
+                    return Err(ConfigError::TokenEndpoint {
+                        key: "credentials.oauth.token_endpoint",
+                        part,
+                    });
+                }
+                Endpoint::Token(url)
+            }
         };
         if self.client_id.is_empty() {
             return Err(ConfigError::Missing {
@@ -496,11 +502,16 @@ impl OauthSection {
                     ));
                 }
             }
-            (true, false) => {
-                if self.token_endpoint.parse::<Url>().is_err() {
-                    out.push(format!("{table}.token_endpoint is not a URL"));
+            (true, false) => match self.token_endpoint.parse::<Url>() {
+                Err(_malformed) => out.push(format!("{table}.token_endpoint is not a URL")),
+                Ok(url) => {
+                    if let Some(part) = crate::client::forbidden_part(&url) {
+                        out.push(format!(
+                            "{table}.token_endpoint carries {part}, which a token endpoint must not (RFC 6749 §3.2, RFC 9110 §4.2.4)"
+                        ));
+                    }
                 }
-            }
+            },
         }
         if self.client_id.is_empty() {
             out.push(format!("{table}.client_id must not be empty"));

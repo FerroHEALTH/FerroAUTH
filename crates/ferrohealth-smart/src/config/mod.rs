@@ -61,6 +61,17 @@ pub enum ConfigError {
         #[source]
         source: crate::sender::proof::ProofSettingsError,
     },
+    /// A token endpoint carries userinfo or a fragment (RFC 6749 §3.2, RFC
+    /// 9110 §4.2.4); the URL is never quoted.
+    #[error(
+        "{key} carries {part}, which a token endpoint must not (RFC 6749 §3.2, RFC 9110 §4.2.4)"
+    )]
+    TokenEndpoint {
+        /// The key.
+        key: &'static str,
+        /// What it carries: `userinfo` or a `fragment`.
+        part: &'static str,
+    },
     /// A key the section needs is not set, or does not parse.
     #[error("{key} is not set or does not parse")]
     Missing {

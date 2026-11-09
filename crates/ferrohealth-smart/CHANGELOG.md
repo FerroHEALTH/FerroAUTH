@@ -56,6 +56,17 @@ change, so the line moves to 0.13.0.
   document and has no source. To upgrade, read `category()` where a product
   called `classify()` on the source (#351).
 
+### Fixed
+
+- A token endpoint that carries userinfo (RFC 9110 §4.2.4) or a fragment
+  (RFC 6749 §3.2) is refused on the OAuth 2.0 path as the FAPI 2.0 path
+  refused it: `OauthSection::resolve` and `problems` refuse a configured
+  one as the new `ConfigError::TokenEndpoint`, and `ClientCredentials::validate`,
+  `TokenSource` and the onward exchange refuse a programmatic or
+  discovered one (`token_endpoint` or `mtls_endpoint_aliases.token_endpoint`)
+  as the new `TokenError::TokenEndpointShape` before anything is sent.
+  Neither quotes the URL. A query stays admitted (RFC 6749 §3.2) (#359).
+
 ### Security
 
 Shipped with functional changes because: the fix is the change of the error type the Changed entry names, so the two cannot ship apart.

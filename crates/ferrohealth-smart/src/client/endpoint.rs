@@ -92,11 +92,21 @@ pub(super) async fn discover(
         .as_ref()
         .and_then(|aliases| aliases.token_endpoint.as_deref())
         .filter(|_alias| config.tls.presents_identity());
-    alias
-        .or(metadata.token_endpoint.as_deref())
-        .ok_or(TokenError::NoTokenEndpoint)?
+    let (member, text) = match alias {
+        Some(alias) => ("mtls_endpoint_aliases.token_endpoint", alias),
+        None => (
+            "token_endpoint",
+            metadata
+                .token_endpoint
+                .as_deref()
+                .ok_or(TokenError::NoTokenEndpoint)?,
+        ),
+    };
+    let url: Url = text
         .parse()
-        .map_err(|source| TokenError::TokenEndpointUrl { source })
+        .map_err(|source| TokenError::TokenEndpointUrl { source })?;
+    crate::client::check_token_endpoint(&url, member)?;
+    Ok(url)
 }
 
 /// Returns the access token response `endpoint` answers the client

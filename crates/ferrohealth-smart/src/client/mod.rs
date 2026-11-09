@@ -123,6 +123,27 @@ pub enum AssertionAudience {
     Issuer,
 }
 
+/// Returns what of `url` a token endpoint must not carry: `userinfo`
+/// (RFC 9110 §4.2.4, RFC 3986 §3.2.1) or a `fragment` (RFC 6749 §3.2). A
+/// query is admitted (RFC 6749 §3.2).
+pub(crate) fn forbidden_part(url: &Url) -> Option<&'static str> {
+    if !url.username().is_empty() || url.password().is_some() {
+        Some("userinfo")
+    } else if url.fragment().is_some() {
+        Some("a fragment")
+    } else {
+        None
+    }
+}
+
+/// Refuses the token endpoint `url`, named by `member`, when it carries
+/// what [`forbidden_part`] finds.
+pub(crate) fn check_token_endpoint(url: &Url, member: &'static str) -> Result<(), TokenError> {
+    forbidden_part(url).map_or(Ok(()), |part| {
+        Err(TokenError::TokenEndpointShape { member, part })
+    })
+}
+
 /// The TLS material of the token endpoint connection: trust roots added to
 /// the built-in ones, and the client certificate of RFC 8705 mutual TLS,
 /// either as PEM or as a TLS configuration the product built.
@@ -469,7 +490,8 @@ impl ClientCredentials {
     /// Returns [`TokenError::Credential`] naming what is missing: a secret,
     /// an assertion key, a client certificate under a mutual-TLS method or
     /// a certificate binding, or the issuer an issuer assertion audience
-    /// names; and [`TokenError::Fapi2`] for a FAPI 2.0 grant that breaks a
+    /// names; [`TokenError::TokenEndpointShape`] for a configured token
+    /// endpoint with userinfo or a fragment; and [`TokenError::Fapi2`] for a FAPI 2.0 grant that breaks a
     /// rule of the profile.
     pub fn validate(&self) -> Result<(), TokenError> {
         self.validate_credential()?;
@@ -481,6 +503,9 @@ impl ClientCredentials {
 
     /// Checks that the grant carries the credential its method needs.
     fn validate_credential(&self) -> Result<(), TokenError> {
+        if let Endpoint::Token(url) = &self.endpoint {
+            check_token_endpoint(url, "configured token endpoint")?;
+        }
         // NOTE: RFC 8705 §3, a certificate-bound token is bound to the certificate
         // the client presents, so a grant that presents none cannot take one.
         if matches!(self.token_binding, Some(TokenBinding::Certificate))
@@ -571,6 +596,19 @@ pub enum TokenError {
     /// The metadata names no token endpoint.
     #[error("the authorization server metadata names no token_endpoint")]
     NoTokenEndpoint,
+    /// The token endpoint carries userinfo or a fragment, which RFC 6749
+    /// §3.2 and RFC 9110 §4.2.4 keep out of a token endpoint; the URL is
+    /// never quoted.
+    #[error(
+        "the {member} carries {part}, which a token endpoint must not (RFC 6749 §3.2, RFC 9110 §4.2.4)"
+    )]
+    TokenEndpointShape {
+        /// Where the endpoint came from: the configured endpoint or the
+        /// metadata member that named it.
+        member: &'static str,
+        /// What it carries: `userinfo` or a `fragment`.
+        part: &'static str,
+    },
     /// The metadata names a token endpoint that is not a URL.
     #[error("the authorization server metadata names a token endpoint that is not a URL")]
     TokenEndpointUrl {
