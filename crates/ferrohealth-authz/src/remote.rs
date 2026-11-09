@@ -15,13 +15,17 @@
 //! the point is no decision: an [`AuthzError::Remote`] carrying the status
 //! when there was one. Under a client credentials grant the call carries the
 //! token of `ferrohealth-smart`, sent once more under a new token on a
-//! `401`; a second `401` is no decision either. The wire contract is our
-//! own design; no specification governs it.
+//! `401`; a second `401` is no decision either. A point built with
+//! [`RemotePdp::with_client`] calls over the product's own HTTP client and
+//! tries a call again, under the `retry` table of the endpoint, when the
+//! point could not be reached or answered a `5xx`. The wire contract and the
+//! retry rule are our own design; no specification governs them.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
 use ferrohealth_smart::client::cache::TokenSource;
+use ferrohealth_smart::config::endpoint::RetrySection;
 use ferrohealth_smart::kind::CallerKind;
 use http::StatusCode;
 use url::Url;
@@ -89,43 +93,87 @@ pub enum RemoteError {
 pub struct RemotePdp {
     client: reqwest::Client,
     settings: RemoteSettings,
+    retry: RetrySection,
     token: Option<TokenSource>,
 }
 
 impl RemotePdp {
     /// Returns the point `settings` describe, authorized by `token` when
     /// given; without one, credentials in the server URL travel as HTTP
-    /// Basic, as the HTTP client sends them.
+    /// Basic, as the HTTP client sends them. Each call is tried once.
     ///
     /// # Errors
     ///
     /// [`AuthzError::Remote`] when the server URL is not `http` or `https`
     /// or does not end with `/`, or the HTTP client cannot be built.
     pub fn new(settings: RemoteSettings, token: Option<TokenSource>) -> Result<Self, AuthzError> {
-        if !matches!(settings.server.scheme(), "http" | "https") {
-            return Err(remote(RemoteError::Settings {
-                reason: "the server is not an http or https URL",
-            }));
-        }
-        if !settings.server.path().ends_with('/') {
-            return Err(remote(RemoteError::Settings {
-                reason: "the server URL does not end with /",
-            }));
-        }
+        check(&settings)?;
         let client = reqwest::Client::builder()
             .connect_timeout(settings.connect_timeout)
             .timeout(settings.request_timeout)
             .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|error| remote(RemoteError::Transport(error)))?;
+        let retry = RetrySection {
+            max_attempts: 1,
+            ..RetrySection::default()
+        };
         Ok(Self {
             client,
             settings,
+            retry,
             token,
         })
     }
 
-    /// Asks the point about one combination: `Ok(true)` permits.
+    /// Returns the point `settings` describe, reached over `client` and
+    /// tried again as `retry` allows, authorized by `token` when given.
+    ///
+    /// The product builds `client` from the integration's
+    /// [`EndpointSection`](ferrohealth_smart::config::endpoint::EndpointSection),
+    /// so its TLS and its connect timeout are the section's, and turns its
+    /// redirects off: a redirect is no decision. Each try is bounded by
+    /// `settings.request_timeout`; `settings.connect_timeout` is not read,
+    /// since the client carries its own. A call is tried again when the
+    /// point could not be reached, the try timed out, or the point answered
+    /// a `5xx`, up to `retry.max_attempts` tries in all, waiting
+    /// `retry.initial_backoff` before the second and twice as long before
+    /// each later one, never longer than `retry.max_backoff`. A `4xx` is a
+    /// decision, and a redirect or a second `401` are faults another try
+    /// does not mend, so none of them is tried again.
+    ///
+    /// # Errors
+    ///
+    /// [`AuthzError::Remote`] when the server URL is not `http` or `https`
+    /// or does not end with `/`, `retry.max_attempts` is 0, or
+    /// `retry.initial_backoff` is longer than `retry.max_backoff`.
+    pub fn with_client(
+        settings: RemoteSettings,
+        client: reqwest::Client,
+        retry: RetrySection,
+        token: Option<TokenSource>,
+    ) -> Result<Self, AuthzError> {
+        check(&settings)?;
+        if retry.max_attempts == 0 {
+            return Err(remote(RemoteError::Settings {
+                reason: "retry.max_attempts is 0; 1 tries once",
+            }));
+        }
+        if retry.initial_backoff > retry.max_backoff {
+            return Err(remote(RemoteError::Settings {
+                reason: "retry.initial_backoff is longer than retry.max_backoff",
+            }));
+        }
+        Ok(Self {
+            client,
+            settings,
+            retry,
+            token,
+        })
+    }
+
+    /// Asks the point about one combination, as often as the retry table
+    /// allows: `Ok(true)` permits.
     async fn permits(
         &self,
         binding: &Binding,
@@ -142,26 +190,54 @@ impl RemotePdp {
                 })
             })?;
         let body = body(binding, request, combination);
+        let max_backoff = Duration::from(self.retry.max_backoff);
+        let mut backoff = Duration::from(self.retry.initial_backoff);
+        let mut attempt = 1;
+        loop {
+            match self.try_once(&url, &body).await {
+                Err(error) if attempt < self.retry.max_attempts && retried(&error) => {
+                    tracing::warn!(
+                        attempt,
+                        delay_ms = backoff.as_millis(),
+                        "retrying a call to the remote policy point"
+                    );
+                    tokio::time::sleep(backoff).await;
+                    backoff = backoff.saturating_mul(2).min(max_backoff);
+                    attempt += 1;
+                }
+                outcome => return outcome.map_err(remote),
+            }
+        }
+    }
+
+    /// Posts `body` to `url` once: `Ok(true)` permits.
+    async fn try_once(
+        &self,
+        url: &Url,
+        body: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<bool, RemoteError> {
         let send = |bearer: Option<http::HeaderValue>| {
-            let mut call = self.client.post(url.clone()).json(&body);
+            let mut call = self
+                .client
+                .post(url.clone())
+                .timeout(self.settings.request_timeout)
+                .json(body);
             if let Some(bearer) = bearer {
                 call = call.header(http::header::AUTHORIZATION, bearer);
             }
             call.send()
         };
         let response = match &self.token {
-            None => send(None)
-                .await
-                .map_err(|error| remote(RemoteError::Transport(error)))?,
+            None => send(None).await.map_err(RemoteError::Transport)?,
             Some(token) => {
                 let response = token
                     .call(|bearer| send(Some(bearer)))
                     .await
-                    .map_err(|error| remote(RemoteError::Token(Box::new(error))))?;
+                    .map_err(|error| RemoteError::Token(Box::new(error)))?;
                 if response.status() == StatusCode::UNAUTHORIZED {
-                    return Err(remote(RemoteError::Status {
+                    return Err(RemoteError::Status {
                         status: StatusCode::UNAUTHORIZED,
-                    }));
+                    });
                 }
                 response
             }
@@ -172,8 +248,33 @@ impl RemotePdp {
         } else if status.is_client_error() {
             Ok(false)
         } else {
-            Err(remote(RemoteError::Status { status }))
+            Err(RemoteError::Status { status })
         }
+    }
+}
+
+/// Checks the server URL, as every constructor does.
+fn check(settings: &RemoteSettings) -> Result<(), AuthzError> {
+    if !matches!(settings.server.scheme(), "http" | "https") {
+        return Err(remote(RemoteError::Settings {
+            reason: "the server is not an http or https URL",
+        }));
+    }
+    if !settings.server.path().ends_with('/') {
+        return Err(remote(RemoteError::Settings {
+            reason: "the server URL does not end with /",
+        }));
+    }
+    Ok(())
+}
+
+/// Whether another try may reach a decision: the point was not reached, or
+/// it answered a `5xx`.
+fn retried(error: &RemoteError) -> bool {
+    match error {
+        RemoteError::Transport(_) => true,
+        RemoteError::Status { status } => status.is_server_error(),
+        RemoteError::Settings { .. } | RemoteError::Unbound { .. } | RemoteError::Token(_) => false,
     }
 }
 

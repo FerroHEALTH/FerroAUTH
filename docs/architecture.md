@@ -2213,11 +2213,16 @@ generalised so FerroFED and FerroPIX use it too (owner decision 2026-10-25).
   binding names; `200` permits, a `4xx` denies, and every other answer, a
   redirect included, is no decision. Under a client credentials grant the
   call carries `ferrohealth-smart`'s token and is sent once more under a new
-  token on a `401`. The wire contract is our own design.
+  token on a `401`. `RemotePdp::with_client` takes the product's HTTP
+  client, built from the integration's endpoint table with its TLS, and that
+  table's `retry`: a call that did not reach the point, timed out or met a
+  `5xx` is tried again with a doubling, bounded backoff, and a `4xx`, a
+  redirect or a refused token is not. The wire contract and the retry rule
+  are our own design.
 - **Dependencies.** Without a feature the crate holds the request model and
   the trait alone. `cedar` adds `cedar-policy`, `arc-swap` and the Tokio
   timer of the reload; `remote` adds the HTTP client through
-  `ferrohealth-smart`'s `fetch`.
+  `ferrohealth-smart`'s `fetch` and the Tokio timer of the retry backoff.
 - **Releases.** The crate keeps its own version line and changelog,
   released by the tag `ferrohealth-authz-vX.Y.Z` through the same release and
   publish lanes as `ferrohealth-smart` (`docs/release.md`).

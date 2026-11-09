@@ -15,4 +15,6 @@
 mod cedar;
 #[cfg(feature = "remote")]
 mod remote;
+#[cfg(feature = "remote")]
+mod remote_endpoint;
 mod subject;

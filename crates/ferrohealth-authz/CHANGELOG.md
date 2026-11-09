@@ -14,6 +14,19 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `remote::RemotePdp::with_client` builds the remote decision point over
+  the product's own `reqwest::Client` and the `retry` table of
+  `ferrohealth-smart`'s `config::endpoint::EndpointSection`, so the point
+  of `[authz.abac.remote.endpoint]` is reached with that section's TLS and
+  connect timeout. A call is tried again, up to `retry.max_attempts` tries
+  with a backoff that doubles from `retry.initial_backoff` to
+  `retry.max_backoff`, when the point could not be reached, the try timed
+  out, or it answered a `5xx`; a `4xx`, a redirect and a refused token are
+  tried once. `RemotePdp::new` is unchanged and tries each call once
+  (#401).
+
 ## [0.8.0] - 2026-11-09
 
 Releases beside `ferrohealth-smart` 0.15.0, whose `resource::Caller` and
