@@ -17,13 +17,20 @@ use url::Url;
 
 use crate::config::ConfigError;
 use crate::config::credentials::CredentialsSection;
+use crate::config::mask_userinfo;
+use crate::config::shapes;
 
 /// One outbound integration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+///
+/// `Debug` and `Serialize` render `url` with its userinfo and its query
+/// masked ([`mask_userinfo`]), so a product that logs or dumps the section
+/// writes no credential the URL carries.
+#[derive(Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
 pub struct EndpointSection {
     /// The service's URL (RFC 3986); required.
+    #[serde(serialize_with = "shapes::masked_url")]
     pub url: String,
     /// How long one whole call may take; never zero.
     pub timeout: Duration,
@@ -38,6 +45,19 @@ pub struct EndpointSection {
     /// The credential the calls carry: HTTP Basic or the client credentials
     /// grant.
     pub credentials: CredentialsSection,
+}
+
+impl std::fmt::Debug for EndpointSection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EndpointSection")
+            .field("url", &mask_userinfo(&self.url))
+            .field("timeout", &self.timeout)
+            .field("connect_timeout", &self.connect_timeout)
+            .field("retry", &self.retry)
+            .field("tls", &self.tls)
+            .field("credentials", &self.credentials)
+            .finish()
+    }
 }
 
 impl Default for EndpointSection {
