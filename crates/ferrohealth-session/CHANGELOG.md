@@ -16,6 +16,12 @@ and this project adheres to
 
 ## [0.9.0] - 2026-11-09
 
+### Changed
+
+- Breaking: the crate builds on `ferrohealth-smart` 0.15 and
+  `ferrohealth-config` 0.4, the family's one breaking round of 2026-11-09
+  (#396).
+
 ### Removed
 
 - Breaking: the named refusals of the keys 0.8.0 retired are deleted,
