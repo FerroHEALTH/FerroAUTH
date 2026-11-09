@@ -17,7 +17,7 @@ use ferrohealth_smart::client::CallError;
 use ferrohealth_smart::client::ClientAuth;
 use ferrohealth_smart::client::ClientCredentials;
 use ferrohealth_smart::client::Endpoint;
-use ferrohealth_smart::client::Tls;
+use ferrohealth_smart::client::PresentedTls;
 use ferrohealth_smart::client::TokenError;
 use ferrohealth_smart::client::assertion::ASSERTION_TYPE;
 use ferrohealth_smart::client::assertion::AssertionKey;
@@ -859,9 +859,16 @@ async fn a_failed_call_is_the_calls_own_error() -> Result<(), Box<dyn StdError>>
     Ok(())
 }
 
-/// Returns `pem` as the shared identity of a mutual-TLS grant.
-fn identity(pem: Vec<u8>) -> Arc<secrecy::SecretSlice<u8>> {
-    Arc::new(secrecy::SecretSlice::from(pem))
+/// The configuration a product builds for `endpoint`, trusting its
+/// authority when `roots` and presenting its client certificate.
+fn presented(
+    endpoint: &crate::tls::MutualTls,
+    roots: bool,
+) -> Result<PresentedTls, Box<dyn StdError + Send + Sync>> {
+    crate::tls::presented_pem(
+        if roots { &endpoint.ca_pem } else { "" },
+        Some((&endpoint.client_certificate_pem, &endpoint.client_key_pem)),
+    )
 }
 
 // NOTE: RFC 8705 §2, the TLS connection carries the client certificate and
@@ -870,14 +877,13 @@ fn identity(pem: Vec<u8>) -> Arc<secrecy::SecretSlice<u8>> {
 async fn mutual_tls_presents_the_certificate_and_sends_the_client_id()
 -> Result<(), Box<dyn StdError>> {
     let endpoint = crate::tls::start("synthetic-mtls-token").await;
-    let mut config = ClientCredentials::with_mutual_tls(
+    let mut config = ClientCredentials::with_presented_tls(
         Endpoint::Token(endpoint.url.parse()?),
         String::from("ferrofed"),
-        identity(endpoint.identity()),
+        presented(&endpoint, true).map_err(|error| error.to_string())?,
         false,
     );
     assert_eq!(ClientAuth::TlsClientAuth, config.client_auth);
-    config.tls.root_certificates = Some(endpoint.ca_pem.clone().into_bytes());
     config.timeout = Duration::from_secs(5);
     assert!(
         !format!("{config:?}").contains("PRIVATE KEY"),
@@ -912,7 +918,8 @@ async fn a_mutual_tls_endpoint_refuses_a_client_without_a_certificate_or_roots()
         String::from("ferrofed"),
         SecretString::from("synthetic-secret"),
     );
-    without_certificate.tls.root_certificates = Some(endpoint.ca_pem.clone().into_bytes());
+    without_certificate.tls.presented =
+        Some(crate::tls::presented_pem(&endpoint.ca_pem, None).map_err(|error| error.to_string())?);
     without_certificate.timeout = Duration::from_secs(5);
     let refused = TokenSource::new(without_certificate)?
         .token()
@@ -925,10 +932,10 @@ async fn a_mutual_tls_endpoint_refuses_a_client_without_a_certificate_or_roots()
         ),
         "{refused:?}"
     );
-    let mut without_roots = ClientCredentials::with_mutual_tls(
+    let mut without_roots = ClientCredentials::with_presented_tls(
         Endpoint::Token(endpoint.url.parse()?),
         String::from("ferrofed"),
-        identity(endpoint.identity()),
+        presented(&endpoint, false).map_err(|error| error.to_string())?,
         true,
     );
     without_roots.timeout = Duration::from_secs(5);
@@ -944,24 +951,6 @@ async fn a_mutual_tls_endpoint_refuses_a_client_without_a_certificate_or_roots()
         "{refused:?}"
     );
     assert!(endpoint.seen().is_empty(), "no request completed");
-    let garbage = Tls {
-        root_certificates: Some(b"not a certificate".to_vec()),
-        identity: None,
-        presented: None,
-    };
-    assert!(matches!(
-        Http::with_tls(Duration::from_secs(5), &garbage),
-        Err(DiscoveryError::NoRootCertificate)
-    ));
-    let garbage = Tls {
-        root_certificates: None,
-        identity: Some(identity(b"not a key".to_vec())),
-        presented: None,
-    };
-    assert!(matches!(
-        Http::with_tls(Duration::from_secs(5), &garbage),
-        Err(DiscoveryError::Tls { .. })
-    ));
     Ok(())
 }
 
@@ -992,10 +981,10 @@ async fn a_client_with_a_certificate_uses_the_mutual_tls_alias() -> Result<(), B
         .respond_with(issued("synthetic-plain-token", 300))
         .mount(&server)
         .await;
-    let mutual = ClientCredentials::with_mutual_tls(
+    let mutual = ClientCredentials::with_presented_tls(
         Endpoint::Issuer(server.uri()),
         String::from("ferrofed"),
-        identity(endpoint.identity()),
+        presented(&endpoint, false).map_err(|error| error.to_string())?,
         false,
     );
     let token = TokenSource::new(mutual)?
@@ -1082,55 +1071,55 @@ async fn a_product_http_client_reaches_the_token_endpoint() -> Result<(), Box<dy
 }
 
 #[test]
-fn the_oauth_table_reads_its_tls_material_at_load() -> Result<(), Box<dyn StdError>> {
+fn the_oauth_table_takes_its_tls_from_the_product_s_builder() -> Result<(), Box<dyn StdError>> {
     let runtime = tokio::runtime::Runtime::new()?;
     let endpoint = runtime.block_on(crate::tls::start("unused"));
-    let certificate = temp_file("client.crt", endpoint.client_certificate_pem.as_bytes());
-    let key = temp_file("client.key", endpoint.client_key_pem.as_bytes());
+    let identity = temp_file(
+        "client.pem",
+        format!(
+            "{}{}",
+            endpoint.client_certificate_pem, endpoint.client_key_pem
+        )
+        .as_bytes(),
+    );
     let ca = temp_file("ca.crt", endpoint.ca_pem.as_bytes());
-    let garbage = temp_file("garbage.pem", b"not a certificate");
     let table = |toml: &str| -> Result<OauthSection, Box<dyn StdError>> {
         Ok(toml::from_str(&format!(
             "token_endpoint = \"https://as.example.org/token\"\nclient_id = \"ferrofed\"\n{toml}"
         ))?)
     };
-    let paths = format!(
-        "client_certificate_file = {certificate:?}
-client_key_file = {key:?}
-ca_file = {ca:?}
-"
-    );
-    let grant = table(&format!("client_auth = \"tls_client_auth\"\n{paths}"))?.resolve()?;
+    let tls = format!("[tls]\nclient_identity_file = {identity:?}\ntrust_roots_file = {ca:?}\n");
+    let grant = table(&format!("client_auth = \"tls_client_auth\"\n{tls}"))?
+        .resolve_with_tls(&crate::tls::PemTls)?;
     assert_eq!(ClientAuth::TlsClientAuth, grant.client_auth);
-    assert!(grant.tls.identity.is_some());
-    assert!(grant.tls.root_certificates.is_some());
+    assert!(grant.tls.presents_identity());
     let grant = table(&format!(
-        "client_auth = \"self_signed_tls_client_auth\"\n{paths}"
+        "client_auth = \"self_signed_tls_client_auth\"\n{tls}"
     ))?
-    .resolve()?;
+    .resolve_with_tls(&crate::tls::PemTls)?;
     assert_eq!(ClientAuth::SelfSignedTlsClientAuth, grant.client_auth);
     assert!(matches!(
-        table("client_auth = \"tls_client_auth\"")?.resolve(),
-        Err(ConfigError::Missing {
-            key: "credentials.oauth.client_certificate_file"
+        table(&format!("client_auth = \"tls_client_auth\"\n{tls}"))?.resolve(),
+        Err(ConfigError::TlsNotBuilt {
+            key: "credentials.oauth.tls"
         })
     ));
     assert!(matches!(
-        table(&format!(
-            "client_auth = \"tls_client_auth\"\nclient_certificate_file = {certificate:?}"
-        ))?
-        .resolve(),
-        Err(ConfigError::Missing {
-            key: "credentials.oauth.client_key_file"
-        })
+        table("client_auth = \"tls_client_auth\"")?.resolve_with_tls(&crate::tls::PemTls),
+        Err(ConfigError::Missing { .. })
     ));
-    assert!(matches!(
-        table(&format!(
-            "client_secret = \"synthetic-secret\"\nca_file = {garbage:?}"
-        ))?
-        .resolve(),
-        Err(ConfigError::Tls { .. })
-    ));
+    let retired = table(
+        "client_secret = \"synthetic-secret\"\nca_file = \"/run/ca.pem\"\ntimeout_ms = 5000\n",
+    )?
+    .resolve()
+    .expect_err("the retired keys are refused");
+    let shown = retired.to_string();
+    for line in [
+        "credentials.oauth.ca_file was replaced by credentials.oauth.tls.trust_roots_file",
+        "credentials.oauth.timeout_ms was replaced by credentials.oauth.timeout",
+    ] {
+        assert!(shown.contains(line), "{line} in {shown}");
+    }
     let pem = temp_file("assertion.pem", &ec_key("unused", Algorithm::ES384).pem);
     assert!(matches!(
         table(&format!(
@@ -1146,7 +1135,7 @@ ca_file = {ca:?}
         AssertionAudience::Issuer,
         issuer.resolve()?.assertion_audience
     );
-    for file in [certificate, key, ca, garbage, pem] {
+    for file in [identity, ca, pem] {
         std::fs::remove_file(file)?;
     }
     Ok(())

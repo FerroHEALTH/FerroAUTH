@@ -9,10 +9,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use ferrohealth_smart::client::{Reach, Tls, TlsVersion};
+use ferrohealth_smart::client::{PresentedTls, Reach, Tls};
 use ferrohealth_smart::metadata::Http;
 use jsonwebtoken::Algorithm;
-use secrecy::SecretSlice;
 
 use crate::support::ec_key;
 use crate::tls::{start, start_issuer_at};
@@ -23,12 +22,12 @@ const TIMEOUT: Duration = Duration::from_secs(5);
 /// A host name no resolver answers (RFC 6761 §6.4).
 const HOST: &str = "provider.invalid";
 
-/// The trust roots of `ca_pem`, with no client certificate.
+/// The configuration a product builds over the trust roots of `ca_pem`,
+/// with no client certificate.
 fn trusting(ca_pem: &str) -> Tls {
     Tls {
-        root_certificates: Some(ca_pem.as_bytes().to_vec()),
-        identity: None,
-        presented: None,
+        presented: Some(crate::tls::presented_pem(ca_pem, None).expect("the roots read")),
+        ..Tls::default()
     }
 }
 
@@ -68,9 +67,14 @@ async fn an_override_reaches_the_named_host_at_its_address() {
 async fn the_client_certificate_is_presented_to_the_provider() {
     let endpoint = start("unused").await;
     let tls = Tls {
-        root_certificates: Some(endpoint.ca_pem.as_bytes().to_vec()),
-        identity: Some(Arc::new(SecretSlice::from(endpoint.identity()))),
-        presented: None,
+        presented: Some(
+            crate::tls::presented_pem(
+                &endpoint.ca_pem,
+                Some((&endpoint.client_certificate_pem, &endpoint.client_key_pem)),
+            )
+            .expect("the identity reads"),
+        ),
+        ..Tls::default()
     };
     let issuer = endpoint.url.trim_end_matches("/token").to_owned();
     let http = Http::reaching(TIMEOUT, &tls, &Reach::default()).expect("the engine builds");
@@ -86,23 +90,39 @@ async fn the_client_certificate_is_presented_to_the_provider() {
 }
 
 #[tokio::test]
-async fn a_provider_below_the_tls_floor_is_refused() {
+async fn a_provider_below_the_built_configuration_s_floor_is_refused() {
+    use rustls::pki_types::pem::PemObject as _;
     let key = ec_key("reach-floor", Algorithm::ES256);
     let issuer = start_issuer_at(key.jwk.clone(), "localhost", &[&rustls::version::TLS12]).await;
-    let tls = trusting(&issuer.ca_pem);
-
-    let floor = Reach::default().with_min_tls_version(TlsVersion::Tls13);
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(
+            rustls::pki_types::CertificateDer::from_pem_slice(issuer.ca_pem.as_bytes())
+                .expect("the root"),
+        )
+        .expect("the root is added");
+    let only_13 = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .with_protocol_versions(&[&rustls::version::TLS13])
+    .expect("TLS 1.3")
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    let floor = Tls {
+        presented: Some(PresentedTls::new(Arc::new(only_13), None)),
+        ..Tls::default()
+    };
     assert!(
-        Http::reaching(TIMEOUT, &tls, &floor)
+        Http::reaching(TIMEOUT, &floor, &Reach::default())
             .expect("the engine builds")
             .discover(&issuer.issuer)
             .await
             .is_err(),
-        "a TLS 1.2 server is refused under a TLS 1.3 floor"
+        "a TLS 1.2 server is refused under a configuration of TLS 1.3 alone"
     );
-    Http::reaching(TIMEOUT, &tls, &Reach::default())
+    Http::reaching(TIMEOUT, &trusting(&issuer.ca_pem), &Reach::default())
         .expect("the engine builds")
         .discover(&issuer.issuer)
         .await
-        .expect("the same server is read under the default TLS 1.2 floor");
+        .expect("the same server is read under a configuration that speaks TLS 1.2");
 }

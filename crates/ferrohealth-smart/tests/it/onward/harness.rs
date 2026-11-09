@@ -109,7 +109,7 @@ impl Flavor {
     /// `lifetime` seconds.
     pub(crate) fn settings(self, lifetime: u64) -> Settings {
         let keys = ProfileKeys {
-            max_onward_lifetime: Some(lifetime),
+            max_onward_lifetime: Some(ferrohealth_config::units::Duration::from_secs(lifetime)),
             ..ProfileKeys::default()
         };
         let mut settings = Settings::new(self.issuer(), self.client_id(), IssuerKind::Persons);

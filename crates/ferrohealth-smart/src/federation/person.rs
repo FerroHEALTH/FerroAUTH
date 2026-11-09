@@ -35,6 +35,7 @@ use crate::roles::lookup;
 
 /// One `[[auth.attributes]]` table: where the `persons` issuer `issuer`
 /// states its professional's attributes.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AttributesSection {

@@ -15,18 +15,14 @@ use ferrohealth_smart::client::ClientAuth;
 use ferrohealth_smart::client::ClientCredentials;
 use ferrohealth_smart::client::Endpoint;
 use ferrohealth_smart::client::PresentedTls;
-use ferrohealth_smart::client::Tls;
 use ferrohealth_smart::client::TokenError;
 use ferrohealth_smart::client::cache::TokenSource;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::credentials::OauthSection;
-use ferrohealth_smart::metadata::DiscoveryError;
-use ferrohealth_smart::metadata::Http;
 use rustls::RootCertStore;
 use rustls::pki_types::CertificateDer;
 use rustls::pki_types::PrivateKeyDer;
 use rustls::pki_types::pem::PemObject as _;
-use secrecy::SecretSlice;
 use serde_json::json;
 use wiremock::Mock;
 use wiremock::MockServer;
@@ -85,7 +81,6 @@ async fn the_grant_presents_the_certificate_of_the_product_s_configuration() -> 
         false,
     );
     assert_eq!(ClientAuth::TlsClientAuth, config.client_auth);
-    assert!(config.tls.identity.is_none(), "no PEM reaches the crate");
     config.timeout = Duration::from_secs(5);
     config.validate()?;
     TokenSource::new(config)?
@@ -180,9 +175,8 @@ async fn the_oauth_table_resolves_over_the_product_s_configuration() -> TestResu
         "{:?}",
         mutual.problems_with_tls("credentials.oauth", &presented(&endpoint, true)?)
     );
-    let grant = mutual.resolve_with_tls(presented(&endpoint, true)?)?;
+    let grant = mutual.resolve_with_tls(&crate::tls::Built(presented(&endpoint, true)?))?;
     assert_eq!(ClientAuth::TlsClientAuth, grant.client_auth);
-    assert!(grant.tls.identity.is_none());
     assert_eq!(
         Some(thumbprint(&endpoint)?),
         grant
@@ -193,7 +187,7 @@ async fn the_oauth_table_resolves_over_the_product_s_configuration() -> TestResu
     grant.validate()?;
 
     assert!(matches!(
-        mutual.resolve_with_tls(presented(&endpoint, false)?),
+        mutual.resolve_with_tls(&crate::tls::Built(presented(&endpoint, false)?)),
         Err(ConfigError::Missing { .. })
     ));
     let problems = mutual.problems_with_tls("credentials.oauth", &presented(&endpoint, false)?);
@@ -211,8 +205,8 @@ async fn the_oauth_table_resolves_over_the_product_s_configuration() -> TestResu
         "{base}client_auth = \"tls_client_auth\"\nclient_certificate_file = \"/etc/client.pem\"\nclient_key_file = \"/etc/client.key\"\n"
     ))?;
     assert!(matches!(
-        twice.resolve_with_tls(presented(&endpoint, true)?),
-        Err(ConfigError::Exclusive { .. })
+        twice.resolve_with_tls(&crate::tls::Built(presented(&endpoint, true)?)),
+        Err(ConfigError::RemovedKeys(_))
     ));
     assert!(
         twice
@@ -220,22 +214,5 @@ async fn the_oauth_table_resolves_over_the_product_s_configuration() -> TestResu
             .iter()
             .any(|problem| problem.contains("client_certificate_file"))
     );
-    Ok(())
-}
-
-/// The engine refuses PEM material beside a built configuration rather
-/// than choose one of them.
-#[tokio::test]
-async fn pem_material_beside_a_built_configuration_is_refused() -> TestResult {
-    let endpoint = crate::tls::start("unused").await;
-    let tls = Tls {
-        root_certificates: None,
-        identity: Some(Arc::new(SecretSlice::from(endpoint.identity()))),
-        presented: Some(presented(&endpoint, true)?),
-    };
-    assert!(matches!(
-        Http::with_tls(Duration::from_secs(5), &tls),
-        Err(DiscoveryError::PresentedTlsTwice)
-    ));
     Ok(())
 }

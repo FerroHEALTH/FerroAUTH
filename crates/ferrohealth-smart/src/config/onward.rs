@@ -21,6 +21,7 @@ use crate::profile::Preset;
 use crate::profile::ProfileKeys;
 
 /// One `[<lane>.credentials.onward]` table.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OnwardSection {
@@ -145,6 +146,30 @@ mod resolve {
             })?;
             self.check_actor_key(oauth)?;
             section.resolve(oauth.resolve()?).map(Some)
+        }
+
+        /// Resolves the `onward` table as [`CredentialsSection::onward`]
+        /// does, the `oauth` table's TLS built by `tls`.
+        ///
+        /// # Errors
+        ///
+        /// Returns [`ConfigError`] as [`CredentialsSection::onward`] does,
+        /// and [`ConfigError::TlsBuild`] when `tls` refuses the `oauth`
+        /// table's TLS.
+        pub fn onward_with_tls(
+            &self,
+            tls: &dyn crate::config::TlsBuilder,
+        ) -> Result<Option<OnwardLane>, ConfigError> {
+            let Some(section) = &self.onward else {
+                return Ok(None);
+            };
+            match &self.oauth {
+                Some(oauth) if self.user.is_empty() => {
+                    self.check_actor_key(oauth)?;
+                    section.resolve(oauth.resolve_with_tls(tls)?).map(Some)
+                }
+                _ => self.onward(),
+            }
         }
     }
 

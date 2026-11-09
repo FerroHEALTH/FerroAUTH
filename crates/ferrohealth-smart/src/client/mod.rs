@@ -43,7 +43,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use http::StatusCode;
-use secrecy::SecretSlice;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde::Serialize;
@@ -76,6 +75,7 @@ pub enum Endpoint {
     clippy::enum_variant_names,
     reason = "the variants mirror the RFC 8705 §2 method names tls_client_auth and self_signed_tls_client_auth"
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClientAuth {
@@ -110,6 +110,7 @@ impl ClientAuth {
 }
 
 /// The `aud` a `private_key_jwt` assertion names.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssertionAudience {
@@ -144,49 +145,43 @@ pub(crate) fn check_token_endpoint(url: &Url, member: &'static str) -> Result<()
     })
 }
 
-/// The TLS material of the token endpoint connection: trust roots added to
-/// the built-in ones, and the client certificate of RFC 8705 mutual TLS,
-/// either as PEM or as a TLS configuration the product built.
+/// The TLS of an outbound connection.
 ///
-/// The private key redacts itself in every `Debug` rendering.
-#[derive(Debug, Clone, Default)]
+/// It is the configuration the product built from the table's `tls` keys,
+/// or, when the table names no TLS material and the product built none, the
+/// platform's roots at the table's minimum version.
+///
+/// The crate reads no TLS file: a table that names material is built by the
+/// product's [`TlsBuilder`](crate::config::TlsBuilder), so the family has one
+/// reader of TLS material, `ferrohealth-server`'s `TlsClient`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Tls {
-    /// PEM certificates trusted beside the built-in roots, for a token
-    /// endpoint behind a private certificate authority.
-    pub root_certificates: Option<Vec<u8>>,
-    /// The client certificate chain and its private key, in PEM, presented
-    /// in the TLS handshake (RFC 8705 §2).
-    pub identity: Option<Arc<SecretSlice<u8>>>,
-    /// The TLS configuration the product built from material it already
-    /// read, with the client certificate it presents, used in place of
-    /// `root_certificates` and `identity`, which it excludes.
+    /// The TLS configuration the product built, with the client certificate
+    /// it presents.
     pub presented: Option<PresentedTls>,
+    /// The oldest TLS version the connection speaks when the product built
+    /// no configuration; a built configuration keeps its own versions.
+    pub min_version: ferrohealth_config::tls::TlsVersion,
 }
 
 impl Tls {
     /// Returns the certificate the connection presents in the handshake,
-    /// the end-entity certificate of `presented` or of the PEM `identity`
-    /// (RFC 8446 §4.4.2), or `None` when it presents none that reads.
+    /// the end-entity certificate of `presented` (RFC 8446 §4.4.2), or
+    /// `None` when it presents none.
     #[must_use]
     pub fn presented_certificate(&self) -> Option<crate::sender::ClientCertificate> {
-        match &self.presented {
-            Some(presented) => presented
-                .certificate()
-                .map(|certificate| crate::sender::ClientCertificate::from_der(certificate)),
-            None => self
-                .identity
-                .as_deref()
-                .and_then(binding::presented_certificate),
-        }
+        self.presented
+            .as_ref()
+            .and_then(PresentedTls::certificate)
+            .map(|certificate| crate::sender::ClientCertificate::from_der(certificate))
     }
 
     /// Returns whether the connection presents a client certificate.
     #[must_use]
     pub fn presents_identity(&self) -> bool {
-        match &self.presented {
-            Some(presented) => presented.certificate().is_some(),
-            None => self.identity.is_some(),
-        }
+        self.presented
+            .as_ref()
+            .is_some_and(|presented| presented.certificate().is_some())
     }
 }
 
@@ -232,26 +227,22 @@ impl PresentedTls {
     }
 }
 
+// NOTE: no specification governs this: our own design; two values are the same
+// configuration when they share one built configuration and one certificate.
+impl PartialEq for PresentedTls {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.config, &other.config) && self.certificate == other.certificate
+    }
+}
+
+impl Eq for PresentedTls {}
+
 impl std::fmt::Debug for PresentedTls {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PresentedTls")
             .field("certificate", &self.certificate.is_some())
             .finish_non_exhaustive()
     }
-}
-
-/// The lowest TLS version a connection negotiates, written `"1.2"` or
-/// `"1.3"` in a configuration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default, Deserialize, Serialize)]
-#[non_exhaustive]
-pub enum TlsVersion {
-    /// TLS 1.2 (RFC 5246), the lowest version the engine speaks.
-    #[default]
-    #[serde(rename = "1.2")]
-    Tls12,
-    /// TLS 1.3 (RFC 8446).
-    #[serde(rename = "1.3")]
-    Tls13,
 }
 
 /// How a connection reaches its server beyond its TLS material.
@@ -261,16 +252,29 @@ pub enum TlsVersion {
 /// server whose name resolves only inside a private network (no
 /// specification governs the override: our own design). An override replaces the name lookup only. The URL's port and the
 /// certificate check against the host name stay as the URL names them.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Reach {
-    min_tls_version: TlsVersion,
+    min_tls_version: ferrohealth_config::tls::TlsVersion,
     resolve: Vec<(String, std::net::SocketAddr)>,
+}
+
+impl Default for Reach {
+    fn default() -> Self {
+        Self {
+            // NOTE: RFC 9325 §3.1.1 allows TLS 1.2; the table's own minimum raises it.
+            min_tls_version: ferrohealth_config::tls::TlsVersion::Tls12,
+            resolve: Vec::new(),
+        }
+    }
 }
 
 impl Reach {
     /// Returns this reach negotiating no TLS version below `version`.
     #[must_use]
-    pub const fn with_min_tls_version(mut self, version: TlsVersion) -> Self {
+    pub const fn with_min_tls_version(
+        mut self,
+        version: ferrohealth_config::tls::TlsVersion,
+    ) -> Self {
         self.min_tls_version = version;
         self
     }
@@ -284,7 +288,7 @@ impl Reach {
 
     /// The lowest TLS version the connection negotiates.
     #[must_use]
-    pub const fn min_tls_version(&self) -> TlsVersion {
+    pub const fn min_tls_version(&self) -> ferrohealth_config::tls::TlsVersion {
         self.min_tls_version
     }
 
@@ -374,31 +378,6 @@ impl ClientCredentials {
         Self {
             assertion_keys: Some(keys),
             ..Self::authenticating(endpoint, client_id, ClientAuth::PrivateKeyJwt)
-        }
-    }
-
-    /// Returns a grant for `client_id` at `endpoint` authenticating with
-    /// the client certificate `identity` (PEM chain and key) over mutual
-    /// TLS (RFC 8705 §2): [`ClientAuth::SelfSignedTlsClientAuth`] when
-    /// `self_signed`, [`ClientAuth::TlsClientAuth`] otherwise.
-    #[must_use]
-    pub fn with_mutual_tls(
-        endpoint: Endpoint,
-        client_id: String,
-        identity: Arc<SecretSlice<u8>>,
-        self_signed: bool,
-    ) -> Self {
-        let client_auth = if self_signed {
-            ClientAuth::SelfSignedTlsClientAuth
-        } else {
-            ClientAuth::TlsClientAuth
-        };
-        Self {
-            tls: Tls {
-                identity: Some(identity),
-                ..Tls::default()
-            },
-            ..Self::authenticating(endpoint, client_id, client_auth)
         }
     }
 

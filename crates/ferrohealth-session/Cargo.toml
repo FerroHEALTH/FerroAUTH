@@ -4,7 +4,7 @@
 name = "ferrohealth-session"
 description = "The OpenID Connect sign-in and the session of the FerroHEALTH operator consoles: the authorization code flow with PKCE over ferrohealth-smart, a server-side or sealed-cookie session with idle and absolute lifetimes counted from the sign-in time, and the session-watch route"
 # Its own version line, released by the tag ferrohealth-session-v<version>.
-version = "0.7.0"
+version = "0.8.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -30,11 +30,16 @@ axum = ["dep:axum"]
 # `clock::ManualClock`, a time a console's tests set and move and hand to
 # `Sessions::with_clock`, so a lifetime runs out without waiting for it.
 test-clock = []
+# `schemars::JsonSchema` on the `[oidc]` and `[session]` sections, for a
+# console that generates its configuration reference from its types.
+schema = ["dep:schemars", "ferrohealth-config/schema"]
 
 [dependencies]
 aws-lc-rs.workspace = true
 base64.workspace = true
 cookie.workspace = true
+ferrohealth-config.workspace = true
+schemars = { workspace = true, optional = true }
 ferrohealth-secret.workspace = true
 ferrohealth-smart = { workspace = true, features = ["oidc"] }
 ferrohealth-ui.workspace = true
@@ -50,6 +55,7 @@ url.workspace = true
 axum = { workspace = true, optional = true, features = ["query", "json"] }
 
 [dev-dependencies]
+rustls.workspace = true
 axum = { workspace = true, features = ["query", "json", "tokio"] }
 http-body-util.workspace = true
 jsonwebtoken.workspace = true

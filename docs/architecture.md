@@ -158,7 +158,7 @@ an unreachable issuer per request builds the server with
 `ResourceServer::lazy`: the settings are checked at once, the metadata and
 key set are read when the first token needs them, and a read that fails
 answers that token `503` (3.7) and is not repeated inside
-`jwks_refresh_interval_seconds`, the bound 3.2 sets on key set reads. No
+`jwks_refresh_interval`, the bound 3.2 sets on key set reads. No
 specification governs when the key set is first read: our own design,
 FerroFED's, moved into the crate (#55). Both constructors return `Send`
 futures, so a product calls them from a request. The members read are `issuer`, `jwks_uri`,
@@ -194,10 +194,10 @@ FerroBRIDGE all refuse the ambiguous case today.
 Rotation and freshness, no specification governs these: our own design.
 
 - The set is read at boot, and read again when it is older than
-  `jwks_max_age_seconds` (default 600), so a key the issuer withdraws stops
+  `jwks_max_age` (default `10min`), so a key the issuer withdraws stops
   verifying within that window without any token forcing a read.
 - A token naming a `kid` the set does not hold reads the set again at most
-  once per `jwks_refresh_interval_seconds` (default 60), because an unknown
+  once per `jwks_refresh_interval` (default `60s`), because an unknown
   `kid` is how a rotation reaches the resource server; a stream of forged
   `kid`s cannot turn the product into a load on the authorization server.
   RFC 8725 §3.10 has the `kid` treated as untrusted input: it is compared
@@ -286,7 +286,7 @@ The checks, in order, each a refusal when it fails:
    present, which is the opt-in the JWT crate needs. `iat`, when present, is
    not later than now plus the skew: no specification governs that check;
    our own design, because a token issued in the future is a clock the
-   caller controls. The skew is `clock_skew_seconds`, default 60, at most
+   caller controls. The skew is `clock_skew`, default `60s`, at most
    300, the bound FerroFED fixes from the "few minutes" of RFC 7519.
 8. **Required claims.** Under `rfc9068`: `iss`, `exp`, `aud`, `sub`,
    `client_id`, `iat` and `jti` are present (`rfc9068 §2.2`). Under `jwt`:
@@ -435,7 +435,7 @@ takes does not say whether the user exists (FerroEHR's enumeration defence,
 carried over). Verification runs on a blocking thread, never on the async
 runtime.
 
-A verified credential may be kept for `[auth.basic] cache_ttl_seconds`
+A verified credential may be kept for `[auth.basic] cache_ttl`
 (default 0, none), so a repeat request skips the key derivation. The entry
 is named by an HMAC-SHA-256 of `user-id:password` under a key drawn when the
 store is built, never the password itself; only a credential that verified
@@ -914,7 +914,7 @@ introspected caller as they read a JWT one.
 
 An active response is held, keyed by the SHA-256 of the token so no token
 stays in memory, until its `exp` and never longer than
-`cache_max_age_seconds` (default 60): "the response MUST NOT be cached
+`cache_max_age` (default `60s`): "the response MUST NOT be cached
 beyond the time indicated" by `exp` (`rfc7662 §4`), and the age bounds the
 window in which a revoked token still passes, the trade-off §4 leaves to the
 deployment. Zero caches nothing. At most `cache_capacity` responses are held;
@@ -1257,8 +1257,8 @@ lowercased, the default port dropped, dot segments resolved, an
 unreserved percent-encoding decoded and every other one in upper case, the
 query and fragment ignored.
 
-**The window**: a proof is accepted for `max_age_seconds` after its `iat`,
-default 60, at most 300, and an `iat` up to `clock_skew_seconds` ahead,
+**The window**: a proof is accepted for `max_age` after its `iat`,
+default 60, at most 300, and an `iat` up to `clock_skew` ahead,
 default 10 (`rfc9449 §11.1`, "on the order of seconds or minutes"; the
 values are our own design).
 
@@ -1541,8 +1541,8 @@ client-credentials token of `client::cache::TokenSource` renewed once on a
 `401`, and reads only a `200 OK` "String collection" (the pages are pinned
 cache only, `docs/specs/microsoft-graph/PROVENANCE.md`). A deployment
 turns it on per issuer with `adapter = "idp-entra"` on an `entra` issuer,
-builds the adapter from a `GraphSection` (the Graph root, `timeout_ms`,
-`max_response_bytes`, `security_enabled_only` and the `credentials` of the
+builds the adapter from a `GraphSection` (the Graph root, `timeout`,
+`max_response_size`, `security_enabled_only` and the `credentials` of the
 Graph token) and registers it under `idp::entra::NAME`. The `entra` preset
 names no adapter, so a build without the feature loads every `entra`
 issuer that does not ask for one.
@@ -1551,11 +1551,11 @@ Every failure is `GroupsUnavailable(GroupsCause::Adapter(..))`, never an
 empty set: a status other than `200` is `AdapterError::Status`, with the
 `Retry-After` seconds of a throttled `429` ("Microsoft Graph throttling
 guidance"); a call past the budget is `AdapterError::Timeout`; a Graph
-token that cannot be obtained, or an answer past `max_response_bytes`, that
+token that cannot be obtained, or an answer past `max_response_size`, that
 repeats a member name, is no collection of strings or names a next page, is
 `AdapterError::Unreadable` with the cause. A product answers these as an
 upstream failure (`503`) and `GroupsCause::Overage` as a refusal. The call
-has its own budget, `timeout_ms` (2 s by default), over the token fetch and
+has its own budget, `timeout` (`2s` by default), over the token fetch and
 the Graph round trip together, and answers one request: nothing is cached.
 Its latency is outside a product's lookup budget (FerroEHR's 2 ms at p99
 excludes it). Every request of a user above the overage limit costs one
@@ -1712,11 +1712,11 @@ kind = "persons"                     # required: persons, patients, machines or 
 profile = "rfc9068"                  # or "entra", "keycloak", "okta", "nl"; any profile key below overrides it
 audience = ["https://bridge.example.org/fhir"]   # at least one; `aud` must contain one
 algorithms = ["RS256", "RS384", "PS256", "PS384", "ES256", "ES384"]
-clock_skew_seconds = 60              # at most 300
-jwks_max_age_seconds = 600
-jwks_refresh_interval_seconds = 60
+clock_skew = "60s"                   # at most 300s
+jwks_max_age = "10min"
+jwks_refresh_interval = "60s"
 jwks_file = ""                       # a key set handed over out of band, instead of jwks_uri
-timeout_ms = 10000                   # one call to the authorization server
+timeout = "10s"                      # one call to the authorization server
 role_claims = ["roles", "groups", "entitlements"]   # this issuer's role paths (3.11); none on federation
 first_party_clients = ["ferrobridge-console"]       # the clients a person signs in through (3.14)
 delegates = [{ client = "partner-app" }, { sub = "actor-service" }]
@@ -1729,7 +1729,7 @@ levels = { "urn:example:acr:high" = "high" }
 
 [auth.issuer.introspection]          # only under mode = "introspection"
 endpoint = ""                        # empty: the metadata's introspection_endpoint
-cache_max_age_seconds = 60           # 0 caches nothing; never past the response's exp
+cache_max_age = "60s"                # "0s" caches nothing; never past the response's exp
 cache_capacity = 10000
 
 [auth.issuer.introspection.client]   # or .bearer: a grant whose token authorizes the call
@@ -1738,12 +1738,12 @@ client_secret_file = "/run/secrets/introspection-secret"
 
 [auth.dpop]                          # absent: the DPoP scheme is not admitted (3.15)
 external_url = "https://bridge.example.org"     # the base URL clients address; htu = this + the path
-max_age_seconds = 60                 # a proof is accepted this long after its iat; at most 300
-clock_skew_seconds = 10              # an iat this far ahead is accepted; at most 300
+max_age = "60s"                      # a proof is accepted this long after its iat; at most 300s
+clock_skew = "10s"                   # an iat this far ahead is accepted; at most 300s
 algorithms = ["RS256", "RS384", "PS256", "PS384", "ES256", "ES384"]
 
 [auth.basic]
-cache_ttl_seconds = 0                # how long a verified credential is kept; 0 keeps none
+cache_ttl = "0s"                     # how long a verified credential is kept; "0s" keeps none
 
 [[auth.basic.users]]                 # a person's credential; absent: no Basic on this surface
 user = "operator"
@@ -1755,7 +1755,8 @@ roles = ["auditor"]                  # one word each (3.11)
 Every setting of an issuer lives on its own table: no section-level value
 stands in for one an issuer leaves out, and a section-level `audience`,
 `algorithms`, `mode`, `introspection`, `role_claims` or other issuer setting
-refuses the start naming the table (`ConfigError::Removed`), as do the flat
+refuses the start naming the table (`ConfigError::RemovedKeys`, every
+retired key at once through `ferrohealth_config::removed`), as do the flat
 `issuer = "…"` form, `token_profile`, `acting_for_claim`, `client_tokens` and
 a string `scopeless_subjects` entry. `Resolved` holds each JWT issuer's
 `Settings`, each introspected issuer's settings, and every issuer's kind,
@@ -1785,26 +1786,43 @@ client_secret_file = "/run/secrets/terminology-client-secret"
 # assertion_alg = "ES384"
 # assertion_audience = "issuer"      # the default names the token endpoint
 scope = "system/CodeSystem.rs"
-refresh_margin_ms = 30000
+refresh_margin = "30s"
 # mutual TLS (RFC 8705 §2) instead, or a certificate beside another method:
 # client_auth = "tls_client_auth"    # or "self_signed_tls_client_auth"
-# client_certificate_file = "/run/secrets/client.crt"
-# client_key_file = "/run/secrets/client.key"
-# ca_file = "/run/secrets/private-ca.pem"   # roots added to the built-in ones
 # dpop_key_file = "/run/secrets/dpop.pem"  # bind tokens to a P-256/P-384 key (RFC 9449)
 # certificate_bound = true                 # or to the client certificate (RFC 8705 §3)
 # security_profile = "fapi2"               # FAPI 2.0: issuer, private_key_jwt or mTLS, bound tokens
 # mtls_alias_hosts = ["mtls.example.org"]  # hosts a FAPI 2.0 mTLS alias may be on
 # previous_private_key_file = "/run/secrets/client-previous.pem"  # published, never signs
-# previous_key_overlap_ms = 0              # 0: published while the key is set
+# previous_key_overlap = "0s"             # "0s": published while the key is set
 # next_private_key_file = "/run/secrets/client-next.pem"          # published ahead of a rotation
 # authorization_details = '[{"type": "nl-gis-v1"}]'               # RFC 9396, sent as written
+# [terminology.credentials.oauth.tls]   # read by the product's TLS reader (ferrohealth-server TlsClient)
+# client_identity_file = "/run/secrets/client.pem"   # the chain and the key in one PEM
+# trust_roots_file = "/run/secrets/private-ca.pem" # roots beside the platform's
 ```
 
 `user`/`password` and `oauth` are exclusive; a lane that obtains no token of
 its own refuses an `oauth` table at load (FerroBRIDGE's `NoGrant` shape). The
 `resource` key is the `rfc8707 §2` resource indicator and `audience` the
 parameter without a specification, both sent only when set (3.5).
+
+Every outbound TLS table of the crate (`auth.tls`, the `tls` of an `oauth`
+table) is `ferrohealth_config::tls::TlsClientSection`, and the crate reads no
+TLS file. A table that names material resolves through the product's
+`config::TlsBuilder` (`resolve_with_tls`), which feature `server-tls`
+implements as `config::ServerTls` over `ferrohealth-server`'s
+`tls_client::TlsClient`, so the family has one reader of TLS material and
+the table's minimum version holds; `resolve` refuses such a table
+(`ConfigError::TlsNotBuilt`). Every span of time is a
+`ferrohealth_config::units::Duration` (`"30s"`), and a retired key is
+refused naming its replacement. No specification governs the seam: our own
+design.
+
+An outbound integration is one table, `config::endpoint::EndpointSection`:
+`url`, `timeout`, `connect_timeout`, `retry` (`max_attempts`,
+`initial_backoff`, `max_backoff`), `tls` and `credentials`, so an operator
+writes every product's integrations with the same keys.
 
 A lane that reaches its upstream on a caller's behalf declares its onward
 target beside its `oauth` table, which the onward client authenticates
@@ -1827,7 +1845,7 @@ scope = "api://<cdr app id>/.default"
 #                                    # each exchange with an assertion (rfc8693 §2.1)
 
 [cdr.credentials.onward.keys]        # any profile key over the preset
-max_onward_lifetime = 5400           # required: no preset states one
+max_onward_lifetime = "90min"        # required: no preset states one
 
 # [cdr.credentials.onward.federation]  # a federation issuer: exchanges_from and
 # [cdr.credentials.onward.assurance]   # person_mapping required, over the preset's table
@@ -2102,7 +2120,7 @@ four agree on and settles each difference:
 | A `persons` login is resolved to its party through a `PartySource` the product supplies, once per request with no cache, keyed by the issuer profile's `person_key` in the canonical form of its `identifier_type`, against the identifiers of one `[[auth.party]]` table's `identifier_issuer`; two matches are `Ambiguous`, a source failure is an error and never `Unbound`, and the outcome is the product's to answer (3.17) | `oidc-core §5.7`; `rfc7519 §4.1.2`; Microsoft, "Access token claims reference" (the overage markers); the binding is our own design (#216, owner ruling 2026-11-05 on the cache) | a product binds its `persons` issuers with `[[auth.party]]` tables, implements `PartySource`, maps each Basic user to a key, and answers each outcome |
 | A `persons` issuer's `[[auth.attributes]]` table reads the IHE IUA professional attributes and purposes of use, from claims or constants and, with `authorization_details_purposes`, the `system\|code` of each `authorization_details` entry, onto every non-`System` caller as `Caller::attributes`; a claim of the wrong shape refuses the token (3.14) | IHE IUA §3.71.4.2.2.1.1; `rfc9396 §2`; our own design over them (#376) | a product reads the professional, the organisation and the purposes from `Caller::attributes` and drops its own IUA claim parser |
 | A `patients` token that carries `act` is the patient's representative under `act_represents_patient`, with the top-level actor only, and is refused without it (3.14) | `rfc8693 §4.1`; Regulation (EU) 2025/327 Art 4(2); our own design (#377) | a product that records a patient's representative sets `act_represents_patient` and reads `CallerKind::PatientRepresentative` |
-| An active introspection response is held until its `exp` and at most `cache_max_age_seconds`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
+| An active introspection response is held until its `exp` and at most `cache_max_age`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
 | Onward tokens are obtained by token exchange or the JWT bearer grant as the issuer's profile names, refused unless they pass the onward check of 3.16, cached by issuer, grant, subject and actor token, target, scope and extra parameters until the earlier `exp` (unless the onward table sets `cache = false`, which exchanges on every call for a performance self-test and never in production, #299), and never refreshed; only a `persons`, `patients` or `federation` issuer issues them, a `patients` one for a patient's own token that keeps its patient context | `rfc8693 §2.1`, `§2.2`, `§4.1`; `rfc7523 §2.1`, `§2.2`; `rfc8707 §2`; the check, the cache and the profile keys are our own design (#217) | a deployment sets `max_onward_lifetime` on each onward issuer, and `exchanges_from` and `person_mapping` on a federation issuer's table |
 | An Entra ID groups overage is resolved by the `idp-entra` adapter, an optional feature a profile names by `adapter`, at the `getMemberObjects` URL it builds from the Graph root and the token's `oid` and `idtyp`, never at `_claim_sources`; every Graph failure is `GroupsUnavailable` carrying the status, the `Retry-After` or the timeout, under a 2 s budget of its own and with no cache (3.17) | Microsoft, "Access token claims reference", §Groups overage claim; "Optional claims reference", `idtyp`; Microsoft Graph v1.0 `directoryObject: getMemberObjects` and "Microsoft Graph throttling guidance"; the bounds are our own design (#221) | a deployment with users above the overage limit compiles `idp-entra`, sets `adapter = "idp-entra"` on its `entra` issuer, grants the Graph permission and registers the adapter |
 | The eHDSI IdA and TRC are checked in this crate behind `ehdsi-assertion`, by our own exclusive canonicalization over `roxmltree` and `x509-parser` with `aws-lc-rs` verifying, in one accepted signature shape against wrapping; a trusted signer is an issuer URI with its seal certificate, revocation is the deployment's, and an inclusive prefix outside SAML Profile 10.0.0 §1.4.2 or a canonicalization other than Exc-C14N is refused (3.18) | eHDSI Cryptographic Algorithms 9.0.0 §2, §4.1; SAML Profile 10.0.0 §2, §4; X.509 Certificates Profile 7.0.0 §2.4, §3.1; SOG-IS ACM 1.3 §4.1, §5.2; the shape, the caps and the trust set are our own design (#294) | an authorization server acting for NCPeH-A compiles `ehdsi-assertion` and supplies the SMP-published seal certificates |

@@ -254,16 +254,10 @@ impl TokenSource {
         self.inner.config.dpop_key()
     }
 
-    /// Returns the trust roots of the grant's TLS material, which the
-    /// introspection calls of a bearer source trust beside the platform's.
-    pub(crate) fn root_certificates(&self) -> Option<&[u8]> {
-        self.inner.config.tls.root_certificates.as_deref()
-    }
-
-    /// Returns the TLS configuration the grant's product built, which the
-    /// introspection calls of a bearer source use as the grant does.
-    pub(crate) fn presented_tls(&self) -> Option<&crate::client::PresentedTls> {
-        self.inner.config.tls.presented.as_ref()
+    /// Returns the grant's TLS, which the introspection calls of a bearer
+    /// source use as the grant does.
+    pub(crate) fn tls(&self) -> &crate::client::Tls {
+        &self.inner.config.tls
     }
 
     /// Returns the source of `config` over `http`, reading expiry against

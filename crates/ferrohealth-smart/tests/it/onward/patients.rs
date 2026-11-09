@@ -265,7 +265,7 @@ fn a_lane_table_accepts_a_patients_issuer() {
          [onward]\nissuer = \"https://patients.example.org\"\nkind = \"patients\"\n\
          token_endpoint = \"https://patients.example.org/token\"\n\
          audiences = [\"https://ehr.example.org\"]\nindicators = [\"https://ehr.example.org/api\"]\n\
-         [onward.keys]\nmax_onward_lifetime = 3600",
+         [onward.keys]\nmax_onward_lifetime = \"3600s\"",
         secret.display()
     ))
     .expect("the lane parses");

@@ -7,10 +7,11 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::time::Duration;
+
+use ferrohealth_config::removed::{Removals, Removed};
+use ferrohealth_config::tls::TlsClientSection;
 
 use crate::basic::PasswordStore;
-#[cfg(feature = "fetch")]
 use crate::client::Tls;
 use crate::config::AuthMode;
 use crate::config::AuthSection;
@@ -20,6 +21,8 @@ use crate::config::IssuerEntry;
 use crate::config::IssuerKey;
 use crate::config::Resolved;
 use crate::config::ScopelessSubject;
+use crate::config::TlsBuilder;
+use crate::config::build_tls;
 use crate::config::issuer::check_entry;
 use crate::config::read::secret;
 use crate::federation::FederationSection;
@@ -34,7 +37,7 @@ use crate::scope::is_scope_token;
 use crate::sender::proof::ProofSettings;
 
 /// The replacement each removed section key names.
-const ISSUER_TABLE: &str = "set it on each [[auth.issuer]] table";
+const ISSUER_TABLE: &str = "the same key on each [[auth.issuer]] table";
 
 impl Resolved {
     /// Returns the discovery document options the section names: its
@@ -113,6 +116,24 @@ impl AuthSection {
     /// product scope in no extension form, or a cache key the random
     /// source cannot draw.
     pub fn resolve(&self) -> Result<Resolved, ConfigError> {
+        self.resolve_over(None)
+    }
+
+    /// Resolves the section as [`AuthSection::resolve`] does, every `tls`
+    /// table it holds (`auth.tls` and the `tls` of each introspection grant)
+    /// built by `tls`, the product's reader of TLS material.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] as [`AuthSection::resolve`] does, and
+    /// [`ConfigError::TlsBuild`] when `tls` refuses a table.
+    pub fn resolve_with_tls(&self, tls: &dyn TlsBuilder) -> Result<Resolved, ConfigError> {
+        self.resolve_over(Some(tls))
+    }
+
+    /// Resolves the section, over the product's TLS builder when one is
+    /// handed.
+    fn resolve_over(&self, builder: Option<&dyn TlsBuilder>) -> Result<Resolved, ConfigError> {
         self.check_removed()?;
         if let Some(bad) = self
             .capabilities
@@ -139,7 +160,16 @@ impl AuthSection {
             .basic
             .as_ref()
             .is_some_and(|section| !section.users.is_empty());
-        let trust_roots = self.trust_roots()?;
+        let tls = Tls {
+            presented: match builder {
+                Some(builder) => Some(build_tls(builder, "auth.tls", &self.tls)?),
+                None if self.tls.names_material() => {
+                    return Err(ConfigError::TlsNotBuilt { key: "auth.tls" });
+                }
+                None => None,
+            },
+            min_version: self.tls.min_version,
+        };
         let mut kinds = BTreeMap::new();
         let mut issuers = Vec::new();
         #[cfg(feature = "fetch")]
@@ -154,7 +184,7 @@ impl AuthSection {
                 match entry.mode {
                     AuthMode::Jwt => {
                         let mut settings = self.settings_of(entry, kind)?;
-                        settings.trust_roots.clone_from(&trust_roots);
+                        settings.tls = tls.clone();
                         settings.validate().map_err(|source| ConfigError::Issuer {
                             issuer: entry.issuer.clone(),
                             source: Box::new(source),
@@ -163,11 +193,7 @@ impl AuthSection {
                     }
                     #[cfg(feature = "fetch")]
                     AuthMode::Introspection => {
-                        introspection.push(self.introspection_of(
-                            entry,
-                            kind,
-                            trust_roots.as_deref(),
-                        )?);
+                        introspection.push(self.introspection_of(entry, kind, builder)?);
                     }
                     #[cfg(not(feature = "fetch"))]
                     AuthMode::Introspection => return Err(ConfigError::IntrospectionUnavailable),
@@ -205,85 +231,13 @@ impl AuthSection {
     }
 
     /// Refuses every removed key the section, or one of its issuers, still
-    /// sets, naming the replacement.
+    /// sets, naming the replacement of each, all at once.
     fn check_removed(&self) -> Result<(), ConfigError> {
         if matches!(self.issuer, IssuerKey::Flat(_)) {
             return Err(ConfigError::Removed {
                 key: "auth.issuer = \"…\"",
                 replacement: "write each issuer as an [[auth.issuer]] table with its own kind",
             });
-        }
-        let section = [
-            ("auth.audience", self.audience.is_some(), ISSUER_TABLE),
-            ("auth.algorithms", self.algorithms.is_some(), ISSUER_TABLE),
-            (
-                "auth.clock_skew_seconds",
-                self.clock_skew_seconds.is_some(),
-                ISSUER_TABLE,
-            ),
-            (
-                "auth.jwks_max_age_seconds",
-                self.jwks_max_age_seconds.is_some(),
-                ISSUER_TABLE,
-            ),
-            (
-                "auth.jwks_refresh_interval_seconds",
-                self.jwks_refresh_interval_seconds.is_some(),
-                ISSUER_TABLE,
-            ),
-            ("auth.jwks_file", self.jwks_file.is_some(), ISSUER_TABLE),
-            ("auth.timeout_ms", self.timeout_ms.is_some(), ISSUER_TABLE),
-            ("auth.mode", self.mode.is_some(), ISSUER_TABLE),
-            (
-                "auth.introspection",
-                self.introspection.is_some(),
-                ISSUER_TABLE,
-            ),
-            (
-                "auth.role_claims",
-                self.role_claims.is_some(),
-                "set role_claims on each [[auth.issuer]] table",
-            ),
-            (
-                "auth.token_profile",
-                self.token_profile.is_some(),
-                TOKEN_SHAPE,
-            ),
-            (
-                "auth.acting_for_claim",
-                self.acting_for_claim.is_some(),
-                DELEGATION,
-            ),
-            (
-                "auth.client_tokens",
-                self.client_tokens.is_some(),
-                DELEGATION,
-            ),
-        ];
-        if let Some((key, _, replacement)) = section.iter().find(|(_, set, _)| *set) {
-            return Err(ConfigError::Removed { key, replacement });
-        }
-        for entry in self.issuers() {
-            let removed = [
-                (
-                    "auth.issuer.token_profile",
-                    entry.token_profile.is_some(),
-                    TOKEN_SHAPE,
-                ),
-                (
-                    "auth.issuer.acting_for_claim",
-                    entry.acting_for_claim.is_some(),
-                    DELEGATION,
-                ),
-                (
-                    "auth.issuer.client_tokens",
-                    entry.client_tokens.is_some(),
-                    DELEGATION,
-                ),
-            ];
-            if let Some((key, _, replacement)) = removed.iter().find(|(_, set, _)| *set) {
-                return Err(ConfigError::Removed { key, replacement });
-            }
         }
         if self
             .scopeless_subjects
@@ -295,6 +249,63 @@ impl AuthSection {
                 replacement: "write each entry as { issuer, sub }",
             });
         }
+        let mut removals = Removals::new();
+        for (removed, key, replacement) in [
+            (self.audience, "auth.audience", ISSUER_TABLE),
+            (self.algorithms, "auth.algorithms", ISSUER_TABLE),
+            (
+                self.clock_skew_seconds,
+                "auth.clock_skew_seconds",
+                "clock_skew on each [[auth.issuer]] table, a duration such as `60s`",
+            ),
+            (
+                self.jwks_max_age_seconds,
+                "auth.jwks_max_age_seconds",
+                "jwks_max_age on each [[auth.issuer]] table, a duration such as `1h`",
+            ),
+            (
+                self.jwks_refresh_interval_seconds,
+                "auth.jwks_refresh_interval_seconds",
+                "jwks_refresh_interval on each [[auth.issuer]] table, a duration such as `5min`",
+            ),
+            (self.jwks_file, "auth.jwks_file", ISSUER_TABLE),
+            (
+                self.timeout_ms,
+                "auth.timeout_ms",
+                "timeout on each [[auth.issuer]] table, a duration such as `10s`",
+            ),
+            (self.mode, "auth.mode", ISSUER_TABLE),
+            (self.introspection, "auth.introspection", ISSUER_TABLE),
+            (
+                self.role_claims,
+                "auth.role_claims",
+                "role_claims on each [[auth.issuer]] table",
+            ),
+            (self.token_profile, "auth.token_profile", TOKEN_SHAPE),
+            (
+                self.ca_file,
+                "auth.ca_file",
+                "auth.tls.trust_roots_file, read with the product's TLS reader",
+            ),
+        ] {
+            removals.replaced(removed, key, replacement);
+        }
+        removals.retired(self.acting_for_claim, "auth.acting_for_claim", DELEGATION);
+        removals.retired(self.client_tokens, "auth.client_tokens", DELEGATION);
+        for (index, entry) in self.issuers().iter().enumerate() {
+            removals.extend(issuer_removals(index, entry));
+        }
+        if let Some(basic) = &self.basic {
+            removals.replaced(
+                basic.cache_ttl_seconds,
+                "auth.basic.cache_ttl_seconds",
+                "auth.basic.cache_ttl, a duration such as `5min`",
+            );
+        }
+        if let Some(dpop) = &self.dpop {
+            removals.extend(dpop.removals("auth.dpop"));
+        }
+        removals.finish()?;
         Ok(())
     }
 
@@ -459,8 +470,8 @@ impl AuthSection {
             &section.external_url,
             "auth.dpop.external_url",
         )?);
-        settings.max_age = Duration::from_secs(section.max_age_seconds);
-        settings.clock_skew = Duration::from_secs(section.clock_skew_seconds);
+        settings.max_age = section.max_age.get();
+        settings.clock_skew = section.clock_skew.get();
         settings.algorithms.clone_from(&section.algorithms);
         settings
             .validate()
@@ -486,7 +497,7 @@ impl AuthSection {
                 .map_err(|source| ConfigError::Basic { source })?;
         }
         store
-            .with_cache(Duration::from_secs(section.cache_ttl_seconds))
+            .with_cache(section.cache_ttl.get())
             .map(Some)
             .map_err(|source| ConfigError::Basic { source })
     }
@@ -497,11 +508,11 @@ impl AuthSection {
         settings.audience.clone_from(&entry.audience);
         settings.algorithms.clone_from(&entry.algorithms);
         settings.profile = profile_of(entry)?;
-        settings.clock_skew = Duration::from_secs(entry.clock_skew_seconds);
-        settings.jwks_max_age = Duration::from_secs(entry.jwks_max_age_seconds);
-        settings.jwks_refresh_interval = Duration::from_secs(entry.jwks_refresh_interval_seconds);
+        settings.clock_skew = entry.clock_skew.get();
+        settings.jwks_max_age = entry.jwks_max_age.get();
+        settings.jwks_refresh_interval = entry.jwks_refresh_interval.get();
         settings.jwks_file = (!entry.jwks_file.is_empty()).then(|| PathBuf::from(&entry.jwks_file));
-        settings.timeout = Duration::from_millis(entry.timeout_ms);
+        settings.timeout = entry.timeout.get();
         settings.scopeless_subjects = self.scopeless_of(&entry.issuer);
         settings.role_claims = role_claims_of(entry, kind);
         settings.assurance.clone_from(&entry.assurance);
@@ -518,7 +529,7 @@ impl AuthSection {
         &self,
         entry: &IssuerEntry,
         kind: IssuerKind,
-        trust_roots: Option<&[u8]>,
+        builder: Option<&dyn TlsBuilder>,
     ) -> Result<crate::resource::introspection::IntrospectionSettings, ConfigError> {
         use crate::resource::introspection::IntrospectionAuth;
         use crate::resource::introspection::IntrospectionError;
@@ -549,13 +560,17 @@ impl AuthSection {
                 if client.issuer.is_empty() && client.token_endpoint.is_empty() {
                     client.issuer.clone_from(&entry.issuer);
                 }
-                let mut credentials = client.resolve()?;
-                trust_also(&mut credentials.tls, trust_roots);
+                let credentials = match builder {
+                    Some(builder) => client.resolve_with_tls(builder)?,
+                    None => client.resolve()?,
+                };
                 IntrospectionAuth::Client(Box::new(credentials))
             }
             (None, Some(bearer)) => {
-                let mut grant = bearer.resolve()?;
-                trust_also(&mut grant.tls, trust_roots);
+                let grant = match builder {
+                    Some(builder) => bearer.resolve_with_tls(builder)?,
+                    None => bearer.resolve()?,
+                };
                 let source = crate::client::cache::TokenSource::new(grant).map_err(|source| {
                     ConfigError::Introspection {
                         source: Box::new(IntrospectionError::Credential {
@@ -575,10 +590,10 @@ impl AuthSection {
                 "auth.issuer.introspection.endpoint",
             )?);
         }
-        settings.clock_skew = Duration::from_secs(entry.clock_skew_seconds);
-        settings.cache_max_age = Duration::from_secs(section.cache_max_age_seconds);
+        settings.clock_skew = entry.clock_skew.get();
+        settings.cache_max_age = section.cache_max_age.get();
         settings.cache_capacity = section.cache_capacity;
-        settings.timeout = Duration::from_millis(entry.timeout_ms);
+        settings.timeout = entry.timeout.get();
         settings.scopeless_subjects = self.scopeless_of(&entry.issuer);
         settings.role_claims = role_claims_of(entry, kind);
         settings.profile = profile_of(entry)?;
@@ -593,35 +608,61 @@ impl AuthSection {
             })?;
         Ok(settings)
     }
+}
 
-    /// Returns the PEM trust roots of `ca_file`, read and, with the `fetch`
-    /// feature, parsed, so a bad file refuses the start.
-    fn trust_roots(&self) -> Result<Option<Vec<u8>>, ConfigError> {
-        let Some(path) = &self.ca_file else {
-            return Ok(None);
-        };
-        let pem = std::fs::read(path).map_err(|source| ConfigError::CaFile {
-            source: Box::new(source),
-        })?;
-        #[cfg(feature = "fetch")]
-        crate::metadata::Http::with_tls(
-            Duration::from_secs(10),
-            &Tls {
-                root_certificates: Some(pem.clone()),
-                identity: None,
-                presented: None,
-            },
-        )
-        .map_err(|source| ConfigError::CaFile {
-            source: Box::new(source),
-        })?;
-        Ok(Some(pem))
+/// The retired keys the issuer table `entry`, the `index`-th, sets, each with
+/// what replaced it.
+fn issuer_removals(index: usize, entry: &IssuerEntry) -> Removals {
+    let mut removals = Removals::new();
+    let at = |key: &str| format!("auth.issuer[{index}].{key}");
+    for (removed, key, replacement) in [
+        (entry.token_profile, "token_profile", TOKEN_SHAPE),
+        (
+            entry.clock_skew_seconds,
+            "clock_skew_seconds",
+            "clock_skew, a duration such as `60s`",
+        ),
+        (
+            entry.jwks_max_age_seconds,
+            "jwks_max_age_seconds",
+            "jwks_max_age, a duration such as `1h`",
+        ),
+        (
+            entry.jwks_refresh_interval_seconds,
+            "jwks_refresh_interval_seconds",
+            "jwks_refresh_interval, a duration such as `5min`",
+        ),
+        (
+            entry.timeout_ms,
+            "timeout_ms",
+            "timeout, a duration such as `10s`",
+        ),
+    ] {
+        removals.replaced(removed, at(key), replacement);
     }
+    removals.retired(entry.acting_for_claim, at("acting_for_claim"), DELEGATION);
+    removals.retired(entry.client_tokens, at("client_tokens"), DELEGATION);
+    if let Some(introspection) = &entry.introspection {
+        removals.replaced(
+            introspection.cache_max_age_seconds,
+            at("introspection.cache_max_age_seconds"),
+            "cache_max_age, a duration such as `5min`",
+        );
+        for (name, oauth) in [
+            ("client", &introspection.client),
+            ("bearer", &introspection.bearer),
+        ] {
+            if let Some(oauth) = oauth {
+                removals.extend(oauth.removals(&at(&format!("introspection.{name}"))));
+            }
+        }
+    }
+    removals
 }
 
 /// The replacement of the removed token shape key.
 const TOKEN_SHAPE: &str =
-    "set token_types, required_claims and scope_claim, or a profile, on each [[auth.issuer]]";
+    "token_types, required_claims and scope_claim, or a profile, on each [[auth.issuer]]";
 
 /// The replacement of the removed delegation keys.
 const DELEGATION: &str = "issue the client a delegated token whose subject is the person, \
@@ -645,22 +686,6 @@ fn role_claims_of(entry: &IssuerEntry, kind: IssuerKind) -> Vec<String> {
     }
 }
 
-/// Adds the `auth.ca_file` roots to the roots of an introspection grant, so
-/// the metadata, introspection and token calls trust both (no specification
-/// governs trust configuration: our own design).
-#[cfg(feature = "fetch")]
-fn trust_also(tls: &mut Tls, roots: Option<&[u8]>) {
-    let Some(roots) = roots else {
-        return;
-    };
-    let mut merged = tls.root_certificates.take().unwrap_or_default();
-    if !merged.is_empty() && !merged.ends_with(b"\n") {
-        merged.push(b'\n');
-    }
-    merged.extend_from_slice(roots);
-    tls.root_certificates = Some(merged);
-}
-
 impl Default for AuthSection {
     fn default() -> Self {
         Self {
@@ -673,23 +698,24 @@ impl Default for AuthSection {
             product_scope: String::new(),
             basic: None,
             dpop: None,
-            ca_file: None,
+            tls: TlsClientSection::default(),
             federation: Vec::new(),
             attributes: Vec::new(),
             party: Vec::new(),
-            audience: None,
-            algorithms: None,
-            token_profile: None,
-            clock_skew_seconds: None,
-            jwks_max_age_seconds: None,
-            jwks_refresh_interval_seconds: None,
-            jwks_file: None,
-            timeout_ms: None,
-            role_claims: None,
-            mode: None,
-            introspection: None,
-            acting_for_claim: None,
-            client_tokens: None,
+            audience: Removed::default(),
+            algorithms: Removed::default(),
+            token_profile: Removed::default(),
+            clock_skew_seconds: Removed::default(),
+            jwks_max_age_seconds: Removed::default(),
+            jwks_refresh_interval_seconds: Removed::default(),
+            jwks_file: Removed::default(),
+            timeout_ms: Removed::default(),
+            role_claims: Removed::default(),
+            mode: Removed::default(),
+            introspection: Removed::default(),
+            acting_for_claim: Removed::default(),
+            client_tokens: Removed::default(),
+            ca_file: Removed::default(),
         }
     }
 }
@@ -700,7 +726,8 @@ impl Default for BasicSection {
             users: Vec::new(),
             // NOTE: no specification governs the cache: our own design, safe on
             // by default because the user list changes only at a restart.
-            cache_ttl_seconds: 300,
+            cache_ttl: ferrohealth_config::units::Duration::from_mins(5),
+            cache_ttl_seconds: Removed::default(),
         }
     }
 }

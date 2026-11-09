@@ -9,15 +9,16 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::config::Removed;
 use crate::kind::IssuerKind;
 use crate::profile::Profile;
+use ferrohealth_config::removed::Removed;
 
 /// One `[[auth.party]]` table: where the logins of one `persons` issuer are
 /// looked up.
 ///
 /// It names no key claim: the issuer profile's `person_key` is the key, so
 /// the binding, the classification and `person_equality` read one claim.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PartySection {
@@ -40,7 +41,7 @@ pub struct PartySection {
     /// default.
     pub guests: bool,
     /// Removed: the issuer profile's `person_key` names the key claim.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub claim: Removed,
 }
 
@@ -182,7 +183,7 @@ pub(crate) fn check_table(
             kind,
         });
     };
-    if table.claim.is_some() {
+    if table.claim.is_set() {
         return Err(PartyError::Claim {
             issuer: issuer(),
             person_key: profile.person_key.clone(),

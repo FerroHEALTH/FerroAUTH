@@ -21,10 +21,10 @@ callback, and the session once the sign-in completes.
 
 ```toml
 [dependencies]
-ferrohealth-session = { version = "=0.7.0", features = ["axum"] }
+ferrohealth-session = { version = "=0.8.0", features = ["axum"] }
 
 [dev-dependencies]
-ferrohealth-session = { version = "=0.7.0", features = ["axum", "test-clock"] }
+ferrohealth-session = { version = "=0.8.0", features = ["axum", "test-clock"] }
 ```
 
 ```toml
@@ -33,19 +33,27 @@ issuer = "https://idp.example.org/realms/console"
 client_id = "console"
 client_secret_file = "/run/secrets/oidc-client"
 redirect_uri = "https://console.example.org/auth/callback"
-# ca_file = "/run/secrets/private-ca.pem"      # roots added to the built-in ones
 # resolve = ["idp.internal=10.0.0.12:443"]     # a host reached at a fixed address
+# timeout = "10s"                              # one call to the provider
 
-# [oidc.tls]                                   # mutual TLS to the provider (RFC 8705 §2)
-# client_certificate = "/run/secrets/console.crt"
-# client_key_file = "/run/secrets/console.key"
-# min_version = "1.3"                          # the default is "1.2"
+# [oidc.tls]                                   # built by the console's TLS reader
+# trust_roots_file = "/run/secrets/private-ca.pem"   # roots beside the platform's
+# client_identity_file = "/run/secrets/console.pem"  # mutual TLS (RFC 8705 §2): chain and key
+# min_version = "1.2"                          # the default is "1.3"
 
 [session]
 store = "memory"
-idle_timeout_s = 1800
-absolute_timeout_s = 43200
+idle_timeout = "30min"
+absolute_timeout = "12h"
 ```
+
+`[oidc] tls` is the family's outbound TLS table, and the crate reads no TLS
+file: a console checks a section that names TLS material with
+`OidcSection::check_with_tls`, handing it `ferrohealth-smart`'s
+`config::ServerTls` (feature `server-tls`). Every duration is a whole
+number and a unit (`"30min"`), and a retired key (`oidc.ca_file`,
+`oidc.timeout_s`, `session.idle_timeout_s` and the others) is refused naming
+its replacement.
 
 A `sealed` store needs `key` or `key_file` (base64 of at least 64 bytes, the
 same on every instance) and refuses `offline_access`, so a refresh token is

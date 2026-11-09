@@ -39,6 +39,7 @@ use serde_json::Map;
 use serde_json::Value;
 
 /// Whether an issuer's tokens must be sender-constrained.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SenderConstraint {

@@ -27,6 +27,7 @@ use crate::profile::Delegate;
 use crate::profile::Profile;
 
 /// Whose tokens an issuer signs, declared on every `[[auth.issuer]]`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum IssuerKind {

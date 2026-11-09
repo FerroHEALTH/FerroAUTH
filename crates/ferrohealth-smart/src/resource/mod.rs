@@ -120,10 +120,10 @@ pub struct Settings {
     /// Whether the issuer's tokens must be bound to a `DPoP` key or a client
     /// certificate ([`crate::sender`]).
     pub sender_constraint: SenderConstraint,
-    /// PEM trust roots added to the platform's for the discovery document
-    /// and the key set, for an issuer behind a private certificate
-    /// authority; none trusts the platform roots alone.
-    pub trust_roots: Option<Vec<u8>>,
+    /// The TLS of the discovery document and the key set: the configuration
+    /// the product built from `auth.tls`, or the platform's roots at its
+    /// minimum version.
+    pub tls: crate::client::Tls,
 }
 
 /// A failure to reach or read the authorization server, or settings that

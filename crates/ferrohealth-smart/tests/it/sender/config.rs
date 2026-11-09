@@ -55,7 +55,7 @@ fn an_issuer_requires_a_sender_constraint_when_it_says_so() {
 #[test]
 fn the_dpop_table_names_the_external_url_and_the_window() {
     let resolved = section(&format!(
-        "[dpop]\nexternal_url = \"https://ehr.example.org/fhir\"\nmax_age_seconds = 30\n{}",
+        "[dpop]\nexternal_url = \"https://ehr.example.org/fhir\"\nmax_age = \"30s\"\n{}",
         issuer("")
     ))
     .resolve()
@@ -83,7 +83,7 @@ fn a_dpop_table_that_breaks_a_rule_refuses_the_start() {
             Some(ProofSettingsError::ExternalUrl),
         ),
         (
-            "external_url = \"https://ehr.example.org\"\nmax_age_seconds = 0",
+            "external_url = \"https://ehr.example.org\"\nmax_age = \"0s\"",
             Some(ProofSettingsError::MaxAge {
                 max_age: Duration::ZERO,
             }),
