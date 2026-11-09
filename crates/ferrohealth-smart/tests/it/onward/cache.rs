@@ -236,3 +236,57 @@ async fn no_token_reaches_a_log_line_or_a_debug_rendering() {
         "no claim of the subject token is rendered"
     );
 }
+
+/// RFC 6750 §3.1: a token the resource server refuses as `invalid_token` is
+/// dropped, so the next call for its subject and target exchanges again,
+/// while another subject's entry, and a token already renewed, stay.
+#[tokio::test]
+async fn an_invalidated_token_is_exchanged_again_and_other_entries_stay() {
+    let harness = Harness::start(Flavor::Generic).await;
+    let target = Flavor::Generic.target();
+    let (subject, claims) = harness.person();
+    harness
+        .issue(&Flavor::Generic.issued_claims(&claims, harness.now()), None)
+        .await;
+    let refused = harness.token(&subject, None).await.expect("a token");
+    let mut again = claims.clone();
+    again["jti"] = json!("subject-2");
+    let other = harness.subject(&again, CallerKind::Person);
+    harness.token(&other, None).await.expect("a token");
+    assert_eq!(2, harness.calls().await);
+
+    harness.server.reset().await;
+    let mut renewed_claims = Flavor::Generic.issued_claims(&claims, harness.now());
+    renewed_claims["jti"] = json!("renewed");
+    harness.issue(&renewed_claims, None).await;
+    harness
+        .onward
+        .invalidate(&subject, None, &target, refused.header());
+    let renewed = harness.token(&subject, None).await.expect("a new token");
+    assert_ne!(refused.header(), renewed.header());
+    assert_eq!(
+        1,
+        harness.calls().await,
+        "the dropped entry exchanges again"
+    );
+    harness.token(&other, None).await.expect("the cached token");
+    assert_eq!(1, harness.calls().await, "the other subject's entry stays");
+
+    harness
+        .onward
+        .invalidate(&subject, None, &target, refused.header());
+    let held = harness
+        .token(&subject, None)
+        .await
+        .expect("the renewed token");
+    assert_eq!(renewed.header(), held.header());
+    assert_eq!(
+        1,
+        harness.calls().await,
+        "a token already renewed is not dropped by the stale one"
+    );
+    let (unknown, _) = harness.person();
+    harness
+        .onward
+        .invalidate(&unknown, None, &target, refused.header());
+}

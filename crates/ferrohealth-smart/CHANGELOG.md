@@ -33,6 +33,12 @@ change, so the line moves to 0.13.0.
   (#357).
 - `client::Tls::presented_certificate` and `Tls::presents_identity`, the
   certificate the connection presents from either source (#357).
+- `Onward::invalidate(subject, actor, target, stale)`, the twin of
+  `TokenSource::invalidate`: it drops the cached token `Onward::token`
+  reads for the same arguments when it is the one `stale` renders, so the
+  next call exchanges again after a resource server's `401`
+  `invalid_token` (RFC 6750 §3.1). Other entries, and a token already
+  renewed, stay (#364).
 
 ### Changed
 
