@@ -19,6 +19,7 @@ use crate::client::AssertionAudience;
 use crate::client::ClientAuth;
 use crate::client::ClientCredentials;
 use crate::client::Endpoint;
+use crate::client::PresentedTls;
 use crate::client::Tls;
 use crate::client::assertion::AssertionKey;
 use crate::client::authorization_details::AuthorizationDetails;
@@ -196,6 +197,34 @@ impl OauthSection {
     /// material that is no PEM (with the `fetch` feature), and
     /// `assertion_audience = "issuer"` without `issuer`.
     pub fn resolve(&self) -> Result<ClientCredentials, ConfigError> {
+        self.resolve_presenting(None)
+    }
+
+    /// Resolves the grant over `tls`, the TLS configuration the product
+    /// built from material it already read, such as with
+    /// `ferrohealth-server`'s `TlsClient`, so the token endpoint connection
+    /// presents its client certificate (RFC 8705 §2) and a
+    /// `certificate_bound` grant binds its tokens to it (RFC 8705 §3). The
+    /// configuration takes the place of `client_certificate_file`,
+    /// `client_key_file` and `ca_file`, which the table then names none of.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] as [`OauthSection::resolve`] does, with
+    /// [`ConfigError::Exclusive`] for a certificate, key or roots file
+    /// beside `tls`, and [`ConfigError::Missing`] for a mutual-TLS
+    /// `client_auth` or `certificate_bound` when `tls` presents no
+    /// certificate.
+    pub fn resolve_with_tls(&self, tls: PresentedTls) -> Result<ClientCredentials, ConfigError> {
+        self.resolve_presenting(Some(tls))
+    }
+
+    /// Resolves the grant, over the product's built TLS configuration when
+    /// `presented` carries one.
+    fn resolve_presenting(
+        &self,
+        presented: Option<PresentedTls>,
+    ) -> Result<ClientCredentials, ConfigError> {
         let endpoint = match (self.issuer.is_empty(), self.token_endpoint.is_empty()) {
             (false, false) => {
                 return Err(ConfigError::Exclusive {
@@ -223,7 +252,7 @@ impl OauthSection {
                 key: "credentials.oauth.client_id",
             });
         }
-        let tls = self.tls()?;
+        let tls = self.tls(presented)?;
         let mut grant = match self.client_auth {
             ClientAuth::ClientSecretBasic | ClientAuth::ClientSecretPost => {
                 let client_secret = secret(
@@ -238,15 +267,7 @@ impl OauthSection {
             }
             ClientAuth::PrivateKeyJwt => self.private_key_jwt(endpoint)?,
             ClientAuth::TlsClientAuth | ClientAuth::SelfSignedTlsClientAuth => {
-                let identity = tls.identity.clone().ok_or(ConfigError::Missing {
-                    key: "credentials.oauth.client_certificate_file",
-                })?;
-                ClientCredentials::with_mutual_tls(
-                    endpoint,
-                    self.client_id.clone(),
-                    identity,
-                    self.client_auth == ClientAuth::SelfSignedTlsClientAuth,
-                )
+                self.mutual_tls_grant(endpoint, &tls)?
             }
         };
         if self.assertion_audience == AssertionAudience::Issuer && self.issuer.is_empty() {
@@ -386,11 +407,49 @@ impl OauthSection {
                     DpopKey::from_pem(&pem).map_err(|source| ConfigError::DpopKey { source })?;
                 Ok(grant.with_dpop(std::sync::Arc::new(key)))
             }
-            (None, true) if grant.tls.identity.is_none() => Err(ConfigError::Missing {
-                key: "credentials.oauth.client_certificate_file, which certificate_bound names",
+            (None, true) if !grant.tls.presents_identity() => Err(ConfigError::Missing {
+                key: if grant.tls.presented.is_some() {
+                    "the client certificate of the product's TLS configuration, which certificate_bound names"
+                } else {
+                    "credentials.oauth.client_certificate_file, which certificate_bound names"
+                },
             }),
             (None, true) => Ok(grant.with_certificate_binding()),
             (None, false) => Ok(grant),
+        }
+    }
+
+    /// Returns the grant of a mutual-TLS `client_auth` (RFC 8705 §2) over
+    /// the client certificate `tls` presents.
+    fn mutual_tls_grant(
+        &self,
+        endpoint: Endpoint,
+        tls: &Tls,
+    ) -> Result<ClientCredentials, ConfigError> {
+        let self_signed = self.client_auth == ClientAuth::SelfSignedTlsClientAuth;
+        match (&tls.presented, &tls.identity) {
+            (Some(presented), _) if presented.certificate().is_some() => {
+                Ok(ClientCredentials::with_presented_tls(
+                    endpoint,
+                    self.client_id.clone(),
+                    presented.clone(),
+                    self_signed,
+                ))
+            }
+            (Some(_), _) => Err(ConfigError::Missing {
+                key: "the client certificate of the product's TLS configuration",
+            }),
+            (None, identity) => {
+                let identity = identity.clone().ok_or(ConfigError::Missing {
+                    key: "credentials.oauth.client_certificate_file",
+                })?;
+                Ok(ClientCredentials::with_mutual_tls(
+                    endpoint,
+                    self.client_id.clone(),
+                    identity,
+                    self_signed,
+                ))
+            }
         }
     }
 
@@ -404,7 +463,27 @@ impl OauthSection {
     /// [`OauthSection::resolve`] still refuses what only the files show.
     #[must_use]
     pub fn problems(&self, table: &str) -> Vec<String> {
+        self.problems_presenting(table, None)
+    }
+
+    /// Returns every problem of the table as [`OauthSection::problems`]
+    /// does, for a grant [`OauthSection::resolve_with_tls`] resolves over
+    /// `tls`: the client certificate a mutual-TLS `client_auth` or
+    /// `certificate_bound` needs is the one `tls` presents, and the table
+    /// names no certificate, key or roots file beside it.
+    #[must_use]
+    pub fn problems_with_tls(&self, table: &str, tls: &PresentedTls) -> Vec<String> {
+        self.problems_presenting(table, Some(tls))
+    }
+
+    /// Returns every problem of the table, over the product's built TLS
+    /// configuration when `presented` carries one.
+    fn problems_presenting(&self, table: &str, presented: Option<&PresentedTls>) -> Vec<String> {
         let mut out = Vec::new();
+        let certificate = match presented {
+            Some(tls) => tls.certificate().is_some(),
+            None => self.client_certificate_file.is_some(),
+        };
         match (self.issuer.is_empty(), self.token_endpoint.is_empty()) {
             (false, false) => out.push(format!(
                 "{table}: set one of issuer and token_endpoint, not both"
@@ -446,12 +525,17 @@ impl OauthSection {
                 }
             }
             ClientAuth::TlsClientAuth | ClientAuth::SelfSignedTlsClientAuth => {
-                if self.client_certificate_file.is_none() {
-                    out.push(format!(
-                        "{table}.client_certificate_file is required by a mutual-TLS client_auth"
+                if !certificate {
+                    out.push(certificate_missing(
+                        table,
+                        presented.is_some(),
+                        "a mutual-TLS client_auth",
                     ));
                 }
             }
+        }
+        if presented.is_some() {
+            self.presented_problems(table, &mut out);
         }
         match (&self.client_certificate_file, &self.client_key_file) {
             (Some(_), None) => out.push(format!(
@@ -476,7 +560,7 @@ impl OauthSection {
                 "{table}.scope holds a token outside the RFC 6749 §3.3 character set"
             ));
         }
-        self.binding_problems(table, &mut out);
+        self.binding_problems(table, certificate, presented.is_some(), &mut out);
         if !self.resource.is_empty() {
             match self.resource.parse::<Url>() {
                 Err(_malformed) => out.push(format!("{table}.resource is not a URL")),
@@ -489,10 +573,35 @@ impl OauthSection {
         out
     }
 
+    /// Adds to `out` a certificate, key or roots file the table names beside
+    /// the product's built TLS configuration, which carries its own.
+    fn presented_problems(&self, table: &str, out: &mut Vec<String>) {
+        for (key, set) in [
+            (
+                "client_certificate_file",
+                self.client_certificate_file.is_some(),
+            ),
+            ("client_key_file", self.client_key_file.is_some()),
+            ("ca_file", self.ca_file.is_some()),
+        ] {
+            if set {
+                out.push(format!(
+                    "{table}.{key} is set beside the product's TLS configuration, which carries its own"
+                ));
+            }
+        }
+    }
+
     /// Adds to `out` the problems of the keys this table adds beside the
     /// grant's credential: the token binding, the key ring, the security
     /// profile and `authorization_details`.
-    fn binding_problems(&self, table: &str, out: &mut Vec<String>) {
+    fn binding_problems(
+        &self,
+        table: &str,
+        certificate: bool,
+        presented: bool,
+        out: &mut Vec<String>,
+    ) {
         if self.dpop_key_file.is_some() && self.certificate_bound {
             out.push(format!(
                 "{table}: set one of dpop_key_file and certificate_bound, not both"
@@ -517,16 +626,39 @@ impl OauthSection {
                 "{table}.authorization_details is not of RFC 9396 §2 shape"
             ));
         }
-        if self.certificate_bound && self.client_certificate_file.is_none() {
-            out.push(format!(
-                "{table}.client_certificate_file is required by certificate_bound"
-            ));
+        if self.certificate_bound && !certificate {
+            out.push(certificate_missing(table, presented, "certificate_bound"));
         }
     }
 
     /// Returns the TLS material the table names, each file read and, with
-    /// the `fetch` feature, parsed, so a bad file refuses the start.
-    fn tls(&self) -> Result<Tls, ConfigError> {
+    /// the `fetch` feature, parsed, so a bad file refuses the start; or the
+    /// product's built configuration `presented`, beside which the table
+    /// names no TLS file.
+    fn tls(&self, presented: Option<PresentedTls>) -> Result<Tls, ConfigError> {
+        if let Some(presented) = presented {
+            let named = [
+                (
+                    "credentials.oauth.client_certificate_file",
+                    self.client_certificate_file.is_some(),
+                ),
+                (
+                    "credentials.oauth.client_key_file",
+                    self.client_key_file.is_some(),
+                ),
+                ("credentials.oauth.ca_file", self.ca_file.is_some()),
+            ];
+            if let Some((key, _)) = named.into_iter().find(|(_, set)| *set) {
+                return Err(ConfigError::Exclusive {
+                    left: key,
+                    right: "the product's TLS configuration",
+                });
+            }
+            return Ok(Tls {
+                presented: Some(presented),
+                ..Tls::default()
+            });
+        }
         let read = |path: &Path| {
             std::fs::read(path).map_err(|source| ConfigError::SecretFile {
                 path: path.to_path_buf(),
@@ -556,6 +688,7 @@ impl OauthSection {
         let tls = Tls {
             root_certificates,
             identity,
+            presented: None,
         };
         #[cfg(feature = "fetch")]
         crate::metadata::Http::with_tls(Duration::from_millis(self.timeout_ms), &tls).map_err(
@@ -624,5 +757,18 @@ impl std::fmt::Debug for OauthSection {
             .field("previous_private_key_file", &self.previous_private_key_file)
             .field("next_private_key_file", &self.next_private_key_file)
             .finish_non_exhaustive()
+    }
+}
+
+/// The problem of a table whose `what` needs a client certificate it has
+/// none of: from `client_certificate_file`, or from the product's built TLS
+/// configuration when `presented`.
+fn certificate_missing(table: &str, presented: bool, what: &str) -> String {
+    if presented {
+        format!(
+            "{table}: {what} needs a client certificate the product's TLS configuration presents"
+        )
+    } else {
+        format!("{table}.client_certificate_file is required by {what}")
     }
 }

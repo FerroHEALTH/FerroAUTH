@@ -11,15 +11,38 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.13.0] - 2026-11-09
+## [0.13.0] - Unreleased
 
 A refusal of a JSON document the crate could not read no longer quotes the
-document. The error type of the refusing variants changes, so the line
-moves to 0.13.0; a product that only renders or matches these errors
-upgrades with no change.
+document, and a grant can present the TLS identity a product already read.
+The error type of the refusing variants and the fields of `client::Tls`
+change, so the line moves to 0.13.0.
+
+### Added
+
+- `client::PresentedTls`, a rustls client configuration a product built
+  from TLS material it read once (such as with `ferrohealth-server`'s
+  `TlsClient`) with the end-entity certificate it presents.
+  `ClientCredentials::with_presented_tls` authenticates over mutual TLS
+  with it (RFC 8705 §2), and `OauthSection::resolve_with_tls` and
+  `OauthSection::problems_with_tls` resolve and check the oauth table over
+  it in place of `client_certificate_file`, `client_key_file` and
+  `ca_file`, which the table then names none of. A `certificate_bound`
+  grant compares the token's `x5t#S256` with the presented certificate
+  (RFC 8705 §3). The crate reads no file and holds no key bytes for it
+  (#357).
+- `client::Tls::presented_certificate` and `Tls::presents_identity`, the
+  certificate the connection presents from either source (#357).
 
 ### Changed
 
+- `client::Tls` gains the public field `presented`; a struct literal adds
+  `presented: None` or `..Tls::default()`. `metadata::Http::with_tls` and
+  `reaching` build the engine over a presented configuration, which keeps
+  its own trust roots and protocol versions, and refuse PEM roots or a PEM
+  identity beside it as the new `DiscoveryError::PresentedTlsTwice`. The
+  introspection calls of a bearer source use the grant's presented
+  configuration (#357).
 - The variants that refuse a JSON document carry `json::JsonError` in
   place of `serde_json::Error`: `resource::ResourceError::KeySet` and
   `KeySetRepeatedName`, `client::TokenError::Malformed`,

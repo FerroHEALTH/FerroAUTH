@@ -220,6 +220,11 @@ pub enum DiscoveryError {
     #[cfg(feature = "fetch")]
     #[error("the trust roots carry no PEM certificate")]
     NoRootCertificate,
+    /// The TLS material names PEM trust roots or a PEM identity beside a
+    /// TLS configuration the product built, which carries its own.
+    #[cfg(feature = "fetch")]
+    #[error("the TLS material names PEM roots or a PEM identity beside a built TLS configuration")]
+    PresentedTlsTwice,
     /// The configured issuer is not a URL.
     #[error("the configured issuer is not a URL")]
     IssuerUrl {
@@ -596,15 +601,18 @@ impl Http {
     ///
     /// Returns [`DiscoveryError::Tls`] for roots or a client certificate
     /// that are no PEM `reqwest` reads, [`DiscoveryError::NoRootCertificate`]
-    /// for roots that hold no certificate, and [`DiscoveryError::Build`] when
-    /// the engine cannot be built.
+    /// for roots that hold no certificate,
+    /// [`DiscoveryError::PresentedTlsTwice`] for PEM material beside a
+    /// built configuration, and [`DiscoveryError::Build`] when the engine
+    /// cannot be built.
     pub fn with_tls(timeout: Duration, tls: &crate::client::Tls) -> Result<Self, DiscoveryError> {
         Self::reaching(timeout, tls, &crate::client::Reach::default())
     }
 
     /// Returns an engine as [`Self::with_tls`] does, negotiating no TLS
     /// version below the one `reach` names and reaching each host `reach`
-    /// overrides at its address.
+    /// overrides at its address. A configuration the product built
+    /// (`tls.presented`) keeps its own protocol versions.
     ///
     /// # Errors
     ///
@@ -625,6 +633,15 @@ impl Http {
             .tls_version_min(min_version);
         for (host, address) in reach.resolve() {
             builder = builder.resolve(host, *address);
+        }
+        if let Some(presented) = &tls.presented {
+            if tls.root_certificates.is_some() || tls.identity.is_some() {
+                return Err(DiscoveryError::PresentedTlsTwice);
+            }
+            // NOTE: RFC 8705 §2, the connection presents the identity the
+            // product's configuration carries, with its roots and versions.
+            builder =
+                builder.tls_backend_preconfigured(rustls::ClientConfig::clone(presented.config()));
         }
         if let Some(pem) = &tls.root_certificates {
             let roots = reqwest::Certificate::from_pem_bundle(pem).map_err(|source| {

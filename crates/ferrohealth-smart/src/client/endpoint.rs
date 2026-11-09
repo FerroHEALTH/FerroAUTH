@@ -91,7 +91,7 @@ pub(super) async fn discover(
         .mtls_endpoint_aliases
         .as_ref()
         .and_then(|aliases| aliases.token_endpoint.as_deref())
-        .filter(|_alias| config.tls.identity.is_some());
+        .filter(|_alias| config.tls.presents_identity());
     alias
         .or(metadata.token_endpoint.as_deref())
         .ok_or(TokenError::NoTokenEndpoint)?

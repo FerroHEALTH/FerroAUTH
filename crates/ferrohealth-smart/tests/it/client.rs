@@ -943,6 +943,7 @@ async fn a_mutual_tls_endpoint_refuses_a_client_without_a_certificate_or_roots()
     let garbage = Tls {
         root_certificates: Some(b"not a certificate".to_vec()),
         identity: None,
+        presented: None,
     };
     assert!(matches!(
         Http::with_tls(Duration::from_secs(5), &garbage),
@@ -951,6 +952,7 @@ async fn a_mutual_tls_endpoint_refuses_a_client_without_a_certificate_or_roots()
     let garbage = Tls {
         root_certificates: None,
         identity: Some(identity(b"not a key".to_vec())),
+        presented: None,
     };
     assert!(matches!(
         Http::with_tls(Duration::from_secs(5), &garbage),

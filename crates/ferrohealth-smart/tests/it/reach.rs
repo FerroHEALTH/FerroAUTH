@@ -28,6 +28,7 @@ fn trusting(ca_pem: &str) -> Tls {
     Tls {
         root_certificates: Some(ca_pem.as_bytes().to_vec()),
         identity: None,
+        presented: None,
     }
 }
 
@@ -69,6 +70,7 @@ async fn the_client_certificate_is_presented_to_the_provider() {
     let tls = Tls {
         root_certificates: Some(endpoint.ca_pem.as_bytes().to_vec()),
         identity: Some(Arc::new(SecretSlice::from(endpoint.identity()))),
+        presented: None,
     };
     let issuer = endpoint.url.trim_end_matches("/token").to_owned();
     let http = Http::reaching(TIMEOUT, &tls, &Reach::default()).expect("the engine builds");

@@ -384,6 +384,7 @@ impl OidcSettings {
         let tls = Tls {
             root_certificates: self.roots.clone(),
             identity: self.identity.clone(),
+            presented: None,
         };
         let http = Http::reaching(self.timeout, &tls, &self.reach).map_err(ConfigError::Http)?;
         let given = &self.endpoints;

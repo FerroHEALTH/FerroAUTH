@@ -260,6 +260,12 @@ impl TokenSource {
         self.inner.config.tls.root_certificates.as_deref()
     }
 
+    /// Returns the TLS configuration the grant's product built, which the
+    /// introspection calls of a bearer source use as the grant does.
+    pub(crate) fn presented_tls(&self) -> Option<&crate::client::PresentedTls> {
+        self.inner.config.tls.presented.as_ref()
+    }
+
     /// Returns the source of `config` over `http`, reading expiry against
     /// `clock`.
     fn assemble(config: ClientCredentials, http: Http, clock: Arc<dyn Clock>) -> Self {

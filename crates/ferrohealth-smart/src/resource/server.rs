@@ -53,6 +53,7 @@ impl ResourceServer {
                 &crate::client::Tls {
                     root_certificates: Some(roots.clone()),
                     identity: None,
+                    presented: None,
                 },
             )?,
             None => Http::new(settings.timeout)?,

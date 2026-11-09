@@ -570,6 +570,7 @@ impl AuthSection {
             &Tls {
                 root_certificates: Some(pem.clone()),
                 identity: None,
+                presented: None,
             },
         )
         .map_err(|source| ConfigError::CaFile {
