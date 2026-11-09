@@ -11,6 +11,24 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Security
+
+- A refused key set, introspection or metadata answer kept its body, as
+  received and up to 1 MiB, in the `body` field of
+  `resource::ResourceError::KeySetStatus`,
+  `resource::introspection::IntrospectionError::Status` and
+  `metadata::DiscoveryError::Status`, and their `Debug` rendering printed
+  it. A product that logged one of these errors with `{:?}` could write
+  token, key or credential material an upstream or a proxy put in that body
+  to its log. Affected: every release before 0.13.1 (CWE-532, CWE-209,
+  GHSA-5qm7-v4fw-p2v9). `KeySetStatus` and `DiscoveryError::Status` now
+  keep an empty `body`, since RFC 7517 and RFC 8414 define no error body,
+  and `IntrospectionError::Status` keeps only the RFC 6749 §5.2 `error`
+  code (RFC 7662 §2.3), cut to `client::MAX_ERROR_TEXT` characters and
+  dropped when it leaves that section's character set, which its `Display`
+  now names. The field types do not change. Upgrade step: move to 0.13.1;
+  until then, log only the `Display` rendering of these errors (#373).
+
 ## [0.13.0] - 2026-11-09
 
 A refusal of a JSON document the crate could not read no longer quotes the

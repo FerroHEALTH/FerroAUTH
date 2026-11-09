@@ -267,7 +267,8 @@ pub enum DiscoveryError {
         url: Url,
         /// The status it answered.
         status: StatusCode,
-        /// The body it answered, as received.
+        /// Always empty: RFC 8414 §3.2 defines no error body, and nothing of
+        /// the answer is kept, so no rendering of the error carries it.
         body: String,
     },
     /// The metadata is not the JSON object RFC 8414 §3.2 describes.
@@ -719,7 +720,11 @@ impl Http {
             answered => answered,
         };
         if status != StatusCode::OK {
-            return Err(DiscoveryError::Status { url, status, body });
+            return Err(DiscoveryError::Status {
+                url,
+                status,
+                body: String::new(),
+            });
         }
         let metadata = parse_metadata(&url, &body)?;
         check_issuer(issuer, &metadata.issuer)?;
