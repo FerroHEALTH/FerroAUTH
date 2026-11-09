@@ -11,6 +11,40 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.16.0] - Unreleased
+
+### Added
+
+- `client::outbound::OutboundClient::build` builds the client of one
+  outbound integration from its `config::endpoint::EndpointSection` and the
+  product's `config::TlsBuilder`: the table validated, the HTTP engine with
+  its `timeout`, its `connect_timeout`, no redirects and the TLS the
+  builder makes, and `credentials` resolved into
+  `client::outbound::Authorization` (Basic, or a `TokenSource` renewed once
+  on a `401`). `OutboundClient::send` sends with that authorization and the
+  table's `retry`: a call that did not reach the integration, timed out or
+  met a `5xx` is tried again. `RetrySection::delays` gives the waits: the
+  first `initial_backoff`, each later one doubled, capped at `max_backoff`.
+  The `fetch` feature now enables the Tokio timer (#397).
+- `[auth.idp]`: `AuthSection::idp` reads `[auth.idp.entra]`, the Graph
+  table of the `idp-entra` adapter, which a build without `idp-entra`
+  refuses as an unknown key. `Resolved::adapters` holds the adapters the
+  tables build, and `party::binding::PartyBinding::with_resolved` registers
+  them, so a product writes no deserializer and no `with_adapter` call of
+  its own. A table the adapter refuses is `ConfigError::Adapter` (#398).
+
+### Changed
+
+- Breaking: `config::endpoint::EndpointSection::url` is a
+  `ferrohealth_secret::secret_url::SecretUrl` in place of a `String`, so the
+  URL masks its userinfo and query as a property of its type. Upgrade: read
+  the URL with `url.expose()`, or take the parsed `Url` from
+  `EndpointSection::validate`; build one with `SecretUrl::new` (#404).
+- Breaking: `config::AuthSection` has the field `idp`, and
+  `config::Resolved` the field `adapters`; a product that builds either
+  with a struct literal adds them (`..Default::default()` for the section)
+  (#398).
+
 ## [0.15.1] - 2026-11-09
 
 ### Security

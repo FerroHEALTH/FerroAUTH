@@ -116,15 +116,15 @@ fn credentialed() -> EndpointSection {
 }
 
 fn assert_masked(rendering: &str, what: &str) {
-    for secret in ["Qz7-user", "Qz7-pass", "Qz7-query"] {
+    for (index, secret) in ["Qz7-user", "Qz7-pass", "Qz7-query"].iter().enumerate() {
         assert!(
             !rendering.contains(secret),
-            "{what} carries {secret}: {rendering}"
+            "{what} carries credential part {index} of the URL"
         );
     }
     assert!(
         rendering.contains("https://***@pix.example.org/fhir?***"),
-        "{what} names the masked URL: {rendering}"
+        "{what} does not name the masked URL"
     );
 }
 
@@ -164,7 +164,7 @@ fn the_endpoint_keeps_its_url_for_the_client() {
     let table = credentialed();
     assert_eq!(
         "https://Qz7-user:Qz7-pass@pix.example.org/fhir?token=Qz7-query",
-        table.url
+        table.url.expose()
     );
     assert_eq!(
         "pix.example.org",

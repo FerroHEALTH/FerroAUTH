@@ -90,7 +90,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 
 - `crates/ferrohealth-smart`: the library, with its own `CHANGELOG.md`. `src/` (`metadata`, `resource`
   with `jwks`, `token`, `configuration` and `introspection`, `scope`, `basic`, `client` with
-  `cache`, `endpoint`, `assertion`, `dpop` (the client's DPoP proofs and
+  `cache`, `endpoint`, `outbound` (the client of one outbound integration
+  built from its endpoint table, with its retry), `assertion`, `dpop` (the client's DPoP proofs and
   nonces), `binding` (what a grant binds its tokens to, with the RFC 8705 §3
   certificate check), `keys` (the assertion key ring and its JWK Set),
   `fapi2` (the FAPI 2.0 Security Profile on a grant), `authorization_details`

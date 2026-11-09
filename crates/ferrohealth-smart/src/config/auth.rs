@@ -198,6 +198,11 @@ impl AuthSection {
         if self.enabled {
             self.check_party()?;
         }
+        let adapters = if self.enabled {
+            self.idp.adapters()?
+        } else {
+            crate::idp::section::Adapters::default()
+        };
         let basic = self.basic_store()?;
         let dpop = self.dpop_settings()?;
         Ok(Resolved {
@@ -217,6 +222,7 @@ impl AuthSection {
             } else {
                 Vec::new()
             },
+            adapters,
         })
     }
 
@@ -549,6 +555,7 @@ impl Default for AuthSection {
             federation: Vec::new(),
             attributes: Vec::new(),
             party: Vec::new(),
+            idp: crate::idp::section::IdpSection::default(),
         }
     }
 }

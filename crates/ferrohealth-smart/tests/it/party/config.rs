@@ -170,3 +170,101 @@ group_identifier_issuer = \"urn:example:ferro:groups\"
     assert!(format!("{binding:?}").contains(ISSUER), "{binding:?}");
     Ok(())
 }
+
+/// The `[auth.idp.entra]` table of the configuration cases, with `base_url`.
+#[cfg(feature = "idp-entra")]
+fn entra_table(base_url: &str) -> String {
+    format!(
+        "
+[idp.entra]
+base_url = \"{base_url}\"
+[idp.entra.credentials]
+token_endpoint = \"https://login.example.org/tenant-1/oauth2/v2.0/token\"
+client_id = \"synthetic-graph-reader\"
+client_secret = \"synthetic-graph-secret\"
+"
+    )
+}
+
+#[cfg(feature = "idp-entra")]
+#[test]
+fn the_idp_entra_table_builds_its_adapter_and_the_binding_registers_it() -> Outcome2 {
+    let resolved = section(&format!(
+        "{ISSUERS}{}",
+        entra_table("https://graph.microsoft.com/v1.0")
+    ))?
+    .resolve()?;
+    let names: Vec<&str> = resolved.adapters.iter().map(|(name, _)| name).collect();
+    assert_eq!(vec![ferrohealth_smart::idp::entra::NAME], names);
+    let source: Arc<dyn PartySource> = FakeSource::answering(one_professional());
+    let binding = PartyBinding::new(source)
+        .with_resolved(&resolved)?
+        .with_issuer(
+            table(),
+            IssuerKind::Persons,
+            &Profile {
+                adapter: Some(String::from(ferrohealth_smart::idp::entra::NAME)),
+                ..profile()
+            },
+        )?;
+    assert!(format!("{binding:?}").contains("idp-entra"), "{binding:?}");
+    Ok(())
+}
+
+#[cfg(feature = "idp-entra")]
+#[test]
+fn an_idp_entra_table_breaking_a_rule_is_refused_naming_the_adapter() -> Outcome2 {
+    let refused = section(&format!(
+        "{ISSUERS}{}",
+        entra_table("http://graph.example.org")
+    ))?
+    .resolve()
+    .expect_err("an http Graph root is refused");
+    assert!(
+        matches!(
+            refused,
+            ConfigError::Adapter {
+                adapter: "idp-entra",
+                ..
+            }
+        ),
+        "{refused:?}"
+    );
+    Ok(())
+}
+
+#[cfg(feature = "idp-entra")]
+#[test]
+fn an_unknown_key_of_the_idp_tables_is_refused() {
+    for unknown in [
+        format!(
+            "{}colour = \"blue\"\n",
+            entra_table("https://graph.microsoft.com/v1.0")
+        ),
+        String::from("\n[idp.okta]\nbase_url = \"https://okta.example.org\"\n"),
+    ] {
+        assert!(
+            section(&format!("{ISSUERS}{unknown}")).is_err(),
+            "{unknown:?} was read"
+        );
+    }
+}
+
+#[test]
+fn without_an_idp_table_no_adapter_is_built() -> Outcome2 {
+    let resolved = section(ISSUERS)?.resolve()?;
+    assert!(resolved.adapters.is_empty(), "{:?}", resolved.adapters);
+    Ok(())
+}
+
+#[cfg(not(feature = "idp-entra"))]
+#[test]
+fn a_build_without_the_entra_adapter_refuses_its_table() {
+    assert!(
+        section(&format!(
+            "{ISSUERS}\n[idp.entra]\nbase_url = \"https://graph.microsoft.com/v1.0\"\n"
+        ))
+        .is_err(),
+        "a table for an adapter the build lacks was read"
+    );
+}

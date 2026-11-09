@@ -322,6 +322,15 @@ pub enum ConfigError {
         /// Which rule.
         reason: &'static str,
     },
+    /// An `[auth.idp]` table is refused.
+    #[error("the [auth.idp] table of the {adapter} adapter is refused")]
+    Adapter {
+        /// The adapter.
+        adapter: &'static str,
+        /// What the adapter reported.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     /// An `[[auth.party]]` table breaks a rule.
     #[error("an [[auth.party]] table is refused")]
     Party {
@@ -393,6 +402,9 @@ pub struct AuthSection {
     /// The `[[auth.party]]` tables, one per `persons` issuer whose logins
     /// are bound to a party.
     pub party: Vec<PartySection>,
+    /// The `[auth.idp]` table: the vendor adapters a profile may name, each
+    /// read in a build that compiles it in.
+    pub idp: crate::idp::section::IdpSection,
 }
 
 /// How a bearer token is checked.
@@ -635,6 +647,9 @@ pub struct Resolved {
     pub introspection: Vec<crate::resource::introspection::IntrospectionSettings>,
     /// The `[[auth.party]]` tables, each checked against its issuer.
     pub party: Vec<PartySection>,
+    /// The vendor adapters the `[auth.idp]` tables build, which the party
+    /// binding registers.
+    pub adapters: crate::idp::section::Adapters,
 }
 
 /// The product's reader of an outbound `tls` table, which builds the TLS

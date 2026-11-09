@@ -62,6 +62,8 @@ mod oidc;
 mod onward;
 #[cfg(all(feature = "openehr", feature = "fetch"))]
 mod openehr;
+#[cfg(feature = "fetch")]
+mod outbound;
 mod party;
 #[cfg(feature = "fetch")]
 mod person;

@@ -38,6 +38,8 @@ pub mod fapi2;
 pub mod keys;
 #[cfg(feature = "fetch")]
 pub mod onward;
+#[cfg(feature = "fetch")]
+pub mod outbound;
 
 use std::sync::Arc;
 use std::time::Duration;

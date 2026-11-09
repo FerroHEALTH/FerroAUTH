@@ -1819,7 +1819,15 @@ design.
 An outbound integration is one table, `config::endpoint::EndpointSection`:
 `url`, `timeout`, `connect_timeout`, `retry` (`max_attempts`,
 `initial_backoff`, `max_backoff`), `tls` and `credentials`, so an operator
-writes every product's integrations with the same keys.
+writes every product's integrations with the same keys. `url` is a
+`SecretUrl`, so its userinfo and query render masked. One call,
+`client::outbound::OutboundClient::build`, turns the table into the HTTP
+engine (its timeouts, no redirects, the TLS the product's `TlsBuilder`
+builds) and the authorization (Basic, or a `TokenSource`), and
+`OutboundClient::send` applies both with the retry: a call that did not
+reach the integration, timed out or met a `5xx` is tried again after a wait
+that doubles from `initial_backoff` up to `max_backoff`. Any other answer
+is the caller's. No specification governs the retry rule: our own design.
 
 A lane that reaches its upstream on a caller's behalf declares its onward
 target beside its `oauth` table, which the onward client authenticates

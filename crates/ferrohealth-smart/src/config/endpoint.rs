@@ -12,26 +12,26 @@
 
 use ferrohealth_config::tls::TlsClientSection;
 use ferrohealth_config::units::Duration;
+use ferrohealth_secret::secret_url::SecretUrl;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
 use crate::config::ConfigError;
 use crate::config::credentials::CredentialsSection;
-use crate::config::mask_userinfo;
-use crate::config::shapes;
 
 /// One outbound integration.
 ///
 /// `Debug` and `Serialize` render `url` with its userinfo and its query
-/// masked ([`mask_userinfo`]), so a product that logs or dumps the section
-/// writes no credential the URL carries.
-#[derive(Clone, Deserialize, Serialize)]
+/// masked, as [`SecretUrl`] renders itself, so a product that logs or dumps
+/// the section writes no credential the URL carries.
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
 pub struct EndpointSection {
-    /// The service's URL (RFC 3986); required.
-    #[serde(serialize_with = "shapes::masked_url")]
-    pub url: String,
+    /// The service's URL (RFC 3986); required. It renders with its
+    /// userinfo and its query masked, in `Debug` and when serialized.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub url: SecretUrl,
     /// How long one whole call may take; never zero.
     pub timeout: Duration,
     /// How long opening the connection may take; unset, only `timeout`
@@ -47,23 +47,10 @@ pub struct EndpointSection {
     pub credentials: CredentialsSection,
 }
 
-impl std::fmt::Debug for EndpointSection {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("EndpointSection")
-            .field("url", &mask_userinfo(&self.url))
-            .field("timeout", &self.timeout)
-            .field("connect_timeout", &self.connect_timeout)
-            .field("retry", &self.retry)
-            .field("tls", &self.tls)
-            .field("credentials", &self.credentials)
-            .finish()
-    }
-}
-
 impl Default for EndpointSection {
     fn default() -> Self {
         Self {
-            url: String::new(),
+            url: SecretUrl::default(),
             timeout: Duration::from_secs(10),
             connect_timeout: None,
             retry: RetrySection::default(),
@@ -97,6 +84,21 @@ impl Default for RetrySection {
     }
 }
 
+impl RetrySection {
+    /// Returns the waits between the tries of one call: `max_attempts - 1`
+    /// of them, the first `initial_backoff` and each later one twice the one
+    /// before, never longer than `max_backoff`.
+    pub fn delays(&self) -> impl Iterator<Item = std::time::Duration> + use<> {
+        let max = self.max_backoff.get();
+        let first = self.initial_backoff.get().min(max);
+        let retries = usize::try_from(self.max_attempts.saturating_sub(1)).unwrap_or(usize::MAX);
+        std::iter::successors(Some(first), move |delay: &std::time::Duration| {
+            Some(delay.saturating_mul(2).min(max))
+        })
+        .take(retries)
+    }
+}
+
 impl EndpointSection {
     /// Checks the table and returns its URL: a URL is set and parses, the
     /// timeouts are not zero, a call is tried at least once, and the
@@ -113,7 +115,7 @@ impl EndpointSection {
         if self.url.is_empty() {
             return Err(ConfigError::Missing { key: "url" });
         }
-        let url = crate::config::read::parse_url(&self.url, "url")?;
+        let url = crate::config::read::parse_url(self.url.expose(), "url")?;
         if self.timeout.is_zero() {
             return Err(ConfigError::Endpoint {
                 rule: "timeout is zero",
