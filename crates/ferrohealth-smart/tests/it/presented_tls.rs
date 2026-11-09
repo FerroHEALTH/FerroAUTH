@@ -201,18 +201,11 @@ async fn the_oauth_table_resolves_over_the_product_s_configuration() -> TestResu
         "{problems:?}"
     );
 
-    let twice = section(&format!(
-        "{base}client_auth = \"tls_client_auth\"\nclient_certificate_file = \"/etc/client.pem\"\nclient_key_file = \"/etc/client.key\"\n"
-    ))?;
-    assert!(matches!(
-        twice.resolve_with_tls(&crate::tls::Built(presented(&endpoint, true)?)),
-        Err(ConfigError::RemovedKeys(_))
-    ));
-    assert!(
-        twice
-            .problems_with_tls("credentials.oauth", &presented(&endpoint, true)?)
-            .iter()
-            .any(|problem| problem.contains("client_certificate_file"))
-    );
+    for retired in ["client_certificate_file", "client_key_file", "ca_file"] {
+        let read = section(&format!(
+            "{base}client_auth = \"tls_client_auth\"\n{retired} = \"/etc/client.pem\"\n"
+        ));
+        assert!(read.is_err(), "{retired} is no key of the table");
+    }
     Ok(())
 }

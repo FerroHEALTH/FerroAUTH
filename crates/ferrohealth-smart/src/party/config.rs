@@ -11,7 +11,6 @@ use serde::Serialize;
 
 use crate::kind::IssuerKind;
 use crate::profile::Profile;
-use ferrohealth_config::removed::Removed;
 
 /// One `[[auth.party]]` table: where the logins of one `persons` issuer are
 /// looked up.
@@ -40,27 +39,12 @@ pub struct PartySection {
     /// Whether a guest of the issuer is looked up; a guest is not by
     /// default.
     pub guests: bool,
-    /// Removed: the issuer profile's `person_key` names the key claim.
-    #[serde(skip_serializing)]
-    pub claim: Removed,
 }
 
 /// A party binding that breaks a rule, naming the table.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum PartyError {
-    /// A table sets `claim`, which the issuer profile's `person_key`
-    /// replaces.
-    #[error(
-        "auth.party.claim of {issuer:?} is removed: the issuer profile's person_key \
-         {person_key:?} names the key claim"
-    )]
-    Claim {
-        /// The table's issuer.
-        issuer: String,
-        /// The issuer profile's `person_key`.
-        person_key: String,
-    },
     /// A table names no trusted `persons` issuer.
     #[error("the [[auth.party]] table of {issuer:?} names no trusted persons issuer")]
     NotPersons {
@@ -183,12 +167,6 @@ pub(crate) fn check_table(
             kind,
         });
     };
-    if table.claim.is_set() {
-        return Err(PartyError::Claim {
-            issuer: issuer(),
-            person_key: profile.person_key.clone(),
-        });
-    }
     for (key, value) in [
         ("auth.party.identifier_issuer", &table.identifier_issuer),
         ("auth.party.identifier_type", &table.identifier_type),

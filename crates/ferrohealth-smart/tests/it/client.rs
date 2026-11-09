@@ -1108,17 +1108,19 @@ fn the_oauth_table_takes_its_tls_from_the_product_s_builder() -> Result<(), Box<
         table("client_auth = \"tls_client_auth\"")?.resolve_with_tls(&crate::tls::PemTls),
         Err(ConfigError::Missing { .. })
     ));
-    let retired = table(
-        "client_secret = \"synthetic-secret\"\nca_file = \"/run/ca.pem\"\ntimeout_ms = 5000\n",
-    )?
-    .resolve()
-    .expect_err("the retired keys are refused");
-    let shown = retired.to_string();
-    for line in [
-        "credentials.oauth.ca_file was replaced by credentials.oauth.tls.trust_roots_file",
-        "credentials.oauth.timeout_ms was replaced by credentials.oauth.timeout",
+    for retired in [
+        "ca_file = \"/run/ca.pem\"",
+        "timeout_ms = 5000",
+        "refresh_margin_ms = 1",
+        "previous_key_overlap_ms = 1",
     ] {
-        assert!(shown.contains(line), "{line} in {shown}");
+        assert!(
+            table(&format!(
+                "client_secret = \"synthetic-secret\"\n{retired}\n"
+            ))
+            .is_err(),
+            "{retired} is no key of the table"
+        );
     }
     let pem = temp_file("assertion.pem", &ec_key("unused", Algorithm::ES384).pem);
     assert!(matches!(

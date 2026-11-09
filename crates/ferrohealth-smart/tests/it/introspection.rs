@@ -18,7 +18,6 @@ use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::IntrospectionSection;
 use ferrohealth_smart::config::IssuerEntry;
-use ferrohealth_smart::config::IssuerKey;
 use ferrohealth_smart::config::ScopelessSubject;
 use ferrohealth_smart::config::credentials::OauthSection;
 use ferrohealth_smart::kind::IssuerKind;
@@ -422,7 +421,7 @@ async fn metadata_without_an_introspection_endpoint_refuses_the_start()
 /// mode, `issuer`.
 fn section(issuer: &str) -> AuthSection {
     AuthSection {
-        issuer: IssuerKey::List(vec![IssuerEntry {
+        issuer: vec![IssuerEntry {
             issuer: issuer.to_owned(),
             kind: Some(IssuerKind::Persons),
             audience: vec![String::from(AUDIENCE)],
@@ -436,17 +435,14 @@ fn section(issuer: &str) -> AuthSection {
                 ..IntrospectionSection::default()
             }),
             ..IssuerEntry::default()
-        }]),
+        }],
         ..AuthSection::default()
     }
 }
 
 /// Returns the one issuer table of `section`.
 fn table(section: &mut AuthSection) -> &mut IssuerEntry {
-    let IssuerKey::List(entries) = &mut section.issuer else {
-        panic!("the table form");
-    };
-    entries.first_mut().expect("one issuer table")
+    section.issuer.first_mut().expect("one issuer table")
 }
 
 #[test]
@@ -514,13 +510,10 @@ fn the_auth_section_refuses_an_introspection_mode_that_breaks_a_rule() {
         no_secret.resolve(),
         Err(ConfigError::Secret { .. })
     ));
-    let section_level: AuthSection =
-        toml::from_str("mode = \"introspection\"\n").expect("the section parses");
-    assert!(matches!(
-        section_level.resolve(),
-        Err(ConfigError::RemovedKeys(keys))
-            if keys.removals().iter().any(|removal| removal.key() == "auth.mode")
-    ));
+    assert!(
+        toml::from_str::<AuthSection>("mode = \"introspection\"\n").is_err(),
+        "a section-level mode is an unknown key"
+    );
 }
 
 #[test]
@@ -559,7 +552,7 @@ fn the_introspection_table_reads_from_toml() -> Result<(), Box<dyn StdError>> {
 #[test]
 fn introspection_mode_reads_the_entries_naming_its_issuer() -> Result<(), Box<dyn StdError>> {
     let mut auth = section("https://as.example.org");
-    auth.scopeless_subjects = vec![ScopelessSubject::Qualified {
+    auth.scopeless_subjects = vec![ScopelessSubject {
         issuer: String::from("https://as.example.org"),
         sub: String::from("batch"),
     }];
@@ -578,7 +571,7 @@ fn introspection_mode_reads_the_entries_naming_its_issuer() -> Result<(), Box<dy
         vec![String::from("realm_access.roles")],
         settings.role_claims
     );
-    auth.scopeless_subjects = vec![ScopelessSubject::Qualified {
+    auth.scopeless_subjects = vec![ScopelessSubject {
         issuer: String::from("https://other.example.org"),
         sub: String::from("batch"),
     }];

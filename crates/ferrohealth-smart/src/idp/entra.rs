@@ -95,12 +95,6 @@ pub struct GraphSection {
     /// The client credentials grant the Graph token is obtained with, under
     /// the Graph permission the deployment grants.
     pub credentials: OauthSection,
-    /// Removed: `timeout`, a duration.
-    #[serde(skip_serializing)]
-    pub timeout_ms: ferrohealth_config::removed::Removed,
-    /// Removed: `max_response_size`, a size.
-    #[serde(skip_serializing)]
-    pub max_response_bytes: ferrohealth_config::removed::Removed,
 }
 
 impl Default for GraphSection {
@@ -111,8 +105,6 @@ impl Default for GraphSection {
             max_response_size: ferrohealth_config::units::ByteSize::from_mib(1),
             security_enabled_only: false,
             credentials: OauthSection::default(),
-            timeout_ms: ferrohealth_config::removed::Removed::default(),
-            max_response_bytes: ferrohealth_config::removed::Removed::default(),
         }
     }
 }
@@ -241,22 +233,6 @@ impl GraphSection {
                 },
             });
         }
-        let mut removals = self.credentials.removals("graph.credentials");
-        removals.replaced(
-            self.timeout_ms,
-            "graph.timeout_ms",
-            "graph.timeout, a duration such as `2s`",
-        );
-        removals.replaced(
-            self.max_response_bytes,
-            "graph.max_response_bytes",
-            "graph.max_response_size, a size such as `1MiB`",
-        );
-        removals
-            .finish()
-            .map_err(|source| GraphError::Credentials {
-                source: ConfigError::RemovedKeys(source),
-            })?;
         // NOTE: no specification governs this: our own design; a bound past the address
         // space bounds nothing more than the address space does, so it saturates.
         let max_response_bytes = usize::try_from(self.max_response_size).unwrap_or(usize::MAX);

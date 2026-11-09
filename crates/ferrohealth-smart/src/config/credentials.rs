@@ -7,7 +7,6 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use ferrohealth_config::removed::{Removals, Removed};
 use ferrohealth_config::tls::TlsClientSection;
 use ferrohealth_config::units::Duration;
 use jsonwebtoken::Algorithm;
@@ -143,24 +142,6 @@ pub struct OauthSection {
     pub next_private_key_file: Option<PathBuf>,
     /// The RFC 9396 `authorization_details` JSON text; empty for none.
     pub authorization_details: String,
-    /// Removed: `tls.trust_roots_file`.
-    #[serde(skip_serializing)]
-    pub ca_file: Removed,
-    /// Removed: `tls.client_identity_file`, the chain and the key in one PEM.
-    #[serde(skip_serializing)]
-    pub client_certificate_file: Removed,
-    /// Removed: `tls.client_identity_file`, the chain and the key in one PEM.
-    #[serde(skip_serializing)]
-    pub client_key_file: Removed,
-    /// Removed: `refresh_margin`, a duration.
-    #[serde(skip_serializing)]
-    pub refresh_margin_ms: Removed,
-    /// Removed: `timeout`, a duration.
-    #[serde(skip_serializing)]
-    pub timeout_ms: Removed,
-    /// Removed: `previous_key_overlap`, a duration.
-    #[serde(skip_serializing)]
-    pub previous_key_overlap_ms: Removed,
 }
 
 /// The outbound credential a `[<lane>.credentials]` table resolves to.
@@ -293,55 +274,12 @@ impl OauthSection {
         self.resolve_presenting(Some(presented))
     }
 
-    /// The retired keys this table sets, under `table`, each with what
-    /// replaced it.
-    #[must_use]
-    pub fn removals(&self, table: &str) -> Removals {
-        let mut removals = Removals::new();
-        for (removed, key, replacement) in [
-            (self.ca_file, "ca_file", "tls.trust_roots_file"),
-            (
-                self.client_certificate_file,
-                "client_certificate_file",
-                "tls.client_identity_file, the chain and the key in one PEM",
-            ),
-            (
-                self.client_key_file,
-                "client_key_file",
-                "tls.client_identity_file, the chain and the key in one PEM",
-            ),
-            (
-                self.refresh_margin_ms,
-                "refresh_margin_ms",
-                "refresh_margin, a duration such as `30s`",
-            ),
-            (
-                self.timeout_ms,
-                "timeout_ms",
-                "timeout, a duration such as `10s`",
-            ),
-            (
-                self.previous_key_overlap_ms,
-                "previous_key_overlap_ms",
-                "previous_key_overlap, a duration such as `1d`",
-            ),
-        ] {
-            removals.replaced(
-                removed,
-                format!("{table}.{key}"),
-                format!("{table}.{replacement}"),
-            );
-        }
-        removals
-    }
-
     /// Resolves the grant, over the product's built TLS configuration when
     /// `presented` carries one.
     fn resolve_presenting(
         &self,
         presented: Option<PresentedTls>,
     ) -> Result<ClientCredentials, ConfigError> {
-        self.removals("credentials.oauth").finish()?;
         let endpoint = match (self.issuer.is_empty(), self.token_endpoint.is_empty()) {
             (false, false) => {
                 return Err(ConfigError::Exclusive {
@@ -662,12 +600,6 @@ impl OauthSection {
                 }
             }
         }
-        out.extend(
-            self.removals(table)
-                .removals()
-                .iter()
-                .map(ToString::to_string),
-        );
         if self.assertion_audience == AssertionAudience::Issuer && self.issuer.is_empty() {
             out.push(format!(
                 "{table}.issuer is required by assertion_audience = \"issuer\""
@@ -762,12 +694,6 @@ impl Default for OauthSection {
             previous_key_overlap: Duration::ZERO,
             next_private_key_file: None,
             authorization_details: String::new(),
-            ca_file: Removed::default(),
-            client_certificate_file: Removed::default(),
-            client_key_file: Removed::default(),
-            refresh_margin_ms: Removed::default(),
-            timeout_ms: Removed::default(),
-            previous_key_overlap_ms: Removed::default(),
         }
     }
 }

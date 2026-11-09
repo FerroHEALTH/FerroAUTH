@@ -12,7 +12,6 @@ use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::IntrospectionSection;
 use ferrohealth_smart::config::IssuerEntry;
-use ferrohealth_smart::config::IssuerKey;
 use ferrohealth_smart::config::credentials::OauthSection;
 use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::resource::ResourceServer;
@@ -37,7 +36,7 @@ fn roots(ca_file: Option<std::path::PathBuf>) -> TlsClientSection {
 /// An `[auth]` section trusting `issuer`, with `auth.tls` over `ca_file`.
 fn section(issuer: &str, ca_file: Option<std::path::PathBuf>) -> AuthSection {
     AuthSection {
-        issuer: IssuerKey::List(vec![entry(issuer)]),
+        issuer: vec![entry(issuer)],
         tls: roots(ca_file),
         ..AuthSection::default()
     }
@@ -116,7 +115,7 @@ fn introspecting(
         Credential::Bearer => (None, Some(grant)),
     };
     AuthSection {
-        issuer: IssuerKey::List(vec![IssuerEntry {
+        issuer: vec![IssuerEntry {
             mode: AuthMode::Introspection,
             introspection: Some(IntrospectionSection {
                 endpoint: format!("{issuer}/introspect"),
@@ -125,7 +124,7 @@ fn introspecting(
                 ..IntrospectionSection::default()
             }),
             ..entry(issuer)
-        }]),
+        }],
         ..section(issuer, None)
     }
 }
@@ -165,17 +164,11 @@ async fn introspection_reads_an_issuer_behind_a_private_authority_over_the_grant
 }
 
 #[test]
-fn the_retired_ca_file_is_refused_naming_its_replacement() {
-    let auth: AuthSection = toml::from_str(
+fn the_retired_ca_file_is_an_unknown_key() {
+    let read = toml::from_str::<AuthSection>(
         "ca_file = \"/run/ca.pem\"\n[[issuer]]\nissuer = \"https://idp.example\"\nkind = \"persons\"\naudience = [\"a\"]\n",
-    )
-    .expect("parses");
-    let err = auth.resolve().expect_err("refused");
-    let shown = err.to_string();
-    assert!(
-        shown.contains("auth.ca_file was replaced by auth.tls.trust_roots_file"),
-        "{shown}"
     );
+    assert!(read.is_err(), "ca_file is no key of the section");
 }
 
 #[test]

@@ -16,7 +16,6 @@ use crate::kind::IssuerKind;
 use crate::profile::Preset;
 use crate::profile::ProfileKeys;
 use crate::sender::SenderConstraint;
-use ferrohealth_config::removed::Removed;
 use ferrohealth_config::units::Duration;
 
 impl Default for IssuerEntry {
@@ -71,13 +70,6 @@ impl Default for IssuerEntry {
             onward_client_id: None,
             onward_subject_audience: None,
             onward_preview: None,
-            token_profile: Removed::default(),
-            acting_for_claim: Removed::default(),
-            client_tokens: Removed::default(),
-            clock_skew_seconds: Removed::default(),
-            jwks_max_age_seconds: Removed::default(),
-            jwks_refresh_interval_seconds: Removed::default(),
-            timeout_ms: Removed::default(),
         }
     }
 }
@@ -90,7 +82,6 @@ impl Default for IntrospectionSection {
             cache_capacity: 10_000,
             client: None,
             bearer: None,
-            cache_max_age_seconds: Removed::default(),
         }
     }
 }

@@ -17,6 +17,37 @@ and this project adheres to
   vulnerability report, in place of `info@cadasto.com`, which stays the
   address for licensing and other business questions.
 
+## [0.15.0] - Unreleased
+
+### Removed
+
+- Breaking: every named refusal of a retired key is deleted, under the
+  owner's rule that a removal aid lives for the one release that retires
+  it (#388). The strict load refuses each such key as unknown. Deleted:
+  the fields that only held a retired key (`AuthSection`'s `audience`,
+  `algorithms`, `token_profile`, `clock_skew_seconds`,
+  `jwks_max_age_seconds`, `jwks_refresh_interval_seconds`, `jwks_file`,
+  `timeout_ms`, `role_claims`, `mode`, `introspection`,
+  `acting_for_claim`, `client_tokens` and `ca_file`; `IssuerEntry`'s
+  `token_profile`, `acting_for_claim`, `client_tokens`,
+  `clock_skew_seconds`, `jwks_max_age_seconds`,
+  `jwks_refresh_interval_seconds` and `timeout_ms`;
+  `IntrospectionSection::cache_max_age_seconds`;
+  `BasicSection::cache_ttl_seconds`; `OauthSection`'s `ca_file`,
+  `client_certificate_file`, `client_key_file`, `refresh_margin_ms`,
+  `timeout_ms` and `previous_key_overlap_ms`; `DpopSection`'s
+  `max_age_seconds` and `clock_skew_seconds`; the Entra table's
+  `timeout_ms` and `max_response_bytes`; `PartySection::claim`),
+  `OauthSection::removals`, `DpopSection::removals`,
+  `ConfigError::Removed`, `ConfigError::RemovedKeys`,
+  `PartyError::Claim`, and `IssuerKey`: `AuthSection::issuer` is a
+  `Vec<IssuerEntry>`, so the flat `issuer = "…"` form is a type error.
+
+### Changed
+
+- Breaking: `ScopelessSubject` is a struct with `issuer` and `sub`; the
+  string form of an entry is a type error (#388).
+
 ## [0.14.0] - 2026-11-09
 
 A `persons` issuer reads the IHE IUA professional attributes and purposes

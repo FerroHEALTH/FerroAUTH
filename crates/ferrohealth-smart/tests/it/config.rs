@@ -13,7 +13,6 @@ use ferrohealth_smart::client::Endpoint;
 use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::BasicSection;
 use ferrohealth_smart::config::ConfigError;
-use ferrohealth_smart::config::IssuerKey;
 use ferrohealth_smart::config::credentials::CredentialsSection;
 use ferrohealth_smart::config::credentials::Outbound;
 use ferrohealth_smart::kind::IssuerKind;
@@ -48,7 +47,7 @@ fn each_issuer_table_carries_its_own_settings() {
         "#,
     )
     .expect("the section parses");
-    assert!(matches!(section.issuer, IssuerKey::List(ref entries) if entries.len() == 2));
+    assert_eq!(2, section.issuer.len(), "two issuer tables");
     let resolved = section.resolve().expect("the section resolves");
     assert_eq!(2, resolved.issuers.len());
     let one = &resolved.issuers[0];
@@ -397,8 +396,10 @@ fn a_rendered_section_carries_every_key_and_no_secret() {
     assert_eq!(serde_json::json!("ferro"), oauth_json["oauth"]["client_id"]);
     let read_back: AuthSection =
         toml::from_str(&rendered[3]).expect("the rendering reads back as a section");
-    assert!(
-        matches!(read_back.issuer, IssuerKey::List(ref entries) if entries[0].issuer == "https://as.example.org")
+    assert_eq!(
+        Some("https://as.example.org"),
+        read_back.issuer.first().map(|entry| entry.issuer.as_str()),
+        "the issuer reads back"
     );
 }
 
@@ -513,7 +514,7 @@ fn a_misspelt_key_in_an_issuer_entry_is_refused_by_its_name() {
 fn an_issuer_that_is_neither_a_string_nor_a_list_is_refused() {
     let refused = toml::from_str::<AuthSection>("issuer = 7\n").expect_err("a number is no issuer");
     assert!(
-        refused.to_string().contains("a list of issuer tables"),
+        refused.to_string().contains("expected a sequence"),
         "the refusal says what the key takes: {refused}"
     );
 }
