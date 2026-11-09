@@ -64,6 +64,8 @@ mod party;
 #[cfg(feature = "fetch")]
 mod person;
 #[cfg(feature = "fetch")]
+mod presented_tls;
+#[cfg(feature = "fetch")]
 mod reach;
 mod redaction;
 #[cfg(feature = "fetch")]

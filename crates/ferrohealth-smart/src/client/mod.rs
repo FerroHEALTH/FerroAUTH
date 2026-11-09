@@ -124,7 +124,8 @@ pub enum AssertionAudience {
 }
 
 /// The TLS material of the token endpoint connection: trust roots added to
-/// the built-in ones, and the client certificate of RFC 8705 mutual TLS.
+/// the built-in ones, and the client certificate of RFC 8705 mutual TLS,
+/// either as PEM or as a TLS configuration the product built.
 ///
 /// The private key redacts itself in every `Debug` rendering.
 #[derive(Debug, Clone, Default)]
@@ -135,6 +136,87 @@ pub struct Tls {
     /// The client certificate chain and its private key, in PEM, presented
     /// in the TLS handshake (RFC 8705 §2).
     pub identity: Option<Arc<SecretSlice<u8>>>,
+    /// The TLS configuration the product built from material it already
+    /// read, with the client certificate it presents, used in place of
+    /// `root_certificates` and `identity`, which it excludes.
+    pub presented: Option<PresentedTls>,
+}
+
+impl Tls {
+    /// Returns the certificate the connection presents in the handshake,
+    /// the end-entity certificate of `presented` or of the PEM `identity`
+    /// (RFC 8446 §4.4.2), or `None` when it presents none that reads.
+    #[must_use]
+    pub fn presented_certificate(&self) -> Option<crate::sender::ClientCertificate> {
+        match &self.presented {
+            Some(presented) => presented
+                .certificate()
+                .map(|certificate| crate::sender::ClientCertificate::from_der(certificate)),
+            None => self
+                .identity
+                .as_deref()
+                .and_then(binding::presented_certificate),
+        }
+    }
+
+    /// Returns whether the connection presents a client certificate.
+    #[must_use]
+    pub fn presents_identity(&self) -> bool {
+        match &self.presented {
+            Some(presented) => presented.certificate().is_some(),
+            None => self.identity.is_some(),
+        }
+    }
+}
+
+/// A rustls client configuration a product built from TLS material it read
+/// once, such as with `ferrohealth-server`'s `TlsClient`, and the end-entity
+/// certificate of the client identity it presents.
+///
+/// The configuration carries the trust roots, the protocol versions and the
+/// client identity; the crate reads no file and holds no key bytes for it.
+/// The certificate is public material: a mutual-TLS method needs one
+/// (RFC 8705 §2), and a certificate-bound grant compares the token's
+/// `x5t#S256` with its thumbprint (RFC 8705 §3.1).
+#[derive(Clone)]
+pub struct PresentedTls {
+    config: Arc<rustls::ClientConfig>,
+    certificate: Option<rustls::pki_types::CertificateDer<'static>>,
+}
+
+impl PresentedTls {
+    /// Returns the configuration `config`, whose client identity presents
+    /// `certificate`; `None` when it presents no client certificate.
+    #[must_use]
+    pub fn new(
+        config: Arc<rustls::ClientConfig>,
+        certificate: Option<rustls::pki_types::CertificateDer<'static>>,
+    ) -> Self {
+        Self {
+            config,
+            certificate,
+        }
+    }
+
+    /// Returns the rustls client configuration.
+    #[must_use]
+    pub fn config(&self) -> &Arc<rustls::ClientConfig> {
+        &self.config
+    }
+
+    /// Returns the end-entity certificate the configuration presents.
+    #[must_use]
+    pub fn certificate(&self) -> Option<&rustls::pki_types::CertificateDer<'static>> {
+        self.certificate.as_ref()
+    }
+}
+
+impl std::fmt::Debug for PresentedTls {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PresentedTls")
+            .field("certificate", &self.certificate.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 /// The lowest TLS version a connection negotiates, written `"1.2"` or
@@ -289,8 +371,34 @@ impl ClientCredentials {
         };
         Self {
             tls: Tls {
-                root_certificates: None,
                 identity: Some(identity),
+                ..Tls::default()
+            },
+            ..Self::authenticating(endpoint, client_id, client_auth)
+        }
+    }
+
+    /// Returns a grant for `client_id` at `endpoint` authenticating with the
+    /// client certificate `tls` presents over mutual TLS (RFC 8705 §2), the
+    /// TLS configuration a product built from material it already read:
+    /// [`ClientAuth::SelfSignedTlsClientAuth`] when `self_signed`,
+    /// [`ClientAuth::TlsClientAuth`] otherwise.
+    #[must_use]
+    pub fn with_presented_tls(
+        endpoint: Endpoint,
+        client_id: String,
+        tls: PresentedTls,
+        self_signed: bool,
+    ) -> Self {
+        let client_auth = if self_signed {
+            ClientAuth::SelfSignedTlsClientAuth
+        } else {
+            ClientAuth::TlsClientAuth
+        };
+        Self {
+            tls: Tls {
+                presented: Some(tls),
+                ..Tls::default()
             },
             ..Self::authenticating(endpoint, client_id, client_auth)
         }
@@ -349,11 +457,7 @@ impl ClientCredentials {
     /// presents, when its tokens are bound to one and its identity holds one.
     pub(crate) fn bound_certificate(&self) -> Option<crate::sender::ClientCertificate> {
         match self.token_binding {
-            Some(TokenBinding::Certificate) => self
-                .tls
-                .identity
-                .as_deref()
-                .and_then(binding::presented_certificate),
+            Some(TokenBinding::Certificate) => self.tls.presented_certificate(),
             Some(TokenBinding::Dpop(_)) | None => None,
         }
     }
@@ -408,7 +512,7 @@ impl ClientCredentials {
                 })
             }
             ClientAuth::TlsClientAuth | ClientAuth::SelfSignedTlsClientAuth
-                if self.tls.identity.is_none() =>
+                if !self.tls.presents_identity() =>
             {
                 Err(TokenError::Credential {
                     what: "client certificate",

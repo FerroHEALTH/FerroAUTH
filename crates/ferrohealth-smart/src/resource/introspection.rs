@@ -375,6 +375,7 @@ impl Introspector {
                 &crate::client::Tls {
                     root_certificates: source.root_certificates().map(<[u8]>::to_vec),
                     identity: None,
+                    presented: source.presented_tls().cloned(),
                 },
             )?,
         };
