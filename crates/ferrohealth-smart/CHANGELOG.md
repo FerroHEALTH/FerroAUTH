@@ -11,7 +11,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.13.0] - Unreleased
+## [0.13.0] - 2026-11-09
 
 A refusal of a JSON document the crate could not read no longer quotes the
 document, and a grant can present the TLS identity a product already read.
