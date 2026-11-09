@@ -11,6 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Security
+
+- `config::endpoint::EndpointSection` renders its `url` with the userinfo
+  and the query masked, in `Debug` and when serialized to TOML or JSON,
+  through the family mask of `ferrohealth-secret` (`config::mask_userinfo`).
+  Before 0.15.1 a credential in an endpoint URL rendered in full, so a
+  product that logged or dumped its configuration could write it to its
+  log. Affected: 0.14.0 and 0.15.0 (CWE-532, GHSA-vmx8-jr3x-394q). Upgrade
+  step: move to 0.15.1; until then, put the endpoint credential in
+  `[<x>.endpoint.credentials]` and keep it out of the URL (#403).
+
 ## [0.15.0] - 2026-11-09
 
 ### Removed

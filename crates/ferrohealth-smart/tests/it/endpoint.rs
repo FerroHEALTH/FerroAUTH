@@ -103,3 +103,75 @@ fn the_schema_names_the_new_keys() {
         );
     }
 }
+
+/// A product table that embeds the endpoint, as `[<x>.endpoint]`.
+#[derive(Debug, serde::Serialize)]
+struct Lane {
+    endpoint: EndpointSection,
+}
+
+fn credentialed() -> EndpointSection {
+    toml::from_str("url = \"https://Qz7-user:Qz7-pass@pix.example.org/fhir?token=Qz7-query\"\n")
+        .expect("the table parses")
+}
+
+fn assert_masked(rendering: &str, what: &str) {
+    for secret in ["Qz7-user", "Qz7-pass", "Qz7-query"] {
+        assert!(
+            !rendering.contains(secret),
+            "{what} carries {secret}: {rendering}"
+        );
+    }
+    assert!(
+        rendering.contains("https://***@pix.example.org/fhir?***"),
+        "{what} names the masked URL: {rendering}"
+    );
+}
+
+#[test]
+fn the_endpoint_debug_masks_the_url_userinfo_and_query() {
+    let table = credentialed();
+    assert_masked(&format!("{table:?}"), "Debug");
+    assert_masked(&format!("{table:#?}"), "pretty Debug");
+    assert_masked(
+        &format!("{:?}", Lane { endpoint: table }),
+        "an embedding Debug",
+    );
+}
+
+#[test]
+fn the_endpoint_toml_masks_the_url_userinfo_and_query() {
+    let table = credentialed();
+    assert_masked(&toml::to_string(&table).expect("TOML"), "TOML");
+    assert_masked(
+        &toml::to_string(&Lane { endpoint: table }).expect("TOML"),
+        "an embedding TOML",
+    );
+}
+
+#[test]
+fn the_endpoint_json_masks_the_url_userinfo_and_query() {
+    let table = credentialed();
+    assert_masked(&serde_json::to_string(&table).expect("JSON"), "JSON");
+    assert_masked(
+        &serde_json::to_string(&Lane { endpoint: table }).expect("JSON"),
+        "an embedding JSON",
+    );
+}
+
+#[test]
+fn the_endpoint_keeps_its_url_for_the_client() {
+    let table = credentialed();
+    assert_eq!(
+        "https://Qz7-user:Qz7-pass@pix.example.org/fhir?token=Qz7-query",
+        table.url.expose()
+    );
+    assert_eq!(
+        "pix.example.org",
+        table
+            .validate()
+            .expect("sound")
+            .host_str()
+            .unwrap_or_default()
+    );
+}
