@@ -31,11 +31,21 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
   `--all-features`, plus `cargo test --doc`; `cargo doc` with
   `RUSTDOCFLAGS=-D warnings`; `cargo deny check`; `cargo publish -p
   ferrohealth-smart --dry-run --locked`; the crate-version guard and
-  `dependency-review-action` on pull requests; `keycloak-live`, the live
-  Keycloak case against the pinned image on a pull request that touches the
-  profiles or the resource server, and on every push to `main`, which saves
-  the build cache the pull request runs restore). The `conclusion` job is the
-  single required status check on `main`.
+  `dependency-review-action` on pull requests; the live Keycloak case
+  against the pinned image, as the last steps of the nextest job, on a pull
+  request that touches the profiles or the resource server, and on every push
+  to `main`, which saves the build cache the pull request runs restore). The
+  `conclusion` job is the single required status check on `main`.
+
+  These run as four jobs that all start at once, `guards` (every guard and
+  the publish dry run, no build cache), `lint`, `nextest (core and axum)` and,
+  on a pull request, `cargo-semver-checks`, beside `conclusion`. The hosted
+  runner pool is shared across the organisation, so every job pays a wait
+  for a runner however short its work, and a job that waits on another pays
+  it twice: twenty jobs in three waves made a run take 48 to 58 minutes for
+  about 11 runner-minutes of work (#392). Add a step to one of the four
+  before adding a job, and give a guard step `if: ${{ !cancelled() }}` so a
+  run still reports every finding.
 - `.github/workflows/ratchet-tighten.yml`: once a day on `main`, runs
   `scripts/checks/duplication.sh --update` and, when the count fell, pushes
   `chore/ratchet-tighten` with only the ratchet files, committed through the
