@@ -11,7 +11,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.14.0] - Unreleased
+## [0.14.0] - 2026-11-09
 
 A `persons` issuer reads the IHE IUA professional attributes and purposes
 of use of its own professionals, and a `patients` token that names an
@@ -1660,7 +1660,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.14.0...HEAD
+[0.14.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.1...ferrohealth-smart-v0.14.0
 [0.13.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.0...ferrohealth-smart-v0.13.1
 [0.13.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.12.0...ferrohealth-smart-v0.13.0
 [0.12.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.11.0...ferrohealth-smart-v0.12.0
