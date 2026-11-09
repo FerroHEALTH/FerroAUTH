@@ -252,7 +252,11 @@ async fn fetch(
             KeySource::Uri(url) => {
                 let (url, status, body) = http.get(url.clone()).await?;
                 if status != StatusCode::OK {
-                    return Err(ResourceError::KeySetStatus { url, status, body });
+                    return Err(ResourceError::KeySetStatus {
+                        url,
+                        status,
+                        body: String::new(),
+                    });
                 }
                 body
             }

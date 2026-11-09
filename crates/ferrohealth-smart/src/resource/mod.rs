@@ -201,7 +201,8 @@ pub enum ResourceError {
         url: Url,
         /// The status it answered.
         status: StatusCode,
-        /// The body it answered, as received.
+        /// Always empty: RFC 7517 defines no error body, and nothing of the
+        /// answer is kept, so no rendering of the error carries it.
         body: String,
     },
     /// The key set file could not be read.

@@ -33,6 +33,7 @@ use url::Url;
 
 use crate::assurance::AssuranceSection;
 use crate::client::ClientCredentials;
+use crate::client::OAuthError;
 use crate::client::TokenError;
 use crate::client::cache::TokenSource;
 use crate::kind::IssuerKind;
@@ -267,14 +268,21 @@ pub enum IntrospectionError {
         #[source]
         source: url::ParseError,
     },
-    /// The endpoint answered anything other than `200` (RFC 7662 §2.3).
-    #[error("the introspection endpoint {url} answered {status}")]
+    /// The endpoint answered anything other than `200` (RFC 7662 §2.3), with
+    /// the RFC 6749 §5.2 error code when the body carried one.
+    #[error(
+        "the introspection endpoint {url} answered {status}{}",
+        if body.is_empty() { String::new() } else { format!(": {body}") }
+    )]
     Status {
         /// The endpoint.
         url: Url,
         /// The status it answered.
         status: StatusCode,
-        /// The body it answered, as received.
+        /// The RFC 6749 §5.2 `error` code the body carried, cut to
+        /// [`MAX_ERROR_TEXT`](crate::client::MAX_ERROR_TEXT) characters, or empty when the body is no
+        /// such error or its code leaves that section's character set;
+        /// nothing else of the answer is kept.
         body: String,
     },
     /// The `200` body repeats a member name (RFC 8259 §4).
@@ -566,7 +574,7 @@ impl Introspector {
             return Err(IntrospectionError::Status {
                 url: self.endpoint.clone(),
                 status,
-                body,
+                body: refusal_code(&body),
             });
         }
         read_response(&body)
@@ -727,6 +735,24 @@ impl Verifier for Introspector {
         binding: &'a Binding,
     ) -> std::pin::Pin<Box<dyn Future<Output = Result<Caller, Rejection>> + Send + 'a>> {
         Box::pin(self.authenticate_bound(token, binding))
+    }
+}
+
+/// Returns the RFC 6749 §5.2 `error` code of the refusal `body`, cut to
+/// [`MAX_ERROR_TEXT`](crate::client::MAX_ERROR_TEXT) characters, or an empty string when the body is no
+/// such error or the code holds a character the section forbids.
+fn refusal_code(body: &str) -> String {
+    // NOTE: RFC 7662 §2.3 answers a refused client as RFC 6749 §5.2 does; a
+    // body that is no such error is legitimately absent, and nothing is kept.
+    let Ok(error) = serde_json::from_str::<OAuthError>(body) else {
+        return String::new();
+    };
+    let code = error.bounded().error;
+    let allowed = |c: char| matches!(c, '\x20'..='\x21' | '\x23'..='\x5B' | '\x5D'..='\x7E');
+    if code.chars().all(allowed) {
+        code
+    } else {
+        String::new()
     }
 }
 
