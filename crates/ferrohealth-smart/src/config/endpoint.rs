@@ -12,6 +12,7 @@
 
 use ferrohealth_config::tls::TlsClientSection;
 use ferrohealth_config::units::Duration;
+use ferrohealth_secret::secret_url::SecretUrl;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -23,8 +24,10 @@ use crate::config::credentials::CredentialsSection;
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
 pub struct EndpointSection {
-    /// The service's URL (RFC 3986); required.
-    pub url: String,
+    /// The service's URL (RFC 3986); required. It renders with its
+    /// userinfo and its query masked, in `Debug` and when serialized.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub url: SecretUrl,
     /// How long one whole call may take; never zero.
     pub timeout: Duration,
     /// How long opening the connection may take; unset, only `timeout`
@@ -43,7 +46,7 @@ pub struct EndpointSection {
 impl Default for EndpointSection {
     fn default() -> Self {
         Self {
-            url: String::new(),
+            url: SecretUrl::default(),
             timeout: Duration::from_secs(10),
             connect_timeout: None,
             retry: RetrySection::default(),
@@ -108,7 +111,7 @@ impl EndpointSection {
         if self.url.is_empty() {
             return Err(ConfigError::Missing { key: "url" });
         }
-        let url = crate::config::read::parse_url(&self.url, "url")?;
+        let url = crate::config::read::parse_url(self.url.expose(), "url")?;
         if self.timeout.is_zero() {
             return Err(ConfigError::Endpoint {
                 rule: "timeout is zero",
