@@ -165,6 +165,7 @@ mod tests {
         });
     }
 
+    #[cfg(feature = "fetch")]
     #[test]
     fn an_introspection_refusal_hides_the_response() {
         hidden(
