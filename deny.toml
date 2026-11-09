@@ -45,6 +45,14 @@ exceptions = [
   { allow = ["BUSL-1.1"], crate = "ferrohealth-session" },
   # The family's shared mask crate.
   { allow = ["BUSL-1.1"], crate = "ferrohealth-secret" },
+  # The family's configuration types (Duration, ByteSize, the outbound TLS
+  # table and the refusal of a retired key).
+  { allow = ["BUSL-1.1"], crate = "ferrohealth-config" },
+  # The family's server crate and the two it links, behind the server-tls
+  # feature's TLS reader.
+  { allow = ["BUSL-1.1"], crate = "ferrohealth-server" },
+  { allow = ["BUSL-1.1"], crate = "ferrohealth-telemetry" },
+  { allow = ["BUSL-1.1"], crate = "ferrohealth-health" },
   # The family's shared UI crate, whose session-watch wire ferrohealth-session answers.
   { allow = ["BUSL-1.1"], crate = "ferrohealth-ui" },
 ]
