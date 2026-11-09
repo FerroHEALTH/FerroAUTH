@@ -11,16 +11,45 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.15.0] - Unreleased
+## [0.14.0] - 2026-11-09
+
+A `persons` issuer reads the IHE IUA professional attributes and purposes
+of use of its own professionals, and a `patients` token that names an
+actor is the patient's representative or is refused. The settings, the
+configuration and the profile gain public fields, so the line moves to
+0.14.0.
 
 The configuration moves onto the family types of `ferrohealth-config` 0.3
 (FerroEHR #5259): one duration type, one outbound TLS table read by one
 reader, one outbound endpoint table, and every retired key refused naming
 its replacement. A product moves each key of its `[auth]` and
-`[<lane>.credentials]` tables, so the line moves to 0.15.0.
+`[<lane>.credentials]` tables, in the same release.
 
 ### Added
 
+- `[[auth.attributes]]` (`federation::person::AttributesSection`, the new
+  `AuthSection::attributes`): one table per `persons` issuer maps the
+  `federation::Field` set to claim and constant sources, `mapping = "iua"`
+  reading the IHE IUA claims under `extensions.ihe_iua` (ITI TF-2
+  §3.71.4.2.2.1.1), and `authorization_details_purposes = true` adds the
+  `system|code` `purpose_of_use` of each RFC 9396 `authorization_details`
+  entry. Every caller of the issuer but a `System` carries what its token
+  states as `Caller::attributes` (`federation::person::Attributes`, with
+  `field`, `fields`, `roles` and `purposes`, the purposes sorted and
+  without duplicates). A claim of the wrong shape, a `subject_role` or
+  `purpose_of_use` that is no array of codings, and a value with a control
+  character or past its cap refuse the token as `Unclassified::Attribute`;
+  an absent claim is an absent field. A table naming no trusted `persons`
+  issuer, or naming one twice, refuses the start as the new
+  `ConfigError::Attributes`, and an `authorization_details` or presentation
+  source as `FederationError::Unattested` or `Presentations` (#376).
+- `CallerKind::PatientRepresentative { actor }` and the profile key
+  `act_represents_patient`: on a `patients` issuer that sets it, a token
+  naming only the record subject and carrying an RFC 8693 §4.1 `act` is
+  the patient's representative, the top-level actor's `iss` and `sub`
+  read and a nested `act` left as informational. It is never
+  `Caller::is_the_person`. The key on another kind of issuer refuses the
+  issuer as `ProfileError::Kind` (#377).
 - `config::endpoint::EndpointSection`, the shared table of an outbound
   integration: `url`, `timeout`, `connect_timeout`, `retry`
   (`config::endpoint::RetrySection`: `max_attempts`, `initial_backoff`,
@@ -41,6 +70,16 @@ its replacement. A product moves each key of its `[auth]` and
 
 ### Changed
 
+- A `patients` token that carries `act` on an issuer without
+  `act_represents_patient` is refused as the new
+  `Unclassified::PatientActor`, where it was classified `Patient`, the
+  patient's own access. The onward check of a `patients` issuer's token
+  keeps reading its `act` as the requesting client (#377).
+- `resource::Settings`, `resource::introspection::IntrospectionSettings`
+  and `config::AuthSection` gain the public field `attributes`, and
+  `profile::Profile`, `profile::ProfileKeys` and `config::IssuerEntry` the
+  public field `act_represents_patient`; a struct literal adds them or
+  `..Default::default()` where the type has one (#376, #377).
 - Breaking: every span of time is a `ferrohealth_config::units::Duration`
   (`"30s"`, `"10min"`) and its key names no unit: on `[[auth.issuer]]`
   `clock_skew`, `jwks_max_age`, `jwks_refresh_interval` and `timeout`;
@@ -71,53 +110,6 @@ its replacement. A product moves each key of its `[auth]` and
   built configuration is `ClientCredentials::with_presented_tls`), the
   `root_certificates` and `identity` fields of `client::Tls`,
   `ConfigError::CaFile` and `ConfigError::Tls` (#379).
-
-## [0.14.0] - Unreleased
-
-A `persons` issuer reads the IHE IUA professional attributes and purposes
-of use of its own professionals, and a `patients` token that names an
-actor is the patient's representative or is refused. The settings, the
-configuration and the profile gain public fields, so the line moves to
-0.14.0.
-
-### Added
-
-- `[[auth.attributes]]` (`federation::person::AttributesSection`, the new
-  `AuthSection::attributes`): one table per `persons` issuer maps the
-  `federation::Field` set to claim and constant sources, `mapping = "iua"`
-  reading the IHE IUA claims under `extensions.ihe_iua` (ITI TF-2
-  §3.71.4.2.2.1.1), and `authorization_details_purposes = true` adds the
-  `system|code` `purpose_of_use` of each RFC 9396 `authorization_details`
-  entry. Every caller of the issuer but a `System` carries what its token
-  states as `Caller::attributes` (`federation::person::Attributes`, with
-  `field`, `fields`, `roles` and `purposes`, the purposes sorted and
-  without duplicates). A claim of the wrong shape, a `subject_role` or
-  `purpose_of_use` that is no array of codings, and a value with a control
-  character or past its cap refuse the token as `Unclassified::Attribute`;
-  an absent claim is an absent field. A table naming no trusted `persons`
-  issuer, or naming one twice, refuses the start as the new
-  `ConfigError::Attributes`, and an `authorization_details` or presentation
-  source as `FederationError::Unattested` or `Presentations` (#376).
-- `CallerKind::PatientRepresentative { actor }` and the profile key
-  `act_represents_patient`: on a `patients` issuer that sets it, a token
-  naming only the record subject and carrying an RFC 8693 §4.1 `act` is
-  the patient's representative, the top-level actor's `iss` and `sub`
-  read and a nested `act` left as informational. It is never
-  `Caller::is_the_person`. The key on another kind of issuer refuses the
-  issuer as `ProfileError::Kind` (#377).
-
-### Changed
-
-- A `patients` token that carries `act` on an issuer without
-  `act_represents_patient` is refused as the new
-  `Unclassified::PatientActor`, where it was classified `Patient`, the
-  patient's own access. The onward check of a `patients` issuer's token
-  keeps reading its `act` as the requesting client (#377).
-- `resource::Settings`, `resource::introspection::IntrospectionSettings`
-  and `config::AuthSection` gain the public field `attributes`, and
-  `profile::Profile`, `profile::ProfileKeys` and `config::IssuerEntry` the
-  public field `act_represents_patient`; a struct literal adds them or
-  `..Default::default()` where the type has one (#376, #377).
 
 ## [0.13.1] - 2026-11-09
 
@@ -1721,7 +1713,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.14.0...HEAD
+[0.14.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.1...ferrohealth-smart-v0.14.0
 [0.13.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.0...ferrohealth-smart-v0.13.1
 [0.13.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.12.0...ferrohealth-smart-v0.13.0
 [0.12.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.11.0...ferrohealth-smart-v0.12.0
