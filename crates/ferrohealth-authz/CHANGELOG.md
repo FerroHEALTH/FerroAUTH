@@ -14,6 +14,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-09
+
 ### Added
 
 - `remote::RemotePdp::with_client` builds the remote decision point over
@@ -218,7 +220,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.8.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.8.1...HEAD
+[0.8.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.8.0...ferrohealth-authz-v0.8.1
 [0.8.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.7.0...ferrohealth-authz-v0.8.0
 [0.7.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.6.0...ferrohealth-authz-v0.7.0
 [0.6.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.5.0...ferrohealth-authz-v0.6.0
