@@ -75,7 +75,7 @@ Add the crate to a Rust project, with the web framework layer and the
 openEHR scopes:
 
 ```sh
-cargo add ferrohealth-smart@=0.12.0 --features axum,openehr
+cargo add ferrohealth-smart@=0.13.0 --features axum,openehr
 ```
 
 Pin the version exactly. The
