@@ -11,6 +11,11 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-09
+
+A patch release that keeps a refused key set, introspection or metadata
+body out of the errors that carried it.
+
 ### Security
 
 - A refused key set, introspection or metadata answer kept its body, as
@@ -1608,7 +1613,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.1...HEAD
+[0.13.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.0...ferrohealth-smart-v0.13.1
 [0.13.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.12.0...ferrohealth-smart-v0.13.0
 [0.12.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.11.0...ferrohealth-smart-v0.12.0
 [0.11.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.10.1...ferrohealth-smart-v0.11.0
