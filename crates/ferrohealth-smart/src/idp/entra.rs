@@ -77,7 +77,7 @@ pub const NAME: &str = "idp-entra";
 /// scope = "https://graph.microsoft.com/.default"
 /// ```
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GraphSection {
     /// The Microsoft Graph root every URL is built from, `https` without a

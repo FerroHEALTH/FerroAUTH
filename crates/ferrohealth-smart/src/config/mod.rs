@@ -356,7 +356,7 @@ pub enum ConfigError {
 /// Every setting of an issuer lives on its own `[[auth.issuer]]` table: no
 /// section-level value stands in for one an issuer leaves out.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthSection {
     /// Whether inbound authentication is on; a product may refuse `false`.
@@ -430,7 +430,7 @@ pub enum AuthMode {
 /// stands in the table's issuer when it names neither `issuer` nor
 /// `token_endpoint`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IntrospectionSection {
     /// The introspection endpoint; empty for the one the issuer's metadata
@@ -461,7 +461,7 @@ pub struct ScopelessSubject {
 /// One `[[auth.issuer]]` table: the issuer, its kind, how its tokens are
 /// checked, and its profile, a [`Preset`] with any profile key set over it.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IssuerEntry {
     /// The issuer identifier.
@@ -584,7 +584,7 @@ pub struct IssuerEntry {
 
 /// The `[auth.basic]` table.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BasicSection {
     /// The users.
@@ -616,6 +616,26 @@ pub struct BasicUser {
     /// The roles the user is granted ([`crate::roles`]).
     pub roles: Vec<String>,
 }
+
+// The exhaustive pattern makes a new field a compile error here until it is compared.
+impl PartialEq for BasicUser {
+    fn eq(&self, other: &Self) -> bool {
+        let Self {
+            user,
+            password_hash,
+            password_hash_file,
+            scopes,
+            roles,
+        } = self;
+        shapes::same_secret(password_hash.as_ref(), other.password_hash.as_ref())
+            && *user == other.user
+            && *password_hash_file == other.password_hash_file
+            && *scopes == other.scopes
+            && *roles == other.roles
+    }
+}
+
+impl Eq for BasicUser {}
 
 /// What the `[auth]` section resolves to.
 #[derive(Debug)]

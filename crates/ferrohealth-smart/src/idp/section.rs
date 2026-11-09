@@ -19,7 +19,7 @@ use crate::party::adapter::IdpAdapter;
 
 /// The `[auth.idp]` table.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IdpSection {
     /// The Microsoft Graph access of the `idp-entra` adapter

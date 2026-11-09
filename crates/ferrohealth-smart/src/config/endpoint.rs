@@ -24,7 +24,7 @@ use crate::config::credentials::CredentialsSection;
 /// `Debug` and `Serialize` render `url` with its userinfo and its query
 /// masked, as [`SecretUrl`] renders itself, so a product that logs or dumps
 /// the section writes no credential the URL carries.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
 pub struct EndpointSection {
