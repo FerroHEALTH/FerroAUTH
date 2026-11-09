@@ -72,6 +72,14 @@ pub enum ConfigError {
         /// What it carries: `userinfo` or a `fragment`.
         part: &'static str,
     },
+    /// A key is set that nothing in the section uses.
+    #[error("{key} is set, but signs nothing without {needs}")]
+    Unused {
+        /// The key.
+        key: &'static str,
+        /// What would use it.
+        needs: &'static str,
+    },
     /// A key the section needs is not set, or does not parse.
     #[error("{key} is not set or does not parse")]
     Missing {

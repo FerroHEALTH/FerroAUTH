@@ -310,9 +310,12 @@ pub struct ClientCredentials {
     /// The client secret, under `client_secret_basic` and
     /// `client_secret_post`.
     pub client_secret: Option<SecretString>,
-    /// The keys the client assertion is signed with, under
-    /// `private_key_jwt`: the ring's current key signs, and the ring is
-    /// shared with whatever else publishes or signs with it.
+    /// The keys the client assertion is signed with under
+    /// `private_key_jwt`, and the actor assertion of an onward exchange
+    /// whatever the client authentication (RFC 8693 §2.1): the ring's
+    /// current key signs, and the ring is shared with whatever else
+    /// publishes or signs with it. Under another method it signs no
+    /// `client_assertion`.
     pub assertion_keys: Option<Arc<KeyRing>>,
     /// The `scope` request parameter (RFC 6749 §3.3), when the deployment
     /// asks for one.
