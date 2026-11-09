@@ -14,6 +14,25 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.9.0] - Unreleased
+
+Releases beside `ferrohealth-smart` 0.16.0, whose `resource::Caller`,
+`client::cache::TokenSource` and `config::endpoint::RetrySection` this
+crate carries in its public API.
+
+### Added
+
+- `remote::RemotePdp::from_outbound` builds the remote decision point from
+  `ferrohealth-smart`'s `client::outbound::OutboundClient`: its URL, its HTTP
+  engine with the endpoint's TLS and timeouts, its retry table, and its
+  Basic credential or client credentials token (#407).
+
+### Changed
+
+- Breaking: requires `ferrohealth-smart` 0.16.0 (caret `0.16.0`) in place of
+  `0.15.0`. Upgrade: move `ferrohealth-smart` to 0.16.0 with this crate, so
+  one copy links (#407).
+
 ## [0.8.1] - 2026-11-09
 
 ### Added

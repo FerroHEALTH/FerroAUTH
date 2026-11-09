@@ -14,6 +14,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.10.0] - Unreleased
+
+### Changed
+
+- Breaking: requires `ferrohealth-smart` 0.16.0 (caret `0.16.0`) in place of
+  `0.15.0`, whose `oidc` and `config::TlsBuilder` types this crate carries
+  in its public API. Upgrade: move `ferrohealth-smart` to 0.16.0 with this
+  crate, so one copy links (#408).
+
 ## [0.9.0] - 2026-11-09
 
 ### Changed
