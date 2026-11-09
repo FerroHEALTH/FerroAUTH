@@ -17,7 +17,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use base64::Engine as _;
-use ferrohealth_config::removed::{Removals, Removed, RemovedKeys};
 use ferrohealth_config::tls::TlsClientSection;
 use ferrohealth_config::units::Duration as ConfigDuration;
 use ferrohealth_secret::file::{SecretError, read_secret, require_secret};
@@ -114,9 +113,6 @@ pub enum ConfigError {
     /// The console's TLS builder refused `oidc.tls`.
     #[error("oidc.tls is refused")]
     TlsBuild(#[source] Box<dyn std::error::Error + Send + Sync>),
-    /// The section sets retired keys; each is named with what replaced it.
-    #[error(transparent)]
-    Removed(#[from] RemovedKeys),
     /// An `oidc.resolve` entry is not `host=ip:port`.
     #[error("oidc.resolve entry {index} must be host=ip:port")]
     Resolve {
@@ -179,17 +175,9 @@ pub struct OidcSection {
     /// `[oidc.tls]`: the trust roots, the client certificate (RFC 8705 §2)
     /// and the TLS floor of the provider connection, built by the console's
     /// [`TlsBuilder`]; the crate reads no TLS file.
-    #[serde(deserialize_with = "oidc_tls")]
-    #[cfg_attr(feature = "schema", schemars(with = "TlsClientSection"))]
     pub tls: TlsClientSection,
     /// How long one call to the provider may take; never zero.
     pub timeout: ConfigDuration,
-    /// Removed: `tls.trust_roots_file`.
-    #[serde(skip_serializing)]
-    pub ca_file: Removed,
-    /// Removed: `timeout`, a duration.
-    #[serde(skip_serializing)]
-    pub timeout_s: Removed,
 }
 
 impl Default for OidcSection {
@@ -211,51 +199,8 @@ impl Default for OidcSection {
             resolve: Vec::new(),
             tls: TlsClientSection::default(),
             timeout: ConfigDuration::from_secs(10),
-            ca_file: Removed::default(),
-            timeout_s: Removed::default(),
         }
     }
-}
-
-/// The keys `[oidc.tls]` held before it became the shared table, each with
-/// what takes its place.
-const RETIRED_TLS: [(&str, &str); 3] = [
-    (
-        "client_certificate",
-        "oidc.tls.client_identity_file, one PEM holding the certificate chain and its private key",
-    ),
-    (
-        "client_key",
-        "oidc.tls.client_identity, one PEM holding the certificate chain and its private key",
-    ),
-    (
-        "client_key_file",
-        "oidc.tls.client_identity_file, one PEM holding the certificate chain and its private key",
-    ),
-];
-
-/// Reads `[oidc.tls]` as the shared [`TlsClientSection`], after refusing
-/// every key the table held before, each named with its replacement.
-///
-/// The shared table refuses an unknown key, so the retired ones are taken
-/// out of the raw table first and refused through [`Removals`], which keeps
-/// the refusal naming the replacement without a local copy of the table.
-fn oidc_tls<'de, D>(deserializer: D) -> Result<TlsClientSection, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    use serde::de::Error as _;
-
-    let mut table = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
-    let mut removals = Removals::new();
-    for (key, replacement) in RETIRED_TLS {
-        if let Some(value) = table.remove(key) {
-            let removed = Removed::deserialize(value).map_err(D::Error::custom)?;
-            removals.replaced(removed, format!("oidc.tls.{key}"), replacement);
-        }
-    }
-    removals.finish().map_err(D::Error::custom)?;
-    TlsClientSection::deserialize(serde_json::Value::Object(table)).map_err(D::Error::custom)
 }
 
 /// The checked `[oidc]`.
@@ -301,8 +246,7 @@ impl OidcSection {
     /// [`ConfigError::Zero`] for a zero `timeout`,
     /// [`ConfigError::Resolve`] for a `resolve` entry that is not
     /// `host=ip:port`, [`ConfigError::TlsNotBuilt`] when `tls` names TLS
-    /// material, [`ConfigError::Removed`] for a retired key, and the errors
-    /// of reading `client_secret`.
+    /// material, and the errors of reading `client_secret`.
     pub fn check(&self) -> Result<OidcSettings, ConfigError> {
         if self.tls.names_material() {
             return Err(ConfigError::TlsNotBuilt);
@@ -326,14 +270,6 @@ impl OidcSection {
 
     /// Checks the section, over the configuration the console built.
     fn check_over(&self, presented: Option<PresentedTls>) -> Result<OidcSettings, ConfigError> {
-        let mut removals = Removals::new();
-        removals.replaced(self.ca_file, "oidc.ca_file", "oidc.tls.trust_roots_file");
-        removals.replaced(
-            self.timeout_s,
-            "oidc.timeout_s",
-            "oidc.timeout, a duration such as `10s`",
-        );
-        removals.finish()?;
         let issuer = required("oidc.issuer", &self.issuer)?;
         provider_url("oidc.issuer", issuer)?;
         let client_id = required("oidc.client_id", &self.client_id)?;
@@ -528,15 +464,6 @@ pub struct SessionSection {
     pub key: Option<Secret>,
     /// A file holding the sealing key.
     pub key_file: Option<PathBuf>,
-    /// Removed: `sign_in_timeout`, a duration.
-    #[serde(skip_serializing)]
-    pub sign_in_timeout_s: Removed,
-    /// Removed: `idle_timeout`, a duration.
-    #[serde(skip_serializing)]
-    pub idle_timeout_s: Removed,
-    /// Removed: `absolute_timeout`, a duration.
-    #[serde(skip_serializing)]
-    pub absolute_timeout_s: Removed,
 }
 
 impl Default for SessionSection {
@@ -551,9 +478,6 @@ impl Default for SessionSection {
             max_sessions: 10_000,
             key: None,
             key_file: None,
-            sign_in_timeout_s: Removed::default(),
-            idle_timeout_s: Removed::default(),
-            absolute_timeout_s: Removed::default(),
         }
     }
 }
@@ -635,27 +559,6 @@ impl SessionSection {
     ///
     /// The errors of [`Self::check`].
     pub fn check_with(&self, offline_access: bool) -> Result<SessionSettings, ConfigError> {
-        let mut removals = Removals::new();
-        for (removed, key, replacement) in [
-            (
-                self.sign_in_timeout_s,
-                "session.sign_in_timeout_s",
-                "session.sign_in_timeout, a duration such as `5min`",
-            ),
-            (
-                self.idle_timeout_s,
-                "session.idle_timeout_s",
-                "session.idle_timeout, a duration such as `30min`",
-            ),
-            (
-                self.absolute_timeout_s,
-                "session.absolute_timeout_s",
-                "session.absolute_timeout, a duration such as `12h`",
-            ),
-        ] {
-            removals.replaced(removed, key, replacement);
-        }
-        removals.finish()?;
         for (key, value) in [
             ("session.sign_in_timeout", self.sign_in_timeout),
             ("session.idle_timeout", self.idle_timeout),
@@ -1146,46 +1049,30 @@ mod tests {
     }
 
     #[test]
-    fn the_retired_keys_are_refused_naming_their_replacement() {
-        let oidc: OidcSection = toml::from_str(
-            "issuer = \"https://idp.example.org\"\nclient_id = \"console\"\nredirect_uri = \"https://console.example.org/callback\"\nca_file = \"/run/ca.pem\"\ntimeout_s = 10\n",
-        )
-        .expect("the section reads");
-        let shown = oidc.check().expect_err("refused").to_string();
-        for line in [
-            "oidc.ca_file was replaced by oidc.tls.trust_roots_file",
-            "oidc.timeout_s was replaced by oidc.timeout",
+    fn the_retired_keys_are_unknown_keys() {
+        for retired in [
+            "ca_file = \"/run/ca.pem\"",
+            "timeout_s = 10",
+            "[tls]\nclient_certificate = \"/run/cert.pem\"",
+            "[tls]\nclient_key = \"inline-private-key\"",
+            "[tls]\nclient_key_file = \"/run/key.pem\"",
         ] {
-            assert!(shown.contains(line), "{line} in {shown}");
+            assert!(
+                toml::from_str::<OidcSection>(retired).is_err(),
+                "{retired} is no key of [oidc]"
+            );
         }
-        let session: SessionSection =
-            toml::from_str("idle_timeout_s = 60\nabsolute_timeout_s = 600\n").expect("reads");
-        let shown = session.check_with(false).expect_err("refused").to_string();
-        assert!(
-            shown.contains("session.idle_timeout_s was replaced by session.idle_timeout"),
-            "{shown}"
-        );
+        for retired in [
+            "sign_in_timeout_s = 60",
+            "idle_timeout_s = 60",
+            "absolute_timeout_s = 600",
+        ] {
+            assert!(
+                toml::from_str::<SessionSection>(retired).is_err(),
+                "{retired} is no key of [session]"
+            );
+        }
         assert!(toml::from_str::<SessionSection>("idle_timeout = 60").is_err());
-    }
-
-    #[test]
-    fn the_retired_tls_keys_are_refused_naming_their_replacement_all_at_once() {
-        let refused = toml::from_str::<OidcSection>(
-            "[tls]\nclient_certificate = \"/run/cert.pem\"\nclient_key = \"inline-private-key\"\nclient_key_file = \"/run/key.pem\"\n",
-        )
-        .expect_err("the retired keys are refused")
-        .to_string();
-        for line in [
-            "oidc.tls.client_certificate was replaced by oidc.tls.client_identity_file",
-            "oidc.tls.client_key was replaced by oidc.tls.client_identity,",
-            "oidc.tls.client_key_file was replaced by oidc.tls.client_identity_file",
-        ] {
-            assert!(refused.contains(line), "{line} in {refused}");
-        }
-        assert!(
-            !refused.contains("inline-private-key"),
-            "no value is shown: {refused}"
-        );
     }
 
     #[test]

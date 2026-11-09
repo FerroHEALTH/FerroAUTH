@@ -6,11 +6,10 @@
 //! RFC 9068 §2.2.3.1 has an authorization server that puts authorization
 //! attributes in a JWT access token use the `groups`, `roles` and
 //! `entitlements` attributes of the SCIM `User` resource (RFC 7643 §4.1.2) as
-//! claim types. A deployment names the claims it reads (`[auth]
-//! role_claims`, by default those three); a dotted path reaches into a JSON
-//! object, for an authorization server that nests them. An entry written
-//! `<issuer>#<path>` is read from that issuer's tokens alone
-//! ([`crate::config::AuthSection::role_claims`]). Each value is a role:
+//! claim types. A deployment names the claims it reads on each
+//! `[[auth.issuer]]` ([`crate::config::IssuerEntry::role_claims`], by
+//! default those three); a dotted path reaches into a JSON object, for an
+//! authorization server that nests them. Each value is a role:
 //! an array element that is a string, an element that is an object with a
 //! string `value` sub-attribute (a SCIM multi-valued attribute, RFC 7643
 //! §2.4), or, for an issuer that writes one string, each of its
