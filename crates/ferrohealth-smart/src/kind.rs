@@ -101,6 +101,13 @@ pub enum CallerKind {
     /// A person under their own account, through a first-party client, or
     /// through HTTP Basic.
     Person,
+    /// Someone acting for the patient, on a `patients` issuer that declares
+    /// `act_represents_patient`: the token's top-level `act` names them
+    /// (RFC 8693 §4.1) and its `sub` the patient.
+    PatientRepresentative {
+        /// The current actor, the representative.
+        actor: Actor,
+    },
     /// A guest by the issuer's profile, with the kind it would otherwise
     /// have; a product admits one only by a setting of its own.
     Guest(Box<CallerKind>),
@@ -115,6 +122,10 @@ impl fmt::Debug for CallerKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Delegated { actor } => f.debug_struct("Delegated").field("actor", actor).finish(),
+            Self::PatientRepresentative { actor } => f
+                .debug_struct("PatientRepresentative")
+                .field("actor", actor)
+                .finish(),
             Self::Representative { .. } => f.debug_struct("Representative").finish_non_exhaustive(),
             Self::Guest(kind) => f.debug_tuple("Guest").field(kind).finish(),
             Self::ExternalPerson(external) => {
@@ -141,6 +152,7 @@ impl CallerKind {
             Self::Delegated { .. } => "delegated",
             Self::Representative { .. } => "representative",
             Self::Person => "person",
+            Self::PatientRepresentative { .. } => "patient_representative",
             Self::Guest(_) => "guest",
             Self::ExternalPerson(_) => "external_person",
             Self::ExternalOrganisation(_) => "external_organisation",
@@ -194,6 +206,10 @@ pub enum Unclassified {
     /// `patient/` scope or carries a `user/` or `system/` one.
     #[error("a patients token does not name only the record subject")]
     NotPatientContext,
+    /// A `patients` token names an actor in `act`, and its issuer does not
+    /// declare `act_represents_patient`.
+    #[error("a patients token names an actor its issuer does not read as a representative")]
+    PatientActor,
     /// A `machines` token is not app-only.
     #[error("a machines token is not app-only")]
     NotAppOnly,
@@ -350,7 +366,7 @@ pub(crate) fn classify(
                 && !grants_in(&scope, "user")
                 && !grants_in(&scope, "system")
             {
-                Ok(classified(CallerKind::Patient))
+                Ok(classified(patient(profile, claims)?))
             } else {
                 Err(Unclassified::NotPatientContext)
             }
@@ -455,8 +471,29 @@ fn person(
     }
 }
 
-/// Returns the actor `act` names, refusing a chain deeper than `max`.
-pub(crate) fn actor(act: &Value, token_issuer: &str, max: usize) -> Result<Actor, Unclassified> {
+/// Returns the kind of a `patients` token that names only the record
+/// subject: the patient, or, when it names an actor in `act`, the patient's
+/// representative under a profile that declares `act_represents_patient`.
+fn patient(profile: &Profile, claims: &Map<String, Value>) -> Result<CallerKind, Unclassified> {
+    let Some(act) = claims.get("act") else {
+        return Ok(CallerKind::Patient);
+    };
+    if !profile.act_represents_patient {
+        return Err(Unclassified::PatientActor);
+    }
+    // NOTE: RFC 8693 §4.1, only the top-level `act` is the current actor, and a
+    // nested one is "informational only", so no depth is held against it.
+    let token_issuer = text(claims, "iss").unwrap_or_default();
+    let (actor, _) = current_actor(act, &token_issuer)?;
+    Ok(CallerKind::PatientRepresentative { actor })
+}
+
+/// Returns the current actor `act` names, with its object, refusing an
+/// `act` that is no object with a string `sub`.
+fn current_actor<'a>(
+    act: &'a Value,
+    token_issuer: &str,
+) -> Result<(Actor, &'a Map<String, Value>), Unclassified> {
     let object = act.as_object().ok_or(Unclassified::ActorChain)?;
     let sub = object
         .get("sub")
@@ -467,6 +504,18 @@ pub(crate) fn actor(act: &Value, token_issuer: &str, max: usize) -> Result<Actor
         .get("iss")
         .and_then(Value::as_str)
         .unwrap_or(token_issuer);
+    Ok((
+        Actor {
+            issuer: issuer.to_owned(),
+            sub: sub.to_owned(),
+        },
+        object,
+    ))
+}
+
+/// Returns the actor `act` names, refusing a chain deeper than `max`.
+pub(crate) fn actor(act: &Value, token_issuer: &str, max: usize) -> Result<Actor, Unclassified> {
+    let (actor, object) = current_actor(act, token_issuer)?;
     let mut depth = 1_usize;
     let mut current = object;
     while let Some(prior) = current.get("act") {
@@ -476,10 +525,7 @@ pub(crate) fn actor(act: &Value, token_issuer: &str, max: usize) -> Result<Actor
     if depth > max {
         return Err(Unclassified::ActorChain);
     }
-    Ok(Actor {
-        issuer: issuer.to_owned(),
-        sub: sub.to_owned(),
-    })
+    Ok(actor)
 }
 
 /// Returns the string claim `name`, trimmed, when it is not blank.

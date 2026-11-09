@@ -274,6 +274,9 @@ pub struct ProfileKeys {
     /// [`Profile::representation`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub representation: Option<Representation>,
+    /// [`Profile::act_represents_patient`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub act_represents_patient: Option<bool>,
     /// [`Profile::token_types`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_types: Option<Vec<String>>,
@@ -349,6 +352,10 @@ pub struct Profile {
     pub max_actor_chain: usize,
     /// The claims naming a represented subject, on a `persons` issuer.
     pub representation: Option<Representation>,
+    /// Whether a top-level `act` of a `patients` token names the patient's
+    /// representative (RFC 8693 §4.1); `false` by default, and a `patients`
+    /// token carrying `act` is then refused.
+    pub act_represents_patient: bool,
     /// The accepted `typ` header values; `at+jwt` and `application/at+jwt`
     /// by default (RFC 9068 §4).
     pub token_types: Vec<String>,
@@ -400,6 +407,7 @@ impl Default for Profile {
             delegates: Vec::new(),
             max_actor_chain: 1,
             representation: None,
+            act_represents_patient: false,
             token_types: vec![String::from("at+jwt"), String::from("application/at+jwt")],
             required_claims: ["iss", "exp", "aud", "sub", "client_id", "iat", "jti"]
                 .iter()
@@ -502,6 +510,7 @@ impl Profile {
             delegates,
             max_actor_chain,
             representation,
+            act_represents_patient,
             token_types,
             required_claims,
             scope_claim,
@@ -529,6 +538,7 @@ impl Profile {
         set(&mut self.delegates, delegates);
         set(&mut self.max_actor_chain, max_actor_chain);
         set_some(&mut self.representation, representation);
+        set(&mut self.act_represents_patient, act_represents_patient);
         set(&mut self.token_types, token_types);
         set(&mut self.required_claims, required_claims);
         set(&mut self.scope_claim, scope_claim);
@@ -594,6 +604,12 @@ impl Profile {
         if self.representation.is_some() && kind != IssuerKind::Persons {
             return Err(ProfileError::Kind {
                 key: "representation",
+                kind: kind.as_str(),
+            });
+        }
+        if self.act_represents_patient && kind != IssuerKind::Patients {
+            return Err(ProfileError::Kind {
+                key: "act_represents_patient",
                 kind: kind.as_str(),
             });
         }
@@ -679,6 +695,7 @@ mod tests {
                 claim: String::from("r"),
                 ground_claim: None,
             }),
+            act_represents_patient: Some(true),
             token_types: Some(vec![String::from("at+jwt")]),
             required_claims: Some(vec![String::from("iss")]),
             scope_claim: Some(ScopeClaim::default()),
@@ -718,6 +735,7 @@ mod tests {
                 delegates: Some(profile.delegates),
                 max_actor_chain: Some(profile.max_actor_chain),
                 representation: profile.representation,
+                act_represents_patient: Some(profile.act_represents_patient),
                 token_types: Some(profile.token_types),
                 required_claims: Some(profile.required_claims),
                 scope_claim: Some(profile.scope_claim),

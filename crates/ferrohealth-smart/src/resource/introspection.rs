@@ -114,6 +114,8 @@ pub struct IntrospectionSettings {
     pub assurance: Option<AssuranceSection>,
     /// What a `federation` issuer asserts, required on one.
     pub federation: Option<crate::federation::FederationSection>,
+    /// What a `persons` issuer states about its professionals.
+    pub attributes: Option<crate::federation::person::AttributesSection>,
     /// Whether the issuer's tokens must be bound to a `DPoP` key or a client
     /// certificate ([`crate::sender`]).
     pub sender_constraint: SenderConstraint,
@@ -156,6 +158,7 @@ impl IntrospectionSettings {
             profile: Profile::default(),
             assurance: None,
             federation: None,
+            attributes: None,
             sender_constraint: SenderConstraint::None,
         }
     }
@@ -189,6 +192,7 @@ impl IntrospectionSettings {
             &self.scopeless_subjects,
             &self.role_claims,
         )
+        .and_then(|()| super::rules::check_attributes(self.kind, self.attributes.as_ref()))
         .map_err(|source| IntrospectionError::Rules {
             source: Box::new(source),
         })?;
@@ -662,6 +666,7 @@ impl Introspector {
                 profile: &self.settings.profile,
                 assurance: self.settings.assurance.as_ref(),
                 federation: self.settings.federation.as_ref(),
+                attributes: self.settings.attributes.as_ref(),
                 audiences: &self.settings.audience,
                 clock_skew: self.settings.clock_skew,
                 scopeless_subjects: &self.settings.scopeless_subjects,

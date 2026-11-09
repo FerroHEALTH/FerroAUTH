@@ -32,38 +32,20 @@ pub(crate) fn classify(
     let section = context.section;
     let presentations = presentations(claims, section)?;
     let entry = attested_entry(claims, context)?;
-    let mut fields = BTreeMap::new();
-    for (field, sources) in section.sources() {
-        let mut found: Option<Attribute> = None;
-        for source in &sources {
-            let value = match source {
-                Source::Claim(path) => lookup(claims, path).and_then(attribute),
-                Source::Constant(value) => Some(Attribute::Text(value.clone())),
-                Source::AuthorizationDetails(path) => entry
-                    .and_then(|entry| lookup(entry, path))
-                    .and_then(attribute),
-                Source::Presentation(path) => presentations
-                    .credentials
-                    .iter()
-                    .find_map(|subject| lookup(subject, path))
-                    .and_then(attribute),
-            };
-            match (&found, value) {
-                (_, None) => {}
-                (None, Some(value)) => found = Some(value),
-                (Some(held), Some(value)) if *held == value => {}
-                (Some(_), Some(_)) => {
-                    return Err(Unclassified::SourcesDisagree {
-                        field: field.as_str(),
-                    });
-                }
-            }
-        }
-        if let Some(value) = found {
-            check_attribute(field, &value)?;
-            fields.insert(field, value);
-        }
-    }
+    let fields = read_fields(section.sources(), |_field, source| {
+        Ok(match source {
+            Source::Claim(path) => lookup(claims, path).and_then(attribute),
+            Source::Constant(value) => Some(Attribute::Text(value.clone())),
+            Source::AuthorizationDetails(path) => entry
+                .and_then(|entry| lookup(entry, path))
+                .and_then(attribute),
+            Source::Presentation(path) => presentations
+                .credentials
+                .iter()
+                .find_map(|subject| lookup(subject, path))
+                .and_then(attribute),
+        })
+    })?;
     let subject = crate::roles::claim_text(claims, "sub").unwrap_or_default();
     let named = fields.keys().any(|field| field.professional());
     let professional = if presentations.present {
@@ -115,6 +97,36 @@ pub(crate) fn classify(
     } else {
         Err(Unclassified::NoOrganisationStatement)
     }
+}
+
+/// Returns the value of each field from its sources, as `value_of` reads
+/// one, refusing two sources that disagree and a value the attribute checks
+/// refuse.
+pub(crate) fn read_fields(
+    sources: BTreeMap<Field, Vec<Source>>,
+    mut value_of: impl FnMut(Field, &Source) -> Result<Option<Attribute>, Unclassified>,
+) -> Result<BTreeMap<Field, Attribute>, Unclassified> {
+    let mut fields = BTreeMap::new();
+    for (field, list) in sources {
+        let mut found: Option<Attribute> = None;
+        for source in &list {
+            match (&found, value_of(field, source)?) {
+                (_, None) => {}
+                (None, Some(value)) => found = Some(value),
+                (Some(held), Some(value)) if *held == value => {}
+                (Some(_), Some(_)) => {
+                    return Err(Unclassified::SourcesDisagree {
+                        field: field.as_str(),
+                    });
+                }
+            }
+        }
+        if let Some(value) = found {
+            check_attribute(field, &value)?;
+            fields.insert(field, value);
+        }
+    }
+    Ok(fields)
 }
 
 /// The credential subjects of a token's Verifiable Presentations.
@@ -254,7 +266,7 @@ fn attested_entry<'a>(
 
 /// Returns `value` as an attribute: a string or a number as text, an array
 /// of FHIR Coding or of strings as codes.
-fn attribute(value: &Value) -> Option<Attribute> {
+pub(crate) fn attribute(value: &Value) -> Option<Attribute> {
     match value {
         Value::String(text) => Some(Attribute::Text(text.clone())),
         Value::Number(number) => Some(Attribute::Text(number.to_string())),
@@ -288,7 +300,7 @@ fn attribute(value: &Value) -> Option<Attribute> {
 /// than the field's cap, or is coded where the field takes one string (no
 /// specification governs the checks: our own design, against a value that
 /// renders other than it reads).
-fn check_attribute(field: Field, value: &Attribute) -> Result<(), Unclassified> {
+pub(crate) fn check_attribute(field: Field, value: &Attribute) -> Result<(), Unclassified> {
     let refused = |text: &str| {
         text.chars().count() > field.cap()
             || text.chars().any(|c| {

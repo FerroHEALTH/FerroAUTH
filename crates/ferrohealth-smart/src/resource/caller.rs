@@ -5,6 +5,7 @@
 //! behaviour of [`Caller`], [`Compartment`] and [`Access`].
 
 use crate::assurance::Assessment;
+use crate::federation::person::Attributes;
 use crate::kind::CallerKind;
 use crate::party::Outcome;
 use crate::resource::Access;
@@ -57,6 +58,7 @@ impl Caller {
             cached: false,
             extensions: http::Extensions::new(),
             party: None,
+            attributes: None,
         }
     }
 
@@ -96,6 +98,22 @@ impl Caller {
     pub fn with_assurance(mut self, assurance: Assessment) -> Self {
         self.assurance = assurance;
         self
+    }
+
+    /// Returns this caller carrying what its `persons` token states about
+    /// the professional under the issuer's `[[auth.attributes]]` table.
+    #[must_use]
+    pub fn with_attributes(mut self, attributes: Attributes) -> Self {
+        self.attributes = Some(attributes);
+        self
+    }
+
+    /// Returns what the caller's `persons` token states about the
+    /// professional (IHE IUA §3.71.4.2.2.1.1), when the issuer has an
+    /// `[[auth.attributes]]` table and the caller is no machine.
+    #[must_use]
+    pub fn attributes(&self) -> Option<&Attributes> {
+        self.attributes.as_ref()
     }
 
     /// Returns this caller carrying the value of its issuer profile's

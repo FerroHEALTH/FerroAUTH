@@ -22,6 +22,7 @@
 
 #[cfg(feature = "fetch")]
 mod assertion_key;
+mod attributes;
 mod audit;
 mod basic;
 #[cfg(feature = "fetch")]

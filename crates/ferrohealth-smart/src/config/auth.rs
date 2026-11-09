@@ -23,6 +23,7 @@ use crate::config::ScopelessSubject;
 use crate::config::issuer::check_entry;
 use crate::config::read::secret;
 use crate::federation::FederationSection;
+use crate::federation::person::AttributesSection;
 use crate::kind::IssuerKind;
 use crate::profile::Profile;
 use crate::resource::Settings;
@@ -146,6 +147,7 @@ impl AuthSection {
         if self.enabled {
             self.check_scopeless()?;
             self.check_federation()?;
+            self.check_attributes()?;
             for entry in self.issuers() {
                 let kind = check_entry(entry)?;
                 kinds.insert(entry.issuer.clone(), kind);
@@ -354,6 +356,41 @@ impl AuthSection {
         Ok(())
     }
 
+    /// Refuses an `[[auth.attributes]]` table that names no trusted
+    /// `persons` issuer or names one twice (no specification governs this:
+    /// our own design).
+    fn check_attributes(&self) -> Result<(), ConfigError> {
+        let mut seen = BTreeSet::new();
+        for section in &self.attributes {
+            let kind = self
+                .issuers()
+                .iter()
+                .find(|entry| entry.issuer == section.issuer)
+                .and_then(|entry| entry.kind);
+            if kind != Some(IssuerKind::Persons) {
+                return Err(ConfigError::Attributes {
+                    issuer: section.issuer.clone(),
+                    reason: "it names no trusted persons issuer",
+                });
+            }
+            if !seen.insert(section.issuer.as_str()) {
+                return Err(ConfigError::Attributes {
+                    issuer: section.issuer.clone(),
+                    reason: "two tables name the issuer",
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// Returns the `[[auth.attributes]]` table of `entry`, when it has one.
+    fn attributes_of(&self, entry: &IssuerEntry) -> Option<AttributesSection> {
+        self.attributes
+            .iter()
+            .find(|section| section.issuer == entry.issuer)
+            .cloned()
+    }
+
     /// Refuses an `[[auth.party]]` table that names no trusted `persons`
     /// issuer, sets `claim`, or shares its issuer or its `identifier_issuer`
     /// with another (no specification governs this: our own design).
@@ -469,6 +506,7 @@ impl AuthSection {
         settings.role_claims = role_claims_of(entry, kind);
         settings.assurance.clone_from(&entry.assurance);
         settings.federation = self.federation_of(entry)?;
+        settings.attributes = self.attributes_of(entry);
         settings.sender_constraint = entry.sender_constraint;
         Ok(settings)
     }
@@ -546,6 +584,7 @@ impl AuthSection {
         settings.profile = profile_of(entry)?;
         settings.assurance.clone_from(&entry.assurance);
         settings.federation = self.federation_of(entry)?;
+        settings.attributes = self.attributes_of(entry);
         settings.sender_constraint = entry.sender_constraint;
         settings
             .validate()
@@ -636,6 +675,7 @@ impl Default for AuthSection {
             dpop: None,
             ca_file: None,
             federation: Vec::new(),
+            attributes: Vec::new(),
             party: Vec::new(),
             audience: None,
             algorithms: None,
