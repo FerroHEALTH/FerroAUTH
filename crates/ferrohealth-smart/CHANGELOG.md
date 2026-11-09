@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-11-09
+
 ### Added
 
 - The configuration sections implement `PartialEq` and `Eq`: `AuthSection`,
@@ -1809,7 +1811,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.1...HEAD
+[0.16.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.0...ferrohealth-smart-v0.16.1
 [0.16.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.15.1...ferrohealth-smart-v0.16.0
 [0.15.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.15.0...ferrohealth-smart-v0.15.1
 [0.15.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.14.0...ferrohealth-smart-v0.15.0
