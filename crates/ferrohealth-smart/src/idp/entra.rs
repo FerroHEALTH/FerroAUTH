@@ -172,7 +172,7 @@ pub enum ReadError {
     Collection {
         /// What the reader reported.
         #[source]
-        source: serde_json::Error,
+        source: crate::json::JsonError,
     },
     /// The answer names a next page, so it is not the whole membership.
     #[error("the Graph answer is paged, and one page is not the whole membership")]
@@ -414,8 +414,11 @@ impl IdpAdapter for GraphAdapter {
 fn read(bytes: &[u8]) -> Result<Vec<String>, AdapterError> {
     crate::metadata::repeats_no_name(bytes)
         .map_err(|source| unreadable(ReadError::Collection { source }))?;
-    let members: Members = serde_json::from_slice(bytes)
-        .map_err(|source| unreadable(ReadError::Collection { source }))?;
+    let members: Members = serde_json::from_slice(bytes).map_err(|source| {
+        unreadable(ReadError::Collection {
+            source: source.into(),
+        })
+    })?;
     // NOTE: the `getMemberObjects` reference describes no paging, so an answer naming a next
     // page is refused rather than read as the whole membership (our own design).
     if members.next_link.is_some() {
@@ -453,6 +456,13 @@ fn is_guid(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    /// A Graph answer refusal renders no part of the answer.
+    #[test]
+    fn a_graph_refusal_hides_the_answer() {
+        use crate::json::leak::{hidden, refused};
+        hidden(&ReadError::Collection { source: refused() });
+    }
+
     use super::*;
 
     #[test]

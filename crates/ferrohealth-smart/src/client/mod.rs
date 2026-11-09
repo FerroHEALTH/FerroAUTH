@@ -490,7 +490,7 @@ pub enum TokenError {
     Malformed {
         /// What the JSON reader reported.
         #[source]
-        source: serde_json::Error,
+        source: crate::json::JsonError,
     },
     /// The token is not of the type the grant asks for: `Bearer` (RFC 6750),
     /// or `DPoP` for a grant whose tokens are bound to a `DPoP` key (RFC 9449

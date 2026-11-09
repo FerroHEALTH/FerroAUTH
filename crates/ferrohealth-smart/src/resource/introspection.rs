@@ -282,7 +282,7 @@ pub enum IntrospectionError {
     RepeatedName {
         /// What the JSON reader reported, with the position.
         #[source]
-        source: serde_json::Error,
+        source: crate::json::JsonError,
     },
     /// The `200` body is not the JSON object RFC 7662 §2.2 describes, or its
     /// `active` member is not a boolean.
@@ -291,7 +291,7 @@ pub enum IntrospectionError {
         /// What the JSON reader reported, when it was the reader that
         /// refused.
         #[source]
-        source: Option<serde_json::Error>,
+        source: Option<crate::json::JsonError>,
     },
 }
 
@@ -735,7 +735,7 @@ fn read_response(body: &str) -> Result<Map<String, Value>, IntrospectionError> {
     if let Err(source) = crate::metadata::repeats_no_name(body.as_bytes()) {
         // NOTE: RFC 8259 §4, only the repeated-name refusal reads as a data
         // error, so any other failure is a body that is no JSON at all.
-        if source.classify() == serde_json::error::Category::Data {
+        if source.category() == serde_json::error::Category::Data {
             return Err(IntrospectionError::RepeatedName { source });
         }
         return Err(IntrospectionError::Malformed {
@@ -744,7 +744,7 @@ fn read_response(body: &str) -> Result<Map<String, Value>, IntrospectionError> {
     }
     let claims: Map<String, Value> =
         serde_json::from_str(body).map_err(|source| IntrospectionError::Malformed {
-            source: Some(source),
+            source: Some(source.into()),
         })?;
     if !matches!(claims.get("active"), Some(Value::Bool(_))) {
         return Err(IntrospectionError::Malformed { source: None });

@@ -11,6 +11,41 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.13.0] - Unreleased
+
+A refusal of a JSON document the crate could not read no longer quotes the
+document. The error type of the refusing variants changes, so the line
+moves to 0.13.0; a product that only renders or matches these errors
+upgrades with no change.
+
+### Changed
+
+- The variants that refuse a JSON document carry `json::JsonError` in
+  place of `serde_json::Error`: `resource::ResourceError::KeySet` and
+  `KeySetRepeatedName`, `client::TokenError::Malformed`,
+  `oidc::OidcError::Malformed` and `KeySetBody`,
+  `metadata::DiscoveryError::Metadata` and `RepeatedName`,
+  `resource::introspection::IntrospectionError::RepeatedName` and
+  `Malformed`, `client::authorization_details::AuthorizationDetailsError::Json`
+  and `Shape`, and `idp::entra::ReadError::Collection`.
+  `metadata::repeats_no_name` returns a `JsonError`. A `JsonError` keeps the
+  reader's `category()`, `line()` and `column()`, renders no part of the
+  document and has no source. To upgrade, read `category()` where a product
+  called `classify()` on the source (#351).
+
+### Security
+
+Shipped with functional changes because: the fix is the change of the error type the Changed entry names, so the two cannot ship apart.
+
+- A refusal of a JSON document the crate could not read carried
+  `serde_json::Error` as its source, whose message quotes the value the
+  reader stopped at. A product that logged the error chain could write a
+  private or symmetric key from a `jwks_file` or `jwks_uri` key set, or an
+  access, refresh or ID token from a malformed token endpoint response, to
+  its log. Affected: every release before 0.13.0 (CWE-532, CWE-209,
+  GHSA-mhv7-3975-6xq3). Upgrade step: move to 0.13.0; until then, log only
+  the top-level display of these errors (#351).
+
 ## [0.12.0] - 2026-11-09
 
 ### Added

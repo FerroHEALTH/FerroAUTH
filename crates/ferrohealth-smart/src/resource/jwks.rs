@@ -266,7 +266,7 @@ async fn fetch(
     if let Err(error) = crate::metadata::repeats_no_name(body.as_bytes()) {
         // NOTE: RFC 8259 §4, only the repeated-name refusal reads as a data
         // error, so any other failure is a body that is no JSON at all.
-        if error.classify() == serde_json::error::Category::Data {
+        if error.category() == serde_json::error::Category::Data {
             return Err(ResourceError::KeySetRepeatedName {
                 origin: source.clone(),
                 error,
@@ -280,7 +280,7 @@ async fn fetch(
     let document: Document =
         serde_json::from_str(&body).map_err(|error| ResourceError::KeySet {
             origin: source.clone(),
-            error,
+            error: error.into(),
         })?;
     Ok(document.keys.iter().filter_map(usable).collect())
 }
@@ -331,6 +331,22 @@ fn usable(member: &serde_json::Value) -> Option<Key> {
 
 #[cfg(test)]
 mod tests {
+    /// A key set refusal renders no part of the key set, whichever reading
+    /// refused it.
+    #[test]
+    fn a_key_set_refusal_hides_the_key_set() {
+        use crate::json::leak::{hidden, refused};
+        let origin = super::KeySource::File("/etc/jwks.json".into());
+        hidden(&crate::resource::ResourceError::KeySet {
+            origin: origin.clone(),
+            error: refused(),
+        });
+        hidden(&crate::resource::ResourceError::KeySetRepeatedName {
+            origin,
+            error: refused(),
+        });
+    }
+
     use super::usable;
 
     const N: &str = "sXchDaQebHnPiGvyDOAT4saGEUetSyo9MKLOoWFsueri23bOdgWp4Dy1WlUzewbgBHod5pcM9H95GQRV3JDXboIRROSBigeC5yjU1hGzHHyXss8UDprecbAYxknTcQkhslANGRUZmdTOQ5qTRsLAt6BTYuyvVRdhS8exSZEy_c4gs_7svlJJQ4H9_NxsiIoLwAEk7-Q3UXERGYw_75IDrGA84-lA_-Ct4eTlXHBIY2EaV7t7LjJaynVJCpkv4LKjTTAumiGUIuQhrNhZLuF_RJLqHpM2kgWFLU7-VTdL1VbC2tejvcI2BlMkEpk1BzBZI0KQB0GaDWFLN-aEAw3vRw";

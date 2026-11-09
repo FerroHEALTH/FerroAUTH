@@ -127,7 +127,9 @@ pub(super) async fn request_token(
     if answer.status != StatusCode::OK {
         return Err(answer.refused());
     }
-    serde_json::from_str(&answer.body).map_err(|source| TokenError::Malformed { source })
+    serde_json::from_str(&answer.body).map_err(|source| TokenError::Malformed {
+        source: source.into(),
+    })
 }
 
 /// What a token endpoint answered: its status and its body, as received.

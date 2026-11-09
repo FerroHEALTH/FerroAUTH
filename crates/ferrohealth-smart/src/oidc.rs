@@ -103,7 +103,7 @@ pub enum OidcError {
     Malformed {
         /// What the JSON reader reported.
         #[source]
-        source: serde_json::Error,
+        source: crate::json::JsonError,
     },
     /// The access token is not a bearer token (RFC 6750).
     #[error("the token endpoint issued a token of type {found:?}; a console sends bearer tokens")]
@@ -126,7 +126,7 @@ pub enum OidcError {
     KeySetBody {
         /// What the JSON reader reported.
         #[source]
-        source: serde_json::Error,
+        source: crate::json::JsonError,
     },
     /// The ID Token is signed with an algorithm the client refuses, or by a
     /// key the key set does not hold.
@@ -683,7 +683,9 @@ impl RelyingParty {
             return Err(OidcError::Refused { status, error });
         }
         let tokens: TokenResponse =
-            serde_json::from_str(&body).map_err(|source| OidcError::Malformed { source })?;
+            serde_json::from_str(&body).map_err(|source| OidcError::Malformed {
+                source: source.into(),
+            })?;
         if !tokens.token_type.eq_ignore_ascii_case("bearer") {
             return Err(OidcError::TokenType {
                 found: tokens.token_type,
@@ -759,8 +761,9 @@ impl RelyingParty {
         if status != StatusCode::OK {
             return Err(OidcError::KeySet { status });
         }
-        let keys: JwkSet =
-            serde_json::from_str(&body).map_err(|source| OidcError::KeySetBody { source })?;
+        let keys: JwkSet = serde_json::from_str(&body).map_err(|source| OidcError::KeySetBody {
+            source: source.into(),
+        })?;
         let jwk = match header.kid.as_deref() {
             Some(kid) => keys.find(kid),
             None => match keys.keys.as_slice() {

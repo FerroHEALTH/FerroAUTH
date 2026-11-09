@@ -28,6 +28,8 @@ use serde::de::SeqAccess;
 use serde::de::Visitor;
 use url::Url;
 
+use crate::json::JsonError;
+
 /// The RFC 8414 §3 well-known suffix.
 pub const OAUTH_METADATA: &str = "/.well-known/oauth-authorization-server";
 
@@ -270,7 +272,7 @@ pub enum DiscoveryError {
         url: Url,
         /// What the JSON reader reported.
         #[source]
-        source: serde_json::Error,
+        source: JsonError,
     },
     /// An object of the metadata repeats a member name, whose meaning
     /// RFC 8259 §4 leaves to each parser.
@@ -280,7 +282,7 @@ pub enum DiscoveryError {
         url: Url,
         /// What the JSON reader reported, with the position.
         #[source]
-        source: serde_json::Error,
+        source: JsonError,
     },
     /// The metadata names another issuer, which RFC 8414 §3.3 requires a
     /// client to refuse.
@@ -403,11 +405,13 @@ pub fn same_origin(
 ///
 /// # Errors
 ///
-/// Returns the JSON reader's error for a text that is no JSON, and a data
-/// error ([`serde_json::error::Category::Data`]) naming the position of the
-/// first repeated name.
-pub fn repeats_no_name(body: &[u8]) -> Result<(), serde_json::Error> {
-    serde_json::from_slice::<Unique>(body).map(|Unique| ())
+/// Returns a [`JsonError`] for a text that is no JSON, and a data error
+/// ([`serde_json::error::Category::Data`]) at the position of the first
+/// repeated name, neither of which renders any part of the text.
+pub fn repeats_no_name(body: &[u8]) -> Result<(), JsonError> {
+    serde_json::from_slice::<Unique>(body)
+        .map(|Unique| ())
+        .map_err(JsonError::from)
 }
 
 /// A JSON value read only to prove that no object in it repeats a name.
@@ -483,7 +487,7 @@ pub fn parse_metadata(url: &Url, body: &str) -> Result<ServerMetadata, Discovery
     if let Err(source) = repeats_no_name(body.as_bytes()) {
         // NOTE: RFC 8259 §4, only the repeated-name refusal reads as a data
         // error, so any other failure is a body that is no JSON at all.
-        if source.classify() == serde_json::error::Category::Data {
+        if source.category() == serde_json::error::Category::Data {
             return Err(DiscoveryError::RepeatedName {
                 url: url.clone(),
                 source,
@@ -496,7 +500,7 @@ pub fn parse_metadata(url: &Url, body: &str) -> Result<ServerMetadata, Discovery
     }
     serde_json::from_str(body).map_err(|source| DiscoveryError::Metadata {
         url: url.clone(),
-        source,
+        source: source.into(),
     })
 }
 
@@ -938,7 +942,7 @@ mod tests {
             let error = repeats_no_name(body).expect_err("a repeated name");
             assert_eq!(
                 serde_json::error::Category::Data,
-                error.classify(),
+                error.category(),
                 "{}",
                 String::from_utf8_lossy(body)
             );
