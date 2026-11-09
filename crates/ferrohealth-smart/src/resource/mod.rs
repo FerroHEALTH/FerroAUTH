@@ -220,7 +220,7 @@ pub enum ResourceError {
         origin: KeySource,
         /// What the JSON reader reported.
         #[source]
-        error: serde_json::Error,
+        error: crate::json::JsonError,
     },
     /// An object of the key set repeats a member name, whose meaning
     /// RFC 8259 §4 leaves to each parser.
@@ -230,7 +230,7 @@ pub enum ResourceError {
         origin: KeySource,
         /// What the JSON reader reported, with the position.
         #[source]
-        error: serde_json::Error,
+        error: crate::json::JsonError,
     },
     /// The settings name no `jwks_file`, and the crate is built without the
     /// `fetch` feature that reads the issuer's metadata and its `jwks_uri`.

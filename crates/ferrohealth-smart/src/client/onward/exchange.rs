@@ -721,8 +721,10 @@ impl Onward {
         if answer.status != StatusCode::OK {
             return Err(refusal(answer));
         }
-        let response: Response = serde_json::from_str(&answer.body)
-            .map_err(|source| TokenError::Malformed { source })?;
+        let response: Response =
+            serde_json::from_str(&answer.body).map_err(|source| TokenError::Malformed {
+                source: source.into(),
+            })?;
         if response.refresh_token.is_some() {
             return Err(OnwardError::RefreshToken);
         }

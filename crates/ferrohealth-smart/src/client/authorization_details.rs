@@ -46,7 +46,7 @@ pub enum AuthorizationDetailsError {
     Json {
         /// What the JSON reader reported.
         #[source]
-        source: serde_json::Error,
+        source: crate::json::JsonError,
     },
     /// The JSON is not an array of objects, or a common data field is not of
     /// the type RFC 9396 §2.2 gives it.
@@ -56,7 +56,7 @@ pub enum AuthorizationDetailsError {
     Shape {
         /// What the JSON reader reported.
         #[source]
-        source: serde_json::Error,
+        source: crate::json::JsonError,
     },
     /// The array holds no object (RFC 9396 §2).
     #[error("the authorization_details names no authorization details object (RFC 9396 §2)")]
@@ -108,8 +108,10 @@ impl AuthorizationDetails {
     pub fn parse(text: &str) -> Result<Self, AuthorizationDetailsError> {
         crate::metadata::repeats_no_name(text.as_bytes())
             .map_err(|source| AuthorizationDetailsError::Json { source })?;
-        let details: Vec<Detail> = serde_json::from_str(text)
-            .map_err(|source| AuthorizationDetailsError::Shape { source })?;
+        let details: Vec<Detail> =
+            serde_json::from_str(text).map_err(|source| AuthorizationDetailsError::Shape {
+                source: source.into(),
+            })?;
         if details.is_empty() {
             return Err(AuthorizationDetailsError::Empty);
         }
