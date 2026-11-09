@@ -11,7 +11,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.13.0] - Unreleased
+## [0.13.0] - 2026-11-09
 
 A refusal of a JSON document the crate could not read no longer quotes the
 document. The error type of the refusing variants changes, so the line
@@ -1529,7 +1529,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.12.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.0...HEAD
+[0.13.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.12.0...ferrohealth-smart-v0.13.0
 [0.12.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.11.0...ferrohealth-smart-v0.12.0
 [0.11.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.10.1...ferrohealth-smart-v0.11.0
 [0.10.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.10.0...ferrohealth-smart-v0.10.1
