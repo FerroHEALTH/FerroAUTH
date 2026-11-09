@@ -1,14 +1,25 @@
 # SPDX-FileCopyrightText: Cadasto B.V.
 # SPDX-License-Identifier: BUSL-1.1
 
-# CI in two tiers (no specification governs this: our own design).
+# CI in four jobs and the conclusion (no specification governs this: our own
+# design).
 #
-#   1. The workflow, shell and guard tier needs no Rust and runs on every
-#      change, the duplication ratchet among it.
-#   2. The Rust tier runs when the workspace exists (the `detect` job looks
-#      for the root Cargo.toml after checkout, which hashFiles() at `if:` time
-#      cannot): fmt, clippy with and without the `axum` feature, nextest and
-#      the doctests, rustdoc, cargo-deny, the publish dry run.
+#   1. `guards` runs the workflow, shell and repository guards, the
+#      duplication ratchet among them, and the publish dry run, all without
+#      a build cache.
+#   2. `lint` runs rustfmt, clippy over every feature set, rustdoc over
+#      every feature set and cargo-deny over one build cache.
+#   3. `nextest (core and axum)` runs the tests, the doctests and, where a
+#      change reaches the profiles or the resource server, the live Keycloak
+#      case.
+#   4. `cargo-semver-checks` runs on a pull request only.
+#
+# Every job starts at once and pays one runner queue wait: the hosted runner
+# pool is shared across the organisation, so each job pays the wait for a
+# runner however short its work, and a job that waits on another pays it
+# twice. That wait, not the work, made a run take 48 to 58 minutes, so the
+# guards share one job, and each step there runs when an earlier one failed,
+# so a run still reports every finding.
 #
 # The vendored-specification guard runs in specs.yml beside this workflow.
 # The `conclusion` job is the single required status check on main.
@@ -34,38 +45,32 @@ concurrency:
 permissions: {}
 
 jobs:
-  # ---- Tier 1 ---------------------------------------------------------------
-  workflow-audit:
-    name: zizmor
+  # ---- Guards, no build cache ------------------------------------------------
+  guards:
+    name: guards
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
       contents: read
+      issues: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The crate version guard compares the pull request's base and head.
+          fetch-depth: 0
       - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
         with:
-          tool: zizmor@1.31.1
-      - name: Audit .github
+          tool: zizmor@1.31.1,shellcheck@0.11.0
+      - name: zizmor audits .github
+        if: ${{ !cancelled() }}
         # GH_TOKEN enables the online audits (impostor-commit verifies every
         # pinned commit belongs to the repository it names).
         env:
           GH_TOKEN: ${{ github.token }}
         run: zizmor --min-severity=low .github/
-
-  workflow-lint:
-    name: actionlint
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Lint .github/workflows
+      - name: actionlint lints .github/workflows
+        if: ${{ !cancelled() }}
         # The official image, digest-pinned; it bundles the shellcheck that
         # reads every run: block. SC2016 is excluded alone: every occurrence
         # here is a jq filter or a printf format.
@@ -75,207 +80,188 @@ jobs:
             -e SHELLCHECK_OPTS='-e SC2016' \
             rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 \
             -color
-
-  shellcheck:
-    name: shellcheck
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
-        with:
-          tool: shellcheck@0.11.0
       - name: Every tracked shell program is clean at severity=style
+        if: ${{ !cancelled() }}
         run: git ls-files -z '*.sh' | xargs -0 -r shellcheck --severity=style
       - name: The release milestone script refuses open items and closes only after every leg
+        if: ${{ !cancelled() }}
         run: bash scripts/release/milestone.sh --self-test
       - name: The release plan orders tags by version and counts the support period
+        if: ${{ !cancelled() }}
         run: bash scripts/release/plan.sh --self-test
       - name: The changelog Security check passes and refuses what it claims to
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/changelog-security.sh --self-test
       - name: The caller kind guard refuses what it claims to
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/caller-kinds.sh --self-test
       - name: The architecture and the README list every caller kind
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/caller-kinds.sh
       - name: The crate-version guard refuses a dated section that has no tag
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/crate-version-guard.sh --self-test
       - name: The attribution hook reads only the commit and pull request text
+        if: ${{ !cancelled() }}
         run: bash .claude/hooks/no_attribution_guard.sh --self-test
       - name: The manual crate publish refuses a run off its release tag
+        if: ${{ !cancelled() }}
         run: bash scripts/release/publish-crates.sh --self-test
-
-  # Every section of each crate's changelog (crates/<crate>/CHANGELOG.md)
-  # holds Keep a
-  # Changelog types each once, and [Unreleased] keeps the Security rules the
-  # release plan checks on the section it cuts (no specification governs the
-  # wiring: our own design).
-  changelog:
-    name: changelog
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+      # Every section of each crate's changelog (crates/<crate>/CHANGELOG.md)
+      # holds Keep a Changelog types each once, and [Unreleased] keeps the
+      # Security rules the release plan checks on the section it cuts.
       - name: The structure guard refuses what it claims to and reads every crate
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/changelog-structure.sh --self-test
-      - run: bash scripts/checks/changelog-structure.sh
+      - name: Every crate's changelog keeps the structure
+        if: ${{ !cancelled() }}
+        run: bash scripts/checks/changelog-structure.sh
       # Regulation (EU) 2024/2847 Annex I Part II(2), (4) and (8): every
       # Security entry names its GHSA advisory or VEX statement, and a
       # Security section beside other changes opens with its reason.
       # With no file the check reads every crates/*/CHANGELOG.md, with VEX
       # paths resolved against the repository root.
-      - run: bash scripts/checks/changelog-security.sh --section Unreleased
-
-  # No tracked file keeps an unresolved merge conflict (#191; no
-  # specification governs the guard: our own design).
-  conflict-markers:
-    name: conflict-markers
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: The guard refuses each marker and skips the vendored corpora
+      - name: Every crate's Unreleased section keeps the Security rules
+        if: ${{ !cancelled() }}
+        run: bash scripts/checks/changelog-security.sh --section Unreleased
+      # No tracked file keeps an unresolved merge conflict (#191).
+      - name: The conflict-marker guard refuses each marker and skips the vendored corpora
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/conflict-markers.sh --self-test
-      - run: bash scripts/checks/conflict-markers.sh
-
-  comment-style:
-    name: comment-style
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - run: bash scripts/checks/comment-style.sh --all
-
-  # The duplication ratchet (#265): the duplicated lines of the hand-written
-  # Rust may fall and never rise. jscpd runs from its pinned image; a fall
-  # passes with a note, and ratchet-tighten.yml records it.
-  duplication:
-    name: duplication
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+      - name: No tracked file keeps a conflict marker
+        if: ${{ !cancelled() }}
+        run: bash scripts/checks/conflict-markers.sh
+      - name: Comment style
+        if: ${{ !cancelled() }}
+        run: bash scripts/checks/comment-style.sh --all
+      # The duplication ratchet (#265): the duplicated lines of the
+      # hand-written Rust may fall and never rise. jscpd runs from its pinned
+      # image; a fall passes with a note, and ratchet-tighten.yml records it.
       - name: Duplication ratchet self-test
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/duplication.sh --self-test
       - name: The duplicated lines have not risen
+        if: ${{ !cancelled() }}
         run: bash scripts/checks/duplication.sh
-
-  # Every TODO(#N) names an open issue.
-  todo-issues:
-    name: todo-issues
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      issues: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
       - name: Every pending-work pointer names an open issue
+        if: ${{ !cancelled() }}
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: bash scripts/checks/todo-issues.sh
-
-  detect:
-    name: detect
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    outputs:
-      cargo: ${{ steps.find.outputs.cargo }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: The version, the lock and the changelog agree
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD_BRANCH: ${{ github.head_ref }}
+        run: bash scripts/checks/crate-version-guard.sh "$BASE" "$HEAD"
+      - name: Dependency review
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
-          persist-credentials: false
-      - id: find
-        run: |
-          set -euo pipefail
-          if [ -f Cargo.toml ]; then echo "cargo=true"; else echo "cargo=false"; fi >> "$GITHUB_OUTPUT"
-
-  # ---- Tier 2 ---------------------------------------------------------------
-  fmt:
-    name: rustfmt
-    needs: detect
-    if: needs.detect.outputs.cargo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
+          fail-on-severity: high
+          comment-summary-in-pr: on-failure
+      # No cache: the dry run checks the bytes a publish would upload.
       - uses: ./.github/actions/setup-rust
+        if: ${{ !cancelled() }}
         with:
-          components: rustfmt
           cache: "false"
-      - run: cargo fmt --all --check
+      # NOTE: Cargo packages the workspace members together, so ferrohealth-authz
+      # verifies against the ferrohealth-smart it ships beside before that is on crates.io.
+      - name: Publish dry run
+        if: ${{ !cancelled() }}
+        run: cargo publish --workspace --dry-run --locked
 
-  clippy:
-    name: clippy (core and axum)
-    needs: detect
-    if: needs.detect.outputs.cargo == 'true'
+  # ---- Rust ------------------------------------------------------------------
+  lint:
+    name: lint
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
+    env:
+      RUSTDOCFLAGS: -D warnings
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup-rust
         with:
-          components: clippy
+          components: rustfmt,clippy
           target: wasm32-unknown-unknown
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: cargo-deny
+      - name: rustfmt
+        if: ${{ !cancelled() }}
+        run: cargo fmt --all --check
       # The core compiles without a framework, and the layer and the
       # extractor behind the `axum` feature, so both are linted; so is the
       # build without the `fetch` feature, which links no HTTP client, and
       # the `axum` build without `openehr` the FHIR products link. The
       # SMART on openEHR grammar (`openehr-scopes`) is linted on the host
       # and for the browser target, where it is the whole crate.
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
-      - run: cargo clippy --workspace --all-targets --no-default-features --features axum,openehr --locked -- -D warnings
-      - run: cargo clippy --workspace --all-targets --features axum --locked -- -D warnings
-      - run: cargo clippy -p ferrohealth-smart --all-targets --features idp-entra --locked -- -D warnings
-      - run: cargo clippy -p ferrohealth-smart --all-targets --no-default-features --features openehr-scopes --locked -- -D warnings
-      - run: cargo clippy -p ferrohealth-smart --no-default-features --features openehr-scopes --target wasm32-unknown-unknown --locked -- -D warnings
+      - name: clippy
+        if: ${{ !cancelled() }}
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: clippy with every feature
+        if: ${{ !cancelled() }}
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: clippy with axum and openehr alone
+        if: ${{ !cancelled() }}
+        run: cargo clippy --workspace --all-targets --no-default-features --features axum,openehr --locked -- -D warnings
+      - name: clippy with axum
+        if: ${{ !cancelled() }}
+        run: cargo clippy --workspace --all-targets --features axum --locked -- -D warnings
+      - name: clippy with idp-entra
+        if: ${{ !cancelled() }}
+        run: cargo clippy -p ferrohealth-smart --all-targets --features idp-entra --locked -- -D warnings
+      - name: clippy with openehr-scopes alone
+        if: ${{ !cancelled() }}
+        run: cargo clippy -p ferrohealth-smart --all-targets --no-default-features --features openehr-scopes --locked -- -D warnings
+      - name: clippy with openehr-scopes for wasm32
+        if: ${{ !cancelled() }}
+        run: cargo clippy -p ferrohealth-smart --no-default-features --features openehr-scopes --target wasm32-unknown-unknown --locked -- -D warnings
+      - name: rustdoc with every feature
+        if: ${{ !cancelled() }}
+        run: cargo doc --locked --workspace --all-features --no-deps --document-private-items
+      # docs.rs builds all features, a product's `cargo doc` the features it
+      # takes: each set documents without a broken link (#135).
+      - name: rustdoc with the default features
+        if: ${{ !cancelled() }}
+        run: cargo doc --locked --workspace --no-deps --document-private-items
+      - name: rustdoc with no feature
+        if: ${{ !cancelled() }}
+        run: cargo doc --locked --workspace --no-default-features --no-deps --document-private-items
+      - name: cargo-deny
+        if: ${{ !cancelled() }}
+        run: cargo deny check
+      # An `ignore` entry that outlived its finding: cargo-deny reports it as a
+      # warning, so the step above stays green on one; this promotes it to an
+      # error. Here because cargo-deny and the toolchain are installed.
+      - name: No exception for an advisory that no longer fires
+        if: ${{ !cancelled() }}
+        run: bash scripts/checks/advisory-exceptions.sh
 
+  # The live Keycloak case runs here after the suites (#239): the `keycloak`
+  # profile against the Keycloak image docs/VERSIONS.md pins, which
+  # tests/it/keycloak_live.rs starts, obtains tokens from and classifies. It
+  # runs on a pull request that touches the profiles, the resource server, the
+  # case itself or the pins, on a manual run, and on every push to main, which
+  # saves the build cache a pull request run restores (#243).
   test:
     name: nextest (core and axum)
-    needs: detect
-    if: needs.detect.outputs.cargo == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
       - uses: ./.github/actions/setup-rust
         with:
           cache-save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -288,161 +274,9 @@ jobs:
       - run: cargo nextest run --workspace --all-features --locked
       - run: cargo nextest run --workspace --no-default-features --features axum,openehr --locked
       - run: cargo test --doc --workspace --all-features --locked
-
-  doc:
-    name: rustdoc
-    needs: detect
-    if: needs.detect.outputs.cargo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    env:
-      RUSTDOCFLAGS: -D warnings
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-rust
-        with:
-          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
-      - run: cargo doc --locked --workspace --all-features --no-deps --document-private-items
-      # docs.rs builds all features, a product's `cargo doc` the features it
-      # takes: each set documents without a broken link (#135).
-      - run: cargo doc --locked --workspace --no-deps --document-private-items
-      - run: cargo doc --locked --workspace --no-default-features --no-deps --document-private-items
-
-  cargo-deny:
-    name: cargo-deny
-    needs: detect
-    if: needs.detect.outputs.cargo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-rust
-        with:
-          cache: "false"
-      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
-        with:
-          tool: cargo-deny
-      - run: cargo deny check
-      # An `ignore` entry that outlived its finding: cargo-deny reports it as a
-      # warning, so the step above stays green on one; this promotes it to an
-      # error. Here because cargo-deny and the toolchain are installed.
-      - name: No exception for an advisory that no longer fires
-        run: bash scripts/checks/advisory-exceptions.sh
-
-  # Every crate's public API against its newest version on crates.io: a break
-  # the manifest version does not answer with a minor bump fails, so a caret
-  # requirement on these crates stays safe (scripts/checks/semver.sh).
-  semver:
-    name: cargo-semver-checks
-    needs: detect
-    if: github.event_name == 'pull_request' && needs.detect.outputs.cargo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    permissions:
-      contents: read
-    steps:
-      # The pull request's merge commit and its first parent, the base, so
-      # the check judges only a change that reaches a crate.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 2
-      - uses: ./.github/actions/setup-rust
-        with:
-          cache-save-if: "false"
-      - id: pin
-        name: Read the cargo-semver-checks pin
-        run: echo "version=$(bash scripts/checks/semver.sh --pin)" >> "$GITHUB_OUTPUT"
-      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
-        with:
-          tool: cargo-semver-checks@${{ steps.pin.outputs.version }}
-      - run: bash scripts/checks/semver.sh --changed HEAD^1
-
-  # No cache: the dry run checks the bytes a publish would upload.
-  publish-dry-run:
-    name: publish-dry-run
-    needs: detect
-    if: needs.detect.outputs.cargo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-rust
-        with:
-          cache: "false"
-      # NOTE: Cargo packages the workspace members together, so ferrohealth-authz
-      # verifies against the ferrohealth-smart it ships beside before that is on crates.io.
-      - run: cargo publish --workspace --dry-run --locked
-
-  crate-version-guard:
-    name: crate-version-guard
-    needs: detect
-    if: github.event_name == 'pull_request' && needs.detect.outputs.cargo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-      - name: The version, the lock and the changelog agree
-        env:
-          BASE: ${{ github.event.pull_request.base.sha }}
-          HEAD: ${{ github.event.pull_request.head.sha }}
-          HEAD_BRANCH: ${{ github.head_ref }}
-        run: bash scripts/checks/crate-version-guard.sh "$BASE" "$HEAD"
-
-  dependency-review:
-    name: dependency-review
-    needs: detect
-    if: github.event_name == 'pull_request' && needs.detect.outputs.cargo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
-        with:
-          fail-on-severity: high
-          comment-summary-in-pr: on-failure
-
-  # The `keycloak` profile against the Keycloak image docs/VERSIONS.md pins
-  # (#239): tests/it/keycloak_live.rs starts it, obtains tokens and classifies
-  # them. It runs on a pull request that touches the profiles, the resource
-  # server, the case itself or the pins, on a manual run, and on every push to
-  # main, which saves the build cache a pull request run restores (#243).
-  keycloak-live:
-    name: keycloak-live
-    needs: detect
-    if: github.event_name != 'merge_group' && needs.detect.outputs.cargo == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
       - id: paths
         name: Does the change reach the profiles or the resource server
+        if: github.event_name != 'merge_group'
         env:
           EVENT: ${{ github.event_name }}
           BASE: ${{ github.event.pull_request.base.sha }}
@@ -471,18 +305,38 @@ jobs:
           done < <(git diff --name-only "$BASE...$HEAD")
           echo "live=$live" >> "$GITHUB_OUTPUT"
       - if: steps.paths.outputs.live == 'true'
-        uses: ./.github/actions/setup-rust
-        with:
-          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
-      - if: steps.paths.outputs.live == 'true'
-        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
-        with:
-          tool: cargo-nextest
-      - if: steps.paths.outputs.live == 'true'
         name: The live Keycloak case
         env:
           FERROHEALTH_KEYCLOAK_E2E: "1"
         run: cargo nextest run -p ferrohealth-smart --locked --no-tests=fail -E 'test(/^keycloak_live::/)'
+
+  # Every crate's public API against its newest version on crates.io: a break
+  # the manifest version does not answer with a minor bump fails, so a caret
+  # requirement on these crates stays safe (scripts/checks/semver.sh).
+  semver:
+    name: cargo-semver-checks
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      # The pull request's merge commit and its first parent, the base, so
+      # the check judges only a change that reaches a crate.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      - uses: ./.github/actions/setup-rust
+        with:
+          cache-save-if: "false"
+      - id: pin
+        name: Read the cargo-semver-checks pin
+        run: echo "version=$(bash scripts/checks/semver.sh --pin)" >> "$GITHUB_OUTPUT"
+      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: cargo-semver-checks@${{ steps.pin.outputs.version }}
+      - run: bash scripts/checks/semver.sh --changed HEAD^1
 
   # ---- The single required check --------------------------------------------
   # It needs every other job and runs on always(), so it reports even when a
@@ -490,25 +344,10 @@ jobs:
   conclusion:
     name: conclusion
     needs:
-      - workflow-audit
-      - workflow-lint
-      - shellcheck
-      - changelog
-      - conflict-markers
-      - comment-style
-      - duplication
-      - todo-issues
-      - detect
-      - fmt
-      - clippy
+      - guards
+      - lint
       - test
-      - doc
-      - cargo-deny
-      - publish-dry-run
       - semver
-      - crate-version-guard
-      - dependency-review
-      - keycloak-live
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
