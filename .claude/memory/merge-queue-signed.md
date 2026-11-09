@@ -19,3 +19,5 @@ branch never has to be brought up to date by hand.
 sets the method). Fix a conflicting branch with a local, signed rebase or
 merge, never `gh pr update-branch --rebase`. Never `--admin` without the owner
 asking.
+
+**Commit-message lines (2026-11-09):** no line of a commit message may start with `-` or with a git header word (`tree`, `parent`, `author`, `committer`, `gpgsig`). The queue's squash commit then fails its signature check and the queue removes the PR with `branch_protection_failure` after a green run (FerroEHR #5233 and #5245). A conflicting branch takes a local, signed merge of `origin/main` and a plain push, never a force-push ([[admin-bypass-stays]]).
