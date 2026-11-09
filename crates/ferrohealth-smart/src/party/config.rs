@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::config::Removed;
+use ferrohealth_config::removed::Removed;
 use crate::kind::IssuerKind;
 use crate::profile::Profile;
 
@@ -40,7 +40,7 @@ pub struct PartySection {
     /// default.
     pub guests: bool,
     /// Removed: the issuer profile's `person_key` names the key claim.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub claim: Removed,
 }
 
@@ -182,7 +182,7 @@ pub(crate) fn check_table(
             kind,
         });
     };
-    if table.claim.is_some() {
+    if table.claim.is_set() {
         return Err(PartyError::Claim {
             issuer: issuer(),
             person_key: profile.person_key.clone(),

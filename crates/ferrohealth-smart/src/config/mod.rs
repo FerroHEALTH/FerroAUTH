@@ -15,6 +15,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use ferrohealth_config::removed::{Removed, RemovedKeys};
+use ferrohealth_config::tls::TlsClientSection;
+use ferrohealth_config::units::Duration;
 use ferrohealth_secret::secret_url::RedactedUrl;
 use jsonwebtoken::Algorithm;
 use secrecy::SecretString;
@@ -284,14 +287,19 @@ pub enum ConfigError {
         #[source]
         source: Box<crate::client::onward::OnwardError>,
     },
-    /// A key was removed; the error names what replaces it.
+    /// A form of a key was removed, such as the flat `issuer = "…"`; the
+    /// error names the form that replaces it.
     #[error("{key} is removed: {replacement}")]
     Removed {
-        /// The key.
+        /// The key in its removed form.
         key: &'static str,
         /// What replaces it.
         replacement: &'static str,
     },
+    /// Keys were removed; every one the configuration sets is named with
+    /// what replaced it, all at once.
+    #[error(transparent)]
+    RemovedKeys(#[from] RemovedKeys),
     /// A product role list names an issuer that is not a `persons` issuer
     /// the section trusts.
     #[error("the {key} list names the issuer {issuer:?}, which is not a trusted persons issuer")]
@@ -339,10 +347,6 @@ pub enum ConfigError {
     },
 }
 
-/// A key that was removed, kept only so a configuration that still sets it
-/// fails to load naming its replacement ([`ConfigError::Removed`]).
-pub type Removed = Option<serde_json::Value>;
-
 /// The `[auth]` section: the surface's `[[auth.issuer]]` tables, the
 /// issuer-qualified allowlist, the discovery document's options and the
 /// Basic users.
@@ -382,10 +386,12 @@ pub struct AuthSection {
     /// The `DPoP` proof check of the surface; absent for none, so a `DPoP`
     /// request is refused as carrying no admitted credential.
     pub dpop: Option<crate::sender::proof::DpopSection>,
-    /// A PEM file of trust roots added to the platform's, for an issuer
-    /// behind a private certificate authority: the discovery document and
-    /// the key set of every issuer are read trusting it. Read once at start.
-    pub ca_file: Option<PathBuf>,
+    /// The TLS of the discovery document, the key set and the introspection
+    /// calls of every issuer: trust roots beside the platform's, for an
+    /// issuer behind a private certificate authority, a client identity and
+    /// the minimum version. The crate reads none of it: the product's
+    /// [`TlsBuilder`](crate::config::TlsBuilder) builds it once at start.
+    pub tls: TlsClientSection,
     /// The `[[auth.federation]]` tables, one per `federation` issuer.
     pub federation: Vec<FederationSection>,
     /// The `[[auth.attributes]]` tables, at most one per `persons` issuer:
@@ -395,45 +401,48 @@ pub struct AuthSection {
     /// are bound to a party.
     pub party: Vec<PartySection>,
     /// Removed: set `audience` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub audience: Removed,
     /// Removed: set `algorithms` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub algorithms: Removed,
     /// Removed: set the profile keys on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub token_profile: Removed,
     /// Removed: set `clock_skew_seconds` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub clock_skew_seconds: Removed,
     /// Removed: set `jwks_max_age_seconds` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub jwks_max_age_seconds: Removed,
     /// Removed: set `jwks_refresh_interval_seconds` on each
     /// `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub jwks_refresh_interval_seconds: Removed,
     /// Removed: set `jwks_file` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub jwks_file: Removed,
     /// Removed: set `timeout_ms` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub timeout_ms: Removed,
     /// Removed: set `role_claims` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub role_claims: Removed,
     /// Removed: set `mode` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub mode: Removed,
     /// Removed: set `introspection` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub introspection: Removed,
     /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub acting_for_claim: Removed,
     /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub client_tokens: Removed,
+    /// Removed: `tls.trust_roots_file`.
+    #[serde(skip_serializing)]
+    pub ca_file: Removed,
 }
 
 /// How a bearer token is checked.
@@ -463,14 +472,17 @@ pub struct IntrospectionSection {
     /// The introspection endpoint; empty for the one the issuer's metadata
     /// names.
     pub endpoint: String,
-    /// The longest an active response is used; 0 caches nothing.
-    pub cache_max_age_seconds: u64,
+    /// The longest an active response is used; `0s` caches nothing.
+    pub cache_max_age: Duration,
     /// The most responses held at once.
     pub cache_capacity: usize,
     /// The client authentication of the introspection call.
     pub client: Option<OauthSection>,
     /// The client credentials grant whose token authorizes the call.
     pub bearer: Option<OauthSection>,
+    /// Removed: `cache_max_age`, a duration.
+    #[serde(skip_serializing)]
+    pub cache_max_age_seconds: Removed,
 }
 
 /// The `issuer` key: the `[[auth.issuer]]` list, or the flat identifier,
@@ -515,17 +527,17 @@ pub struct IssuerEntry {
     pub audience: Vec<String>,
     /// The signature algorithms admitted.
     pub algorithms: Vec<Algorithm>,
-    /// The clock skew, at most 300.
-    pub clock_skew_seconds: u64,
+    /// The clock skew, at most `300s`.
+    pub clock_skew: Duration,
     /// How long a held key set is used.
-    pub jwks_max_age_seconds: u64,
+    pub jwks_max_age: Duration,
     /// The shortest time between two reads of the key set.
-    pub jwks_refresh_interval_seconds: u64,
+    pub jwks_refresh_interval: Duration,
     /// A key set file handed over out of band, in place of the issuer's
     /// `jwks_uri`; empty for none.
     pub jwks_file: String,
     /// How long one call to the authorization server may take.
-    pub timeout_ms: u64,
+    pub timeout: Duration,
     /// How the issuer's tokens are checked.
     pub mode: AuthMode,
     /// The introspection check, under `mode = "introspection"`.
@@ -621,14 +633,26 @@ pub struct IssuerEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub onward_preview: Option<Vec<PreviewVariant>>,
     /// Removed: the profile keys replace it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub token_profile: Removed,
     /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub acting_for_claim: Removed,
     /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub client_tokens: Removed,
+    /// Removed: `clock_skew`, a duration.
+    #[serde(skip_serializing)]
+    pub clock_skew_seconds: Removed,
+    /// Removed: `jwks_max_age`, a duration.
+    #[serde(skip_serializing)]
+    pub jwks_max_age_seconds: Removed,
+    /// Removed: `jwks_refresh_interval`, a duration.
+    #[serde(skip_serializing)]
+    pub jwks_refresh_interval_seconds: Removed,
+    /// Removed: `timeout`, a duration.
+    #[serde(skip_serializing)]
+    pub timeout_ms: Removed,
 }
 
 /// The `[auth.basic]` table.
@@ -638,8 +662,11 @@ pub struct BasicSection {
     /// The users.
     pub users: Vec<BasicUser>,
     /// How long a credential that verified is kept, so a repeat request
-    /// skips the key derivation; 300 seconds by default, 0 keeps none.
-    pub cache_ttl_seconds: u64,
+    /// skips the key derivation; `5min` by default, `0s` keeps none.
+    pub cache_ttl: Duration,
+    /// Removed: `cache_ttl`, a duration.
+    #[serde(skip_serializing)]
+    pub cache_ttl_seconds: Removed,
 }
 
 /// One `[[auth.basic.users]]` entry: a person's credential, never a
