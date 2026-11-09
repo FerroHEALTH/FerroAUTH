@@ -34,6 +34,7 @@ pub(crate) mod read;
 mod section;
 
 /// A field a `federation` issuer asserts, named after the 2026/2099 Annex.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[non_exhaustive]
 pub enum Field {
@@ -251,6 +252,7 @@ impl Field {
 }
 
 /// Where one field's value is read from, written as one table.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(try_from = "SourceTable", into = "SourceTable")]
 pub enum Source {
@@ -266,6 +268,7 @@ pub enum Source {
 }
 
 /// The table form of a [`Source`].
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 struct SourceTable {
@@ -329,6 +332,7 @@ impl From<Source> for SourceTable {
 }
 
 /// A named set of default sources a table starts from.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Mapping {
@@ -433,6 +437,7 @@ const EHDSI_FIELDS: [Field; 24] = [
 
 /// One `[[auth.federation]]` table: what the `federation` issuer `issuer`
 /// asserts and the bounds it is held to.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FederationSection {

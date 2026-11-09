@@ -36,7 +36,7 @@ fn section(extra: &str) -> AuthSection {
 #[test]
 fn the_onward_keys_on_an_issuer_table_set_its_profile() {
     let resolved = section(
-        "max_onward_lifetime = 900\nonward_grant = \"jwt_bearer\"\nonward_indicator = \"audience\"\n\
+        "max_onward_lifetime = \"900s\"\nonward_grant = \"jwt_bearer\"\nonward_indicator = \"audience\"\n\
          onward_parameters = { requested_token_use = \"on_behalf_of\" }\n\
          onward_client_id = true\nonward_subject_audience = true\nonward_preview = [\"actor_token\"]",
     )
@@ -89,7 +89,7 @@ fn a_refresh_token_asked_for_fails_to_load() {
 
 #[test]
 fn a_zero_onward_lifetime_fails_to_load() {
-    let refused = section("max_onward_lifetime = 0").resolve();
+    let refused = section("max_onward_lifetime = \"0s\"").resolve();
     assert!(
         matches!(&refused, Err(ConfigError::Issuer { source, .. })
             if matches!(**source, ResourceError::Profile(ProfileError::Empty { key: "max_onward_lifetime" }))),

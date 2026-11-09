@@ -58,7 +58,7 @@ impl Settings {
             federation: None,
             attributes: None,
             sender_constraint: SenderConstraint::None,
-            trust_roots: None,
+            tls: crate::client::Tls::default(),
         }
     }
 

@@ -67,7 +67,11 @@ fn every_section_level_issuer_setting_fails_to_load_naming_the_issuer_table() {
     ] {
         let refused = section(&format!("{key}\n{}", issuer("persons", ""))).resolve();
         assert!(
-            matches!(&refused, Err(ConfigError::Removed { replacement, .. }) if replacement.contains("[[auth.issuer]]")),
+            matches!(&refused, Err(ConfigError::RemovedKeys(_)))
+                && refused
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.to_string().contains("[[auth.issuer]]")),
             "{key}: {refused:?}"
         );
     }
@@ -80,9 +84,15 @@ fn token_profile_fails_to_load_naming_the_profile_keys() {
         issuer("persons", "token_profile = \"rfc9068\""),
     ] {
         let refused = section(&text).resolve();
+        let shown = refused
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_default();
         assert!(
-            matches!(&refused, Err(ConfigError::Removed { replacement, .. })
-                if replacement.contains("token_types") && replacement.contains("required_claims")),
+            matches!(&refused, Err(ConfigError::RemovedKeys(_)))
+                && shown.contains("token_types")
+                && shown.contains("required_claims"),
             "{text}: {refused:?}"
         );
     }
@@ -100,9 +110,14 @@ fn acting_for_claim_and_client_tokens_fail_to_load_naming_the_delegated_token() 
         issuer("persons", "client_tokens = \"claim_absent\""),
     ] {
         let refused = section(&text).resolve();
+        let shown = refused
+            .as_ref()
+            .err()
+            .map(ToString::to_string)
+            .unwrap_or_default();
         assert!(
-            matches!(&refused, Err(ConfigError::Removed { replacement, .. })
-                if replacement.contains("delegated token whose subject is the person")),
+            matches!(&refused, Err(ConfigError::RemovedKeys(_)))
+                && shown.contains("delegated token whose subject is the person"),
             "{text}: {refused:?}"
         );
     }

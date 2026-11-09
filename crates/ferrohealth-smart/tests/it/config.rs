@@ -42,7 +42,7 @@ fn each_issuer_table_carries_its_own_settings() {
         issuer = "https://two.example.org"
         kind = "machines"
         audience = ["https://other.example.org"]
-        clock_skew_seconds = 10
+        clock_skew = "10s"
         jwks_file = "/etc/ferro/two.jwks"
         role_claims = []
         "#,
@@ -96,7 +96,7 @@ fn a_section_that_breaks_a_rule_refuses_the_start() {
         .expect("parses")
     };
     assert!(matches!(
-        table("clock_skew_seconds = 301").resolve(),
+        table("clock_skew = \"301s\"").resolve(),
         Err(ConfigError::Issuer { .. })
     ));
     assert!(matches!(
@@ -145,7 +145,7 @@ fn the_credentials_table_is_basic_or_oauth_and_never_both() {
         client_secret = "synthetic"
         scope = "system/CodeSystem.rs"
         resource = "https://term.example.org/fhir"
-        refresh_margin_ms = 5000
+        refresh_margin = "5s"
         "#,
     )
     .expect("parses");
@@ -291,7 +291,7 @@ fn an_enabled_section_with_basic_users_and_no_issuer_is_basic_only() {
         r#"
         enabled = true
         [basic]
-        cache_ttl_seconds = 30
+        cache_ttl = "30s"
         [[basic.users]]
         user = "etl"
         password_hash = "{PHC}"
@@ -449,7 +449,6 @@ fn the_grant_names_every_problem_under_the_products_table() {
         client_secret: Some(secrecy::SecretString::from("s")),
         client_secret_file: Some(std::path::PathBuf::from("/run/secret")),
         resource: String::from("https://rs.example.org/#frag"),
-        client_key_file: Some(std::path::PathBuf::from("/run/key")),
         ..ferrohealth_smart::config::credentials::OauthSection::default()
     };
     let problems = both.problems("audit.fhir_feed.oauth").join("\n");
@@ -457,10 +456,22 @@ fn the_grant_names_every_problem_under_the_products_table() {
         "set one of issuer and token_endpoint",
         "set one of client_secret and client_secret_file",
         "audit.fhir_feed.oauth.resource carries a fragment",
-        "audit.fhir_feed.oauth.client_certificate_file is required beside client_key_file",
     ] {
         assert!(problems.contains(key), "{key} unnamed in {problems}");
     }
+    let mutual = ferrohealth_smart::config::credentials::OauthSection {
+        token_endpoint: String::from("https://as.example.org/token"),
+        client_id: String::from("svc"),
+        client_auth: ClientAuth::TlsClientAuth,
+        ..ferrohealth_smart::config::credentials::OauthSection::default()
+    };
+    let problems = mutual.problems("audit.fhir_feed.oauth").join("\n");
+    assert!(
+        problems.contains(
+            "audit.fhir_feed.oauth.tls.client_identity_file is required by a mutual-TLS client_auth"
+        ),
+        "{problems}"
+    );
     let sound = ferrohealth_smart::config::credentials::OauthSection {
         token_endpoint: String::from("https://as.example.org/token"),
         client_id: String::from("svc"),
@@ -472,12 +483,13 @@ fn the_grant_names_every_problem_under_the_products_table() {
 
 #[test]
 fn the_basic_cache_keeps_a_verified_credential_for_five_minutes_unless_set_to_zero() {
+    let five = ferrohealth_config::units::Duration::from_mins(5);
     let defaulted: BasicSection = toml::from_str("users = []").expect("the section parses");
-    assert_eq!(300, defaulted.cache_ttl_seconds);
-    assert_eq!(300, BasicSection::default().cache_ttl_seconds);
+    assert_eq!(five, defaulted.cache_ttl);
+    assert_eq!(five, BasicSection::default().cache_ttl);
     let off: BasicSection =
-        toml::from_str("users = []\ncache_ttl_seconds = 0").expect("the section parses");
-    assert_eq!(0, off.cache_ttl_seconds);
+        toml::from_str("users = []\ncache_ttl = \"0s\"").expect("the section parses");
+    assert!(off.cache_ttl.is_zero());
 }
 
 #[test]

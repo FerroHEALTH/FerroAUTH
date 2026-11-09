@@ -55,6 +55,13 @@ ehdsi-assertion = ["dep:roxmltree", "dep:x509-parser"]
 # token would otherwise carry, such as `federation::External::new` for the
 # two external caller kinds. A product never enables it outside its tests.
 test-support = []
+# `config::TlsBuilder` over `ferrohealth-server`'s `tls_client::TlsClient`, the
+# reader of every product's outbound TLS tables, so a product hands it to
+# `resolve` and writes no glue.
+server-tls = ["dep:ferrohealth-server"]
+# `schemars::JsonSchema` on the configuration sections, for a product that
+# generates its configuration reference from its types.
+schema = ["dep:schemars", "ferrohealth-config/schema"]
 
 # Everything but the grammar is the resource server, which a browser never
 # runs, so it is compiled for every target but the browser's.
@@ -62,7 +69,10 @@ test-support = []
 argon2.workspace = true
 aws-lc-rs.workspace = true
 base64.workspace = true
+ferrohealth-config.workspace = true
+ferrohealth-server = { workspace = true, optional = true }
 ferrohealth-secret.workspace = true
+schemars = { workspace = true, optional = true }
 http.workspace = true
 jiff.workspace = true
 jsonwebtoken.workspace = true

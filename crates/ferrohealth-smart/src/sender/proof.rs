@@ -77,8 +77,8 @@ impl ProofSettings {
         let defaults = DpopSection::default();
         Self {
             external_url,
-            max_age: Duration::from_secs(defaults.max_age_seconds),
-            clock_skew: Duration::from_secs(defaults.clock_skew_seconds),
+            max_age: defaults.max_age.get(),
+            clock_skew: defaults.clock_skew.get(),
             algorithms: defaults.algorithms,
         }
     }
@@ -131,17 +131,45 @@ impl ProofSettings {
 /// The `[auth.dpop]` table: how the surface checks the `DPoP` proof of a
 /// `DPoP` request (RFC 9449 §4.3, §7.1).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
 pub struct DpopSection {
     /// The surface's base URL as its clients address it, which a proof's
     /// `htu` is compared with, the request path appended; required.
     pub external_url: String,
-    /// How long after its `iat` a proof is accepted, at most 300.
-    pub max_age_seconds: u64,
-    /// How far a proof's `iat` may lie ahead, at most 300.
-    pub clock_skew_seconds: u64,
+    /// How long after its `iat` a proof is accepted, at most `300s`.
+    pub max_age: ferrohealth_config::units::Duration,
+    /// How far a proof's `iat` may lie ahead, at most `300s`.
+    pub clock_skew: ferrohealth_config::units::Duration,
     /// The signature algorithms a proof may use; asymmetric only.
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub algorithms: Vec<Algorithm>,
+    /// Removed: `max_age`, a duration.
+    #[serde(skip_serializing)]
+    pub max_age_seconds: ferrohealth_config::removed::Removed,
+    /// Removed: `clock_skew`, a duration.
+    #[serde(skip_serializing)]
+    pub clock_skew_seconds: ferrohealth_config::removed::Removed,
+}
+
+impl DpopSection {
+    /// The retired keys this table sets, under `table`, each with what
+    /// replaced it.
+    #[must_use]
+    pub fn removals(&self, table: &str) -> ferrohealth_config::removed::Removals {
+        let mut removals = ferrohealth_config::removed::Removals::new();
+        removals.replaced(
+            self.max_age_seconds,
+            format!("{table}.max_age_seconds"),
+            format!("{table}.max_age, a duration such as `60s`"),
+        );
+        removals.replaced(
+            self.clock_skew_seconds,
+            format!("{table}.clock_skew_seconds"),
+            format!("{table}.clock_skew, a duration such as `10s`"),
+        );
+        removals
+    }
 }
 
 impl Default for DpopSection {
@@ -150,8 +178,8 @@ impl Default for DpopSection {
             external_url: String::new(),
             // NOTE: RFC 9449 §11.1 prefers a window "on the order of seconds or
             // minutes"; the values are our own design.
-            max_age_seconds: 60,
-            clock_skew_seconds: 10,
+            max_age: ferrohealth_config::units::Duration::from_secs(60),
+            clock_skew: ferrohealth_config::units::Duration::from_secs(10),
             algorithms: vec![
                 Algorithm::RS256,
                 Algorithm::RS384,
@@ -160,6 +188,8 @@ impl Default for DpopSection {
                 Algorithm::ES256,
                 Algorithm::ES384,
             ],
+            max_age_seconds: ferrohealth_config::removed::Removed::default(),
+            clock_skew_seconds: ferrohealth_config::removed::Removed::default(),
         }
     }
 }

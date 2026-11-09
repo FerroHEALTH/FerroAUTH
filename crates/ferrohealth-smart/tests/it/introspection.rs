@@ -514,14 +514,12 @@ fn the_auth_section_refuses_an_introspection_mode_that_breaks_a_rule() {
         no_secret.resolve(),
         Err(ConfigError::Secret { .. })
     ));
-    let mut section_level = section("https://as.example.org");
-    section_level.mode = Some(serde_json::json!("introspection"));
+    let section_level: AuthSection =
+        toml::from_str("mode = \"introspection\"\n").expect("the section parses");
     assert!(matches!(
         section_level.resolve(),
-        Err(ConfigError::Removed {
-            key: "auth.mode",
-            ..
-        })
+        Err(ConfigError::RemovedKeys(keys))
+            if keys.removals().iter().any(|removal| removal.key() == "auth.mode")
     ));
 }
 
@@ -537,7 +535,7 @@ fn the_introspection_table_reads_from_toml() -> Result<(), Box<dyn StdError>> {
 
         [issuer.introspection]
         endpoint = "https://as.example.org/oauth2/introspect"
-        cache_max_age_seconds = 30
+        cache_max_age = "30s"
 
         [issuer.introspection.client]
         client_id = "ferro-rs"

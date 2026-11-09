@@ -15,6 +15,9 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use ferrohealth_config::removed::{Removed, RemovedKeys};
+use ferrohealth_config::tls::TlsClientSection;
+use ferrohealth_config::units::Duration;
 use ferrohealth_secret::secret_url::RedactedUrl;
 use jsonwebtoken::Algorithm;
 use secrecy::SecretString;
@@ -46,6 +49,7 @@ use crate::sender::SenderConstraint;
 
 mod auth;
 pub mod credentials;
+pub mod endpoint;
 mod issuer;
 pub mod onward;
 mod read;
@@ -248,21 +252,27 @@ pub enum ConfigError {
         #[source]
         source: Box<crate::resource::introspection::IntrospectionError>,
     },
-    /// The `auth.ca_file` trust roots cannot be read, are no PEM, or hold
-    /// no certificate.
-    #[error("auth.ca_file is refused")]
-    CaFile {
-        /// Why.
+    /// An outbound endpoint table breaks a rule.
+    #[error("the endpoint table is refused: {rule}")]
+    Endpoint {
+        /// The rule it breaks.
+        rule: &'static str,
+    },
+    /// A `tls` table names TLS material and was resolved without the
+    /// product's [`TlsBuilder`], the one reader of TLS material.
+    #[error("{key} names TLS material; resolve it with the product's TLS builder")]
+    TlsNotBuilt {
+        /// The dotted key of the table.
+        key: &'static str,
+    },
+    /// The product's [`TlsBuilder`] refused a `tls` table.
+    #[error("{key} is refused")]
+    TlsBuild {
+        /// The dotted key of the table.
+        key: &'static str,
+        /// What the builder reported.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
-    },
-    /// The trust roots or the client certificate of the token endpoint
-    /// connection are refused.
-    #[error("the TLS material of credentials.oauth is refused")]
-    Tls {
-        /// Why.
-        #[source]
-        source: Box<DiscoveryError>,
     },
     /// The `credentials.onward` table names an issuer or a target the onward
     /// client refuses.
@@ -284,14 +294,19 @@ pub enum ConfigError {
         #[source]
         source: Box<crate::client::onward::OnwardError>,
     },
-    /// A key was removed; the error names what replaces it.
+    /// A form of a key was removed, such as the flat `issuer = "…"`; the
+    /// error names the form that replaces it.
     #[error("{key} is removed: {replacement}")]
     Removed {
-        /// The key.
+        /// The key in its removed form.
         key: &'static str,
         /// What replaces it.
         replacement: &'static str,
     },
+    /// Keys were removed; every one the configuration sets is named with
+    /// what replaced it, all at once.
+    #[error(transparent)]
+    RemovedKeys(#[from] RemovedKeys),
     /// A product role list names an issuer that is not a `persons` issuer
     /// the section trusts.
     #[error("the {key} list names the issuer {issuer:?}, which is not a trusted persons issuer")]
@@ -339,16 +354,13 @@ pub enum ConfigError {
     },
 }
 
-/// A key that was removed, kept only so a configuration that still sets it
-/// fails to load naming its replacement ([`ConfigError::Removed`]).
-pub type Removed = Option<serde_json::Value>;
-
 /// The `[auth]` section: the surface's `[[auth.issuer]]` tables, the
 /// issuer-qualified allowlist, the discovery document's options and the
 /// Basic users.
 ///
 /// Every setting of an issuer lives on its own `[[auth.issuer]]` table: no
 /// section-level value stands in for one an issuer leaves out.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthSection {
@@ -382,10 +394,12 @@ pub struct AuthSection {
     /// The `DPoP` proof check of the surface; absent for none, so a `DPoP`
     /// request is refused as carrying no admitted credential.
     pub dpop: Option<crate::sender::proof::DpopSection>,
-    /// A PEM file of trust roots added to the platform's, for an issuer
-    /// behind a private certificate authority: the discovery document and
-    /// the key set of every issuer are read trusting it. Read once at start.
-    pub ca_file: Option<PathBuf>,
+    /// The TLS of the discovery document, the key set and the introspection
+    /// calls of every issuer: trust roots beside the platform's, for an
+    /// issuer behind a private certificate authority, a client identity and
+    /// the minimum version. The crate reads none of it: the product's
+    /// [`TlsBuilder`] builds it once at start.
+    pub tls: TlsClientSection,
     /// The `[[auth.federation]]` tables, one per `federation` issuer.
     pub federation: Vec<FederationSection>,
     /// The `[[auth.attributes]]` tables, at most one per `persons` issuer:
@@ -395,48 +409,52 @@ pub struct AuthSection {
     /// are bound to a party.
     pub party: Vec<PartySection>,
     /// Removed: set `audience` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub audience: Removed,
     /// Removed: set `algorithms` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub algorithms: Removed,
     /// Removed: set the profile keys on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub token_profile: Removed,
     /// Removed: set `clock_skew_seconds` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub clock_skew_seconds: Removed,
     /// Removed: set `jwks_max_age_seconds` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub jwks_max_age_seconds: Removed,
     /// Removed: set `jwks_refresh_interval_seconds` on each
     /// `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub jwks_refresh_interval_seconds: Removed,
     /// Removed: set `jwks_file` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub jwks_file: Removed,
     /// Removed: set `timeout_ms` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub timeout_ms: Removed,
     /// Removed: set `role_claims` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub role_claims: Removed,
     /// Removed: set `mode` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub mode: Removed,
     /// Removed: set `introspection` on each `[[auth.issuer]]`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub introspection: Removed,
     /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub acting_for_claim: Removed,
     /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub client_tokens: Removed,
+    /// Removed: `tls.trust_roots_file`.
+    #[serde(skip_serializing)]
+    pub ca_file: Removed,
 }
 
 /// How a bearer token is checked.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthMode {
@@ -457,24 +475,29 @@ pub enum AuthMode {
 /// `[<lane>.credentials.oauth]`, and a refusal names those keys; `client`
 /// stands in the table's issuer when it names neither `issuer` nor
 /// `token_endpoint`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IntrospectionSection {
     /// The introspection endpoint; empty for the one the issuer's metadata
     /// names.
     pub endpoint: String,
-    /// The longest an active response is used; 0 caches nothing.
-    pub cache_max_age_seconds: u64,
+    /// The longest an active response is used; `0s` caches nothing.
+    pub cache_max_age: Duration,
     /// The most responses held at once.
     pub cache_capacity: usize,
     /// The client authentication of the introspection call.
     pub client: Option<OauthSection>,
     /// The client credentials grant whose token authorizes the call.
     pub bearer: Option<OauthSection>,
+    /// Removed: `cache_max_age`, a duration.
+    #[serde(skip_serializing)]
+    pub cache_max_age_seconds: Removed,
 }
 
 /// The `issuer` key: the `[[auth.issuer]]` list, or the flat identifier,
 /// which [`AuthSection::resolve`] refuses naming the table form.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum IssuerKey {
@@ -486,6 +509,7 @@ pub enum IssuerKey {
 
 /// One `scopeless_subjects` entry: `{ issuer, sub }`, or the removed string
 /// form, which [`AuthSection::resolve`] refuses naming the table form.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum ScopelessSubject {
@@ -502,6 +526,7 @@ pub enum ScopelessSubject {
 
 /// One `[[auth.issuer]]` table: the issuer, its kind, how its tokens are
 /// checked, and its profile, a [`Preset`] with any profile key set over it.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IssuerEntry {
@@ -514,18 +539,19 @@ pub struct IssuerEntry {
     /// The audiences, of which a token's `aud` must contain one.
     pub audience: Vec<String>,
     /// The signature algorithms admitted.
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub algorithms: Vec<Algorithm>,
-    /// The clock skew, at most 300.
-    pub clock_skew_seconds: u64,
+    /// The clock skew, at most `300s`.
+    pub clock_skew: Duration,
     /// How long a held key set is used.
-    pub jwks_max_age_seconds: u64,
+    pub jwks_max_age: Duration,
     /// The shortest time between two reads of the key set.
-    pub jwks_refresh_interval_seconds: u64,
+    pub jwks_refresh_interval: Duration,
     /// A key set file handed over out of band, in place of the issuer's
     /// `jwks_uri`; empty for none.
     pub jwks_file: String,
     /// How long one call to the authorization server may take.
-    pub timeout_ms: u64,
+    pub timeout: Duration,
     /// How the issuer's tokens are checked.
     pub mode: AuthMode,
     /// The introspection check, under `mode = "introspection"`.
@@ -601,7 +627,7 @@ pub struct IssuerEntry {
     pub adapter: Option<String>,
     /// [`ProfileKeys::max_onward_lifetime`](crate::profile::ProfileKeys::max_onward_lifetime).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_onward_lifetime: Option<u64>,
+    pub max_onward_lifetime: Option<Duration>,
     /// [`ProfileKeys::onward_grant`](crate::profile::ProfileKeys::onward_grant).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub onward_grant: Option<OnwardGrant>,
@@ -621,29 +647,46 @@ pub struct IssuerEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub onward_preview: Option<Vec<PreviewVariant>>,
     /// Removed: the profile keys replace it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub token_profile: Removed,
     /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub acting_for_claim: Removed,
     /// Removed: the caller classification replaces it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing)]
     pub client_tokens: Removed,
+    /// Removed: `clock_skew`, a duration.
+    #[serde(skip_serializing)]
+    pub clock_skew_seconds: Removed,
+    /// Removed: `jwks_max_age`, a duration.
+    #[serde(skip_serializing)]
+    pub jwks_max_age_seconds: Removed,
+    /// Removed: `jwks_refresh_interval`, a duration.
+    #[serde(skip_serializing)]
+    pub jwks_refresh_interval_seconds: Removed,
+    /// Removed: `timeout`, a duration.
+    #[serde(skip_serializing)]
+    pub timeout_ms: Removed,
 }
 
 /// The `[auth.basic]` table.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BasicSection {
     /// The users.
     pub users: Vec<BasicUser>,
     /// How long a credential that verified is kept, so a repeat request
-    /// skips the key derivation; 300 seconds by default, 0 keeps none.
-    pub cache_ttl_seconds: u64,
+    /// skips the key derivation; `5min` by default, `0s` keeps none.
+    pub cache_ttl: Duration,
+    /// Removed: `cache_ttl`, a duration.
+    #[serde(skip_serializing)]
+    pub cache_ttl_seconds: Removed,
 }
 
 /// One `[[auth.basic.users]]` entry: a person's credential, never a
 /// machine's ([`crate::resource::Caller::basic`]).
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BasicUser {
@@ -654,6 +697,7 @@ pub struct BasicUser {
         serialize_with = "shapes::redact",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
     pub password_hash: Option<SecretString>,
     /// The file holding that PHC string.
     pub password_hash_file: Option<PathBuf>,
@@ -693,6 +737,62 @@ pub struct Resolved {
     pub introspection: Vec<crate::resource::introspection::IntrospectionSettings>,
     /// The `[[auth.party]]` tables, each checked against its issuer.
     pub party: Vec<PartySection>,
+}
+
+/// The product's reader of an outbound `tls` table, which builds the TLS
+/// configuration a connection of this crate speaks.
+///
+/// The crate reads no TLS material itself: every table that names some is
+/// handed to the builder with its dotted key, so the family has one reader
+/// of TLS material, `ferrohealth-server`'s `TlsClient` (feature
+/// `server-tls` implements this trait over it as `ServerTls`). No
+/// specification governs the seam: our own design.
+pub trait TlsBuilder {
+    /// Builds the configuration `section` names, at the dotted `key`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the builder's own error when the material cannot be read or
+    /// is refused; it never quotes the material.
+    fn build(
+        &self,
+        key: &str,
+        section: &TlsClientSection,
+    ) -> Result<crate::client::PresentedTls, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+/// Builds `section` at `key` with `builder`, naming the key in a refusal.
+pub(crate) fn build_tls(
+    builder: &dyn TlsBuilder,
+    key: &'static str,
+    section: &TlsClientSection,
+) -> Result<crate::client::PresentedTls, ConfigError> {
+    builder
+        .build(key, section)
+        .map_err(|source| ConfigError::TlsBuild { key, source })
+}
+
+/// The [`TlsBuilder`] over `ferrohealth-server`'s `tls_client::TlsClient`:
+/// the table's roots beside the platform's verifier, its identity and its
+/// minimum version.
+#[cfg(feature = "server-tls")]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ServerTls;
+
+#[cfg(feature = "server-tls")]
+impl TlsBuilder for ServerTls {
+    fn build(
+        &self,
+        key: &str,
+        section: &TlsClientSection,
+    ) -> Result<crate::client::PresentedTls, Box<dyn std::error::Error + Send + Sync>> {
+        let client = ferrohealth_server::tls_client::TlsClient::read(key, section)?;
+        let config = client.platform_config()?;
+        Ok(crate::client::PresentedTls::new(
+            std::sync::Arc::new(config),
+            client.certificate().cloned(),
+        ))
+    }
 }
 
 /// The text a set secret, or the userinfo and the query of a URL, is

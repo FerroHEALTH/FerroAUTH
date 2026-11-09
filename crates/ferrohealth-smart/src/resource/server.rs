@@ -47,17 +47,7 @@ impl ResourceServer {
     pub async fn discover(settings: Settings) -> Result<Self, ResourceError> {
         settings.validate()?;
         #[cfg(feature = "fetch")]
-        let http = match &settings.trust_roots {
-            Some(roots) => Http::with_tls(
-                settings.timeout,
-                &crate::client::Tls {
-                    root_certificates: Some(roots.clone()),
-                    identity: None,
-                    presented: None,
-                },
-            )?,
-            None => Http::new(settings.timeout)?,
-        };
+        let http = Http::with_tls(settings.timeout, &settings.tls)?;
         let (metadata, source) = if let Some(path) = &settings.jwks_file {
             let metadata = ServerMetadata {
                 issuer: settings.issuer.clone(),

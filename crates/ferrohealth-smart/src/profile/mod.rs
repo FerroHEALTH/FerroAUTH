@@ -37,6 +37,7 @@ pub const UNSTABLE_CLAIMS: [&str; 4] = ["email", "phone_number", "preferred_user
 
 /// A shipped set of profile values, selected by `profile` on
 /// `[[auth.issuer]]`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Preset {
@@ -115,6 +116,7 @@ impl Preset {
 const FEDERATION: &str = "federation";
 
 /// How a scope claim carries its scopes.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScopeForm {
@@ -126,6 +128,7 @@ pub enum ScopeForm {
 }
 
 /// The claim a token's scopes are read from, and its JSON form.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScopeClaim {
@@ -174,6 +177,7 @@ impl ScopeClaim {
 ///
 /// Exactly one form per table: `{ claim, value }`, `{ absent_claim }`,
 /// `{ subjects }`, `{ sub_is_client = true }` or `{ differs_from_iss }`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(try_from = "tables::MarkerTable", into = "tables::MarkerTable")]
 pub enum Marker {
@@ -201,6 +205,7 @@ pub enum Marker {
 }
 
 /// An actor or a client the issuer declares may act for a person.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(try_from = "tables::DelegateTable", into = "tables::DelegateTable")]
 pub enum Delegate {
@@ -217,6 +222,7 @@ pub enum Delegate {
 }
 
 /// The claims a `persons` issuer names a represented subject in.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Representation {
@@ -229,6 +235,7 @@ pub struct Representation {
 
 /// The profile keys, each optional: a preset's file, or the keys set on one
 /// `[[auth.issuer]]`, which win over the preset's.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ProfileKeys {
@@ -292,9 +299,9 @@ pub struct ProfileKeys {
     /// [`Profile::adapter`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub adapter: Option<String>,
-    /// [`Profile::max_onward_lifetime`].
+    /// [`Profile::max_onward_lifetime`], a duration such as `"10min"`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_onward_lifetime: Option<u64>,
+    pub max_onward_lifetime: Option<ferrohealth_config::units::Duration>,
     /// [`Profile::onward_grant`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub onward_grant: Option<OnwardGrant>,
@@ -544,7 +551,12 @@ impl Profile {
         set(&mut self.scope_claim, scope_claim);
         set_some(&mut self.app_only_scope_claim, app_only_scope_claim);
         set_some(&mut self.adapter, adapter);
-        set_some(&mut self.max_onward_lifetime, max_onward_lifetime);
+        // NOTE: RFC 7519 §2, a NumericDate counts whole seconds, so a lifetime bound
+        // holds its whole seconds; rounding down only tightens it.
+        set_some(
+            &mut self.max_onward_lifetime,
+            max_onward_lifetime.map(ferrohealth_config::units::Duration::as_secs),
+        );
         set(&mut self.onward_grant, onward_grant);
         set(&mut self.onward_indicator, onward_indicator);
         set(&mut self.onward_parameters, onward_parameters);
@@ -701,7 +713,7 @@ mod tests {
             scope_claim: Some(ScopeClaim::default()),
             app_only_scope_claim: Some(ScopeClaim::default()),
             adapter: Some(String::from("a")),
-            max_onward_lifetime: Some(600),
+            max_onward_lifetime: Some(ferrohealth_config::units::Duration::from_mins(10)),
             onward_grant: Some(OnwardGrant::JwtBearer),
             onward_indicator: Some(OnwardIndicator::Audience),
             onward_parameters: Some(BTreeMap::from([(
@@ -741,7 +753,9 @@ mod tests {
                 scope_claim: Some(profile.scope_claim),
                 app_only_scope_claim: profile.app_only_scope_claim,
                 adapter: profile.adapter,
-                max_onward_lifetime: profile.max_onward_lifetime,
+                max_onward_lifetime: profile
+                    .max_onward_lifetime
+                    .map(ferrohealth_config::units::Duration::from_secs),
                 onward_grant: Some(profile.onward_grant),
                 onward_indicator: Some(profile.onward_indicator),
                 onward_parameters: Some(profile.onward_parameters),

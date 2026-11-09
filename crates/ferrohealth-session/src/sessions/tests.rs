@@ -26,10 +26,10 @@ fn section(store: StoreKind) -> SessionSection {
     });
     SessionSection {
         store,
-        sign_in_timeout_s: 60,
+        sign_in_timeout: ferrohealth_config::units::Duration::from_secs(60),
         max_sign_ins: 4,
-        idle_timeout_s: 60,
-        absolute_timeout_s: 600,
+        idle_timeout: ferrohealth_config::units::Duration::from_secs(60),
+        absolute_timeout: ferrohealth_config::units::Duration::from_mins(10),
         max_sessions: 2,
         key,
         ..SessionSection::default()
@@ -150,7 +150,7 @@ const LATE: i64 = START * 1000 + 999;
 /// A sign-in with a 1 s timeout begun at `LATE`, with its cookie.
 fn late_sign_in(kind: StoreKind) -> (Sessions, ManualClock, HeaderValue) {
     let (sessions, now) = store_of(&SessionSection {
-        sign_in_timeout_s: 1,
+        sign_in_timeout: ferrohealth_config::units::Duration::from_secs(1),
         ..section(kind)
     });
     now.set_millis(LATE);

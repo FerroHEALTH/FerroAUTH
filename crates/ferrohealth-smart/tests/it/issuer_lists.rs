@@ -119,10 +119,10 @@ fn a_section_level_role_claims_is_refused_naming_the_issuer_table() {
     .expect("parses");
     assert!(matches!(
         section.resolve(),
-        Err(ConfigError::Removed {
-            key: "auth.role_claims",
-            replacement,
-        }) if replacement.contains("[[auth.issuer]]")
+        Err(ConfigError::RemovedKeys(keys)) if keys.removals().iter().any(|removal| {
+            removal.key() == "auth.role_claims"
+                && removal.replacement().is_some_and(|text| text.contains("[[auth.issuer]]"))
+        })
     ));
 }
 

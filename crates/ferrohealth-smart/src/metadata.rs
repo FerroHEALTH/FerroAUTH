@@ -623,10 +623,10 @@ impl Http {
         tls: &crate::client::Tls,
         reach: &crate::client::Reach,
     ) -> Result<Self, DiscoveryError> {
-        use secrecy::ExposeSecret as _;
-        let min_version = match reach.min_tls_version() {
-            crate::client::TlsVersion::Tls12 => reqwest::tls::Version::TLS_1_2,
-            crate::client::TlsVersion::Tls13 => reqwest::tls::Version::TLS_1_3,
+        use ferrohealth_config::tls::TlsVersion;
+        let min_version = match reach.min_tls_version().max(tls.min_version) {
+            TlsVersion::Tls12 => reqwest::tls::Version::TLS_1_2,
+            TlsVersion::Tls13 => reqwest::tls::Version::TLS_1_3,
         };
         let mut builder = reqwest::Client::builder()
             .timeout(timeout)
@@ -636,35 +636,10 @@ impl Http {
             builder = builder.resolve(host, *address);
         }
         if let Some(presented) = &tls.presented {
-            if tls.root_certificates.is_some() || tls.identity.is_some() {
-                return Err(DiscoveryError::PresentedTlsTwice);
-            }
             // NOTE: RFC 8705 §2, the connection presents the identity the
             // product's configuration carries, with its roots and versions.
             builder =
                 builder.tls_backend_preconfigured(rustls::ClientConfig::clone(presented.config()));
-        }
-        if let Some(pem) = &tls.root_certificates {
-            let roots = reqwest::Certificate::from_pem_bundle(pem).map_err(|source| {
-                DiscoveryError::Tls {
-                    what: "the trust roots",
-                    source,
-                }
-            })?;
-            if roots.is_empty() {
-                return Err(DiscoveryError::NoRootCertificate);
-            }
-            builder = builder.tls_certs_merge(roots);
-        }
-        if let Some(identity) = &tls.identity {
-            let identity =
-                reqwest::Identity::from_pem(identity.expose_secret()).map_err(|source| {
-                    DiscoveryError::Tls {
-                        what: "the client certificate",
-                        source,
-                    }
-                })?;
-            builder = builder.identity(identity);
         }
         let client = builder
             .build()

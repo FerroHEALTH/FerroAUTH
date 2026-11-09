@@ -27,7 +27,6 @@ use http::Method;
 use jsonwebtoken::DecodingKey;
 use jsonwebtoken::Validation;
 use jsonwebtoken::jwk::Jwk;
-use secrecy::SecretSlice;
 use secrecy::SecretString;
 use serde_json::Value;
 use serde_json::json;
@@ -351,7 +350,7 @@ async fn a_dpop_bound_source_refuses_a_call_that_cannot_prove() -> TestResult {
 
 /// A client certificate and its key, as the TLS identity of a grant, with the
 /// certificate's RFC 8705 §3.1 thumbprint.
-fn identity() -> (Arc<SecretSlice<u8>>, String) {
+fn identity() -> (String, String) {
     let key = rcgen::KeyPair::generate().expect("a key");
     let certificate = rcgen::CertificateParams::new(vec![String::from("client.example.org")])
         .expect("the parameters")
@@ -360,7 +359,7 @@ fn identity() -> (Arc<SecretSlice<u8>>, String) {
     let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, certificate.der());
     let thumbprint = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest.as_ref());
     let pem = format!("{}{}", certificate.pem(), key.serialize_pem());
-    (Arc::new(SecretSlice::from(pem.into_bytes())), thumbprint)
+    (pem, thumbprint)
 }
 
 /// Returns a JWT access token carrying `claims`, unsigned for the client,
@@ -413,10 +412,10 @@ async fn a_certificate_bound_grant_refuses_a_token_bound_to_another_certificate(
             .respond_with(ResponseTemplate::new(200).set_body_json(&response))
             .mount(&server)
             .await;
-        let mut config = ClientCredentials::with_mutual_tls(
+        let mut config = ClientCredentials::with_presented_tls(
             Endpoint::Token(format!("{}{TOKEN_PATH}", server.uri()).parse()?),
             String::from("bridge"),
-            Arc::clone(&identity),
+            crate::tls::presented_identity("", &identity).map_err(|error| error.to_string())?,
             true,
         )
         .with_certificate_binding();

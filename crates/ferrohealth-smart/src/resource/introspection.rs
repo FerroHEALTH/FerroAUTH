@@ -382,14 +382,7 @@ impl Introspector {
             IntrospectionAuth::Client(credentials) => {
                 Http::with_tls(settings.timeout, &credentials.tls)?
             }
-            IntrospectionAuth::Bearer(source) => Http::with_tls(
-                settings.timeout,
-                &crate::client::Tls {
-                    root_certificates: source.root_certificates().map(<[u8]>::to_vec),
-                    identity: None,
-                    presented: source.presented_tls().cloned(),
-                },
-            )?,
+            IntrospectionAuth::Bearer(source) => Http::with_tls(settings.timeout, source.tls())?,
         };
         let metadata = http.discover(&settings.issuer).await?;
         let endpoint = if let Some(endpoint) = &settings.endpoint {

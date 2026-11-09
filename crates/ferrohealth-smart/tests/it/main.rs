@@ -24,9 +24,9 @@
 mod assertion_key;
 mod attributes;
 mod audit;
-mod basic;
 #[cfg(feature = "fetch")]
-mod ca_file;
+mod auth_tls;
+mod basic;
 mod classify;
 #[cfg(feature = "fetch")]
 mod client;
@@ -40,6 +40,7 @@ mod contact_point;
 mod correlation;
 #[cfg(feature = "ehdsi-assertion")]
 mod ehdsi_assertion;
+mod endpoint;
 #[cfg(feature = "test-support")]
 mod external;
 mod federation;

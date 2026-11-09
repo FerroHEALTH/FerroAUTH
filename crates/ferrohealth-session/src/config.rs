@@ -13,17 +13,19 @@
 
 use std::fmt;
 use std::net::SocketAddr;
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use base64::Engine as _;
+use ferrohealth_config::removed::{Removals, Removed, RemovedKeys};
+use ferrohealth_config::tls::TlsClientSection;
+use ferrohealth_config::units::Duration as ConfigDuration;
 use ferrohealth_secret::file::{SecretError, read_secret, require_secret};
 use ferrohealth_secret::secret::Secret;
-use ferrohealth_smart::client::{Reach, Tls, TlsVersion};
+use ferrohealth_smart::client::{PresentedTls, Reach, Tls};
+use ferrohealth_smart::config::TlsBuilder;
 use ferrohealth_smart::metadata::{DiscoveryError, Http, ServerMetadata};
 use ferrohealth_smart::oidc::{OFFLINE_ACCESS, OPENID, OidcError, Provider, RelyingParty};
-use secrecy::SecretSlice;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -80,7 +82,7 @@ pub enum ConfigError {
         key: &'static str,
     },
     /// The absolute lifetime is shorter than the idle one.
-    #[error("session.absolute_timeout_s must be at least session.idle_timeout_s")]
+    #[error("session.absolute_timeout must be at least session.idle_timeout")]
     AbsoluteBeforeIdle,
     /// A sealed store has no key.
     #[error("session.store = \"sealed\" needs session.key or session.key_file")]
@@ -105,34 +107,21 @@ pub enum ConfigError {
     /// token in a browser cookie.
     #[error("oidc.offline_access cannot be used with session.store = \"sealed\"")]
     OfflineAccessSealed,
-    /// The trust roots of `oidc.ca_file` could not be read.
-    #[error("oidc.ca_file names {}, which could not be read", path.display())]
-    CaFile {
-        /// The file.
-        path: PathBuf,
-        /// What the file system said.
-        #[source]
-        source: std::io::Error,
-    },
+    /// `oidc.tls` names TLS material and the section was checked without
+    /// the console's TLS builder, the one reader of TLS material.
+    #[error("oidc.tls names TLS material; check the section with the console's TLS builder")]
+    TlsNotBuilt,
+    /// The console's TLS builder refused `oidc.tls`.
+    #[error("oidc.tls is refused")]
+    TlsBuild(#[source] Box<dyn std::error::Error + Send + Sync>),
+    /// The section sets retired keys; each is named with what replaced it.
+    #[error(transparent)]
+    Removed(#[from] RemovedKeys),
     /// An `oidc.resolve` entry is not `host=ip:port`.
     #[error("oidc.resolve entry {index} must be host=ip:port")]
     Resolve {
         /// The entry's position, from zero.
         index: usize,
-    },
-    /// `oidc.tls` names a client certificate without its key, or a key
-    /// without its certificate.
-    #[error("oidc.tls.client_certificate and oidc.tls.client_key must be set together")]
-    ClientIdentityHalf,
-    /// The client certificate of `oidc.tls.client_certificate` could not be
-    /// read.
-    #[error("oidc.tls.client_certificate names {}, which could not be read", path.display())]
-    ClientCertificate {
-        /// The file.
-        path: PathBuf,
-        /// What the file system said.
-        #[source]
-        source: std::io::Error,
     },
     /// The HTTP engine could not be built.
     #[error("the OpenID Provider's client could not be built")]
@@ -148,6 +137,7 @@ pub enum ConfigError {
 /// With `issuer` alone, the endpoints are discovered (RFC 8414 §3, OpenID
 /// Connect Discovery 1.0 §4); each endpoint given here takes the place of
 /// the discovered one.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OidcSection {
@@ -167,6 +157,7 @@ pub struct OidcSection {
     /// The console's client identifier (RFC 6749 §2.2).
     pub client_id: String,
     /// The console's client secret, inline, for a confidential client.
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
     pub client_secret: Option<Secret>,
     /// A file holding the console's client secret.
     pub client_secret_file: Option<PathBuf>,
@@ -180,35 +171,25 @@ pub struct OidcSection {
     /// Whether the sign-in asks for `offline_access` (OpenID Connect Core
     /// 1.0 §11), so the provider issues a refresh token.
     pub offline_access: bool,
-    /// PEM trust roots added to the platform's for a provider behind a
-    /// private certificate authority.
-    pub ca_file: Option<PathBuf>,
     /// Provider hosts reached at a fixed address in place of resolving
     /// their names, each `host=ip:port`, for a provider whose name resolves
     /// only inside a private network. The URL's port and the certificate
     /// check against the host name stay as the URL names them.
     pub resolve: Vec<String>,
-    /// `[oidc.tls]`: the client certificate and the TLS floor of the
-    /// provider connection.
-    pub tls: OidcTlsSection,
-    /// How long one call to the provider may take, in seconds.
-    pub timeout_s: u64,
-}
-
-/// `[oidc.tls]`: the client certificate the console presents to its
-/// provider (RFC 8705 §2) and the lowest TLS version it negotiates.
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct OidcTlsSection {
-    /// The PEM client certificate chain, set together with `client_key`.
-    pub client_certificate: Option<PathBuf>,
-    /// The PEM private key of the client certificate, inline.
-    pub client_key: Option<Secret>,
-    /// A file holding the private key of the client certificate.
-    pub client_key_file: Option<PathBuf>,
-    /// The lowest TLS version of the provider connection, `"1.2"` or
-    /// `"1.3"`.
-    pub min_version: TlsVersion,
+    /// `[oidc.tls]`: the trust roots, the client certificate (RFC 8705 §2)
+    /// and the TLS floor of the provider connection, built by the console's
+    /// [`TlsBuilder`]; the crate reads no TLS file.
+    #[serde(deserialize_with = "oidc_tls")]
+    #[cfg_attr(feature = "schema", schemars(with = "TlsClientSection"))]
+    pub tls: TlsClientSection,
+    /// How long one call to the provider may take; never zero.
+    pub timeout: ConfigDuration,
+    /// Removed: `tls.trust_roots_file`.
+    #[serde(skip_serializing)]
+    pub ca_file: Removed,
+    /// Removed: `timeout`, a duration.
+    #[serde(skip_serializing)]
+    pub timeout_s: Removed,
 }
 
 impl Default for OidcSection {
@@ -227,12 +208,54 @@ impl Default for OidcSection {
             post_logout_redirect_uri: None,
             scopes: vec![String::from(OPENID)],
             offline_access: false,
-            ca_file: None,
             resolve: Vec::new(),
-            tls: OidcTlsSection::default(),
-            timeout_s: 10,
+            tls: TlsClientSection::default(),
+            timeout: ConfigDuration::from_secs(10),
+            ca_file: Removed::default(),
+            timeout_s: Removed::default(),
         }
     }
+}
+
+/// The keys `[oidc.tls]` held before it became the shared table, each with
+/// what takes its place.
+const RETIRED_TLS: [(&str, &str); 3] = [
+    (
+        "client_certificate",
+        "oidc.tls.client_identity_file, one PEM holding the certificate chain and its private key",
+    ),
+    (
+        "client_key",
+        "oidc.tls.client_identity, one PEM holding the certificate chain and its private key",
+    ),
+    (
+        "client_key_file",
+        "oidc.tls.client_identity_file, one PEM holding the certificate chain and its private key",
+    ),
+];
+
+/// Reads `[oidc.tls]` as the shared [`TlsClientSection`], after refusing
+/// every key the table held before, each named with its replacement.
+///
+/// The shared table refuses an unknown key, so the retired ones are taken
+/// out of the raw table first and refused through [`Removals`], which keeps
+/// the refusal naming the replacement without a local copy of the table.
+fn oidc_tls<'de, D>(deserializer: D) -> Result<TlsClientSection, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+
+    let mut table = serde_json::Map::<String, serde_json::Value>::deserialize(deserializer)?;
+    let mut removals = Removals::new();
+    for (key, replacement) in RETIRED_TLS {
+        if let Some(value) = table.remove(key) {
+            let removed = Removed::deserialize(value).map_err(D::Error::custom)?;
+            removals.replaced(removed, format!("oidc.tls.{key}"), replacement);
+        }
+    }
+    removals.finish().map_err(D::Error::custom)?;
+    TlsClientSection::deserialize(serde_json::Value::Object(table)).map_err(D::Error::custom)
 }
 
 /// The checked `[oidc]`.
@@ -246,8 +269,7 @@ pub struct OidcSettings {
     post_logout_redirect_uri: Option<Url>,
     scopes: Vec<String>,
     offline_access: bool,
-    roots: Option<Vec<u8>>,
-    identity: Option<Arc<SecretSlice<u8>>>,
+    tls: Tls,
     reach: Reach,
     timeout: Duration,
 }
@@ -265,7 +287,7 @@ impl fmt::Debug for OidcSettings {
 }
 
 impl OidcSection {
-    /// Checks the section and reads its secret and its trust roots.
+    /// Checks the section and reads its client secret.
     ///
     /// # Errors
     ///
@@ -276,13 +298,42 @@ impl OidcSection {
     /// URL with a host, no userinfo and no fragment,
     /// [`ConfigError::NoOpenId`] and [`ConfigError::OfflineAccessScope`] for
     /// `scopes` without `openid` or with `offline_access`,
-    /// [`ConfigError::Zero`] for a zero `timeout_s`,
+    /// [`ConfigError::Zero`] for a zero `timeout`,
     /// [`ConfigError::Resolve`] for a `resolve` entry that is not
-    /// `host=ip:port`, [`ConfigError::ClientIdentityHalf`] for a client
-    /// certificate without its key or a key without its certificate, and the
-    /// errors of reading `client_secret`, `ca_file`, the client certificate
-    /// and its key.
+    /// `host=ip:port`, [`ConfigError::TlsNotBuilt`] when `tls` names TLS
+    /// material, [`ConfigError::Removed`] for a retired key, and the errors
+    /// of reading `client_secret`.
     pub fn check(&self) -> Result<OidcSettings, ConfigError> {
+        if self.tls.names_material() {
+            return Err(ConfigError::TlsNotBuilt);
+        }
+        self.check_over(None)
+    }
+
+    /// Checks the section as [`Self::check`] does, `oidc.tls` built by
+    /// `tls`, the console's reader of TLS material.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`Self::check`], and [`ConfigError::TlsBuild`] when
+    /// `tls` refuses `oidc.tls`.
+    pub fn check_with_tls(&self, tls: &dyn TlsBuilder) -> Result<OidcSettings, ConfigError> {
+        let presented = tls
+            .build("oidc.tls", &self.tls)
+            .map_err(ConfigError::TlsBuild)?;
+        self.check_over(Some(presented))
+    }
+
+    /// Checks the section, over the configuration the console built.
+    fn check_over(&self, presented: Option<PresentedTls>) -> Result<OidcSettings, ConfigError> {
+        let mut removals = Removals::new();
+        removals.replaced(self.ca_file, "oidc.ca_file", "oidc.tls.trust_roots_file");
+        removals.replaced(
+            self.timeout_s,
+            "oidc.timeout_s",
+            "oidc.timeout, a duration such as `10s`",
+        );
+        removals.finish()?;
         let issuer = required("oidc.issuer", &self.issuer)?;
         provider_url("oidc.issuer", issuer)?;
         let client_id = required("oidc.client_id", &self.client_id)?;
@@ -331,9 +382,9 @@ impl OidcSection {
             .as_deref()
             .map(|value| web_url("oidc.post_logout_redirect_uri", value))
             .transpose()?;
-        if self.timeout_s == 0 {
+        if self.timeout.is_zero() {
             return Err(ConfigError::Zero {
-                key: "oidc.timeout_s",
+                key: "oidc.timeout",
             });
         }
         let client_secret = read_secret(
@@ -341,9 +392,11 @@ impl OidcSection {
             self.client_secret.clone(),
             self.client_secret_file.as_deref(),
         )?;
-        let roots = self.ca_file.as_deref().map(read_roots).transpose()?;
-        let identity = self.tls.identity()?;
-        let mut reach = Reach::default().with_min_tls_version(self.tls.min_version);
+        let tls = Tls {
+            presented,
+            min_version: self.tls.min_version,
+        };
+        let mut reach = Reach::default();
         for (index, entry) in self.resolve.iter().enumerate() {
             let (host, address) = resolve_entry(entry).ok_or(ConfigError::Resolve { index })?;
             reach = reach.with_resolve(host, address);
@@ -357,10 +410,9 @@ impl OidcSection {
             post_logout_redirect_uri,
             scopes: self.scopes.clone(),
             offline_access: self.offline_access,
-            roots,
-            identity,
+            tls,
             reach,
-            timeout: Duration::from_secs(self.timeout_s),
+            timeout: self.timeout.get(),
         })
     }
 }
@@ -381,12 +433,8 @@ impl OidcSettings {
     /// [`ConfigError::Provider`] when discovery fails or the metadata names
     /// no authorization, token or key-set endpoint.
     pub async fn relying_party(&self) -> Result<RelyingParty, ConfigError> {
-        let tls = Tls {
-            root_certificates: self.roots.clone(),
-            identity: self.identity.clone(),
-            presented: None,
-        };
-        let http = Http::reaching(self.timeout, &tls, &self.reach).map_err(ConfigError::Http)?;
+        let http =
+            Http::reaching(self.timeout, &self.tls, &self.reach).map_err(ConfigError::Http)?;
         let given = &self.endpoints;
         let complete = given.authorization_endpoint.is_some()
             && given.token_endpoint.is_some()
@@ -441,6 +489,7 @@ impl OidcSettings {
 }
 
 /// Where a console keeps its sessions.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum StoreKind {
@@ -453,6 +502,7 @@ pub enum StoreKind {
 }
 
 /// `[session]`: the store and the lifetimes of the console's sessions.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct SessionSection {
@@ -461,22 +511,32 @@ pub struct SessionSection {
     /// Whether the cookies carry `Secure`, and with it the `__Host-` prefix.
     pub secure_cookie: bool,
     /// How long a pending sign-in waits for the provider's redirect back.
-    pub sign_in_timeout_s: u64,
+    pub sign_in_timeout: ConfigDuration,
     /// How many pending sign-ins a `memory` store holds; past it the oldest
     /// is dropped.
     pub max_sign_ins: usize,
     /// How long a session lives with no request that counts as activity.
-    pub idle_timeout_s: u64,
+    pub idle_timeout: ConfigDuration,
     /// How long a session lives from its sign-in, whatever the activity.
-    pub absolute_timeout_s: u64,
+    pub absolute_timeout: ConfigDuration,
     /// How many sessions a `memory` store holds; past it a new one is
     /// refused.
     pub max_sessions: usize,
     /// The sealing key of a `sealed` store, inline: base64 of at least 64
     /// bytes, the same on every instance.
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
     pub key: Option<Secret>,
     /// A file holding the sealing key.
     pub key_file: Option<PathBuf>,
+    /// Removed: `sign_in_timeout`, a duration.
+    #[serde(skip_serializing)]
+    pub sign_in_timeout_s: Removed,
+    /// Removed: `idle_timeout`, a duration.
+    #[serde(skip_serializing)]
+    pub idle_timeout_s: Removed,
+    /// Removed: `absolute_timeout`, a duration.
+    #[serde(skip_serializing)]
+    pub absolute_timeout_s: Removed,
 }
 
 impl Default for SessionSection {
@@ -484,13 +544,16 @@ impl Default for SessionSection {
         Self {
             store: StoreKind::Memory,
             secure_cookie: true,
-            sign_in_timeout_s: 300,
+            sign_in_timeout: ConfigDuration::from_mins(5),
             max_sign_ins: 1000,
-            idle_timeout_s: 1800,
-            absolute_timeout_s: 43_200,
+            idle_timeout: ConfigDuration::from_mins(30),
+            absolute_timeout: ConfigDuration::from_hours(12),
             max_sessions: 10_000,
             key: None,
             key_file: None,
+            sign_in_timeout_s: Removed::default(),
+            idle_timeout_s: Removed::default(),
+            absolute_timeout_s: Removed::default(),
         }
     }
 }
@@ -572,16 +635,37 @@ impl SessionSection {
     ///
     /// The errors of [`Self::check`].
     pub fn check_with(&self, offline_access: bool) -> Result<SessionSettings, ConfigError> {
-        for (key, value) in [
-            ("session.sign_in_timeout_s", self.sign_in_timeout_s),
-            ("session.idle_timeout_s", self.idle_timeout_s),
-            ("session.absolute_timeout_s", self.absolute_timeout_s),
+        let mut removals = Removals::new();
+        for (removed, key, replacement) in [
+            (
+                self.sign_in_timeout_s,
+                "session.sign_in_timeout_s",
+                "session.sign_in_timeout, a duration such as `5min`",
+            ),
+            (
+                self.idle_timeout_s,
+                "session.idle_timeout_s",
+                "session.idle_timeout, a duration such as `30min`",
+            ),
+            (
+                self.absolute_timeout_s,
+                "session.absolute_timeout_s",
+                "session.absolute_timeout, a duration such as `12h`",
+            ),
         ] {
-            if value == 0 {
+            removals.replaced(removed, key, replacement);
+        }
+        removals.finish()?;
+        for (key, value) in [
+            ("session.sign_in_timeout", self.sign_in_timeout),
+            ("session.idle_timeout", self.idle_timeout),
+            ("session.absolute_timeout", self.absolute_timeout),
+        ] {
+            if value.is_zero() {
                 return Err(ConfigError::Zero { key });
             }
         }
-        if self.absolute_timeout_s < self.idle_timeout_s {
+        if self.absolute_timeout < self.idle_timeout {
             return Err(ConfigError::AbsoluteBeforeIdle);
         }
         let storage = match self.store {
@@ -621,10 +705,10 @@ impl SessionSection {
         Ok(SessionSettings {
             storage,
             secure_cookie: self.secure_cookie,
-            sign_in_timeout: Duration::from_secs(self.sign_in_timeout_s),
+            sign_in_timeout: self.sign_in_timeout.get(),
             lifetimes: Lifetimes {
-                idle: Duration::from_secs(self.idle_timeout_s),
-                absolute: Duration::from_secs(self.absolute_timeout_s),
+                idle: self.idle_timeout.get(),
+                absolute: self.absolute_timeout.get(),
             },
         })
     }
@@ -703,33 +787,6 @@ fn is_loopback(url: &Url) -> bool {
     }
 }
 
-/// The PEM trust roots in `path`.
-impl OidcTlsSection {
-    /// The client certificate chain and its key as one PEM document, when
-    /// both are set.
-    fn identity(&self) -> Result<Option<Arc<SecretSlice<u8>>>, ConfigError> {
-        let key = read_secret(
-            "oidc.tls.client_key",
-            self.client_key.clone(),
-            self.client_key_file.as_deref(),
-        )?;
-        match (&self.client_certificate, key) {
-            (None, None) => Ok(None),
-            (Some(path), Some(key)) => {
-                let mut pem =
-                    std::fs::read(path).map_err(|source| ConfigError::ClientCertificate {
-                        path: path.clone(),
-                        source,
-                    })?;
-                pem.push(b'\n');
-                pem.extend_from_slice(key.expose().as_bytes());
-                Ok(Some(Arc::new(SecretSlice::from(pem))))
-            }
-            _ => Err(ConfigError::ClientIdentityHalf),
-        }
-    }
-}
-
 /// The host and the address of one `resolve` entry, `host=ip:port`.
 fn resolve_entry(entry: &str) -> Option<(String, SocketAddr)> {
     let (host, address) = entry.split_once('=')?;
@@ -741,13 +798,6 @@ fn resolve_entry(entry: &str) -> Option<(String, SocketAddr)> {
     Some((host.to_ascii_lowercase(), address))
 }
 
-fn read_roots(path: &Path) -> Result<Vec<u8>, ConfigError> {
-    std::fs::read(path).map_err(|source| ConfigError::CaFile {
-        path: path.to_path_buf(),
-        source,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use base64::Engine as _;
@@ -755,7 +805,7 @@ mod tests {
 
     use ferrohealth_smart::oidc::{OFFLINE_ACCESS, OPENID};
 
-    use super::{ConfigError, OidcSection, OidcTlsSection, SessionSection, StoreKind};
+    use super::{ConfigError, OidcSection, SessionSection, StoreKind};
 
     fn key(bytes: usize) -> Secret {
         let mut raw = vec![0_u8; bytes];
@@ -791,8 +841,8 @@ mod tests {
     #[test]
     fn an_absolute_lifetime_shorter_than_the_idle_one_is_refused() {
         let section = SessionSection {
-            absolute_timeout_s: 10,
-            idle_timeout_s: 20,
+            absolute_timeout: ferrohealth_config::units::Duration::from_secs(10),
+            idle_timeout: ferrohealth_config::units::Duration::from_secs(20),
             ..SessionSection::default()
         };
         assert!(matches!(
@@ -1010,8 +1060,8 @@ mod tests {
             )]
         );
         assert_eq!(
-            settings.reach.min_tls_version(),
-            ferrohealth_smart::client::TlsVersion::Tls13
+            settings.tls.min_version,
+            ferrohealth_config::tls::TlsVersion::Tls13
         );
         assert!(
             toml::from_str::<OidcSection>("[tls]\nmin_version = \"1.1\"").is_err(),
@@ -1041,53 +1091,117 @@ mod tests {
         }
     }
 
+    /// A console's TLS builder in the tests: a configuration over no roots,
+    /// or a refusal when `refuse`.
+    struct Builder {
+        refuse: bool,
+    }
+
+    impl ferrohealth_smart::config::TlsBuilder for Builder {
+        fn build(
+            &self,
+            _key: &str,
+            _section: &ferrohealth_config::tls::TlsClientSection,
+        ) -> Result<ferrohealth_smart::client::PresentedTls, Box<dyn std::error::Error + Send + Sync>>
+        {
+            if self.refuse {
+                return Err("the identity file could not be read".into());
+            }
+            let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+                rustls::crypto::aws_lc_rs::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()?
+            .with_root_certificates(rustls::RootCertStore::empty())
+            .with_no_client_auth();
+            Ok(ferrohealth_smart::client::PresentedTls::new(
+                std::sync::Arc::new(config),
+                None,
+            ))
+        }
+    }
+
     #[test]
-    fn a_client_certificate_is_set_with_its_key() {
-        let dir = tempfile::tempdir().expect("a directory");
-        let certificate = dir.path().join("client.pem");
-        std::fs::write(&certificate, "synthetic certificate").expect("written");
-        let key = Secret::new("synthetic-client-key");
-        let both = OidcSection {
-            tls: OidcTlsSection {
-                client_certificate: Some(certificate.clone()),
-                client_key: Some(key.clone()),
-                ..OidcTlsSection::default()
+    fn the_tls_table_is_built_by_the_console_s_builder() {
+        let with_identity = OidcSection {
+            tls: ferrohealth_config::tls::TlsClientSection {
+                client_identity: Some(Secret::new("synthetic-client-identity")),
+                ..ferrohealth_config::tls::TlsClientSection::default()
             },
             ..oidc()
         };
-        let settings = both.check().expect("valid");
-        assert!(settings.identity.is_some(), "the identity is read");
-        let shown = format!("{both:?} {settings:?}");
-        assert!(!shown.contains("synthetic-client-key"), "{shown}");
+        assert!(matches!(
+            with_identity.check(),
+            Err(ConfigError::TlsNotBuilt)
+        ));
+        let settings = with_identity
+            .check_with_tls(&Builder { refuse: false })
+            .expect("valid");
+        assert!(settings.tls.presented.is_some(), "the built TLS is held");
+        let shown = format!("{with_identity:?} {settings:?}");
+        assert!(!shown.contains("synthetic-client-identity"), "{shown}");
+        assert!(matches!(
+            with_identity.check_with_tls(&Builder { refuse: true }),
+            Err(ConfigError::TlsBuild(_))
+        ));
+    }
 
-        for tls in [
-            OidcTlsSection {
-                client_certificate: Some(certificate.clone()),
-                ..OidcTlsSection::default()
-            },
-            OidcTlsSection {
-                client_key: Some(key.clone()),
-                ..OidcTlsSection::default()
-            },
+    #[test]
+    fn the_retired_keys_are_refused_naming_their_replacement() {
+        let oidc: OidcSection = toml::from_str(
+            "issuer = \"https://idp.example.org\"\nclient_id = \"console\"\nredirect_uri = \"https://console.example.org/callback\"\nca_file = \"/run/ca.pem\"\ntimeout_s = 10\n",
+        )
+        .expect("the section reads");
+        let shown = oidc.check().expect_err("refused").to_string();
+        for line in [
+            "oidc.ca_file was replaced by oidc.tls.trust_roots_file",
+            "oidc.timeout_s was replaced by oidc.timeout",
         ] {
-            let refused = OidcSection { tls, ..oidc() }.check();
-            assert!(
-                matches!(refused, Err(ConfigError::ClientIdentityHalf)),
-                "{refused:?}"
-            );
+            assert!(shown.contains(line), "{line} in {shown}");
         }
-        let refused = OidcSection {
-            tls: OidcTlsSection {
-                client_certificate: Some(dir.path().join("absent.pem")),
-                client_key: Some(key),
-                ..OidcTlsSection::default()
-            },
-            ..oidc()
-        }
-        .check();
+        let session: SessionSection =
+            toml::from_str("idle_timeout_s = 60\nabsolute_timeout_s = 600\n").expect("reads");
+        let shown = session.check_with(false).expect_err("refused").to_string();
         assert!(
-            matches!(refused, Err(ConfigError::ClientCertificate { .. })),
-            "{refused:?}"
+            shown.contains("session.idle_timeout_s was replaced by session.idle_timeout"),
+            "{shown}"
+        );
+        assert!(toml::from_str::<SessionSection>("idle_timeout = 60").is_err());
+    }
+
+    #[test]
+    fn the_retired_tls_keys_are_refused_naming_their_replacement_all_at_once() {
+        let refused = toml::from_str::<OidcSection>(
+            "[tls]\nclient_certificate = \"/run/cert.pem\"\nclient_key = \"inline-private-key\"\nclient_key_file = \"/run/key.pem\"\n",
+        )
+        .expect_err("the retired keys are refused")
+        .to_string();
+        for line in [
+            "oidc.tls.client_certificate was replaced by oidc.tls.client_identity_file",
+            "oidc.tls.client_key was replaced by oidc.tls.client_identity,",
+            "oidc.tls.client_key_file was replaced by oidc.tls.client_identity_file",
+        ] {
+            assert!(refused.contains(line), "{line} in {refused}");
+        }
+        assert!(
+            !refused.contains("inline-private-key"),
+            "no value is shown: {refused}"
+        );
+    }
+
+    #[test]
+    fn the_tls_table_still_refuses_an_unknown_key_and_reads_its_own() {
+        assert!(toml::from_str::<OidcSection>("[tls]\nca_file = \"/run/ca.pem\"\n").is_err());
+        let oidc: OidcSection = toml::from_str(
+            "[tls]\ntrust_roots_file = \"/run/ca.pem\"\nclient_identity_file = \"/run/id.pem\"\nmin_version = \"1.2\"\n",
+        )
+        .expect("the shared table reads");
+        assert_eq!(
+            oidc.tls.trust_roots_file.as_deref(),
+            Some(std::path::Path::new("/run/ca.pem"))
+        );
+        assert_eq!(
+            oidc.tls.min_version,
+            ferrohealth_config::tls::TlsVersion::Tls12
         );
     }
 }

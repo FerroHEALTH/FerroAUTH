@@ -14,6 +14,7 @@ use crate::profile::Delegate;
 use crate::profile::Marker;
 
 /// The table form of a [`Marker`].
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub(super) struct MarkerTable {
@@ -119,6 +120,7 @@ impl From<Marker> for MarkerTable {
 }
 
 /// The table form of a [`Delegate`].
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub(super) struct DelegateTable {
