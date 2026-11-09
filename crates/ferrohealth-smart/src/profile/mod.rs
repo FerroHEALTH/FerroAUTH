@@ -37,6 +37,7 @@ pub const UNSTABLE_CLAIMS: [&str; 4] = ["email", "phone_number", "preferred_user
 
 /// A shipped set of profile values, selected by `profile` on
 /// `[[auth.issuer]]`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Preset {
@@ -115,6 +116,7 @@ impl Preset {
 const FEDERATION: &str = "federation";
 
 /// How a scope claim carries its scopes.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScopeForm {
@@ -126,6 +128,7 @@ pub enum ScopeForm {
 }
 
 /// The claim a token's scopes are read from, and its JSON form.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScopeClaim {
@@ -174,6 +177,7 @@ impl ScopeClaim {
 ///
 /// Exactly one form per table: `{ claim, value }`, `{ absent_claim }`,
 /// `{ subjects }`, `{ sub_is_client = true }` or `{ differs_from_iss }`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(try_from = "tables::MarkerTable", into = "tables::MarkerTable")]
 pub enum Marker {
@@ -201,6 +205,7 @@ pub enum Marker {
 }
 
 /// An actor or a client the issuer declares may act for a person.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(try_from = "tables::DelegateTable", into = "tables::DelegateTable")]
 pub enum Delegate {
@@ -217,6 +222,7 @@ pub enum Delegate {
 }
 
 /// The claims a `persons` issuer names a represented subject in.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Representation {
@@ -229,6 +235,7 @@ pub struct Representation {
 
 /// The profile keys, each optional: a preset's file, or the keys set on one
 /// `[[auth.issuer]]`, which win over the preset's.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ProfileKeys {

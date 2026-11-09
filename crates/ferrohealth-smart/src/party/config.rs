@@ -18,6 +18,7 @@ use ferrohealth_config::removed::Removed;
 ///
 /// It names no key claim: the issuer profile's `person_key` is the key, so
 /// the binding, the classification and `person_equality` read one claim.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PartySection {

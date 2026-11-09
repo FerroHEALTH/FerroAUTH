@@ -40,6 +40,7 @@ mod contact_point;
 mod correlation;
 #[cfg(feature = "ehdsi-assertion")]
 mod ehdsi_assertion;
+mod endpoint;
 #[cfg(feature = "test-support")]
 mod external;
 mod federation;

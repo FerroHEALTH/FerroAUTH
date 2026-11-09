@@ -21,6 +21,7 @@ use crate::profile::Preset;
 use crate::profile::ProfileKeys;
 
 /// One `[<lane>.credentials.onward]` table.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OnwardSection {

@@ -11,6 +11,67 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.15.0] - Unreleased
+
+The configuration moves onto the family types of `ferrohealth-config` 0.3
+(FerroEHR #5259): one duration type, one outbound TLS table read by one
+reader, one outbound endpoint table, and every retired key refused naming
+its replacement. A product moves each key of its `[auth]` and
+`[<lane>.credentials]` tables, so the line moves to 0.15.0.
+
+### Added
+
+- `config::endpoint::EndpointSection`, the shared table of an outbound
+  integration: `url`, `timeout`, `connect_timeout`, `retry`
+  (`config::endpoint::RetrySection`: `max_attempts`, `initial_backoff`,
+  `max_backoff`), `tls` and `credentials`, with
+  `EndpointSection::validate` (#379).
+- `config::TlsBuilder`, the product's reader of an outbound `tls` table,
+  and `config::ServerTls` (feature `server-tls`), which implements it over
+  `ferrohealth-server`'s `tls_client::TlsClient`.
+  `AuthSection::resolve_with_tls`, `CredentialsSection::resolve_with_tls`,
+  `CredentialsSection::onward_with_tls` and `OauthSection::resolve_with_tls`
+  resolve over it; `ConfigError::TlsNotBuilt` refuses a table that names
+  material without it, and `ConfigError::TlsBuild` carries the builder's
+  refusal (#379).
+- Feature `schema`: `schemars::JsonSchema` on every configuration section,
+  for a product that generates its configuration reference (#379).
+- `ConfigError::RemovedKeys`, every retired key a section sets, named with
+  its replacement, all at once, and `ConfigError::Endpoint` (#379).
+
+### Changed
+
+- Breaking: every span of time is a `ferrohealth_config::units::Duration`
+  (`"30s"`, `"10min"`) and its key names no unit: on `[[auth.issuer]]`
+  `clock_skew`, `jwks_max_age`, `jwks_refresh_interval` and `timeout`;
+  `introspection.cache_max_age`; `[auth.basic] cache_ttl`; `[auth.dpop]`
+  `max_age` and `clock_skew`; on `[<lane>.credentials.oauth]`
+  `refresh_margin`, `timeout` and `previous_key_overlap`; on the Graph table
+  `timeout` and `max_response_size` (a `ByteSize`); and the profile key
+  `max_onward_lifetime`, a bare number of seconds until now. Each old key is
+  refused naming its replacement (#379).
+- Breaking: `[auth] tls` and `[<lane>.credentials.oauth] tls`
+  (`ferrohealth_config::tls::TlsClientSection`) replace `auth.ca_file` and
+  the `oauth` table's `ca_file`, `client_certificate_file` and
+  `client_key_file`, which are refused naming `tls.trust_roots_file` and
+  `tls.client_identity_file`. The crate reads no TLS file: `client::Tls`
+  holds the configuration the product built and the table's minimum
+  version, which an engine with no built configuration negotiates at least.
+  An introspection grant's calls use its own `tls` table, no longer merged
+  with `auth.tls` (#379).
+- Breaking: `client::Reach::with_min_tls_version` and `min_tls_version` take
+  `ferrohealth_config::tls::TlsVersion` (#379).
+- A section that sets several retired keys is refused once, naming every
+  one, where it named only the first (#379).
+
+### Removed
+
+- Breaking: `config::Removed` (now `ferrohealth_config::removed::Removed`),
+  `client::TlsVersion`, `ClientCredentials::with_mutual_tls` (a grant over a
+  built configuration is `ClientCredentials::with_presented_tls`), the
+  `root_certificates` and `identity` fields of `client::Tls`,
+  `ConfigError::CaFile` and `ConfigError::Tls` (#379).
+
 ## [0.14.0] - Unreleased
 
 A `persons` issuer reads the IHE IUA professional attributes and purposes

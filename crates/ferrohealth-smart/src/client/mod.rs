@@ -75,6 +75,7 @@ pub enum Endpoint {
     clippy::enum_variant_names,
     reason = "the variants mirror the RFC 8705 §2 method names tls_client_auth and self_signed_tls_client_auth"
 )]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ClientAuth {
@@ -109,6 +110,7 @@ impl ClientAuth {
 }
 
 /// The `aud` a `private_key_jwt` assertion names.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AssertionAudience {
@@ -143,10 +145,11 @@ pub(crate) fn check_token_endpoint(url: &Url, member: &'static str) -> Result<()
     })
 }
 
-/// The TLS of an outbound connection: the configuration the product built
-/// from the table's `tls` keys, or, when the table names no TLS material
-/// and the product built none, the platform's roots at the table's minimum
-/// version.
+/// The TLS of an outbound connection.
+///
+/// It is the configuration the product built from the table's `tls` keys,
+/// or, when the table names no TLS material and the product built none, the
+/// platform's roots at the table's minimum version.
 ///
 /// The crate reads no TLS file: a table that names material is built by the
 /// product's [`TlsBuilder`](crate::config::TlsBuilder), so the family has one

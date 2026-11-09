@@ -37,7 +37,6 @@ pub struct EndpointSection {
     pub tls: TlsClientSection,
     /// The credential the calls carry: HTTP Basic or the client credentials
     /// grant.
-    #[cfg_attr(feature = "schema", schemars(skip))]
     pub credentials: CredentialsSection,
 }
 

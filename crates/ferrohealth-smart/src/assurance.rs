@@ -27,6 +27,7 @@ use crate::refusal::StepUp;
 use crate::resource::Caller;
 
 /// A level of assurance of an electronic identification, in order.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AssuranceLevel {
@@ -54,6 +55,7 @@ impl AssuranceLevel {
 ///
 /// Off by default: with no `minimum` nothing is refused, and with an empty
 /// `levels` map no value carries a level.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AssuranceSection {

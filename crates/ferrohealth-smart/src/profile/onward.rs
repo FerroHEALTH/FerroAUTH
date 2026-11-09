@@ -47,6 +47,7 @@ pub const RESERVED_PARAMETERS: [&str; 15] = [
 ];
 
 /// The grant an issuer issues onward tokens under.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OnwardGrant {
@@ -80,6 +81,7 @@ impl OnwardGrant {
 }
 
 /// The token-exchange parameter a target service is named in.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum OnwardIndicator {
@@ -103,6 +105,7 @@ impl OnwardIndicator {
 
 /// A grant variant an authorization server labels preview, which the
 /// client refuses to use under that issuer's profile.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]

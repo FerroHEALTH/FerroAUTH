@@ -63,6 +63,7 @@ pub enum SecurityProfile {
 }
 
 /// The security profile a `[<lane>.credentials.oauth]` table names.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 #[non_exhaustive]

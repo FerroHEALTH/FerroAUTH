@@ -8,11 +8,10 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use crate::basic::PasswordStore;
-#[cfg(feature = "fetch")]
 use ferrohealth_config::removed::{Removals, Removed};
 use ferrohealth_config::tls::TlsClientSection;
 
+use crate::basic::PasswordStore;
 use crate::client::Tls;
 use crate::config::AuthMode;
 use crate::config::AuthSection;
@@ -294,49 +293,7 @@ impl AuthSection {
         removals.retired(self.acting_for_claim, "auth.acting_for_claim", DELEGATION);
         removals.retired(self.client_tokens, "auth.client_tokens", DELEGATION);
         for (index, entry) in self.issuers().iter().enumerate() {
-            let at = |key: &str| format!("auth.issuer[{index}].{key}");
-            for (removed, key, replacement) in [
-                (entry.token_profile, "token_profile", TOKEN_SHAPE),
-                (
-                    entry.clock_skew_seconds,
-                    "clock_skew_seconds",
-                    "clock_skew, a duration such as `60s`",
-                ),
-                (
-                    entry.jwks_max_age_seconds,
-                    "jwks_max_age_seconds",
-                    "jwks_max_age, a duration such as `1h`",
-                ),
-                (
-                    entry.jwks_refresh_interval_seconds,
-                    "jwks_refresh_interval_seconds",
-                    "jwks_refresh_interval, a duration such as `5min`",
-                ),
-                (
-                    entry.timeout_ms,
-                    "timeout_ms",
-                    "timeout, a duration such as `10s`",
-                ),
-            ] {
-                removals.replaced(removed, at(key), replacement);
-            }
-            removals.retired(entry.acting_for_claim, at("acting_for_claim"), DELEGATION);
-            removals.retired(entry.client_tokens, at("client_tokens"), DELEGATION);
-            if let Some(introspection) = &entry.introspection {
-                removals.replaced(
-                    introspection.cache_max_age_seconds,
-                    at("introspection.cache_max_age_seconds"),
-                    "cache_max_age, a duration such as `5min`",
-                );
-                for (name, oauth) in [
-                    ("client", &introspection.client),
-                    ("bearer", &introspection.bearer),
-                ] {
-                    if let Some(oauth) = oauth {
-                        removals.extend(oauth.removals(&at(&format!("introspection.{name}"))));
-                    }
-                }
-            }
+            removals.extend(issuer_removals(index, entry));
         }
         if let Some(basic) = &self.basic {
             removals.replaced(
@@ -651,6 +608,56 @@ impl AuthSection {
             })?;
         Ok(settings)
     }
+}
+
+/// The retired keys the issuer table `entry`, the `index`-th, sets, each with
+/// what replaced it.
+fn issuer_removals(index: usize, entry: &IssuerEntry) -> Removals {
+    let mut removals = Removals::new();
+    let at = |key: &str| format!("auth.issuer[{index}].{key}");
+    for (removed, key, replacement) in [
+        (entry.token_profile, "token_profile", TOKEN_SHAPE),
+        (
+            entry.clock_skew_seconds,
+            "clock_skew_seconds",
+            "clock_skew, a duration such as `60s`",
+        ),
+        (
+            entry.jwks_max_age_seconds,
+            "jwks_max_age_seconds",
+            "jwks_max_age, a duration such as `1h`",
+        ),
+        (
+            entry.jwks_refresh_interval_seconds,
+            "jwks_refresh_interval_seconds",
+            "jwks_refresh_interval, a duration such as `5min`",
+        ),
+        (
+            entry.timeout_ms,
+            "timeout_ms",
+            "timeout, a duration such as `10s`",
+        ),
+    ] {
+        removals.replaced(removed, at(key), replacement);
+    }
+    removals.retired(entry.acting_for_claim, at("acting_for_claim"), DELEGATION);
+    removals.retired(entry.client_tokens, at("client_tokens"), DELEGATION);
+    if let Some(introspection) = &entry.introspection {
+        removals.replaced(
+            introspection.cache_max_age_seconds,
+            at("introspection.cache_max_age_seconds"),
+            "cache_max_age, a duration such as `5min`",
+        );
+        for (name, oauth) in [
+            ("client", &introspection.client),
+            ("bearer", &introspection.bearer),
+        ] {
+            if let Some(oauth) = oauth {
+                removals.extend(oauth.removals(&at(&format!("introspection.{name}"))));
+            }
+        }
+    }
+    removals
 }
 
 /// The replacement of the removed token shape key.

@@ -76,6 +76,7 @@ pub const NAME: &str = "idp-entra";
 /// client_secret_file = "/run/secrets/graph-client-secret"
 /// scope = "https://graph.microsoft.com/.default"
 /// ```
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct GraphSection {

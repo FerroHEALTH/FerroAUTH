@@ -14,6 +14,39 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.8.0] - Unreleased
+
+### Changed
+
+- Breaking: `[oidc] tls` is `ferrohealth_config::tls::TlsClientSection`
+  (`trust_roots_file`, `client_identity` or `client_identity_file`,
+  `min_version`, by default `"1.3"`), and the crate reads no TLS file: a
+  console checks a section that names TLS material with the new
+  `OidcSection::check_with_tls`, handing it its `TlsBuilder` (such as
+  `ferrohealth-smart`'s `config::ServerTls`); `OidcSection::check` refuses
+  it as `ConfigError::TlsNotBuilt`. `oidc.ca_file` is refused naming
+  `oidc.tls.trust_roots_file`; `[oidc.tls] client_certificate`,
+  `client_key` and `client_key_file` are no keys of the shared table, which
+  takes the chain and the key in one `client_identity_file` (#382).
+- Breaking: `oidc.timeout`, `session.sign_in_timeout`, `idle_timeout` and
+  `absolute_timeout` are `ferrohealth_config::units::Duration`s (`"30min"`),
+  and `oidc.timeout_s`, `session.sign_in_timeout_s`, `idle_timeout_s` and
+  `absolute_timeout_s` are refused naming their replacement
+  (`ConfigError::Removed`) (#382).
+
+### Added
+
+- Feature `schema`: `schemars::JsonSchema` on the `[oidc]` and `[session]`
+  sections (#382).
+- `ConfigError::TlsBuild`, the console's TLS builder refusing `oidc.tls`
+  (#382).
+
+### Removed
+
+- Breaking: `OidcTlsSection`, `ConfigError::CaFile`,
+  `ConfigError::ClientIdentityHalf` and `ConfigError::ClientCertificate`
+  (#382).
+
 ## [0.7.0] - 2026-11-09
 
 Releases beside `ferrohealth-smart` 0.13.0, whose `oidc` types this crate

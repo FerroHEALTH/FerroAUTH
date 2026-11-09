@@ -45,6 +45,7 @@ use crate::scope::is_scope_token;
 /// The `[<lane>.credentials]` table: HTTP Basic with `user` and `password`,
 /// or the client credentials grant under `oauth`; the two exclude each
 /// other.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CredentialsSection {
@@ -55,6 +56,7 @@ pub struct CredentialsSection {
         serialize_with = "shapes::redact",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
     pub password: Option<SecretString>,
     /// The file holding the Basic password.
     pub password_file: Option<PathBuf>,
@@ -70,6 +72,7 @@ pub struct CredentialsSection {
 /// Its rendering, serialized or `Debug`, shows `issuer` and
 /// `token_endpoint` with any userinfo masked and the secrets redacted, so a
 /// product can render its running configuration.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OauthSection {
@@ -89,6 +92,7 @@ pub struct OauthSection {
         serialize_with = "shapes::redact",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
     pub client_secret: Option<SecretString>,
     /// The file holding the client secret.
     pub client_secret_file: Option<PathBuf>,
@@ -101,6 +105,7 @@ pub struct OauthSection {
     pub kid: String,
     /// The algorithm the assertion is signed with; when unset, by key type,
     /// an EC key by its curve (P-256 ES256, P-384 ES384).
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
     pub assertion_alg: Option<Algorithm>,
     /// The `scope` request parameter; empty for none.
     pub scope: String,

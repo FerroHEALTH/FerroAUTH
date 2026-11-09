@@ -360,6 +360,7 @@ pub enum ConfigError {
 ///
 /// Every setting of an issuer lives on its own `[[auth.issuer]]` table: no
 /// section-level value stands in for one an issuer leaves out.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthSection {
@@ -453,6 +454,7 @@ pub struct AuthSection {
 }
 
 /// How a bearer token is checked.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthMode {
@@ -473,6 +475,7 @@ pub enum AuthMode {
 /// `[<lane>.credentials.oauth]`, and a refusal names those keys; `client`
 /// stands in the table's issuer when it names neither `issuer` nor
 /// `token_endpoint`.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IntrospectionSection {
@@ -494,6 +497,7 @@ pub struct IntrospectionSection {
 
 /// The `issuer` key: the `[[auth.issuer]]` list, or the flat identifier,
 /// which [`AuthSection::resolve`] refuses naming the table form.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum IssuerKey {
@@ -505,6 +509,7 @@ pub enum IssuerKey {
 
 /// One `scopeless_subjects` entry: `{ issuer, sub }`, or the removed string
 /// form, which [`AuthSection::resolve`] refuses naming the table form.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(untagged)]
 pub enum ScopelessSubject {
@@ -521,6 +526,7 @@ pub enum ScopelessSubject {
 
 /// One `[[auth.issuer]]` table: the issuer, its kind, how its tokens are
 /// checked, and its profile, a [`Preset`] with any profile key set over it.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IssuerEntry {
@@ -533,6 +539,7 @@ pub struct IssuerEntry {
     /// The audiences, of which a token's `aud` must contain one.
     pub audience: Vec<String>,
     /// The signature algorithms admitted.
+    #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
     pub algorithms: Vec<Algorithm>,
     /// The clock skew, at most `300s`.
     pub clock_skew: Duration,
@@ -663,6 +670,7 @@ pub struct IssuerEntry {
 }
 
 /// The `[auth.basic]` table.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BasicSection {
@@ -678,6 +686,7 @@ pub struct BasicSection {
 
 /// One `[[auth.basic.users]]` entry: a person's credential, never a
 /// machine's ([`crate::resource::Caller::basic`]).
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct BasicUser {
@@ -688,6 +697,7 @@ pub struct BasicUser {
         serialize_with = "shapes::redact",
         skip_serializing_if = "Option::is_none"
     )]
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
     pub password_hash: Option<SecretString>,
     /// The file holding that PHC string.
     pub password_hash_file: Option<PathBuf>,
