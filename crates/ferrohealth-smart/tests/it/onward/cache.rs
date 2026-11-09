@@ -6,8 +6,6 @@
 //! check run again on every hit, and no token in a log line.
 
 use std::io::Write;
-use std::sync::Arc;
-use std::sync::Mutex;
 
 use ferrohealth_smart::client::onward::OnwardError;
 use ferrohealth_smart::client::onward::Rejected;
@@ -171,16 +169,17 @@ async fn a_cache_hit_that_no_longer_passes_the_check_is_refused_and_dropped() {
     assert_eq!(2, harness.calls().await, "the refused entry is dropped");
 }
 
-/// A writer that keeps every byte a formatter writes.
-#[derive(Debug, Clone, Default)]
-struct Buffer(Arc<Mutex<Vec<u8>>>);
+thread_local! {
+    /// What the capturing subscriber wrote on this thread.
+    static CAPTURED: std::cell::RefCell<Vec<u8>> = const { std::cell::RefCell::new(Vec::new()) };
+}
 
-impl Write for Buffer {
+/// A writer into this thread's [`CAPTURED`] bytes.
+struct ThreadBuffer;
+
+impl Write for ThreadBuffer {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        self.0
-            .lock()
-            .expect("not poisoned")
-            .extend_from_slice(bytes);
+        CAPTURED.with(|captured| captured.borrow_mut().extend_from_slice(bytes));
         Ok(bytes.len())
     }
 
@@ -189,22 +188,32 @@ impl Write for Buffer {
     }
 }
 
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for Buffer {
-    type Writer = Self;
+/// Starts capturing every event of this thread at `TRACE`, empty.
+///
+/// The subscriber is the binary's global one, so its interest in a callsite
+/// never depends on which other test's thread registered the callsite
+/// first, as a thread-local subscriber's does under `cargo test`'s threads.
+fn capture() {
+    static GLOBAL: std::sync::Once = std::sync::Once::new();
+    GLOBAL.call_once(|| {
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .with_writer(|| ThreadBuffer)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber)
+            .expect("no other test sets the global subscriber");
+    });
+    CAPTURED.with(|captured| captured.borrow_mut().clear());
+}
 
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
+/// Returns what this thread captured since [`capture`].
+fn captured() -> String {
+    CAPTURED.with(|captured| String::from_utf8_lossy(&captured.borrow()).into_owned())
 }
 
 #[tokio::test]
 async fn no_token_reaches_a_log_line_or_a_debug_rendering() {
-    let buffer = Buffer::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::TRACE)
-        .with_writer(buffer.clone())
-        .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
+    capture();
     let harness = Harness::start(Flavor::Generic).await;
     let now = harness.now();
     let claims = Flavor::Generic.subject_claims(now);
@@ -224,8 +233,7 @@ async fn no_token_reaches_a_log_line_or_a_debug_rendering() {
         .await
         .expect_err("refused");
     let rendered = format!("{subject:?} {token:?} {error:?} {:?}", harness.onward);
-    let logged = String::from_utf8(buffer.0.lock().expect("not poisoned").clone())
-        .expect("the log is UTF-8");
+    let logged = captured();
     assert!(logged.contains("onward token"), "the client logs: {logged}");
     for secret in [subject_token.as_str(), issued.as_str()] {
         assert!(!logged.contains(secret), "no token is logged");
