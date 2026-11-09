@@ -21,6 +21,8 @@ use ferrohealth_authz::request::Attr;
 use ferrohealth_authz::request::Request;
 use ferrohealth_authz::request::Subject;
 use ferrohealth_config::units;
+use ferrohealth_smart::client::outbound::OutboundClient;
+use ferrohealth_smart::config::endpoint::EndpointSection;
 use ferrohealth_smart::config::endpoint::RetrySection;
 use rcgen::BasicConstraints;
 use rcgen::CertificateParams;
@@ -38,6 +40,7 @@ use url::Url;
 use wiremock::Mock;
 use wiremock::MockServer;
 use wiremock::ResponseTemplate;
+use wiremock::matchers::header;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
@@ -292,4 +295,100 @@ async fn the_callers_client_carries_its_tls_to_the_point() {
         matches!(decide(&own).await, Err(AuthzError::Remote(_))),
         "the crate's own client does not trust the point's authority"
     );
+}
+
+/// A product's reader of a `tls` table in the tests: a configuration with
+/// no roots, since every case reaches its point over `http`.
+#[derive(Debug)]
+struct NoTls;
+
+impl ferrohealth_smart::config::TlsBuilder for NoTls {
+    fn build(
+        &self,
+        _key: &str,
+        _section: &ferrohealth_config::tls::TlsClientSection,
+    ) -> Result<ferrohealth_smart::client::PresentedTls, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::aws_lc_rs::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()?
+        .with_root_certificates(rustls::RootCertStore::empty())
+        .with_no_client_auth();
+        Ok(ferrohealth_smart::client::PresentedTls::new(
+            Arc::new(config),
+            None,
+        ))
+    }
+}
+
+fn outbound(server: &MockServer, extra: &str) -> OutboundClient {
+    let endpoint: EndpointSection = toml::from_str(&format!(
+        "url = \"{}/pdp/\"\n[retry]\nmax_attempts = 3\ninitial_backoff = \"10ms\"\nmax_backoff = \"20ms\"\n{extra}",
+        server.uri()
+    ))
+    .expect("the table parses");
+    OutboundClient::build(&endpoint, "authz.abac.remote.endpoint", &NoTls).expect("a client")
+}
+
+fn bindings() -> BTreeMap<String, Binding> {
+    settings("http://unused.invalid").bindings
+}
+
+#[tokio::test]
+async fn a_point_from_the_outbound_client_sends_its_basic_credential_and_retries() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/pdp/composition"))
+        .respond_with(ResponseTemplate::new(503))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/pdp/composition"))
+        // NOTE: RFC 7617 §2, base64 of "Qz7-pep:Qz7-pass".
+        .and(header("authorization", "Basic UXo3LXBlcDpRejctcGFzcw=="))
+        .respond_with(ResponseTemplate::new(200))
+        .with_priority(2)
+        .mount(&server)
+        .await;
+    let client = outbound(
+        &server,
+        "[credentials]\nuser = \"Qz7-pep\"\npassword = \"Qz7-pass\"\n",
+    );
+    let pdp = RemotePdp::from_outbound(bindings(), &client).expect("a point");
+    assert!(
+        decide(&pdp).await.expect("decides"),
+        "the second try permits"
+    );
+    assert_eq!(calls(&server).await, 2);
+}
+
+#[tokio::test]
+async fn a_point_from_the_outbound_client_carries_its_token() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "access_token": "Qz7-token", "token_type": "Bearer", "expires_in": 300
+        })))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/pdp/composition"))
+        .and(header("authorization", "Bearer Qz7-token"))
+        .respond_with(ResponseTemplate::new(403))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let client = outbound(
+        &server,
+        &format!(
+            "[credentials.oauth]\ntoken_endpoint = \"{}/token\"\nclient_id = \"Qz7-pep\"\nclient_secret = \"Qz7-secret\"\n",
+            server.uri()
+        ),
+    );
+    let pdp = RemotePdp::from_outbound(bindings(), &client).expect("a point");
+    assert!(!decide(&pdp).await.expect("decides"), "a 403 denies");
 }

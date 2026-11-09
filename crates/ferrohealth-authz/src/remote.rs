@@ -25,6 +25,8 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use ferrohealth_smart::client::cache::TokenSource;
+use ferrohealth_smart::client::outbound::Authorization;
+use ferrohealth_smart::client::outbound::OutboundClient;
 use ferrohealth_smart::config::endpoint::RetrySection;
 use ferrohealth_smart::kind::CallerKind;
 use http::StatusCode;
@@ -95,6 +97,8 @@ pub struct RemotePdp {
     settings: RemoteSettings,
     retry: RetrySection,
     token: Option<TokenSource>,
+    basic: Option<http::HeaderValue>,
+    per_try: Option<Duration>,
 }
 
 impl RemotePdp {
@@ -119,10 +123,12 @@ impl RemotePdp {
             ..RetrySection::default()
         };
         Ok(Self {
+            per_try: Some(settings.request_timeout),
             client,
             settings,
             retry,
             token,
+            basic: None,
         })
     }
 
@@ -165,10 +171,58 @@ impl RemotePdp {
             }));
         }
         Ok(Self {
+            per_try: Some(settings.request_timeout),
             client,
             settings,
             retry,
             token,
+            basic: None,
+        })
+    }
+
+    /// Returns the point at `outbound`'s URL, deciding the resource types
+    /// `bindings` name, reached over `outbound`'s HTTP engine with its
+    /// authorization and tried again as its retry table allows, as
+    /// [`RemotePdp::with_client`] tries.
+    ///
+    /// The product builds `outbound` from `[authz.abac.remote.endpoint]`
+    /// with [`OutboundClient::build`], so the engine carries the table's TLS
+    /// and timeouts and follows no redirect. A Basic credential is sent on
+    /// every call; a client credentials token is renewed once on a `401`.
+    ///
+    /// # Errors
+    ///
+    /// [`AuthzError::Remote`] when the URL is not `http` or `https` or does
+    /// not end with `/`, or the endpoint's credential is a kind the point
+    /// does not send.
+    pub fn from_outbound(
+        bindings: BTreeMap<String, Binding>,
+        outbound: &OutboundClient,
+    ) -> Result<Self, AuthzError> {
+        let settings = RemoteSettings {
+            server: outbound.url().clone(),
+            bindings,
+            connect_timeout: Duration::ZERO,
+            request_timeout: Duration::ZERO,
+        };
+        check(&settings)?;
+        let (token, basic) = match outbound.authorization() {
+            None => (None, None),
+            Some(Authorization::Bearer(source)) => (Some(source.clone()), None),
+            Some(Authorization::Basic(credential)) => (None, Some(credential.header_value())),
+            Some(_) => {
+                return Err(remote(RemoteError::Settings {
+                    reason: "the endpoint's credential is no kind the point sends",
+                }));
+            }
+        };
+        Ok(Self {
+            client: outbound.http().clone(),
+            settings,
+            retry: *outbound.retry(),
+            token,
+            basic,
+            per_try: None,
         })
     }
 
@@ -217,12 +271,11 @@ impl RemotePdp {
         body: &serde_json::Map<String, serde_json::Value>,
     ) -> Result<bool, RemoteError> {
         let send = |bearer: Option<http::HeaderValue>| {
-            let mut call = self
-                .client
-                .post(url.clone())
-                .timeout(self.settings.request_timeout)
-                .json(body);
-            if let Some(bearer) = bearer {
+            let mut call = self.client.post(url.clone()).json(body);
+            if let Some(per_try) = self.per_try {
+                call = call.timeout(per_try);
+            }
+            if let Some(bearer) = bearer.or_else(|| self.basic.clone()) {
                 call = call.header(http::header::AUTHORIZATION, bearer);
             }
             call.send()

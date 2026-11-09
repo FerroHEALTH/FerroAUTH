@@ -64,6 +64,7 @@ wiremock.workspace = true
 tempfile.workspace = true
 # The decision point over TLS, its certificates generated when the case runs.
 ferrohealth-config.workspace = true
+toml.workspace = true
 rcgen.workspace = true
 reqwest.workspace = true
 rustls.workspace = true
