@@ -29,6 +29,7 @@ use crate::assurance::AssuranceLevel;
 #[cfg(feature = "ehdsi-assertion")]
 pub mod assertion;
 pub mod contact;
+pub mod person;
 pub(crate) mod read;
 mod section;
 
@@ -342,6 +343,17 @@ pub enum Mapping {
 }
 
 impl Mapping {
+    /// Returns the sources of every field: those `mapping` names, with
+    /// `fields` over them.
+    fn with_fields(
+        mapping: Option<Self>,
+        fields: &BTreeMap<Field, Vec<Source>>,
+    ) -> BTreeMap<Field, Vec<Source>> {
+        let mut sources = mapping.map(Self::sources).unwrap_or_default();
+        sources.extend(fields.clone());
+        sources
+    }
+
     /// Returns the sources the mapping names.
     fn sources(self) -> BTreeMap<Field, Vec<Source>> {
         match self {

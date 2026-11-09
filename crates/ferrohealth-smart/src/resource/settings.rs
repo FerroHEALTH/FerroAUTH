@@ -56,6 +56,7 @@ impl Settings {
             },
             assurance: None,
             federation: None,
+            attributes: None,
             sender_constraint: SenderConstraint::None,
             trust_roots: None,
         }
@@ -98,7 +99,8 @@ impl Settings {
             self.sender_constraint,
             &self.scopeless_subjects,
             &self.role_claims,
-        )
+        )?;
+        rules::check_attributes(self.kind, self.attributes.as_ref())
     }
 }
 

@@ -8,6 +8,7 @@ use std::collections::BTreeSet;
 
 use crate::assurance::AssuranceSection;
 use crate::federation::FederationSection;
+use crate::federation::person::AttributesSection;
 use crate::kind::IssuerKind;
 use crate::profile::Profile;
 use crate::resource::ResourceError;
@@ -71,4 +72,20 @@ pub(super) fn check_issuer_rules(
         });
     }
     Ok(())
+}
+
+/// Refuses an `[[auth.attributes]]` table on an issuer that is not of kind
+/// `persons`, and checks the table of one that is.
+pub(super) fn check_attributes(
+    kind: IssuerKind,
+    attributes: Option<&AttributesSection>,
+) -> Result<(), ResourceError> {
+    match (kind, attributes) {
+        (IssuerKind::Persons, Some(section)) => Ok(section.validate()?),
+        (_, Some(_)) => Err(ResourceError::Kind {
+            key: "attributes",
+            kind,
+        }),
+        (_, None) => Ok(()),
+    }
 }

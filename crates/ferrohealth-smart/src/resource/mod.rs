@@ -114,6 +114,9 @@ pub struct Settings {
     /// What a `federation` issuer asserts and the bounds it is held to;
     /// required on a `federation` issuer and refused on any other.
     pub federation: Option<FederationSection>,
+    /// What a `persons` issuer states about its professionals; refused on
+    /// an issuer of any other kind.
+    pub attributes: Option<crate::federation::person::AttributesSection>,
     /// Whether the issuer's tokens must be bound to a `DPoP` key or a client
     /// certificate ([`crate::sender`]).
     pub sender_constraint: SenderConstraint,
@@ -511,6 +514,8 @@ pub struct Caller {
     extensions: Extensions,
     /// What the login resolved to, when a party binding looked it up.
     party: Option<crate::party::Outcome>,
+    /// What a `persons` token states about the professional.
+    attributes: Option<crate::federation::person::Attributes>,
 }
 
 impl PartialEq for Caller {

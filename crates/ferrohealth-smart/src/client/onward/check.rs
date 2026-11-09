@@ -230,8 +230,17 @@ fn patient(
     subject: &SubjectToken,
     issued: &Map<String, Value>,
 ) -> Result<(), Rejected> {
-    crate::kind::classify(IssuerKind::Patients, &settings.profile, None, issued)
-        .map_err(Rejected::Patient)?;
+    // NOTE: RFC 8693 §4.1, an `act` of the issued token names the requesting
+    // client, which `named_actor` checked, so it is read here as no representative.
+    let mut patient_claims = issued.clone();
+    patient_claims.remove("act");
+    crate::kind::classify(
+        IssuerKind::Patients,
+        &settings.profile,
+        None,
+        &patient_claims,
+    )
+    .map_err(Rejected::Patient)?;
     for claim in subject.patient_context() {
         let held = lookup(subject.claims(), claim).filter(|value| !value.is_null());
         if held.is_some() && held != lookup(issued, claim) {

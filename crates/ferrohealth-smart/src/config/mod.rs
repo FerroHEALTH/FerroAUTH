@@ -27,6 +27,7 @@ use crate::basic::StoreError;
 use crate::client::assertion::AssertionError;
 use crate::config::credentials::OauthSection;
 use crate::federation::FederationSection;
+use crate::federation::person::AttributesSection;
 use crate::kind::IssuerKind;
 use crate::metadata::DiscoveryError;
 use crate::party::config::PartyError;
@@ -311,6 +312,15 @@ pub enum ConfigError {
         /// Which rule.
         reason: &'static str,
     },
+    /// An `[[auth.attributes]]` table naming no trusted `persons` issuer,
+    /// or naming one twice.
+    #[error("the attributes table of {issuer:?} is refused: {reason}")]
+    Attributes {
+        /// The issuer.
+        issuer: String,
+        /// Which rule.
+        reason: &'static str,
+    },
     /// An `[[auth.party]]` table breaks a rule.
     #[error("an [[auth.party]] table is refused")]
     Party {
@@ -378,6 +388,9 @@ pub struct AuthSection {
     pub ca_file: Option<PathBuf>,
     /// The `[[auth.federation]]` tables, one per `federation` issuer.
     pub federation: Vec<FederationSection>,
+    /// The `[[auth.attributes]]` tables, at most one per `persons` issuer:
+    /// where it states its professionals' attributes.
+    pub attributes: Vec<AttributesSection>,
     /// The `[[auth.party]]` tables, one per `persons` issuer whose logins
     /// are bound to a party.
     pub party: Vec<PartySection>,
@@ -568,6 +581,9 @@ pub struct IssuerEntry {
     /// [`ProfileKeys::representation`](crate::profile::ProfileKeys::representation).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub representation: Option<Representation>,
+    /// [`ProfileKeys::act_represents_patient`](crate::profile::ProfileKeys::act_represents_patient).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub act_represents_patient: Option<bool>,
     /// [`ProfileKeys::token_types`](crate::profile::ProfileKeys::token_types).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_types: Option<Vec<String>>,

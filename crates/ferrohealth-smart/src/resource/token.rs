@@ -23,6 +23,8 @@ use serde_json::Value;
 use crate::assurance::AssuranceSection;
 use crate::federation::Context;
 use crate::federation::FederationSection;
+use crate::federation::person::AttributesSection;
+use crate::kind::CallerKind;
 use crate::kind::IssuerKind;
 use crate::kind::Unclassified;
 use crate::kind::classify;
@@ -89,6 +91,7 @@ pub(super) async fn validate(
             profile: &settings.profile,
             assurance: settings.assurance.as_ref(),
             federation: settings.federation.as_ref(),
+            attributes: settings.attributes.as_ref(),
             audiences: &settings.audience,
             clock_skew: settings.clock_skew,
             scopeless_subjects: &settings.scopeless_subjects,
@@ -113,6 +116,8 @@ pub(super) struct Admission<'a> {
     pub(super) assurance: Option<&'a AssuranceSection>,
     /// The `[[auth.federation]]` table of a `federation` issuer.
     pub(super) federation: Option<&'a FederationSection>,
+    /// The `[[auth.attributes]]` table of a `persons` issuer.
+    pub(super) attributes: Option<&'a AttributesSection>,
     /// This node's audiences, which an `authorization_details` entry names.
     pub(super) audiences: &'a [String],
     /// The clock skew `iat` is checked with.
@@ -168,6 +173,14 @@ pub(super) fn admit(
         &claims,
     )
     .map_err(|reason| Rejection::Unclassified { reason })?;
+    let attributes = match admission.attributes {
+        Some(section) if classified.kind != CallerKind::System => Some(
+            section
+                .read(&claims)
+                .map_err(|reason| Rejection::Unclassified { reason })?,
+        ),
+        _ => None,
+    };
     let scope_claim = if classified.app_only {
         admission
             .profile
@@ -191,7 +204,7 @@ pub(super) fn admit(
         None => Scopes::parse(&scope),
     };
     let roles = crate::roles::from_claims(&claims, admission.role_claims);
-    Ok(Caller::new(
+    let caller = Caller::new(
         subject,
         classified.client,
         &scope,
@@ -212,7 +225,11 @@ pub(super) fn admit(
     )
     .with_issuer(admission.issuer.to_owned())
     .with_claims(claims)
-    .with_extensions(admission.extensions.clone()))
+    .with_extensions(admission.extensions.clone());
+    Ok(match attributes {
+        Some(attributes) => caller.with_attributes(attributes),
+        None => caller,
+    })
 }
 
 /// Returns the string claim `name` of `claims`.

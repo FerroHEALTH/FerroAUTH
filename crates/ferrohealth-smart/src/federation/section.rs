@@ -65,9 +65,7 @@ impl FederationSection {
     /// own over them.
     #[must_use]
     pub fn sources(&self) -> BTreeMap<Field, Vec<Source>> {
-        let mut sources = self.mapping.map(Mapping::sources).unwrap_or_default();
-        sources.extend(self.fields.clone());
-        sources
+        Mapping::with_fields(self.mapping, &self.fields)
     }
 
     /// Checks the table: a declared `contact_point`, the countries, the
