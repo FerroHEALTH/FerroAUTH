@@ -12,12 +12,15 @@
 //!
 //! - `entra` (feature `idp-entra`): a Microsoft Entra ID groups overage,
 //!   resolved through Microsoft Graph.
+//! - `section`: the `[auth.idp]` table that configures them, one table per
+//!   adapter, and the adapters it builds.
 //!
 //! [`IdpAdapter`]: crate::party::adapter::IdpAdapter
 //! [`Profile::validate`]: crate::profile::Profile::validate
 
 #[cfg(feature = "idp-entra")]
 pub mod entra;
+pub mod section;
 
 /// The adapter names this build compiles in, which a profile's `adapter`
 /// may name.

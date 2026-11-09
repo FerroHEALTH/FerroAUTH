@@ -147,13 +147,17 @@ impl PartyBinding {
         Ok(self)
     }
 
-    /// Returns this binding binding every `[[auth.party]]` table of
-    /// `resolved`, each against its issuer's kind and profile.
+    /// Returns this binding with every adapter the `[auth.idp]` tables of
+    /// `resolved` build, binding every `[[auth.party]]` table of `resolved`
+    /// against its issuer's kind and profile.
     ///
     /// # Errors
     ///
     /// The [`PartyError`] of [`PartyBinding::with_issuer`].
-    pub fn with_resolved(self, resolved: &Resolved) -> Result<Self, PartyError> {
+    pub fn with_resolved(mut self, resolved: &Resolved) -> Result<Self, PartyError> {
+        for (name, adapter) in resolved.adapters.iter() {
+            self = self.with_adapter(name, Arc::clone(adapter));
+        }
         let mut profiles: BTreeMap<&str, (IssuerKind, &Profile)> = BTreeMap::new();
         for settings in &resolved.issuers {
             profiles.insert(&settings.issuer, (settings.kind, &settings.profile));
