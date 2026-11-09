@@ -11,13 +11,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-### Changed
-
-- `SECURITY.md` names `security@cadasto.com` as the email route for a
-  vulnerability report, in place of `info@cadasto.com`, which stays the
-  address for licensing and other business questions.
-
-## [0.15.0] - Unreleased
+## [0.15.0] - 2026-11-09
 
 ### Removed
 
@@ -45,6 +39,9 @@ and this project adheres to
 
 ### Changed
 
+- `SECURITY.md` names `security@cadasto.com` as the email route for a
+  vulnerability report, in place of `info@cadasto.com`, which stays the
+  address for licensing and other business questions.
 - Breaking: `ScopelessSubject` is a struct with `issuer` and `sub`; the
   string form of an entry is a type error (#388).
 
@@ -1750,7 +1747,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.14.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.15.0...HEAD
+[0.15.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.14.0...ferrohealth-smart-v0.15.0
 [0.14.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.1...ferrohealth-smart-v0.14.0
 [0.13.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.0...ferrohealth-smart-v0.13.1
 [0.13.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.12.0...ferrohealth-smart-v0.13.0
