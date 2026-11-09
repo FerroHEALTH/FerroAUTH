@@ -49,6 +49,7 @@ use crate::sender::SenderConstraint;
 
 mod auth;
 pub mod credentials;
+pub mod endpoint;
 mod issuer;
 pub mod onward;
 mod read;
@@ -251,21 +252,27 @@ pub enum ConfigError {
         #[source]
         source: Box<crate::resource::introspection::IntrospectionError>,
     },
-    /// The `auth.ca_file` trust roots cannot be read, are no PEM, or hold
-    /// no certificate.
-    #[error("auth.ca_file is refused")]
-    CaFile {
-        /// Why.
+    /// An outbound endpoint table breaks a rule.
+    #[error("the endpoint table is refused: {rule}")]
+    Endpoint {
+        /// The rule it breaks.
+        rule: &'static str,
+    },
+    /// A `tls` table names TLS material and was resolved without the
+    /// product's [`TlsBuilder`], the one reader of TLS material.
+    #[error("{key} names TLS material; resolve it with the product's TLS builder")]
+    TlsNotBuilt {
+        /// The dotted key of the table.
+        key: &'static str,
+    },
+    /// The product's [`TlsBuilder`] refused a `tls` table.
+    #[error("{key} is refused")]
+    TlsBuild {
+        /// The dotted key of the table.
+        key: &'static str,
+        /// What the builder reported.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
-    },
-    /// The trust roots or the client certificate of the token endpoint
-    /// connection are refused.
-    #[error("the TLS material of credentials.oauth is refused")]
-    Tls {
-        /// Why.
-        #[source]
-        source: Box<DiscoveryError>,
     },
     /// The `credentials.onward` table names an issuer or a target the onward
     /// client refuses.
@@ -613,7 +620,7 @@ pub struct IssuerEntry {
     pub adapter: Option<String>,
     /// [`ProfileKeys::max_onward_lifetime`](crate::profile::ProfileKeys::max_onward_lifetime).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_onward_lifetime: Option<u64>,
+    pub max_onward_lifetime: Option<Duration>,
     /// [`ProfileKeys::onward_grant`](crate::profile::ProfileKeys::onward_grant).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub onward_grant: Option<OnwardGrant>,
@@ -720,6 +727,62 @@ pub struct Resolved {
     pub introspection: Vec<crate::resource::introspection::IntrospectionSettings>,
     /// The `[[auth.party]]` tables, each checked against its issuer.
     pub party: Vec<PartySection>,
+}
+
+/// The product's reader of an outbound `tls` table, which builds the TLS
+/// configuration a connection of this crate speaks.
+///
+/// The crate reads no TLS material itself: every table that names some is
+/// handed to the builder with its dotted key, so the family has one reader
+/// of TLS material, `ferrohealth-server`'s `TlsClient` (feature
+/// `server-tls` implements this trait over it as [`ServerTls`]). No
+/// specification governs the seam: our own design.
+pub trait TlsBuilder {
+    /// Builds the configuration `section` names, at the dotted `key`.
+    ///
+    /// # Errors
+    ///
+    /// Returns the builder's own error when the material cannot be read or
+    /// is refused; it never quotes the material.
+    fn build(
+        &self,
+        key: &str,
+        section: &TlsClientSection,
+    ) -> Result<crate::client::PresentedTls, Box<dyn std::error::Error + Send + Sync>>;
+}
+
+/// Builds `section` at `key` with `builder`, naming the key in a refusal.
+pub(crate) fn build_tls(
+    builder: &dyn TlsBuilder,
+    key: &'static str,
+    section: &TlsClientSection,
+) -> Result<crate::client::PresentedTls, ConfigError> {
+    builder
+        .build(key, section)
+        .map_err(|source| ConfigError::TlsBuild { key, source })
+}
+
+/// The [`TlsBuilder`] over `ferrohealth-server`'s `tls_client::TlsClient`:
+/// the table's roots beside the platform's verifier, its identity and its
+/// minimum version.
+#[cfg(feature = "server-tls")]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ServerTls;
+
+#[cfg(feature = "server-tls")]
+impl TlsBuilder for ServerTls {
+    fn build(
+        &self,
+        key: &str,
+        section: &TlsClientSection,
+    ) -> Result<crate::client::PresentedTls, Box<dyn std::error::Error + Send + Sync>> {
+        let client = ferrohealth_server::tls_client::TlsClient::read(key, section)?;
+        let config = client.platform_config()?;
+        Ok(crate::client::PresentedTls::new(
+            std::sync::Arc::new(config),
+            client.certificate().cloned(),
+        ))
+    }
 }
 
 /// The text a set secret, or the userinfo and the query of a URL, is

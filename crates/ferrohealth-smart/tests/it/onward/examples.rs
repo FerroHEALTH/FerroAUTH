@@ -71,7 +71,7 @@ fn as_example_com(keys: ProfileKeys) -> Settings {
     settings.profile = ferrohealth_smart::profile::Profile::resolve(
         ferrohealth_smart::profile::Preset::Rfc9068,
         &ProfileKeys {
-            max_onward_lifetime: Some(3600),
+            max_onward_lifetime: Some(ferrohealth_config::units::Duration::from_hours(1)),
             ..keys
         },
     )
@@ -396,7 +396,7 @@ async fn rfc7523_section_4_is_reproduced_with_the_section_2_2_client_assertion()
         ferrohealth_smart::profile::Preset::Rfc9068,
         &ProfileKeys {
             onward_grant: Some(OnwardGrant::JwtBearer),
-            max_onward_lifetime: Some(3600),
+            max_onward_lifetime: Some(ferrohealth_config::units::Duration::from_hours(1)),
             ..ProfileKeys::default()
         },
     )

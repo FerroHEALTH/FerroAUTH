@@ -7,7 +7,6 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use std::time::Duration;
 
 use crate::basic::PasswordStore;
 #[cfg(feature = "fetch")]
@@ -23,6 +22,8 @@ use crate::config::IssuerEntry;
 use crate::config::IssuerKey;
 use crate::config::Resolved;
 use crate::config::ScopelessSubject;
+use crate::config::TlsBuilder;
+use crate::config::build_tls;
 use crate::config::issuer::check_entry;
 use crate::config::read::secret;
 use crate::federation::FederationSection;
@@ -116,6 +117,24 @@ impl AuthSection {
     /// product scope in no extension form, or a cache key the random
     /// source cannot draw.
     pub fn resolve(&self) -> Result<Resolved, ConfigError> {
+        self.resolve_over(None)
+    }
+
+    /// Resolves the section as [`AuthSection::resolve`] does, every `tls`
+    /// table it holds (`auth.tls` and the `tls` of each introspection grant)
+    /// built by `tls`, the product's reader of TLS material.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] as [`AuthSection::resolve`] does, and
+    /// [`ConfigError::TlsBuild`] when `tls` refuses a table.
+    pub fn resolve_with_tls(&self, tls: &dyn TlsBuilder) -> Result<Resolved, ConfigError> {
+        self.resolve_over(Some(tls))
+    }
+
+    /// Resolves the section, over the product's TLS builder when one is
+    /// handed.
+    fn resolve_over(&self, builder: Option<&dyn TlsBuilder>) -> Result<Resolved, ConfigError> {
         self.check_removed()?;
         if let Some(bad) = self
             .capabilities
@@ -142,7 +161,16 @@ impl AuthSection {
             .basic
             .as_ref()
             .is_some_and(|section| !section.users.is_empty());
-        let trust_roots = self.trust_roots()?;
+        let tls = Tls {
+            presented: match builder {
+                Some(builder) => Some(build_tls(builder, "auth.tls", &self.tls)?),
+                None if self.tls.names_material() => {
+                    return Err(ConfigError::TlsNotBuilt { key: "auth.tls" });
+                }
+                None => None,
+            },
+            min_version: self.tls.min_version,
+        };
         let mut kinds = BTreeMap::new();
         let mut issuers = Vec::new();
         #[cfg(feature = "fetch")]
@@ -157,7 +185,7 @@ impl AuthSection {
                 match entry.mode {
                     AuthMode::Jwt => {
                         let mut settings = self.settings_of(entry, kind)?;
-                        settings.trust_roots.clone_from(&trust_roots);
+                        settings.tls = tls.clone();
                         settings.validate().map_err(|source| ConfigError::Issuer {
                             issuer: entry.issuer.clone(),
                             source: Box::new(source),
@@ -166,11 +194,7 @@ impl AuthSection {
                     }
                     #[cfg(feature = "fetch")]
                     AuthMode::Introspection => {
-                        introspection.push(self.introspection_of(
-                            entry,
-                            kind,
-                            trust_roots.as_deref(),
-                        )?);
+                        introspection.push(self.introspection_of(entry, kind, builder)?);
                     }
                     #[cfg(not(feature = "fetch"))]
                     AuthMode::Introspection => return Err(ConfigError::IntrospectionUnavailable),
@@ -304,7 +328,10 @@ impl AuthSection {
                     at("introspection.cache_max_age_seconds"),
                     "cache_max_age, a duration such as `5min`",
                 );
-                for (name, oauth) in [("client", &introspection.client), ("bearer", &introspection.bearer)] {
+                for (name, oauth) in [
+                    ("client", &introspection.client),
+                    ("bearer", &introspection.bearer),
+                ] {
                     if let Some(oauth) = oauth {
                         removals.extend(oauth.removals(&at(&format!("introspection.{name}"))));
                     }
@@ -545,7 +572,7 @@ impl AuthSection {
         &self,
         entry: &IssuerEntry,
         kind: IssuerKind,
-        trust_roots: Option<&[u8]>,
+        builder: Option<&dyn TlsBuilder>,
     ) -> Result<crate::resource::introspection::IntrospectionSettings, ConfigError> {
         use crate::resource::introspection::IntrospectionAuth;
         use crate::resource::introspection::IntrospectionError;
@@ -576,13 +603,17 @@ impl AuthSection {
                 if client.issuer.is_empty() && client.token_endpoint.is_empty() {
                     client.issuer.clone_from(&entry.issuer);
                 }
-                let mut credentials = client.resolve()?;
-                trust_also(&mut credentials.tls, trust_roots);
+                let credentials = match builder {
+                    Some(builder) => client.resolve_with_tls(builder)?,
+                    None => client.resolve()?,
+                };
                 IntrospectionAuth::Client(Box::new(credentials))
             }
             (None, Some(bearer)) => {
-                let mut grant = bearer.resolve()?;
-                trust_also(&mut grant.tls, trust_roots);
+                let grant = match builder {
+                    Some(builder) => bearer.resolve_with_tls(builder)?,
+                    None => bearer.resolve()?,
+                };
                 let source = crate::client::cache::TokenSource::new(grant).map_err(|source| {
                     ConfigError::Introspection {
                         source: Box::new(IntrospectionError::Credential {
@@ -620,30 +651,6 @@ impl AuthSection {
             })?;
         Ok(settings)
     }
-
-    /// Returns the PEM trust roots of `ca_file`, read and, with the `fetch`
-    /// feature, parsed, so a bad file refuses the start.
-    fn trust_roots(&self) -> Result<Option<Vec<u8>>, ConfigError> {
-        let Some(path) = &self.ca_file else {
-            return Ok(None);
-        };
-        let pem = std::fs::read(path).map_err(|source| ConfigError::CaFile {
-            source: Box::new(source),
-        })?;
-        #[cfg(feature = "fetch")]
-        crate::metadata::Http::with_tls(
-            Duration::from_secs(10),
-            &Tls {
-                root_certificates: Some(pem.clone()),
-                identity: None,
-                presented: None,
-            },
-        )
-        .map_err(|source| ConfigError::CaFile {
-            source: Box::new(source),
-        })?;
-        Ok(Some(pem))
-    }
 }
 
 /// The replacement of the removed token shape key.
@@ -670,22 +677,6 @@ fn role_claims_of(entry: &IssuerEntry, kind: IssuerKind) -> Vec<String> {
         (None, IssuerKind::Federation) => Vec::new(),
         (None, _) => crate::roles::default_claims(),
     }
-}
-
-/// Adds the `auth.ca_file` roots to the roots of an introspection grant, so
-/// the metadata, introspection and token calls trust both (no specification
-/// governs trust configuration: our own design).
-#[cfg(feature = "fetch")]
-fn trust_also(tls: &mut Tls, roots: Option<&[u8]>) {
-    let Some(roots) = roots else {
-        return;
-    };
-    let mut merged = tls.root_certificates.take().unwrap_or_default();
-    if !merged.is_empty() && !merged.ends_with(b"\n") {
-        merged.push(b'\n');
-    }
-    merged.extend_from_slice(roots);
-    tls.root_certificates = Some(merged);
 }
 
 impl Default for AuthSection {

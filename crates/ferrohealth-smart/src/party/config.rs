@@ -9,9 +9,9 @@ use std::collections::BTreeMap;
 use serde::Deserialize;
 use serde::Serialize;
 
-use ferrohealth_config::removed::Removed;
 use crate::kind::IssuerKind;
 use crate::profile::Profile;
+use ferrohealth_config::removed::Removed;
 
 /// One `[[auth.party]]` table: where the logins of one `persons` issuer are
 /// looked up.

@@ -43,7 +43,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use http::StatusCode;
-use secrecy::SecretSlice;
 use secrecy::SecretString;
 use serde::Deserialize;
 use serde::Serialize;
@@ -152,7 +151,7 @@ pub(crate) fn check_token_endpoint(url: &Url, member: &'static str) -> Result<()
 /// The crate reads no TLS file: a table that names material is built by the
 /// product's [`TlsBuilder`](crate::config::TlsBuilder), so the family has one
 /// reader of TLS material, `ferrohealth-server`'s `TlsClient`.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Tls {
     /// The TLS configuration the product built, with the client certificate
     /// it presents.
@@ -225,6 +224,16 @@ impl PresentedTls {
     }
 }
 
+// NOTE: no specification governs this: our own design; two values are the same
+// configuration when they share one built configuration and one certificate.
+impl PartialEq for PresentedTls {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.config, &other.config) && self.certificate == other.certificate
+    }
+}
+
+impl Eq for PresentedTls {}
+
 impl std::fmt::Debug for PresentedTls {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PresentedTls")
@@ -259,7 +268,10 @@ impl Default for Reach {
 impl Reach {
     /// Returns this reach negotiating no TLS version below `version`.
     #[must_use]
-    pub const fn with_min_tls_version(mut self, version: ferrohealth_config::tls::TlsVersion) -> Self {
+    pub const fn with_min_tls_version(
+        mut self,
+        version: ferrohealth_config::tls::TlsVersion,
+    ) -> Self {
         self.min_tls_version = version;
         self
     }
@@ -363,31 +375,6 @@ impl ClientCredentials {
         Self {
             assertion_keys: Some(keys),
             ..Self::authenticating(endpoint, client_id, ClientAuth::PrivateKeyJwt)
-        }
-    }
-
-    /// Returns a grant for `client_id` at `endpoint` authenticating with
-    /// the client certificate `identity` (PEM chain and key) over mutual
-    /// TLS (RFC 8705 §2): [`ClientAuth::SelfSignedTlsClientAuth`] when
-    /// `self_signed`, [`ClientAuth::TlsClientAuth`] otherwise.
-    #[must_use]
-    pub fn with_mutual_tls(
-        endpoint: Endpoint,
-        client_id: String,
-        identity: Arc<SecretSlice<u8>>,
-        self_signed: bool,
-    ) -> Self {
-        let client_auth = if self_signed {
-            ClientAuth::SelfSignedTlsClientAuth
-        } else {
-            ClientAuth::TlsClientAuth
-        };
-        Self {
-            tls: Tls {
-                identity: Some(identity),
-                ..Tls::default()
-            },
-            ..Self::authenticating(endpoint, client_id, client_auth)
         }
     }
 

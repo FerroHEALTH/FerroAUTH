@@ -424,15 +424,13 @@ async fn a_mutual_tls_alias_on_an_unnamed_host_is_refused() -> TestResult {
         let key = rcgen::KeyPair::generate()?;
         let certificate = rcgen::CertificateParams::new(vec![String::from("gateway.example.org")])?
             .self_signed(&key)?;
-        Arc::new(secrecy::SecretSlice::from(
-            format!("{}{}", certificate.pem(), key.serialize_pem()).into_bytes(),
-        ))
+        format!("{}{}", certificate.pem(), key.serialize_pem())
     };
     let grant = |hosts: &[&str]| -> Result<ClientCredentials, Box<dyn StdError>> {
-        let mut grant = ClientCredentials::with_mutual_tls(
+        let mut grant = ClientCredentials::with_presented_tls(
             Endpoint::Issuer(server.uri()),
             String::from("gateway"),
-            Arc::clone(&identity),
+            crate::tls::presented_identity("", &identity).map_err(|error| error.to_string())?,
             false,
         )
         .with_certificate_binding();
@@ -520,23 +518,24 @@ fn a_mutual_tls_fapi2_grant_holds_its_actor_key_to_the_profile_s_algorithms() ->
     let pair = rcgen::KeyPair::generate()?;
     let certificate = rcgen::CertificateParams::new(vec![String::from("gateway.example.org")])?
         .self_signed(&pair)?;
-    let certificate_file = temp_file("fapi2-client.crt", certificate.pem().as_bytes());
-    let key_file = temp_file("fapi2-client.key", pair.serialize_pem().as_bytes());
+    let identity_file = temp_file(
+        "fapi2-client.pem",
+        format!("{}{}", certificate.pem(), pair.serialize_pem()).as_bytes(),
+    );
     let table = |alg: Algorithm, name: &str| -> Result<OauthSection, toml::de::Error> {
         let actor = temp_file("fapi2-actor.pem", &ec_key("a", alg).pem);
         toml::from_str(&format!(
             "issuer = \"https://as.example.org\"\nclient_id = \"gateway\"\nclient_auth = \"tls_client_auth\"\n\
-             client_certificate_file = {:?}\nclient_key_file = {:?}\ncertificate_bound = true\n\
+             tls.client_identity_file = {:?}\ncertificate_bound = true\n\
              private_key_file = {:?}\nassertion_alg = \"{name}\"\nsecurity_profile = \"fapi2\"\nscope = \"system/*.rs\"\n",
-            certificate_file.display().to_string(),
-            key_file.display().to_string(),
+            identity_file.display().to_string(),
             actor.display().to_string(),
         ))
     };
-    let grant = table(Algorithm::ES256, "ES256")?.resolve()?;
+    let grant = table(Algorithm::ES256, "ES256")?.resolve_with_tls(&crate::tls::PemTls)?;
     assert!(grant.assertion_keys.is_some(), "the actor key is read");
     assert!(matches!(
-        table(Algorithm::ES384, "ES384")?.resolve(),
+        table(Algorithm::ES384, "ES384")?.resolve_with_tls(&crate::tls::PemTls),
         Err(ConfigError::Grant { source }) if matches!(
             *source,
             TokenError::Fapi2 { source: Fapi2Error::Algorithm { role: "assertion", .. } }

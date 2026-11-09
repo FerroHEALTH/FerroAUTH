@@ -6,8 +6,10 @@
 
 use std::path::Path;
 use std::path::PathBuf;
-use std::time::Duration;
 
+use ferrohealth_config::removed::{Removals, Removed};
+use ferrohealth_config::tls::TlsClientSection;
+use ferrohealth_config::units::Duration;
 use jsonwebtoken::Algorithm;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -31,6 +33,8 @@ use crate::client::fapi2::SecurityProfile;
 use crate::client::keys::KeyRing;
 use crate::config::ConfigError;
 use crate::config::REDACTED;
+use crate::config::TlsBuilder;
+use crate::config::build_tls;
 use crate::config::mask_userinfo;
 use crate::config::onward;
 use crate::config::read::parse_url;
@@ -105,21 +109,18 @@ pub struct OauthSection {
     /// The `audience` request parameter; empty for none.
     pub audience: String,
     /// How long before the token expires a new one is fetched.
-    pub refresh_margin_ms: u64,
+    pub refresh_margin: Duration,
     /// How long one call to the authorization server may take.
-    pub timeout_ms: u64,
+    pub timeout: Duration,
     /// The `aud` of a `private_key_jwt` assertion: `token_endpoint` (the
     /// default) or `issuer`, which needs `issuer` set.
     pub assertion_audience: AssertionAudience,
-    /// A PEM file of trust roots added to the built-in ones, for a token
-    /// endpoint behind a private certificate authority.
-    pub ca_file: Option<PathBuf>,
-    /// The PEM file of the client certificate chain presented over mutual
-    /// TLS (RFC 8705 §2); set with `client_key_file`.
-    pub client_certificate_file: Option<PathBuf>,
-    /// The PEM file of the client certificate's private key; set with
-    /// `client_certificate_file`.
-    pub client_key_file: Option<PathBuf>,
+    /// The TLS of the token endpoint connection: trust roots beside the
+    /// platform's, the client identity presented over mutual TLS (RFC 8705
+    /// §2) and the minimum version. The crate reads none of it: a table that
+    /// names material resolves through the product's
+    /// [`TlsBuilder`](crate::config::TlsBuilder).
+    pub tls: TlsClientSection,
     /// The PEM file of the `DPoP` key the tokens are bound to (RFC 9449).
     pub dpop_key_file: Option<PathBuf>,
     /// Whether the tokens are bound to the client certificate (RFC 8705 §3).
@@ -130,12 +131,31 @@ pub struct OauthSection {
     pub mtls_alias_hosts: Vec<String>,
     /// The PEM file of the previous assertion key, published, never signing.
     pub previous_private_key_file: Option<PathBuf>,
-    /// How long the previous key stays published; 0 for as long as it is set.
-    pub previous_key_overlap_ms: u64,
+    /// How long the previous key stays published; `0s` for as long as it
+    /// is set.
+    pub previous_key_overlap: Duration,
     /// The PEM file of the next assertion key, published and never signing.
     pub next_private_key_file: Option<PathBuf>,
     /// The RFC 9396 `authorization_details` JSON text; empty for none.
     pub authorization_details: String,
+    /// Removed: `tls.trust_roots_file`.
+    #[serde(skip_serializing)]
+    pub ca_file: Removed,
+    /// Removed: `tls.client_identity_file`, the chain and the key in one PEM.
+    #[serde(skip_serializing)]
+    pub client_certificate_file: Removed,
+    /// Removed: `tls.client_identity_file`, the chain and the key in one PEM.
+    #[serde(skip_serializing)]
+    pub client_key_file: Removed,
+    /// Removed: `refresh_margin`, a duration.
+    #[serde(skip_serializing)]
+    pub refresh_margin_ms: Removed,
+    /// Removed: `timeout`, a duration.
+    #[serde(skip_serializing)]
+    pub timeout_ms: Removed,
+    /// Removed: `previous_key_overlap`, a duration.
+    #[serde(skip_serializing)]
+    pub previous_key_overlap_ms: Removed,
 }
 
 /// The outbound credential a `[<lane>.credentials]` table resolves to.
@@ -191,6 +211,25 @@ impl CredentialsSection {
         }
     }
 
+    /// Resolves the table as [`CredentialsSection::resolve`] does, the
+    /// `oauth` table's TLS built by `tls`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigError`] as [`CredentialsSection::resolve`] does, and
+    /// [`ConfigError::TlsBuild`] when `tls` refuses the `oauth` table's TLS.
+    pub fn resolve_with_tls(&self, tls: &dyn TlsBuilder) -> Result<Option<Outbound>, ConfigError> {
+        match &self.oauth {
+            Some(oauth) if self.user.is_empty() => {
+                self.check_actor_key(oauth)?;
+                oauth
+                    .resolve_with_tls(tls)
+                    .map(|grant| Some(Outbound::Oauth(Box::new(grant))))
+            }
+            _ => self.resolve(),
+        }
+    }
+
     /// Refuses a `private_key_file` that signs nothing: neither the client
     /// assertion of `private_key_jwt` nor the actor assertion the onward
     /// table asks for.
@@ -223,26 +262,72 @@ impl OauthSection {
     /// material that is no PEM (with the `fetch` feature), and
     /// `assertion_audience = "issuer"` without `issuer`.
     pub fn resolve(&self) -> Result<ClientCredentials, ConfigError> {
+        if self.tls.names_material() {
+            return Err(ConfigError::TlsNotBuilt {
+                key: "credentials.oauth.tls",
+            });
+        }
         self.resolve_presenting(None)
     }
 
-    /// Resolves the grant over `tls`, the TLS configuration the product
-    /// built from material it already read, such as with
-    /// `ferrohealth-server`'s `TlsClient`, so the token endpoint connection
-    /// presents its client certificate (RFC 8705 §2) and a
-    /// `certificate_bound` grant binds its tokens to it (RFC 8705 §3). The
-    /// configuration takes the place of `client_certificate_file`,
-    /// `client_key_file` and `ca_file`, which the table then names none of.
+    /// Resolves the grant over the TLS configuration `tls` builds from the
+    /// table's `tls` keys, such as with `ferrohealth-server`'s `TlsClient`,
+    /// so the token endpoint connection presents its client certificate (RFC
+    /// 8705 §2), a `certificate_bound` grant binds its tokens to it (RFC 8705
+    /// §3), and the minimum version holds.
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigError`] as [`OauthSection::resolve`] does, with
-    /// [`ConfigError::Exclusive`] for a certificate, key or roots file
-    /// beside `tls`, and [`ConfigError::Missing`] for a mutual-TLS
-    /// `client_auth` or `certificate_bound` when `tls` presents no
+    /// Returns [`ConfigError`] as [`OauthSection::resolve`] does,
+    /// [`ConfigError::TlsBuild`] when `tls` refuses the table, and
+    /// [`ConfigError::Missing`] for a mutual-TLS `client_auth` or
+    /// `certificate_bound` when the built configuration presents no
     /// certificate.
-    pub fn resolve_with_tls(&self, tls: PresentedTls) -> Result<ClientCredentials, ConfigError> {
-        self.resolve_presenting(Some(tls))
+    pub fn resolve_with_tls(&self, tls: &dyn TlsBuilder) -> Result<ClientCredentials, ConfigError> {
+        let presented = build_tls(tls, "credentials.oauth.tls", &self.tls)?;
+        self.resolve_presenting(Some(presented))
+    }
+
+    /// The retired keys this table sets, under `table`, each with what
+    /// replaced it.
+    #[must_use]
+    pub fn removals(&self, table: &str) -> Removals {
+        let mut removals = Removals::new();
+        for (removed, key, replacement) in [
+            (self.ca_file, "ca_file", "tls.trust_roots_file"),
+            (
+                self.client_certificate_file,
+                "client_certificate_file",
+                "tls.client_identity_file, the chain and the key in one PEM",
+            ),
+            (
+                self.client_key_file,
+                "client_key_file",
+                "tls.client_identity_file, the chain and the key in one PEM",
+            ),
+            (
+                self.refresh_margin_ms,
+                "refresh_margin_ms",
+                "refresh_margin, a duration such as `30s`",
+            ),
+            (
+                self.timeout_ms,
+                "timeout_ms",
+                "timeout, a duration such as `10s`",
+            ),
+            (
+                self.previous_key_overlap_ms,
+                "previous_key_overlap_ms",
+                "previous_key_overlap, a duration such as `1d`",
+            ),
+        ] {
+            removals.replaced(
+                removed,
+                format!("{table}.{key}"),
+                format!("{table}.{replacement}"),
+            );
+        }
+        removals
     }
 
     /// Resolves the grant, over the product's built TLS configuration when
@@ -251,6 +336,7 @@ impl OauthSection {
         &self,
         presented: Option<PresentedTls>,
     ) -> Result<ClientCredentials, ConfigError> {
+        self.removals("credentials.oauth").finish()?;
         let endpoint = match (self.issuer.is_empty(), self.token_endpoint.is_empty()) {
             (false, false) => {
                 return Err(ConfigError::Exclusive {
@@ -284,7 +370,10 @@ impl OauthSection {
                 key: "credentials.oauth.client_id",
             });
         }
-        let tls = self.tls(presented)?;
+        let tls = Tls {
+            presented,
+            min_version: self.tls.min_version,
+        };
         let mut grant = match self.client_auth {
             ClientAuth::ClientSecretBasic | ClientAuth::ClientSecretPost => {
                 let client_secret = secret(
@@ -336,8 +425,8 @@ impl OauthSection {
         if !self.audience.is_empty() {
             grant.audience = Some(self.audience.clone());
         }
-        grant.refresh_margin = Duration::from_millis(self.refresh_margin_ms);
-        grant.timeout = Duration::from_millis(self.timeout_ms);
+        grant.refresh_margin = self.refresh_margin.get();
+        grant.timeout = self.timeout.get();
         self.finish(self.bind(grant)?)
     }
 
@@ -400,9 +489,10 @@ impl OauthSection {
         let mut ring = KeyRing::new(current);
         if let Some(path) = &self.previous_private_key_file {
             let previous = read(path)?;
-            ring = match self.previous_key_overlap_ms {
-                0 => ring.with_previous_until_removed(previous),
-                ms => ring.with_previous_for(previous, Duration::from_millis(ms)),
+            ring = if self.previous_key_overlap.is_zero() {
+                ring.with_previous_until_removed(previous)
+            } else {
+                ring.with_previous_for(previous, self.previous_key_overlap.get())
             }
             .map_err(|source| ConfigError::KeyRing { source })?;
         }
@@ -451,11 +541,7 @@ impl OauthSection {
                 Ok(grant.with_dpop(std::sync::Arc::new(key)))
             }
             (None, true) if !grant.tls.presents_identity() => Err(ConfigError::Missing {
-                key: if grant.tls.presented.is_some() {
-                    "the client certificate of the product's TLS configuration, which certificate_bound names"
-                } else {
-                    "credentials.oauth.client_certificate_file, which certificate_bound names"
-                },
+                key: "the client certificate of the TLS configuration built from credentials.oauth.tls, which certificate_bound names",
             }),
             (None, true) => Ok(grant.with_certificate_binding()),
             (None, false) => Ok(grant),
@@ -470,8 +556,8 @@ impl OauthSection {
         tls: &Tls,
     ) -> Result<ClientCredentials, ConfigError> {
         let self_signed = self.client_auth == ClientAuth::SelfSignedTlsClientAuth;
-        match (&tls.presented, &tls.identity) {
-            (Some(presented), _) if presented.certificate().is_some() => {
+        match &tls.presented {
+            Some(presented) if presented.certificate().is_some() => {
                 Ok(ClientCredentials::with_presented_tls(
                     endpoint,
                     self.client_id.clone(),
@@ -479,20 +565,9 @@ impl OauthSection {
                     self_signed,
                 ))
             }
-            (Some(_), _) => Err(ConfigError::Missing {
-                key: "the client certificate of the product's TLS configuration",
+            _ => Err(ConfigError::Missing {
+                key: "the client certificate of the TLS configuration built from credentials.oauth.tls",
             }),
-            (None, identity) => {
-                let identity = identity.clone().ok_or(ConfigError::Missing {
-                    key: "credentials.oauth.client_certificate_file",
-                })?;
-                Ok(ClientCredentials::with_mutual_tls(
-                    endpoint,
-                    self.client_id.clone(),
-                    identity,
-                    self_signed,
-                ))
-            }
         }
     }
 
@@ -525,7 +600,7 @@ impl OauthSection {
         let mut out = Vec::new();
         let certificate = match presented {
             Some(tls) => tls.certificate().is_some(),
-            None => self.client_certificate_file.is_some(),
+            None => self.tls.client_identity.is_some() || self.tls.client_identity_file.is_some(),
         };
         match (self.issuer.is_empty(), self.token_endpoint.is_empty()) {
             (false, false) => out.push(format!(
@@ -582,18 +657,12 @@ impl OauthSection {
                 }
             }
         }
-        if presented.is_some() {
-            self.presented_problems(table, &mut out);
-        }
-        match (&self.client_certificate_file, &self.client_key_file) {
-            (Some(_), None) => out.push(format!(
-                "{table}.client_key_file is required beside client_certificate_file"
-            )),
-            (None, Some(_)) => out.push(format!(
-                "{table}.client_certificate_file is required beside client_key_file"
-            )),
-            _ => {}
-        }
+        out.extend(
+            self.removals(table)
+                .removals()
+                .iter()
+                .map(ToString::to_string),
+        );
         if self.assertion_audience == AssertionAudience::Issuer && self.issuer.is_empty() {
             out.push(format!(
                 "{table}.issuer is required by assertion_audience = \"issuer\""
@@ -619,25 +688,6 @@ impl OauthSection {
             }
         }
         out
-    }
-
-    /// Adds to `out` a certificate, key or roots file the table names beside
-    /// the product's built TLS configuration, which carries its own.
-    fn presented_problems(&self, table: &str, out: &mut Vec<String>) {
-        for (key, set) in [
-            (
-                "client_certificate_file",
-                self.client_certificate_file.is_some(),
-            ),
-            ("client_key_file", self.client_key_file.is_some()),
-            ("ca_file", self.ca_file.is_some()),
-        ] {
-            if set {
-                out.push(format!(
-                    "{table}.{key} is set beside the product's TLS configuration, which carries its own"
-                ));
-            }
-        }
     }
 
     /// Adds to `out` the problems of the keys this table adds beside the
@@ -678,74 +728,6 @@ impl OauthSection {
             out.push(certificate_missing(table, presented, "certificate_bound"));
         }
     }
-
-    /// Returns the TLS material the table names, each file read and, with
-    /// the `fetch` feature, parsed, so a bad file refuses the start; or the
-    /// product's built configuration `presented`, beside which the table
-    /// names no TLS file.
-    fn tls(&self, presented: Option<PresentedTls>) -> Result<Tls, ConfigError> {
-        if let Some(presented) = presented {
-            let named = [
-                (
-                    "credentials.oauth.client_certificate_file",
-                    self.client_certificate_file.is_some(),
-                ),
-                (
-                    "credentials.oauth.client_key_file",
-                    self.client_key_file.is_some(),
-                ),
-                ("credentials.oauth.ca_file", self.ca_file.is_some()),
-            ];
-            if let Some((key, _)) = named.into_iter().find(|(_, set)| *set) {
-                return Err(ConfigError::Exclusive {
-                    left: key,
-                    right: "the product's TLS configuration",
-                });
-            }
-            return Ok(Tls {
-                presented: Some(presented),
-                ..Tls::default()
-            });
-        }
-        let read = |path: &Path| {
-            std::fs::read(path).map_err(|source| ConfigError::SecretFile {
-                path: path.to_path_buf(),
-                source,
-            })
-        };
-        let root_certificates = self.ca_file.as_deref().map(read).transpose()?;
-        let identity = match (&self.client_certificate_file, &self.client_key_file) {
-            (None, None) => None,
-            (Some(_), None) => {
-                return Err(ConfigError::Missing {
-                    key: "credentials.oauth.client_key_file",
-                });
-            }
-            (None, Some(_)) => {
-                return Err(ConfigError::Missing {
-                    key: "credentials.oauth.client_certificate_file",
-                });
-            }
-            (Some(certificate), Some(key)) => {
-                let mut pem = read(certificate)?;
-                pem.push(b'\n');
-                pem.extend(read(key)?);
-                Some(std::sync::Arc::new(secrecy::SecretSlice::from(pem)))
-            }
-        };
-        let tls = Tls {
-            root_certificates,
-            identity,
-            presented: None,
-        };
-        #[cfg(feature = "fetch")]
-        crate::metadata::Http::with_tls(Duration::from_millis(self.timeout_ms), &tls).map_err(
-            |source| ConfigError::Tls {
-                source: Box::new(source),
-            },
-        )?;
-        Ok(tls)
-    }
 }
 
 impl Default for OauthSection {
@@ -763,20 +745,24 @@ impl Default for OauthSection {
             scope: String::new(),
             resource: String::new(),
             audience: String::new(),
-            refresh_margin_ms: 30_000,
-            timeout_ms: 10_000,
+            refresh_margin: Duration::from_secs(30),
+            timeout: Duration::from_secs(10),
             assertion_audience: AssertionAudience::TokenEndpoint,
-            ca_file: None,
-            client_certificate_file: None,
-            client_key_file: None,
+            tls: TlsClientSection::default(),
             dpop_key_file: None,
             certificate_bound: false,
             security_profile: ProfileKind::OAuth2,
             mtls_alias_hosts: Vec::new(),
             previous_private_key_file: None,
-            previous_key_overlap_ms: 0,
+            previous_key_overlap: Duration::ZERO,
             next_private_key_file: None,
             authorization_details: String::new(),
+            ca_file: Removed::default(),
+            client_certificate_file: Removed::default(),
+            client_key_file: Removed::default(),
+            refresh_margin_ms: Removed::default(),
+            timeout_ms: Removed::default(),
+            previous_key_overlap_ms: Removed::default(),
         }
     }
 }
@@ -798,6 +784,7 @@ impl std::fmt::Debug for OauthSection {
             .field("scope", &self.scope)
             .field("resource", &self.resource)
             .field("audience", &self.audience)
+            .field("tls", &self.tls)
             .field("dpop_key_file", &self.dpop_key_file)
             .field("certificate_bound", &self.certificate_bound)
             .field("security_profile", &self.security_profile)
@@ -817,6 +804,6 @@ fn certificate_missing(table: &str, presented: bool, what: &str) -> String {
             "{table}: {what} needs a client certificate the product's TLS configuration presents"
         )
     } else {
-        format!("{table}.client_certificate_file is required by {what}")
+        format!("{table}.tls.client_identity_file is required by {what}")
     }
 }

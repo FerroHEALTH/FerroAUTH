@@ -24,9 +24,9 @@
 mod assertion_key;
 mod attributes;
 mod audit;
-mod basic;
 #[cfg(feature = "fetch")]
-mod ca_file;
+mod auth_tls;
+mod basic;
 mod classify;
 #[cfg(feature = "fetch")]
 mod client;

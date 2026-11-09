@@ -20,9 +20,9 @@
 //! [`TokenSource`].
 //!
 //! Each call answers one request: nothing is cached. The call has its own
-//! budget, `timeout_ms` (2 s by default), which bounds the token fetch and the
+//! budget, `timeout` (`2s` by default), which bounds the token fetch and the
 //! Graph round trip together and lies outside a product's lookup budget, and
-//! the answer is read up to `max_response_bytes`. A refusal is
+//! the answer is read up to `max_response_size`. A refusal is
 //! [`AdapterError::Status`] with the status, a redacted excerpt of the error
 //! body ([`BodyExcerpt`]) and, on a `429`, the
 //! `Retry-After`; a call past the budget is [`AdapterError::Timeout`]; an
@@ -66,8 +66,8 @@ pub const NAME: &str = "idp-entra";
 ///
 /// ```toml
 /// base_url = "https://graph.microsoft.com/v1.0"
-/// timeout_ms = 2000
-/// max_response_bytes = 1048576
+/// timeout = "2s"
+/// max_response_size = "1MiB"
 /// security_enabled_only = false
 ///
 /// [credentials]
@@ -83,10 +83,10 @@ pub struct GraphSection {
     /// query or a fragment.
     pub base_url: String,
     /// The adapter's budget for one call, the token fetch and the Graph round
-    /// trip together, in milliseconds.
-    pub timeout_ms: u64,
-    /// The largest Graph answer read, in bytes.
-    pub max_response_bytes: usize,
+    /// trip together; never zero.
+    pub timeout: ferrohealth_config::units::Duration,
+    /// The largest Graph answer read; never zero.
+    pub max_response_size: ferrohealth_config::units::ByteSize,
     /// The `securityEnabledOnly` parameter of `getMemberObjects`: `false`
     /// reads every group, administrative unit and directory role, `true`
     /// only the security groups.
@@ -94,16 +94,24 @@ pub struct GraphSection {
     /// The client credentials grant the Graph token is obtained with, under
     /// the Graph permission the deployment grants.
     pub credentials: OauthSection,
+    /// Removed: `timeout`, a duration.
+    #[serde(skip_serializing)]
+    pub timeout_ms: ferrohealth_config::removed::Removed,
+    /// Removed: `max_response_size`, a size.
+    #[serde(skip_serializing)]
+    pub max_response_bytes: ferrohealth_config::removed::Removed,
 }
 
 impl Default for GraphSection {
     fn default() -> Self {
         Self {
             base_url: String::from("https://graph.microsoft.com/v1.0"),
-            timeout_ms: 2000,
-            max_response_bytes: 1024 * 1024,
+            timeout: ferrohealth_config::units::Duration::from_secs(2),
+            max_response_size: ferrohealth_config::units::ByteSize::from_mib(1),
             security_enabled_only: false,
             credentials: OauthSection::default(),
+            timeout_ms: ferrohealth_config::removed::Removed::default(),
+            max_response_bytes: ferrohealth_config::removed::Removed::default(),
         }
     }
 }
@@ -232,9 +240,28 @@ impl GraphSection {
                 },
             });
         }
+        let mut removals = self.credentials.removals("graph.credentials");
+        removals.replaced(
+            self.timeout_ms,
+            "graph.timeout_ms",
+            "graph.timeout, a duration such as `2s`",
+        );
+        removals.replaced(
+            self.max_response_bytes,
+            "graph.max_response_bytes",
+            "graph.max_response_size, a size such as `1MiB`",
+        );
+        removals
+            .finish()
+            .map_err(|source| GraphError::Credentials {
+                source: ConfigError::RemovedKeys(source),
+            })?;
+        // NOTE: no specification governs this: our own design; a bound past the address
+        // space bounds nothing more than the address space does, so it saturates.
+        let max_response_bytes = usize::try_from(self.max_response_size).unwrap_or(usize::MAX);
         for (key, zero) in [
-            ("timeout_ms", self.timeout_ms == 0),
-            ("max_response_bytes", self.max_response_bytes == 0),
+            ("timeout", self.timeout.is_zero()),
+            ("max_response_size", max_response_bytes == 0),
         ] {
             if zero {
                 return Err(GraphError::Zero { key });
@@ -245,14 +272,14 @@ impl GraphSection {
             .resolve()
             .map_err(|source| GraphError::Credentials { source })?;
         let tokens = TokenSource::new(grant).map_err(|source| GraphError::Token { source })?;
-        let timeout = Duration::from_millis(self.timeout_ms);
+        let timeout = self.timeout.get();
         let http = Http::new(timeout).map_err(|source| GraphError::Http { source })?;
         Ok(GraphAdapter {
             base,
             tokens,
             http,
             timeout,
-            max_response_bytes: self.max_response_bytes,
+            max_response_bytes,
             body: if self.security_enabled_only {
                 br#"{"securityEnabledOnly":true}"#
             } else {

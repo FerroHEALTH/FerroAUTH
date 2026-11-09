@@ -416,7 +416,7 @@ async fn a_graph_slower_than_the_budget_is_groups_unavailable_carrying_the_timeo
         .set_delay(Duration::from_millis(800));
     graph.members("users", LOGIN, slow, 1).await;
     let section = GraphSection {
-        timeout_ms: 100,
+        timeout: ferrohealth_config::units::Duration::from_millis(100),
         ..graph.section()
     };
     let started = Instant::now();
@@ -437,7 +437,7 @@ async fn a_graph_slower_than_the_budget_is_groups_unavailable_carrying_the_timeo
 }
 
 // NOTE: no specification governs the bound: our own design, in which an answer past
-// `max_response_bytes` is never read.
+// `max_response_size` is never read.
 #[tokio::test]
 async fn an_answer_past_the_size_bound_is_unreadable() -> Outcome2 {
     let graph = Graph::start().await;
@@ -446,7 +446,7 @@ async fn an_answer_past_the_size_bound_is_unreadable() -> Outcome2 {
     }));
     graph.members("users", LOGIN, large, 1).await;
     let section = GraphSection {
-        max_response_bytes: 256,
+        max_response_size: ferrohealth_config::units::ByteSize::from_bytes(256),
         ..graph.section()
     };
     let error = adapter_failure(
@@ -556,21 +556,21 @@ fn a_graph_table_breaking_a_rule_fails_to_build() {
         ),
         (
             GraphSection {
-                timeout_ms: 0,
+                timeout: ferrohealth_config::units::Duration::ZERO,
                 ..good.clone()
             },
-            |error| matches!(error, GraphError::Zero { key: "timeout_ms" }),
+            |error| matches!(error, GraphError::Zero { key: "timeout" }),
         ),
         (
             GraphSection {
-                max_response_bytes: 0,
+                max_response_size: ferrohealth_config::units::ByteSize::ZERO,
                 ..good.clone()
             },
             |error| {
                 matches!(
                     error,
                     GraphError::Zero {
-                        key: "max_response_bytes"
+                        key: "max_response_size"
                     }
                 )
             },
@@ -592,7 +592,7 @@ fn a_graph_table_breaking_a_rule_fails_to_build() {
 fn a_graph_table_reads_from_toml_and_refuses_an_unknown_key() {
     let read: GraphSection = toml::from_str(
         r#"
-timeout_ms = 1500
+timeout = "1500ms"
 security_enabled_only = true
 
 [credentials]
@@ -601,7 +601,10 @@ client_id = "synthetic-graph-reader"
 "#,
     )
     .expect("the table reads");
-    assert_eq!(1500, read.timeout_ms);
+    assert_eq!(
+        ferrohealth_config::units::Duration::from_millis(1500),
+        read.timeout
+    );
     assert!(read.security_enabled_only);
     assert_eq!("https://graph.microsoft.com/v1.0", read.base_url);
     assert!(toml::from_str::<GraphSection>("claim_sources = true").is_err());
@@ -668,7 +671,7 @@ async fn the_p99_of_an_overage_request_stays_within_the_adapter_timeout() -> Out
         .set_delay(Duration::from_millis(50));
     graph.members("users", LOGIN, delayed, 100).await;
     let section = graph.section();
-    let budget = Duration::from_millis(section.timeout_ms);
+    let budget = section.timeout.get();
     let binding = binding_with(&member_of_group_2(), &section);
     let caller = person(&graph.overage());
     let mut latencies = Vec::with_capacity(REQUESTS);

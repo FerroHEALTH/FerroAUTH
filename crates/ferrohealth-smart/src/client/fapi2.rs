@@ -438,10 +438,20 @@ mod tests {
     #[test]
     fn a_mutual_tls_alias_is_taken_on_the_issuer_or_a_named_host() {
         let issuer: url::Url = "https://as.example.org".parse().expect("a URL");
-        let grant = ClientCredentials::with_mutual_tls(
+        let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+            rustls::crypto::aws_lc_rs::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .expect("the default versions")
+        .with_root_certificates(rustls::RootCertStore::empty())
+        .with_no_client_auth();
+        let grant = ClientCredentials::with_presented_tls(
             Endpoint::Issuer(issuer.to_string()),
             String::from("gateway"),
-            std::sync::Arc::new(secrecy::SecretSlice::from(Vec::new())),
+            crate::client::PresentedTls::new(
+                std::sync::Arc::new(config),
+                Some(rustls::pki_types::CertificateDer::from(Vec::new())),
+            ),
             false,
         );
         let metadata = |alias: &str| ServerMetadata {

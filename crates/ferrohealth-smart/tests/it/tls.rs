@@ -51,11 +51,6 @@ pub(crate) struct MutualTls {
 }
 
 impl MutualTls {
-    /// Returns the client certificate and its key as one PEM document.
-    pub(crate) fn identity(&self) -> Vec<u8> {
-        format!("{}\n{}", self.client_certificate_pem, self.client_key_pem).into_bytes()
-    }
-
     /// Returns every request the endpoint answered.
     pub(crate) fn seen(&self) -> Vec<Seen> {
         self.seen
@@ -334,5 +329,94 @@ async fn serve_issuer(
                 drop(stream.shutdown().await);
             }
         }));
+    }
+}
+
+/// The configuration a product builds over the PEM trust roots `ca_pem`,
+/// presenting the PEM `identity` (certificate, key) when one is given, as
+/// `ferrohealth-server`'s `TlsClient::client_config` would.
+pub(crate) fn presented_pem(
+    ca_pem: &str,
+    identity: Option<(&str, &str)>,
+) -> Result<ferrohealth_smart::client::PresentedTls, Box<dyn std::error::Error + Send + Sync>> {
+    use rustls::pki_types::pem::PemObject as _;
+    let mut roots = RootCertStore::empty();
+    for certificate in CertificateDer::pem_slice_iter(ca_pem.as_bytes()) {
+        roots.add(certificate?)?;
+    }
+    let builder = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::aws_lc_rs::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()?
+    .with_root_certificates(roots);
+    let Some((certificate, key)) = identity else {
+        return Ok(ferrohealth_smart::client::PresentedTls::new(
+            Arc::new(builder.with_no_client_auth()),
+            None,
+        ));
+    };
+    let certificate = CertificateDer::from_pem_slice(certificate.as_bytes())?;
+    let key = PrivateKeyDer::from_pem_slice(key.as_bytes())?;
+    let config = builder.with_client_auth_cert(vec![certificate.clone()], key)?;
+    Ok(ferrohealth_smart::client::PresentedTls::new(
+        Arc::new(config),
+        Some(certificate),
+    ))
+}
+
+/// A product's reader of a `tls` table in the tests: the PEM files it names
+/// read into [`presented_pem`]; the identity file holds the certificate and
+/// then the key.
+#[derive(Debug, Default)]
+pub(crate) struct PemTls;
+
+impl ferrohealth_smart::config::TlsBuilder for PemTls {
+    fn build(
+        &self,
+        _key: &str,
+        section: &ferrohealth_config::tls::TlsClientSection,
+    ) -> Result<ferrohealth_smart::client::PresentedTls, Box<dyn std::error::Error + Send + Sync>>
+    {
+        let roots = match &section.trust_roots_file {
+            Some(path) => std::fs::read_to_string(path)?,
+            None => String::new(),
+        };
+        let identity = match &section.client_identity_file {
+            Some(path) => Some(std::fs::read_to_string(path)?),
+            None => None,
+        };
+        let split = identity.as_deref().map(|pem| {
+            let at = pem.find("-----BEGIN PRIVATE KEY-----").unwrap_or(pem.len());
+            pem.split_at(at)
+        });
+        presented_pem(&roots, split)
+    }
+}
+
+/// The configuration a product builds over the PEM trust roots `ca_pem`,
+/// presenting `identity`, a PEM certificate followed by its key.
+pub(crate) fn presented_identity(
+    ca_pem: &str,
+    identity: &str,
+) -> Result<ferrohealth_smart::client::PresentedTls, Box<dyn std::error::Error + Send + Sync>> {
+    let at = identity
+        .find("-----BEGIN PRIVATE KEY-----")
+        .ok_or("the identity holds a PKCS #8 key")?;
+    presented_pem(ca_pem, Some(identity.split_at(at)))
+}
+
+/// A product's reader of a `tls` table in the tests that hands back one
+/// configuration it built already.
+#[derive(Debug)]
+pub(crate) struct Built(pub(crate) ferrohealth_smart::client::PresentedTls);
+
+impl ferrohealth_smart::config::TlsBuilder for Built {
+    fn build(
+        &self,
+        _key: &str,
+        _section: &ferrohealth_config::tls::TlsClientSection,
+    ) -> Result<ferrohealth_smart::client::PresentedTls, Box<dyn std::error::Error + Send + Sync>>
+    {
+        Ok(self.0.clone())
     }
 }
