@@ -599,7 +599,7 @@ from it, so the four products' records read the same:
 | `request_id` | the request id the product minted or echoed, `-` when none |
 | `principal` | the token's `sub`, the Basic user-id, `-` for an open route, `unauthenticated` for a refused credential |
 | `client` | the client the issuer profile's client claims name, `-` when none |
-| `kind` | the caller kind (3.14): `patient`, `system`, `delegated`, `representative`, `person`, `guest`, `external_person` or `external_organisation`, `-` for an open route or a refused credential; `scripts/checks/caller-kinds.sh` holds this list to `CallerKind::as_str` |
+| `kind` | the caller kind (3.14): `patient`, `system`, `delegated`, `representative`, `person`, `patient_representative`, `guest`, `external_person` or `external_organisation`, `-` for an open route or a refused credential; `scripts/checks/caller-kinds.sh` holds this list to `CallerKind::as_str` |
 | `via` | `bearer`, `basic`, `open` or `none` |
 | `issuer` | the issuer that signed the token, `-` otherwise |
 | `binding` | what the login resolved to (3.17): `party`, `wrong_marker`, `unbound`, `ambiguous`, `inactive`, `abandoned`, `deprovisioned`, `key_claim_missing` or `groups_unavailable`, `source_unavailable` when the party source failed, `-` when no party binding looked the caller up |

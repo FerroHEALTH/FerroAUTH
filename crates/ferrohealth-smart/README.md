@@ -49,9 +49,10 @@ ferrohealth-smart = { version = "=0.13.1", features = ["axum", "openehr"] }
   set over it: the token types, the required claims, the scope claim, the
   person key, the client claims, the app-only and guest markers, the
   first-party clients and the delegates. `Caller::kind` answers `Patient`,
-  `System`, `Delegated`, `Representative`, `Person`, `Guest`,
-  `ExternalPerson` or `ExternalOrganisation`, the last two only on a
-  federation issuer, and a token that matches no step is refused as
+  `System`, `Delegated`, `Representative`, `Person`,
+  `PatientRepresentative`, `Guest`, `ExternalPerson` or
+  `ExternalOrganisation`, the patient's representative only on a patients
+  issuer that reads one and the last two only on a federation issuer, and a token that matches no step is refused as
   `Rejection::Unclassified`. A Basic credential is a person's, never a
   system's, and carries no `system/` scope: a Basic user granted one fails
   to load.
