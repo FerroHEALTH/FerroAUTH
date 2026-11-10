@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.16.3] - 2026-11-10
+
 ### Added
 
 - `client::outbound::OutboundClient::builder` starts an `OutboundBuilder`,
@@ -1851,7 +1853,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.2...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.3...HEAD
+[0.16.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.2...ferrohealth-smart-v0.16.3
 [0.16.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.1...ferrohealth-smart-v0.16.2
 [0.16.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.0...ferrohealth-smart-v0.16.1
 [0.16.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.15.1...ferrohealth-smart-v0.16.0
