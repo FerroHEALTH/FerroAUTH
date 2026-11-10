@@ -230,9 +230,11 @@ check_version() {
 
 check_changelog_structure() { bash scripts/checks/changelog-structure.sh "$CHANGELOG"; }
 
-# The crate's public API against its newest version on crates.io: a break
-# needs a minor bump (https://doc.rust-lang.org/cargo/reference/semver.html),
-# which keeps a caret requirement on this crate safe.
+# The crate's public API and its public dependencies against its newest
+# version on crates.io: a break needs a minor bump
+# (https://doc.rust-lang.org/cargo/reference/semver.html), which keeps a
+# caret requirement on this crate safe. A crate with no release yet is named
+# and passes.
 check_semver() { bash scripts/checks/semver.sh "$CRATE"; }
 
 # The cut refreshes the link references: [Unreleased] compares from the tag
