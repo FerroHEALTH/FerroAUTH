@@ -378,6 +378,57 @@ async fn the_caller_carries_the_name_id_with_its_format() -> Outcome {
     Ok(())
 }
 
+/// The request message's UUID a contact point relays (eHDSI `NCPeH`
+/// Components Specifications 10.0.0 §3.5, the WS-Addressing `MessageID`).
+const MESSAGE_ID: &str = "urn:uuid:98f4bf0c-f21a-48bc-8518-958c9d9dc4c1";
+
+/// Returns the contact-point token relaying `message_id` under the `ehdsi`
+/// mapping's default claim.
+fn relaying(message_id: &str) -> Value {
+    let mut claims = token();
+    claims
+        .pointer_mut("/ehdsi")
+        .and_then(Value::as_object_mut)
+        .expect("the ehdsi object")
+        .insert(String::from("message_id"), json!(message_id));
+    claims
+}
+
+#[tokio::test]
+async fn the_caller_carries_the_relayed_message_id_and_never_renders_it() -> Outcome {
+    let caller = Harness::new().admit(&relaying(MESSAGE_ID)).await?;
+    let message_id = caller.message_id().ok_or("a message id")?;
+    assert_eq!(MESSAGE_ID, message_id.as_str());
+    let CallerKind::ExternalPerson(person) = caller.kind() else {
+        panic!("an external person: {caller:?}");
+    };
+    assert_eq!(
+        Some(MESSAGE_ID),
+        person.field(Field::MessageId).and_then(Attribute::text),
+        "the ehdsi mapping reads ehdsi.message_id"
+    );
+    for rendered in [format!("{message_id:?}"), format!("{caller:?}")] {
+        assert!(!rendered.contains("98f4bf0c"), "{rendered}");
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_contact_point_token_without_a_message_id_is_admitted() -> Outcome {
+    let caller = Harness::new().admit(&token()).await?;
+    assert!(caller.message_id().is_none());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_message_id_with_a_control_character_or_too_long_is_refused() {
+    let h = Harness::new();
+    let long = "a".repeat(257);
+    for bad in ["urn:uuid:1\u{0}2", "urn:uuid:\u{202e}12", long.as_str()] {
+        assert!(h.admit(&relaying(bad)).await.is_err(), "{bad:?}");
+    }
+}
+
 // NOTE: eHDSI SAML Profile 10.0.0 §2.1: the @Format "MUST be" one of three URNs.
 #[tokio::test]
 async fn each_of_the_three_formats_is_admitted_and_another_refused() -> Outcome {

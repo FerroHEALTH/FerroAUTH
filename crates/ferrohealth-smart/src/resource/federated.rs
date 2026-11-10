@@ -6,6 +6,7 @@
 
 use crate::federation::ConsentReference;
 use crate::federation::CorrelationId;
+use crate::federation::MessageId;
 use crate::federation::contact::NameId;
 use crate::resource::Caller;
 
@@ -41,5 +42,16 @@ impl Caller {
         self.kind()
             .external()
             .and_then(crate::federation::External::name_id)
+    }
+
+    /// Returns the UUID of the cross-border request message, for an
+    /// external person admitted through a MyHealth@EU contact point whose
+    /// token relays it (`message_id`), to join the contact point's audit
+    /// entry.
+    #[must_use]
+    pub fn message_id(&self) -> Option<MessageId> {
+        self.kind()
+            .external()
+            .and_then(crate::federation::External::message_id)
     }
 }
