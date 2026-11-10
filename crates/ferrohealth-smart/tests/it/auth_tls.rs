@@ -178,13 +178,7 @@ fn a_table_the_builder_refuses_refuses_the_start_by_its_key() {
         .resolve_with_tls(&PemTls)
         .expect_err("refused");
     assert!(
-        matches!(
-            err,
-            ConfigError::TlsBuild {
-                key: "auth.tls",
-                ..
-            }
-        ),
+        matches!(&err, ConfigError::TlsBuild { key, .. } if key == "auth.tls"),
         "{err:?}"
     );
     assert!(err.to_string().contains("auth.tls"), "{err}");

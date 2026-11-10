@@ -68,6 +68,8 @@ mod outbound;
 mod outbound_builder;
 #[cfg(feature = "fetch")]
 mod outbound_shared_tls;
+#[cfg(all(feature = "fetch", feature = "server-tls"))]
+mod outbound_tls_key;
 mod party;
 #[cfg(feature = "fetch")]
 mod person;
