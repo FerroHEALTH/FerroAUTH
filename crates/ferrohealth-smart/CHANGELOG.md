@@ -11,6 +11,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The router example of the README passes the `IssuerKind` that
+  `Settings::new` takes, and the README's examples compile as doctests, so
+  the crate page shows code that builds.
+
 ## [0.17.1] - 2026-11-10
 
 ### Added
