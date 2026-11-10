@@ -11,6 +11,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.17.0] - Unreleased
+
+### Fixed
+
+- Breaking: an outbound client's TLS refusal names the key the operator
+  wrote. `client::outbound::OutboundClient::build`, `build_sharing_tls` and
+  `OutboundBuilder::build` hand the endpoint table's `tls` table to the
+  product's `config::TlsBuilder` at `<key>.tls`, so an unreadable or empty
+  `trust_roots_file` is named `cdr.tls.trust_roots_file` and an identity
+  without a certificate `cdr.tls.client_identity`, where 0.16 named
+  `cdr.trust_roots_file`. `config::ConfigError::TlsBuild::key` is a
+  `String` in place of a `&'static str`, since the key is computed. Upgrade:
+  a product that matches the field against a literal compares it instead
+  (`TlsBuild { key, .. } if key == "auth.tls"`) (#427).
+
 ## [0.16.3] - 2026-11-10
 
 ### Added

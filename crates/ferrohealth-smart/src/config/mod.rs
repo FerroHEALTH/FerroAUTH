@@ -267,8 +267,9 @@ pub enum ConfigError {
     /// The product's [`TlsBuilder`] refused a `tls` table.
     #[error("{key} is refused")]
     TlsBuild {
-        /// The dotted key of the table.
-        key: &'static str,
+        /// The dotted key of the table, such as `auth.tls` or, for an
+        /// outbound endpoint table at `cdr`, `cdr.tls`.
+        key: String,
         /// What the builder reported.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
@@ -697,12 +698,15 @@ pub trait TlsBuilder {
 /// Builds `section` at `key` with `builder`, naming the key in a refusal.
 pub(crate) fn build_tls(
     builder: &dyn TlsBuilder,
-    key: &'static str,
+    key: &str,
     section: &TlsClientSection,
 ) -> Result<crate::client::PresentedTls, ConfigError> {
     builder
         .build(key, section)
-        .map_err(|source| ConfigError::TlsBuild { key, source })
+        .map_err(|source| ConfigError::TlsBuild {
+            key: key.to_owned(),
+            source,
+        })
 }
 
 /// The [`TlsBuilder`] over `ferrohealth-server`'s `tls_client::TlsClient`:

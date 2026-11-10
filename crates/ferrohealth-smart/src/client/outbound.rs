@@ -255,7 +255,8 @@ impl OutboundBuilder<'_> {
             source: Box::new(source),
         };
         let url = endpoint.validate().map_err(refused)?;
-        let presented = crate::config::build_tls(tls, key, &endpoint.tls).map_err(refused)?;
+        let presented =
+            crate::config::build_tls(tls, &format!("{key}.tls"), &endpoint.tls).map_err(refused)?;
         let mut builder = reqwest::Client::builder()
             .timeout(endpoint.timeout.get())
             .redirect(reqwest::redirect::Policy::none())
@@ -322,8 +323,10 @@ impl OutboundClient {
     /// Returns the client `endpoint` describes, its TLS built by `tls`.
     ///
     /// `key` is the table's dotted key (`terminology.endpoint`), which a
-    /// refusal names. The engine bounds a whole call by `timeout` and opening
-    /// the connection by `connect_timeout`, follows no redirect, and presents
+    /// refusal names, and `tls` builds the table's TLS at `<key>.tls`
+    /// (`terminology.endpoint.tls`), the key its refusals name. The engine
+    /// bounds a whole call by `timeout` and opening the connection by
+    /// `connect_timeout`, follows no redirect, and presents
     /// the TLS configuration `tls` builds from the table's `tls`. The
     /// `credentials` table resolves to [`Authorization::Basic`] or, under a
     /// client credentials grant, [`Authorization::Bearer`] over a token
