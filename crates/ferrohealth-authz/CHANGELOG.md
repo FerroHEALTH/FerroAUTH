@@ -14,7 +14,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.11.0] - Unreleased
+## [0.11.0] - 2026-11-10
 
 Releases beside `ferrohealth-smart` 0.18.0, whose `resource::Caller`,
 `client::cache::TokenSource` and `config::endpoint::RetrySection` this
@@ -263,7 +263,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.10.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.11.0...HEAD
+[0.11.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.10.0...ferrohealth-authz-v0.11.0
 [0.10.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.9.0...ferrohealth-authz-v0.10.0
 [0.9.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.8.1...ferrohealth-authz-v0.9.0
 [0.8.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.8.0...ferrohealth-authz-v0.8.1
