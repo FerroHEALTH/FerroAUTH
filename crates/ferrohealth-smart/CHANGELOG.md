@@ -11,6 +11,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `client::outbound::OutboundClient::build_sharing_tls` builds an outbound
+  client whose client credentials grant presents the connection's TLS when
+  its `oauth.tls` names no material: the trust roots and the client
+  certificate built from the endpoint table's `tls`. A mutual-TLS
+  `client_auth` then authenticates with the certificate the connection
+  presents (RFC 8705 §2), and a `certificate_bound` grant binds its tokens
+  to it (RFC 8705 §3), so the operator writes the identity once. An
+  `oauth.tls` that names material still wins, and a `certificate_bound`
+  grant whose certificate is not the connection's is refused with the new
+  `OutboundError::CertificateBinding`. `CredentialsSection::resolve_sharing_tls`
+  and `OauthSection::resolve_sharing_tls` resolve a table the same way over a
+  configuration the product built. `OutboundClient::build` is unchanged
+  (#417).
+
 ## [0.16.1] - 2026-11-09
 
 ### Added

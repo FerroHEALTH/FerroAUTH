@@ -18,7 +18,10 @@ use url::Url;
 
 use crate::basic::Credential;
 use crate::client::CallError;
+use crate::client::ClientCredentials;
+use crate::client::PresentedTls;
 use crate::client::TokenError;
+use crate::client::binding::TokenBinding;
 use crate::client::cache::TokenSource;
 use crate::client::dpop;
 use crate::config::ConfigError;
@@ -69,6 +72,24 @@ pub enum OutboundError {
         #[source]
         source: Box<TokenError>,
     },
+    /// The grant binds its tokens to a client certificate the connection to
+    /// the integration does not present, so the integration would refuse
+    /// every token it is issued (RFC 8705 §3).
+    #[error("the grant of {key} binds its tokens to a certificate the connection does not present")]
+    CertificateBinding {
+        /// The endpoint table's dotted key.
+        key: &'static str,
+    },
+}
+
+/// Where the grant of an outbound client takes its TLS from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GrantTls {
+    /// The grant's own `oauth.tls` table only.
+    Own,
+    /// The grant's own `oauth.tls` table when it names material, the
+    /// connection's TLS otherwise.
+    Shared,
 }
 
 /// Why a call through [`OutboundClient::send`] got no answer.
@@ -115,6 +136,45 @@ impl OutboundClient {
         key: &'static str,
         tls: &dyn TlsBuilder,
     ) -> Result<Self, OutboundError> {
+        Self::assemble(endpoint, key, tls, GrantTls::Own)
+    }
+
+    /// Returns the client `endpoint` describes, as
+    /// [`OutboundClient::build`] does, except that a client credentials
+    /// grant whose `oauth.tls` names no material presents the TLS
+    /// configuration built from the table's `tls`: the connection's trust
+    /// roots and the client certificate it presents to the integration.
+    ///
+    /// A mutual-TLS `client_auth` then authenticates at the token endpoint
+    /// with the certificate the connection presents (RFC 8705 §2), and a
+    /// `certificate_bound` grant binds its tokens to it, the certificate
+    /// the integration checks every token's `cnf` against (RFC 8705 §3). An
+    /// `oauth.tls` that names material is built as [`OutboundClient::build`]
+    /// builds it.
+    ///
+    /// # Errors
+    ///
+    /// As [`OutboundClient::build`], with
+    /// [`crate::config::credentials::CredentialsSection::resolve_sharing_tls`]
+    /// resolving the credential, and [`OutboundError::CertificateBinding`]
+    /// when a `certificate_bound` grant presents another certificate than
+    /// the connection, or the connection presents none.
+    pub fn build_sharing_tls(
+        endpoint: &EndpointSection,
+        key: &'static str,
+        tls: &dyn TlsBuilder,
+    ) -> Result<Self, OutboundError> {
+        Self::assemble(endpoint, key, tls, GrantTls::Shared)
+    }
+
+    /// Returns the client `endpoint` describes, its grant's TLS taken as
+    /// `grant_tls` says.
+    fn assemble(
+        endpoint: &EndpointSection,
+        key: &'static str,
+        tls: &dyn TlsBuilder,
+        grant_tls: GrantTls,
+    ) -> Result<Self, OutboundError> {
         let refused = |source: ConfigError| OutboundError::Config {
             key,
             source: Box::new(source),
@@ -131,19 +191,24 @@ impl OutboundClient {
         let http = builder
             .build()
             .map_err(|source| OutboundError::Build { key, source })?;
-        let authorization = match endpoint
-            .credentials
-            .resolve_with_tls(tls)
-            .map_err(refused)?
-        {
+        let credential = match grant_tls {
+            GrantTls::Own => endpoint.credentials.resolve_with_tls(tls),
+            GrantTls::Shared => endpoint.credentials.resolve_sharing_tls(tls, &presented),
+        };
+        let authorization = match credential.map_err(refused)? {
             None => None,
             Some(Outbound::Basic(credential)) => Some(Authorization::Basic(credential)),
-            Some(Outbound::Oauth(grant)) => Some(Authorization::Bearer(
-                TokenSource::new(*grant).map_err(|source| OutboundError::Token {
-                    key,
-                    source: Box::new(source),
-                })?,
-            )),
+            Some(Outbound::Oauth(grant)) => {
+                if grant_tls == GrantTls::Shared && !binding_agrees(&grant, &presented) {
+                    return Err(OutboundError::CertificateBinding { key });
+                }
+                Some(Authorization::Bearer(TokenSource::new(*grant).map_err(
+                    |source| OutboundError::Token {
+                        key,
+                        source: Box::new(source),
+                    },
+                )?))
+            }
         };
         Ok(Self {
             url,
@@ -257,5 +322,23 @@ impl OutboundClient {
                     other => SendError::Token(other),
                 }),
         }
+    }
+}
+
+/// Returns whether `grant` binds its tokens to nothing, to a `DPoP` key, or
+/// to the certificate `connection` presents.
+fn binding_agrees(grant: &ClientCredentials, connection: &PresentedTls) -> bool {
+    // NOTE: RFC 8705 §3, resource requests "MUST be made over a mutually
+    // authenticated TLS connection using the same certificate" as the token endpoint.
+    match grant.token_binding {
+        Some(TokenBinding::Certificate) => {
+            let granted = grant
+                .tls
+                .presented
+                .as_ref()
+                .and_then(PresentedTls::certificate);
+            granted.is_some() && granted == connection.certificate()
+        }
+        _ => true,
     }
 }
