@@ -9,16 +9,18 @@ depend on them: `crates/ferrohealth-smart` as `ferrohealth-smart`,
 `crates/ferrohealth-session` as `ferrohealth-session`. All are BUSL-1.1.
 Published versions are immutable, so version hygiene is a hard rule.
 
-## Two version lines
+## Three version lines
 
 The workspace `version` in the root `Cargo.toml` is `ferrohealth-smart`'s
-version and its release tag `ferrohealth-smart-vX.Y.Z` (0.1.0 to 0.6.0 were
-tagged `vX.Y.Z`; those tags stay); it inherits it (`version.workspace =
-true`), and its changelog is `crates/ferrohealth-smart/CHANGELOG.md`. `ferrohealth-authz` keeps its own
-`[package] version`, released by the tag `ferrohealth-authz-vX.Y.Z`, with its
-own `crates/ferrohealth-authz/CHANGELOG.md`. For each, the tag, the crate and
-the changelog section always agree (`scripts/checks/crate-version-guard.sh`,
-`scripts/release/plan.sh`).
+version, and its release tag is `ferrohealth-smart-vX.Y.Z` (0.1.0 to 0.6.0
+were tagged `vX.Y.Z`; those tags stay). The crate inherits it
+(`version.workspace = true`), and its changelog is
+`crates/ferrohealth-smart/CHANGELOG.md`. `ferrohealth-authz` and
+`ferrohealth-session` each keep their own `[package] version`, released by
+the tags `ferrohealth-authz-vX.Y.Z` and `ferrohealth-session-vX.Y.Z`, with
+their own `crates/<crate>/CHANGELOG.md`. For each crate, the tag, the crate
+and the changelog section always agree
+(`scripts/checks/crate-version-guard.sh`, `scripts/release/plan.sh`).
 
 ## The bump rule
 
@@ -39,7 +41,22 @@ the changelog section always agree (`scripts/checks/crate-version-guard.sh`,
   only because a patch release never breaks the public API.
 - A pull request that breaks a public API says so in its body and its
   CHANGELOG entry, naming what a product changes; while the line is `0.x`,
-  such a release moves the minor version.
+  such a release moves the minor version. The Cargo Book, "SemVer
+  Compatibility", is the authority on what breaks
+  (<https://doc.rust-lang.org/cargo/reference/semver.html>): for `0.y.z` it
+  counts a change of `y` as major and of `z` as minor, since only the
+  left-most non-zero component is incompatible.
+- A public dependency moved to another compatibility line is a breaking
+  change: the types the crate exposes from it change with it (The Cargo
+  Book, "SemVer Compatibility"). A public dependency is a `ferrohealth-*`
+  crate or a member of this workspace
+  (`scripts/checks/lib/public-deps.sh`); the `ferrohealth-smart`
+  requirement of `ferrohealth-authz` and `ferrohealth-session` is one.
+  `cargo-semver-checks` cannot see such a move, since its README lists
+  breaking type changes, "for example in the type of a field or function
+  parameter", as not yet detected, so `crate-version-guard.sh` and
+  `semver.sh` compare the caret line of each such requirement themselves
+  and require the dependant's version to leave its line.
 - `ferrohealth-authz` takes `ferrohealth-smart` by a caret requirement on
   the newest release it needs, like any shared crate on another (since
   `ferrohealth-authz` 0.2.2), so a `ferrohealth-smart` patch needs no
@@ -59,15 +76,20 @@ line moves the minor version). An unchanged version is checked as a patch.
 `scripts/checks/semver.sh` runs it at the version pinned in
 `docs/VERSIONS.md`:
 
-- on every pull request whose change reaches a crate, over the workspace
-  (the `cargo-semver-checks` job of `ci.yml`, `semver.sh --changed` against
-  the pull request's base), so a breaking change carries its minor bump in
+- on every pull request and merge group whose change reaches a crate,
+  over the workspace (the `cargo-semver-checks` job of `ci.yml`,
+  `semver.sh --changed` against the base), so a breaking change carries its minor bump in
   the pull request that breaks. A change that reaches no crate leaves every
   API as its base has it, and is not judged: judging it would judge only
   the base, against whatever crates.io holds when the run starts;
 - in the release plan (`scripts/release/plan.sh`, which
   `scripts/release/preflight.sh` and the `plan` job of `release.yml` both
   run), over the crate the tag releases.
+
+Both runs judge all three crates and skip none; a crate with no release on
+crates.io yet is named as not judged and passes. Each crate's public
+dependencies are compared with the requirements of its newest release, and a
+judge that cannot build a crate is named apart from a judged break.
 
 A failure is answered with the minor bump and a changelog entry naming what
 a product changes, or by keeping the API; never by skipping the check.

@@ -310,19 +310,21 @@ jobs:
           FERROHEALTH_KEYCLOAK_E2E: "1"
         run: cargo nextest run -p ferrohealth-smart --locked --no-tests=fail -E 'test(/^keycloak_live::/)'
 
-  # Every crate's public API against its newest version on crates.io: a break
-  # the manifest version does not answer with a minor bump fails, so a caret
-  # requirement on these crates stays safe (scripts/checks/semver.sh).
+  # Every crate's public API against its newest version on crates.io, on a
+  # pull request and in the merge queue: a break, or a public dependency
+  # moved to another compatibility line, that the manifest version does not
+  # answer with a minor bump fails, so a caret requirement on these crates
+  # stays safe (scripts/checks/semver.sh).
   semver:
     name: cargo-semver-checks
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
     steps:
-      # The pull request's merge commit and its first parent, the base, so
-      # the check judges only a change that reaches a crate.
+      # The pull request's or the merge group's commit and its first parent,
+      # the base, so the check judges only a change that reaches a crate.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -333,7 +335,7 @@ jobs:
       - id: pin
         name: Read the cargo-semver-checks pin
         run: echo "version=$(bash scripts/checks/semver.sh --pin)" >> "$GITHUB_OUTPUT"
-      - uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-semver-checks@${{ steps.pin.outputs.version }}
       - run: bash scripts/checks/semver.sh --changed HEAD^1
