@@ -1828,6 +1828,17 @@ builds) and the authorization (Basic, or a `TokenSource`), and
 reach the integration, timed out or met a `5xx` is tried again after a wait
 that doubles from `initial_backoff` up to `max_backoff`. Any other answer
 is the caller's. No specification governs the retry rule: our own design.
+`OutboundClient::build` builds the grant's TLS from its own `oauth.tls`
+only. `OutboundClient::build_sharing_tls` is the opt-in for a grant that
+presents the connection's identity: when `oauth.tls` names no material, the
+grant takes the configuration built from the table's `tls`, so a
+mutual-TLS `client_auth` authenticates with the certificate the connection
+presents (`rfc8705 §2`) and a `certificate_bound` grant binds its tokens to
+the certificate the integration checks them against (`rfc8705 §3`). An
+`oauth.tls` that names material still wins, and a `certificate_bound` grant
+whose certificate is not the connection's is refused at build
+(`OutboundError::CertificateBinding`), since the integration would refuse
+every token it is issued.
 
 A lane that reaches its upstream on a caller's behalf declares its onward
 target beside its `oauth` table, which the onward client authenticates

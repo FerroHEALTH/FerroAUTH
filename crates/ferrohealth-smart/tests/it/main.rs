@@ -64,6 +64,8 @@ mod onward;
 mod openehr;
 #[cfg(feature = "fetch")]
 mod outbound;
+#[cfg(feature = "fetch")]
+mod outbound_shared_tls;
 mod party;
 #[cfg(feature = "fetch")]
 mod person;
