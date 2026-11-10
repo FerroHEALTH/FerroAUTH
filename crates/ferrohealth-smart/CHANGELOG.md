@@ -11,6 +11,28 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `client::outbound::OutboundClient::builder` starts an `OutboundBuilder`,
+  the one way to build an outbound client with more than its endpoint
+  table: `sharing_tls` takes the grant's TLS from the connection as
+  `build_sharing_tls` does, `clock` has the client credentials token source
+  read its tokens' expiry and renewal margin against a clock the product
+  supplies (`client::cache::Clock`), so a test moves the clock to drive a
+  renewal, and `authorizer` supplies an authorization of the product's own.
+  `OutboundClient::build` and `build_sharing_tls` are unchanged and build
+  through it (#422).
+- `client::outbound::Authorizer` is that authorization, for a grant the
+  endpoint table cannot name, such as a Nuts node token with a `DPoP` proof
+  per request: `OutboundClient::send` asks it for the headers of every try
+  from the request's method and URL, a retry included, tells it of every
+  answer, and sends a `401` once more with new headers. It is held as the
+  new `Authorization::Product`. A refusal reaches the caller as the new
+  `SendError::Authorization`, whose `AuthorizerError` carries the product's
+  error as its source, with nothing sent, and a table that names a
+  credential beside it is refused with the new
+  `OutboundError::CredentialBesideAuthorizer` (#423).
+
 ## [0.16.2] - 2026-11-10
 
 ### Added
