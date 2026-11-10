@@ -51,7 +51,7 @@ impl OauthSection {
             )),
             (true, true) => out.push(format!("{table}: set issuer or token_endpoint")),
             (false, true) => {
-                if crate::metadata::issuer_url(&self.issuer).is_err() {
+                if crate::metadata::issuer_url(self.issuer.expose()).is_err() {
                     out.push(format!(
                         "{table}.issuer is not an https issuer identifier (RFC 8414 §2)"
                     ));

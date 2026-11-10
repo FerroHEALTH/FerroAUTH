@@ -422,7 +422,7 @@ async fn metadata_without_an_introspection_endpoint_refuses_the_start()
 fn section(issuer: &str) -> AuthSection {
     AuthSection {
         issuer: vec![IssuerEntry {
-            issuer: issuer.to_owned(),
+            issuer: ferrohealth_secret::secret_url::SecretUrl::new(issuer),
             kind: Some(IssuerKind::Persons),
             audience: vec![String::from(AUDIENCE)],
             mode: AuthMode::Introspection,

@@ -22,6 +22,7 @@ use crate::config::TlsBuilder;
 use crate::config::build_tls;
 use crate::config::issuer::check_entry;
 use crate::config::read::secret;
+use crate::config::shown;
 use crate::federation::FederationSection;
 use crate::federation::Field;
 use crate::federation::person::AttributesSection;
@@ -171,13 +172,13 @@ impl AuthSection {
             self.check_attributes()?;
             for entry in self.issuers() {
                 let kind = check_entry(entry)?;
-                kinds.insert(entry.issuer.clone(), kind);
+                kinds.insert(entry.issuer.expose().to_owned(), kind);
                 match entry.mode {
                     AuthMode::Jwt => {
                         let mut settings = self.settings_of(entry, kind)?;
                         settings.tls = tls.clone();
                         settings.validate().map_err(|source| ConfigError::Issuer {
-                            issuer: entry.issuer.clone(),
+                            issuer: shown(&entry.issuer),
                             source: Box::new(source),
                         })?;
                         issuers.push(settings);
@@ -235,7 +236,7 @@ impl AuthSection {
         let trusted: BTreeSet<&str> = self
             .issuers()
             .iter()
-            .map(|entry| entry.issuer.as_str())
+            .map(|entry| entry.issuer.expose())
             .collect();
         for entry in &self.scopeless_subjects {
             if !trusted.contains(entry.issuer.as_str()) {
@@ -257,7 +258,7 @@ impl AuthSection {
             let kind = self
                 .issuers()
                 .iter()
-                .find(|entry| entry.issuer == section.issuer)
+                .find(|entry| entry.issuer.expose() == section.issuer)
                 .and_then(|entry| entry.kind);
             if kind != Some(IssuerKind::Federation) {
                 return Err(ConfigError::Federation {
@@ -273,9 +274,9 @@ impl AuthSection {
             }
         }
         for entry in self.issuers() {
-            if entry.kind == Some(IssuerKind::Federation) && !seen.contains(entry.issuer.as_str()) {
+            if entry.kind == Some(IssuerKind::Federation) && !seen.contains(entry.issuer.expose()) {
                 return Err(ConfigError::Federation {
-                    issuer: entry.issuer.clone(),
+                    issuer: shown(&entry.issuer),
                     reason: "a federation issuer needs its [[auth.federation]] table",
                 });
             }
@@ -292,7 +293,7 @@ impl AuthSection {
             let kind = self
                 .issuers()
                 .iter()
-                .find(|entry| entry.issuer == section.issuer)
+                .find(|entry| entry.issuer.expose() == section.issuer)
                 .and_then(|entry| entry.kind);
             if kind.is_none_or(|kind| kind == IssuerKind::Federation) {
                 return Err(ConfigError::Attributes {
@@ -325,7 +326,7 @@ impl AuthSection {
     fn attributes_of(&self, entry: &IssuerEntry) -> Option<AttributesSection> {
         self.attributes
             .iter()
-            .find(|section| section.issuer == entry.issuer)
+            .find(|section| section.issuer == entry.issuer.expose())
             .cloned()
     }
 
@@ -336,7 +337,7 @@ impl AuthSection {
         let profiles = self
             .issuers()
             .iter()
-            .filter_map(|entry| Some((entry.issuer.as_str(), entry.kind?, entry)))
+            .filter_map(|entry| Some((entry.issuer.expose(), entry.kind?, entry)))
             .map(|(issuer, kind, entry)| Ok((issuer, kind, profile_of(entry)?)))
             .collect::<Result<Vec<_>, ConfigError>>()?;
         crate::party::config::check_tables(&self.party, |issuer| {
@@ -356,19 +357,19 @@ impl AuthSection {
             .profile
             .federation()
             .map_err(|source| ConfigError::Issuer {
-                issuer: entry.issuer.clone(),
+                issuer: shown(&entry.issuer),
                 source: Box::new(source.into()),
             })?;
         let table = self
             .federation
             .iter()
-            .find(|section| section.issuer == entry.issuer)
+            .find(|section| section.issuer == entry.issuer.expose())
             .cloned();
         Ok(match (table, defaults) {
             (Some(table), Some(defaults)) => Some(table.over(defaults)),
             (table, None) => table,
             (None, Some(defaults)) => Some(FederationSection {
-                issuer: entry.issuer.clone(),
+                issuer: entry.issuer.expose().to_owned(),
                 ..defaults
             }),
         })
@@ -427,7 +428,7 @@ impl AuthSection {
 
     /// Returns the settings of the JWT issuer `entry`, an issuer of `kind`.
     fn settings_of(&self, entry: &IssuerEntry, kind: IssuerKind) -> Result<Settings, ConfigError> {
-        let mut settings = Settings::new(entry.issuer.clone(), String::new(), kind);
+        let mut settings = Settings::new(entry.issuer.expose(), String::new(), kind);
         settings.audience.clone_from(&entry.audience);
         settings.algorithms.clone_from(&entry.algorithms);
         settings.profile = profile_of(entry)?;
@@ -436,7 +437,7 @@ impl AuthSection {
         settings.jwks_refresh_interval = entry.jwks_refresh_interval.get();
         settings.jwks_file = (!entry.jwks_file.is_empty()).then(|| PathBuf::from(&entry.jwks_file));
         settings.timeout = entry.timeout.get();
-        settings.scopeless_subjects = self.scopeless_of(&entry.issuer);
+        settings.scopeless_subjects = self.scopeless_of(entry.issuer.expose());
         settings.role_claims = role_claims_of(entry, kind);
         settings.assurance.clone_from(&entry.assurance);
         settings.federation = self.federation_of(entry)?;
@@ -505,7 +506,7 @@ impl AuthSection {
             }
         };
         let mut settings =
-            IntrospectionSettings::new(entry.issuer.clone(), String::new(), auth, kind);
+            IntrospectionSettings::new(entry.issuer.expose(), String::new(), auth, kind);
         settings.audience.clone_from(&entry.audience);
         if !section.endpoint.is_empty() {
             settings.endpoint = Some(crate::config::read::parse_url(
@@ -517,7 +518,7 @@ impl AuthSection {
         settings.cache_max_age = section.cache_max_age.get();
         settings.cache_capacity = section.cache_capacity;
         settings.timeout = entry.timeout.get();
-        settings.scopeless_subjects = self.scopeless_of(&entry.issuer);
+        settings.scopeless_subjects = self.scopeless_of(entry.issuer.expose());
         settings.role_claims = role_claims_of(entry, kind);
         settings.profile = profile_of(entry)?;
         settings.assurance.clone_from(&entry.assurance);
@@ -536,7 +537,7 @@ impl AuthSection {
 /// Returns the profile of `entry`: its preset with its own keys over it.
 fn profile_of(entry: &IssuerEntry) -> Result<Profile, ConfigError> {
     Profile::resolve(entry.profile, &entry.profile_keys()).map_err(|source| ConfigError::Issuer {
-        issuer: entry.issuer.clone(),
+        issuer: shown(&entry.issuer),
         source: Box::new(source.into()),
     })
 }

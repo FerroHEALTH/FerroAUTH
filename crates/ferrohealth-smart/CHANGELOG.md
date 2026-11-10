@@ -11,6 +11,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.18.0] - Unreleased
+
+### Changed
+
+- Breaking: every issuer identifier a configuration table names is a
+  `ferrohealth_secret::secret_url::SecretUrl`, as every endpoint URL is
+  since 0.17, so a password in its userinfo reaches no rendering of a
+  product's configuration, serialized or `Debug`, even one rendered before
+  validation runs (RFC 3986 §3.2.1): `config::IssuerEntry::issuer`,
+  `config::onward::OnwardSection::issuer` and
+  `config::credentials::OauthSection::issuer`, whose own masking serializer
+  is gone. The start still refuses an issuer with userinfo, naming it
+  masked. Upgrade: read the identifier with `.expose()` and build one with
+  `SecretUrl::new` (#445).
+
 ## [0.17.1] - 2026-11-10
 
 ### Added

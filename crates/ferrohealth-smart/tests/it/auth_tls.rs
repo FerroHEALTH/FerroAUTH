@@ -45,7 +45,7 @@ fn section(issuer: &str, ca_file: Option<std::path::PathBuf>) -> AuthSection {
 /// The `persons` issuer table of `issuer`.
 fn entry(issuer: &str) -> IssuerEntry {
     IssuerEntry {
-        issuer: issuer.to_owned(),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(issuer),
         kind: Some(IssuerKind::Persons),
         audience: vec![AUDIENCE.to_owned()],
         ..IssuerEntry::default()

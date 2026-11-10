@@ -35,7 +35,7 @@ const TWO: &str = "https://two.example.org";
 /// `roles`, its client first-party.
 fn entry(issuer: &str, roles: &[&str]) -> IssuerEntry {
     IssuerEntry {
-        issuer: issuer.to_owned(),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(issuer),
         kind: Some(IssuerKind::Persons),
         audience: vec![String::from(AUDIENCE)],
         role_claims: Some(roles.iter().map(|&role| role.to_owned()).collect()),

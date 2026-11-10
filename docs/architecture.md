@@ -1839,7 +1839,10 @@ An outbound integration is one table, `config::endpoint::EndpointSection`:
 `url`, `timeout`, `connect_timeout`, `retry` (`max_attempts`,
 `initial_backoff`, `max_backoff`), `tls` and `credentials`, so an operator
 writes every product's integrations with the same keys. `url` is a
-`SecretUrl`, so its userinfo and query render masked. One call,
+`SecretUrl`, so its userinfo and query render masked, and so is every
+issuer identifier a table names (`[[auth.issuer]] issuer`, the onward and
+the `oauth` issuer), which renders masked even before the start refuses an
+issuer with userinfo (RFC 3986 §3.2.1; #445). One call,
 `client::outbound::OutboundClient::build`, turns the table into the HTTP
 engine (its timeouts, no redirects, the TLS the product's `TlsBuilder`
 builds) and the authorization (Basic, or a `TokenSource`), and

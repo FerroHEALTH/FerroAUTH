@@ -21,7 +21,7 @@ use ferrohealth_config::units::Duration;
 impl Default for IssuerEntry {
     fn default() -> Self {
         Self {
-            issuer: String::new(),
+            issuer: ferrohealth_secret::secret_url::SecretUrl::default(),
             kind: None,
             profile: Preset::Rfc9068,
             audience: Vec::new(),
@@ -130,11 +130,11 @@ pub(super) fn check_entry(entry: &IssuerEntry) -> Result<IssuerKind, ConfigError
     }
     // NOTE: OpenID Connect Core 1.0 §1.2: an issuer identifier holds scheme, host, port and
     // path; userinfo is refused before any later error could quote the URL.
-    if let Ok(url) = url::Url::parse(entry.issuer.trim())
+    if let Ok(url) = url::Url::parse(entry.issuer.expose().trim())
         && (!url.username().is_empty() || url.password().is_some())
     {
         return Err(ConfigError::IssuerUserinfo {
-            issuer: crate::config::mask_userinfo(&entry.issuer),
+            issuer: crate::config::shown(&entry.issuer),
         });
     }
     if !entry.jwks_file.is_empty() {
@@ -189,7 +189,7 @@ fn check_jwks_file(entry: &IssuerEntry) -> Result<(), ConfigError> {
             .map(str::to_owned);
         if key.get("kty").and_then(serde_json::Value::as_str) == Some("oct") {
             return Err(ConfigError::JwksSymmetricKey {
-                issuer: entry.issuer.clone(),
+                issuer: crate::config::shown(&entry.issuer),
                 index,
                 kid,
             });
@@ -199,7 +199,7 @@ fn check_jwks_file(entry: &IssuerEntry) -> Result<(), ConfigError> {
             .find(|member| key.get(**member).is_some())
         {
             return Err(ConfigError::JwksPrivateKey {
-                issuer: entry.issuer.clone(),
+                issuer: crate::config::shown(&entry.issuer),
                 index,
                 kid,
                 member,

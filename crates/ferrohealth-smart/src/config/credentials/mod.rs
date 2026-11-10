@@ -34,7 +34,6 @@ use crate::config::ConfigError;
 use crate::config::REDACTED;
 use crate::config::TlsBuilder;
 use crate::config::build_tls;
-use crate::config::mask_userinfo;
 use crate::config::onward;
 use crate::config::read::parse_url;
 use crate::config::read::secret;
@@ -70,17 +69,18 @@ pub struct CredentialsSection {
 
 /// The `[<lane>.credentials.oauth]` table.
 ///
-/// Its rendering, serialized or `Debug`, shows `issuer` with any userinfo
-/// masked, `token_endpoint` as its [`SecretUrl`] renders itself and the
-/// secrets redacted, so a product can render its running configuration.
+/// Its rendering, serialized or `Debug`, shows `issuer` and
+/// `token_endpoint` as their [`SecretUrl`] renders itself and the secrets
+/// redacted, so a product can render its running configuration.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OauthSection {
     /// The issuer whose metadata names the token endpoint; exclusive with
-    /// `token_endpoint`.
-    #[serde(serialize_with = "shapes::masked_url")]
-    pub issuer: String,
+    /// `token_endpoint`. It renders with any userinfo masked, as
+    /// [`SecretUrl`] renders itself.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub issuer: SecretUrl,
     /// The token endpoint itself; exclusive with `issuer`. It renders with
     /// its userinfo and its query masked.
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
@@ -353,9 +353,9 @@ impl OauthSection {
                 });
             }
             (false, true) => {
-                crate::metadata::issuer_url(&self.issuer)
+                crate::metadata::issuer_url(self.issuer.expose())
                     .map_err(|source| ConfigError::OauthIssuer { source })?;
-                Endpoint::Issuer(self.issuer.clone())
+                Endpoint::Issuer(self.issuer.expose().to_owned())
             }
             (true, false) => {
                 let url = parse_url(
@@ -581,7 +581,7 @@ impl OauthSection {
 impl Default for OauthSection {
     fn default() -> Self {
         Self {
-            issuer: String::new(),
+            issuer: SecretUrl::default(),
             token_endpoint: SecretUrl::default(),
             client_id: String::new(),
             client_auth: ClientAuth::ClientSecretBasic,
@@ -612,7 +612,7 @@ impl Default for OauthSection {
 impl std::fmt::Debug for OauthSection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OauthSection")
-            .field("issuer", &mask_userinfo(&self.issuer))
+            .field("issuer", &self.issuer)
             .field("token_endpoint", &self.token_endpoint)
             .field("client_id", &self.client_id)
             .field("client_auth", &self.client_auth)
