@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-10
+
 ### Added
 
 - The purpose of use of every caller, not only a professional's: a
@@ -1911,7 +1913,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.17.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.17.1...HEAD
+[0.17.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.17.0...ferrohealth-smart-v0.17.1
 [0.17.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.3...ferrohealth-smart-v0.17.0
 [0.16.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.2...ferrohealth-smart-v0.16.3
 [0.16.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.1...ferrohealth-smart-v0.16.2
