@@ -7,18 +7,17 @@
 **Sign-in and access control for the FerroHEALTH products, as Rust libraries.**
 
 [Documentation](https://docs.rs/ferrohealth-smart) ·
-[Quick start](#quick-start) ·
-[What ships today](#what-ships-today) ·
+[The crates](#the-crates) ·
+[Install](#install) ·
 [Licensing](https://ferrohealth.eu/docs/licensing.html)
 
 **Project**<br>
-[![Release](https://img.shields.io/github/v/release/FerroHEALTH/FerroAUTH?sort=semver&logo=github&label=release)](https://github.com/FerroHEALTH/FerroAUTH/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/FerroHEALTH/FerroAUTH/ci.yml?branch=main&logo=githubactions&logoColor=white&label=CI)](https://github.com/FerroHEALTH/FerroAUTH/actions/workflows/ci.yml)
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue)](LICENSE)
 [![Docs](https://img.shields.io/docsrs/ferrohealth-smart?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-smart)
 
 **Quality and security**<br>
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/FerroHEALTH/FerroAUTH/badge)](https://scorecard.dev/viewer/?uri=github.com/FerroHEALTH/FerroAUTH)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/FerroHEALTH/FerroAUTH/badge)](https://scorecard.dev/viewer/?uri=github.com/FerroHEALTH/FerroAUTH)
 [![CodeQL](https://img.shields.io/github/actions/workflow/status/FerroHEALTH/FerroAUTH/codeql.yml?branch=main&logo=github&label=CodeQL)](https://github.com/FerroHEALTH/FerroAUTH/actions/workflows/codeql.yml)
 [![Signed releases](https://img.shields.io/badge/releases-signed-brightgreen?logo=github)](docs/release.md)
 [![SLSA Build L3](https://slsa.dev/images/gh-badge-level3.svg)](docs/release.md)
@@ -69,54 +68,183 @@ sign-in and access control, FerroAUDIT for the audit trail, and FerroUI for
 the web consoles. Every FerroHEALTH server checks its callers with
 FerroAUTH.
 
-## Quick start
+## The crates
 
-Add the crate to a Rust project, with the web framework layer and the
-openEHR scopes:
+Each crate is published on crates.io on its own version line and has its
+own README, which is its crates.io page.
 
-```sh
-cargo add ferrohealth-smart@=0.17.1 --features axum,openehr
+| Crate | Version | What it provides | Features |
+|---|---|---|---|
+| [`ferrohealth-smart`](crates/ferrohealth-smart/README.md) | [![crates.io](https://img.shields.io/crates/v/ferrohealth-smart?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-smart) | The SMART App Launch 2.x and OAuth 2.0 resource server: token checks, the SMART on openEHR and SMART on FHIR scopes, roles and caller kinds, machine sign-in and the audit line | `fetch` (default), `axum`, `oidc`, `openehr`, `openehr-scopes`, `idp-entra`, `ehdsi-assertion`, `server-tls`, `schema`, `test-support` |
+| [`ferrohealth-authz`](crates/ferrohealth-authz/README.md) | [![crates.io](https://img.shields.io/crates/v/ferrohealth-authz?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-authz) | The policy decision: attribute-based access over the authenticated caller, with an embedded Cedar engine or a remote decision point | `cedar`, `remote` |
+| [`ferrohealth-session`](crates/ferrohealth-session/README.md) | [![crates.io](https://img.shields.io/crates/v/ferrohealth-session?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-session) | The operator consoles' OpenID Connect sign-in with PKCE and their session: a memory or sealed-cookie store, idle and absolute lifetimes, token refresh and the session-watch route | `axum`, `schema`, `test-clock` |
+
+## What it provides
+
+- **Token checks:** `ferrohealth-smart` reads the authorization server's
+  metadata and keys, rotates them, and checks every JWT access token under
+  RFC 9068: the signature, issuer, audience, lifetime and token type. An
+  opaque token is checked by RFC 7662 introspection.
+- **SMART on openEHR scopes** for templates, compositions and AQL queries,
+  with the patient's EHR from the launch context (feature `openehr`). The
+  scope grammar alone (`openehr-scopes`) builds for
+  `wasm32-unknown-unknown`, so a browser client parses a scope with the
+  parser the server enforces it with.
+- **SMART on FHIR scopes** (`patient/`, `user/`, `system/`) with the
+  patient compartment, beside the openEHR scopes in one token.
+- **Roles, caller kinds and assurance levels** read from the token, for a
+  product's route table, with issuer profiles for Keycloak, Microsoft
+  Entra ID, Okta and plain RFC 9068.
+- **Basic sign-in and machine calls:** HTTP Basic against Argon2id hashes,
+  and the OAuth 2.0 client credentials grant with a cached token for calls
+  upstream, renewed once when the upstream answers `401`.
+- **The router guard** (feature `axum`): one tower layer runs the credential
+  check, the scope check and the audit line in front of every route.
+- **One audit line per request**, never with the token or any content.
+- **The SMART discovery document** a product publishes for its clients.
+- **The policy decision:** `ferrohealth-authz` puts the authenticated
+  caller, the action and the resource attributes to an embedded Cedar
+  engine, whose policies are validated strictly before they run, or to a
+  remote decision point. An engine that cannot decide is a fault, never a
+  permit.
+- **The console sign-in:** `ferrohealth-session` runs the OpenID Connect
+  authorization code flow with PKCE and keeps the operator's session with
+  idle and absolute lifetimes.
+
+## Install
+
+The crates need Rust 1.98 or newer (edition 2024). Pin each version
+exactly, as every FerroHEALTH product does:
+
+```toml
+[dependencies]
+ferrohealth-smart = { version = "=0.17.1", features = ["axum", "openehr"] }
+ferrohealth-authz = { version = "=0.10.0", features = ["cedar"] }
+ferrohealth-session = { version = "=0.11.0", features = ["axum"] }
 ```
 
-Pin the version exactly. The
-[crate documentation](https://docs.rs/ferrohealth-smart) is the
-integration guide, and
-[`docs/architecture.md`](docs/architecture.md) has the configuration model.
+The release plan of each crate refuses a tag while this page or the crate's
+own README pins another version, so the lines above are the released ones.
 
-## What ships today
+## Usage
 
-- [Token checks](crates/ferrohealth-smart/README.md#what-it-does): the authorization server's keys read and rotated, every access token validated, and opaque tokens checked by introspection
-- [SMART on openEHR scopes](crates/ferrohealth-smart/README.md#what-it-does) for templates, compositions and AQL queries, with the patient's EHR from the launch context
-- [SMART on FHIR scopes](crates/ferrohealth-smart/README.md#what-it-does) with the patient compartment, beside the openEHR scopes in one token
-- [Roles and assurance levels](crates/ferrohealth-smart/README.md#what-it-does) read from the token, for a product's route table
-- [Machine sign-in](crates/ferrohealth-smart/README.md#what-it-does): HTTP Basic against Argon2id hashes, and the OAuth 2.0 client credentials grant
-- [One audit line per request](crates/ferrohealth-smart/README.md#what-it-does), never with the token or any content
-- [The SMART discovery document](crates/ferrohealth-smart/README.md#what-it-does) a product publishes for its clients
-- [The policy decision](crates/ferrohealth-authz/README.md), `ferrohealth-authz`: attribute-based access with an embedded Cedar engine or a remote decision point
-- [The console sign-in](crates/ferrohealth-session/README.md), `ferrohealth-session`: the OpenID Connect sign-in with PKCE and the operator's session, with idle and absolute lifetimes and the session watch
+Guard an axum router: the layer checks the bearer token against the
+issuer's keys, holds it to the SMART permission each route needs, and hands
+the handler the caller it admitted.
 
-<details>
-<summary><b>Published crates</b> (3)</summary>
+```rust,no_run
+# #![allow(dead_code)]
+use std::sync::Arc;
 
-| Crate | What it does | Version | Docs | Downloads |
-|---|---|---|---|---|
-| [`ferrohealth-smart`](https://crates.io/crates/ferrohealth-smart) | SMART App Launch and OAuth 2.0 resource server: token checks, SMART on openEHR and FHIR scopes, machine sign-in and the audit line | [![crates.io](https://img.shields.io/crates/v/ferrohealth-smart?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-smart) | [![docs.rs](https://img.shields.io/docsrs/ferrohealth-smart?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-smart) | [![downloads](https://img.shields.io/crates/d/ferrohealth-smart?logo=rust&label=downloads)](https://crates.io/crates/ferrohealth-smart) |
-| [`ferrohealth-authz`](https://crates.io/crates/ferrohealth-authz) | The policy decision: attribute-based access over the authenticated caller, with an embedded Cedar engine or a remote decision point | [![crates.io](https://img.shields.io/crates/v/ferrohealth-authz?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-authz) | [![docs.rs](https://img.shields.io/docsrs/ferrohealth-authz?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-authz) | [![downloads](https://img.shields.io/crates/d/ferrohealth-authz?logo=rust&label=downloads)](https://crates.io/crates/ferrohealth-authz) |
-| [`ferrohealth-session`](https://crates.io/crates/ferrohealth-session) | The operator consoles' OpenID Connect sign-in and session: PKCE, a memory or sealed-cookie store, idle and absolute lifetimes and the session watch | [![crates.io](https://img.shields.io/crates/v/ferrohealth-session?logo=rust&label=crates.io)](https://crates.io/crates/ferrohealth-session) | [![docs.rs](https://img.shields.io/docsrs/ferrohealth-session?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-session) | [![downloads](https://img.shields.io/crates/d/ferrohealth-session?logo=rust&label=downloads)](https://crates.io/crates/ferrohealth-session) |
+use axum::Router;
+use axum::routing::get;
+use ferrohealth_smart::guard::{AuthLayer, Gate, Requirement, Target};
+use ferrohealth_smart::kind::IssuerKind;
+use ferrohealth_smart::resource::{Access, ResourceServer, Settings, Verifier};
+use ferrohealth_smart::scope::Permission;
+use http::{Extensions, Method, Uri};
 
-</details>
+async fn read(access: Access) -> String {
+    access
+        .caller()
+        .map_or(String::from("open"), |caller| caller.subject().to_owned())
+}
 
-## Learn more
+fn classify(_method: &Method, uri: &Uri, _extensions: &Extensions) -> Option<Target> {
+    let resource_type = uri.path().trim_start_matches("/fhir/").split('/').next()?;
+    let requirement = Requirement::Fhir {
+        permission: Permission::Read,
+        resource_type: resource_type.to_owned(),
+    };
+    Some(
+        Target::new("read", requirement)
+            .route("/fhir/{resource_type}/{id}")
+            .target(uri.path().trim_start_matches("/fhir/")),
+    )
+}
 
-- [`ferrohealth-smart` on docs.rs](https://docs.rs/ferrohealth-smart) and the [FerroHEALTH book](https://ferrohealth.eu/docs/)
-- [Architecture](docs/architecture.md) and the [pinned specifications](docs/VERSIONS.md)
-- Changelogs of [`ferrohealth-smart`](crates/ferrohealth-smart/CHANGELOG.md), [`ferrohealth-authz`](crates/ferrohealth-authz/CHANGELOG.md) and [`ferrohealth-session`](crates/ferrohealth-session/CHANGELOG.md), and [milestones](https://github.com/FerroHEALTH/FerroAUTH/milestones)
-- [Security policy](SECURITY.md)
-- [Contributing](CONTRIBUTING.md), [code of conduct](CODE_OF_CONDUCT.md), [support](SUPPORT.md), [governance](GOVERNANCE.md) and [maintainers](MAINTAINERS.md)
+# async fn build() -> Result<Router, Box<dyn std::error::Error>> {
+let settings = Settings::new(
+    "https://as.example.org/realms/ferro",
+    "https://bridge.example.org/fhir",
+    IssuerKind::Persons,
+);
+let verifier: Arc<dyn Verifier> = Arc::new(ResourceServer::discover(settings).await?);
+let gate = Gate::open().with_bearer(verifier).with_realm("ferrobridge");
+let app = Router::new()
+    .route("/fhir/{resource_type}/{id}", get(read))
+    .layer(AuthLayer::new(gate, classify));
+# Ok(app)
+# }
+```
+
+CI compiles this example as a doctest of `ferrohealth-smart`. The crate
+READMEs show the rest: an openEHR route and a call upstream with the client
+credentials grant in [`ferrohealth-smart`](crates/ferrohealth-smart/README.md),
+a Cedar decision in [`ferrohealth-authz`](crates/ferrohealth-authz/README.md),
+and the `[oidc]` and `[session]` sections in
+[`ferrohealth-session`](crates/ferrohealth-session/README.md).
+
+## Configuration
+
+A product reads its `[auth]` section through `ferrohealth-config`: one
+`[[auth.issuer]]` table per authorization server, each with its `kind`
+(`persons`, `patients`, `machines` or `federation`) and a `profile` preset,
+`[[auth.basic.users]]` for HTTP Basic credentials, and `<key>_file` for every
+secret. An unknown key is refused when the configuration loads.
+[`docs/architecture.md`](docs/architecture.md) has the full configuration
+model, each check cited to its specification section.
+
+## Security
+
+- FerroAUTH runs no login page, issues no token and holds no signing key: a
+  hospital keeps its own identity provider, and FerroAUTH checks what that
+  provider hands out.
+- The audit line has a fixed field set and never carries the token or any
+  request content.
+- The crates contain no `unsafe` code (`unsafe_code = "forbid"`), and
+  `cargo-deny` checks every dependency on every pull request.
+- Every release is signed and carries SLSA build provenance
+  ([`docs/release.md`](docs/release.md)).
+- Report a vulnerability privately as the [security policy](SECURITY.md)
+  describes.
+
+## Versioning
+
+Each crate follows [Cargo's SemVer rules](https://doc.rust-lang.org/cargo/reference/semver.html)
+on its own version line and is released by its own tag, `<crate>-vX.Y.Z`,
+with its own changelog:
+[`ferrohealth-smart`](crates/ferrohealth-smart/CHANGELOG.md),
+[`ferrohealth-authz`](crates/ferrohealth-authz/CHANGELOG.md) and
+[`ferrohealth-session`](crates/ferrohealth-session/CHANGELOG.md). On a
+`0.x` line a public API break moves the minor version. Every pull request
+runs [`cargo-semver-checks`](https://github.com/obi1kenobi/cargo-semver-checks)
+against each changed crate's newest release on crates.io and refuses a
+break the manifest version does not allow.
+
+## Documentation
+
+- The API reference on docs.rs:
+  [`ferrohealth-smart`](https://docs.rs/ferrohealth-smart),
+  [`ferrohealth-authz`](https://docs.rs/ferrohealth-authz) and
+  [`ferrohealth-session`](https://docs.rs/ferrohealth-session).
+- The [architecture](docs/architecture.md) and the
+  [pinned specifications](docs/VERSIONS.md).
+- The [release process](docs/release.md).
+- The [FerroHEALTH book](https://ferrohealth.eu/docs/).
+
+## Support
+
+[SUPPORT.md](SUPPORT.md) says where to ask a question and how to report a
+defect. Read [CONTRIBUTING.md](CONTRIBUTING.md) and the
+[code of conduct](CODE_OF_CONDUCT.md) before you open a pull request;
+[GOVERNANCE.md](GOVERNANCE.md) and [MAINTAINERS.md](MAINTAINERS.md) say who
+decides and who reviews.
 
 ## Licence
 
-Business Source License 1.1 ([LICENSE](LICENSE)), with Apache License 2.0 as
-the Change License four years after each version; the
+Business Source License 1.1 ([LICENSE](LICENSE), [NOTICE](NOTICE)), with
+Apache License 2.0 as the Change License four years after each version.
+Non-production use and non-commercial production use are free; the
 [licensing page](https://ferrohealth.eu/docs/licensing.html) says when you
 need a commercial licence from Cadasto B.V.
