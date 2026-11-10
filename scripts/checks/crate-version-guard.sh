@@ -20,6 +20,12 @@
 # the release pull request of that tag, on the branch `release/<tag>` that
 # HEAD_BRANCH names (no specification governs this: our own design).
 #
+# A public dependency (scripts/checks/lib/public-deps.sh) the change moves to
+# another compatibility line breaks the crate that requires it (The Cargo
+# Book, "SemVer Compatibility"), so that crate's version must leave the line
+# of its newest release tag, or of its base version before its first tag
+# (#426).
+#
 # Usage:
 #   scripts/checks/crate-version-guard.sh <base-ref> [head-ref]
 #   scripts/checks/crate-version-guard.sh --self-test
@@ -34,6 +40,8 @@ set -euo pipefail
 . "$(dirname "$0")/../lib/guard-args.sh"
 readonly GRAMMAR="<base-ref> [head-ref] | --self-test"
 guard_known_flags "$GRAMMAR" "--self-test" "$@"
+# shellcheck source=scripts/checks/lib/public-deps.sh
+. "$(dirname "$0")/lib/public-deps.sh"
 
 # The `version` key of `[workspace.package]` in a Cargo.toml read on stdin.
 workspace_version() {
@@ -80,7 +88,32 @@ own_line() {
     echo "crate-version-guard: $changelog has no section for $is" >&2
     failed=1
   fi
+  public_moves "$crate" "$is"
   agreed+="; $crate $is agrees"
+}
+
+# public_moves CRATE VERSION: refuses VERSION of CRATE when the change moves a
+# public dependency of CRATE to another compatibility line and VERSION stays
+# on the line of the crate's newest release tag (its base version before its
+# first tag).
+public_moves() {
+  local crate="$1" version="$2" manifest="crates/$1/Cargo.toml" moved released
+  moved="$(moved_lines \
+    "$(manifest_requirements <(git show "$base:Cargo.toml" 2> /dev/null) <(git show "$base:$manifest" 2> /dev/null) | public_lines)" \
+    "$(manifest_requirements <(git show "$head:Cargo.toml") <(git show "$head:$manifest" 2> /dev/null) | public_lines)")"
+  [[ -n "$moved" ]] || return 0
+  released="$(git tag -l "$crate-v*" | sed "s/^$crate-v//" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+  if [[ -z "$released" ]] && [[ "$crate" == ferrohealth-smart ]]; then
+    released="$(git tag -l 'v*' | sed 's/^v//' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
+  fi
+  if [[ -z "$released" ]]; then
+    released="$(git show "$base:$manifest" 2> /dev/null | package_version || true)"
+  fi
+  [[ -n "$released" ]] || return 0
+  if [[ "$(compat_line "$released")" == "$(compat_line "$version")" ]]; then
+    echo "crate-version-guard: $crate $version stays on the line of $released while a public dependency moves to another compatibility line ($moved); that breaks its consumers, so it bumps the minor" >&2
+    failed=1
+  fi
 }
 
 # dated_untagged CRATE CHANGELOG: refuses each dated section the change adds
@@ -151,6 +184,7 @@ guard() {
     failed=1
   fi
 
+  public_moves ferrohealth-smart "$want"
   own_line ferrohealth-authz
   own_line ferrohealth-session
   dated_untagged ferrohealth-smart crates/ferrohealth-smart/CHANGELOG.md
@@ -176,9 +210,9 @@ self_test() {
     git config commit.gpgsign false
     git config tag.gpgsign false
     mkdir -p crates/ferrohealth-smart crates/ferrohealth-authz crates/ferrohealth-session
-    printf '[workspace.package]\nversion = "1.1.0"\n' > Cargo.toml
+    printf '[workspace.package]\nversion = "1.1.0"\n\n[workspace.dependencies]\nferrohealth-smart = { path = "crates/ferrohealth-smart", version = "1.1.0" }\nserde = "1.0.0"\n' > Cargo.toml
     printf 'name = "ferrohealth-smart"\nversion = "1.1.0"\n\nname = "ferrohealth-authz"\nversion = "0.2.0"\n\nname = "ferrohealth-session"\nversion = "0.3.0"\n' > Cargo.lock
-    printf '[package]\nversion = "0.2.0"\n' > crates/ferrohealth-authz/Cargo.toml
+    printf '[package]\nversion = "0.2.0"\n\n[dependencies]\nferrohealth-smart.workspace = true\nserde.workspace = true\n' > crates/ferrohealth-authz/Cargo.toml
     printf '[package]\nversion = "0.3.0"\n' > crates/ferrohealth-session/Cargo.toml
     printf '## [Unreleased]\n\n## [1.1.0] - Unreleased\n\n## [1.0.0] - 2026-01-01\n\n## [0.9.0] - 2025-12-01\n' > crates/ferrohealth-smart/CHANGELOG.md
     printf '## [Unreleased]\n\n## [0.2.0] - 2026-01-01\n' > crates/ferrohealth-authz/CHANGELOG.md
@@ -221,6 +255,37 @@ self_test() {
     '## [Unreleased]\n\n## [1.1.0] - Unreleased\n\n## [1.0.0] - 2026-01-02\n\n## [0.9.0] - 2025-12-01\n'
   expect "a dated section added for an untagged version" 1 "dates [1.0.1]" "" \
     '## [Unreleased]\n\n## [1.1.0] - Unreleased\n\n## [1.0.1] - 2026-01-05\n\n## [1.0.0] - 2026-01-01\n\n## [0.9.0] - 2025-12-01\n'
+
+  # expect_move NAME WANT_RC NEEDLE SMART_REQ SERDE_REQ AUTHZ: moves the
+  # workspace requirements over the base and puts authz at AUTHZ with its
+  # lock entry and a pending section (#426).
+  expect_move() {
+    local name="$1" want="$2" needle="$3" smart_req="$4" serde_req="$5" authz="$6"
+    (
+      cd "$work"
+      git checkout -q --detach "$(git rev-list --max-parents=0 HEAD | tail -1)"
+      sed -i.orig -e "s/^ferrohealth-smart = .*/ferrohealth-smart = { path = \"crates\/ferrohealth-smart\", version = \"$smart_req\" }/" \
+        -e "s/^serde = .*/serde = \"$serde_req\"/" Cargo.toml
+      sed -i.orig "s/^version = \"0.2.0\"/version = \"$authz\"/" crates/ferrohealth-authz/Cargo.toml Cargo.lock
+      rm -f Cargo.toml.orig crates/ferrohealth-authz/Cargo.toml.orig Cargo.lock.orig
+      printf '## [Unreleased]\n\n## [%s] - Unreleased\n\n## [0.2.0] - 2026-01-01\n' "$authz" > crates/ferrohealth-authz/CHANGELOG.md
+      git commit -q -a --allow-empty -m "$name"
+    )
+    set +e
+    out="$(cd "$work" && guard "$(git -C "$work" rev-list --max-parents=0 HEAD | tail -1)" HEAD 2>&1)"
+    rc=$?
+    set -e
+    if [[ "$rc" != "$want" || "$out" != *"$needle"* ]]; then
+      echo "crate-version-guard self-test: $name: exit $rc (want $want), output: $out" >&2
+      fails=$((fails + 1))
+    fi
+  }
+
+  expect_move "a public dependency on another line, the version unmoved" 1 "ferrohealth-authz 0.2.0 stays on the line of 0.2.0 while a public dependency moves to another compatibility line (ferrohealth-smart 1->2)" 2.0.0 1.0.0 0.2.0
+  expect_move "a public dependency on another line with a patch step" 1 "ferrohealth-authz 0.2.1 stays on the line of 0.2.0" 2.0.0 1.0.0 0.2.1
+  expect_move "a public dependency on another line with a minor step" 0 "agree" 2.0.0 1.0.0 0.3.0
+  expect_move "a public dependency on its own line with a patch step" 0 "agree" 1.2.0 1.0.0 0.2.1
+  expect_move "a private dependency on another line with a patch step" 0 "agree" 1.1.0 2.0.0 0.2.1
 
   if [[ "$fails" -gt 0 ]]; then
     echo "crate-version-guard self-test FAILED ($fails case(s))" >&2
