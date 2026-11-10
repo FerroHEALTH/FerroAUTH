@@ -11,7 +11,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.18.0] - Unreleased
+## [0.18.0] - 2026-11-10
 
 ### Changed
 
@@ -1934,7 +1934,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.17.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.18.0...HEAD
+[0.18.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.17.1...ferrohealth-smart-v0.18.0
 [0.17.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.17.0...ferrohealth-smart-v0.17.1
 [0.17.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.3...ferrohealth-smart-v0.17.0
 [0.16.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.2...ferrohealth-smart-v0.16.3
