@@ -531,8 +531,12 @@ issuer = "https://u:ONWARD_ISSUER_PW@onward.example/realms/r"
         format!("{credentials:?}"),
     ];
     for (index, shown) in renderings.iter().enumerate() {
-        for password in ["AUTH_ISSUER_PW", "OAUTH_ISSUER_PW", "ONWARD_ISSUER_PW"] {
-            assert!(!shown.contains(password), "rendering {index}: {password}");
+        for (table, sentinel) in [
+            ("auth.issuer", "AUTH_ISSUER_PW"),
+            ("oauth", "OAUTH_ISSUER_PW"),
+            ("onward", "ONWARD_ISSUER_PW"),
+        ] {
+            assert!(!shown.contains(sentinel), "rendering {index}: {table}");
         }
     }
     for (index, host) in [
