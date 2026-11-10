@@ -1,7 +1,9 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The attributes a `persons` issuer states about its own professional.
+//! The attributes a `persons` issuer states about its own professional, and
+//! the purposes of use every caller of a `persons`, `patients` or `machines`
+//! issuer declares.
 //!
 //! They are the IHE IUA extension claims (ITI TF-2 §3.71.4.2.2.1.1, under
 //! `extensions.ihe_iua`) and the purposes of use of RFC 9396
@@ -30,16 +32,19 @@ use crate::federation::Source;
 use crate::federation::read::attribute;
 use crate::federation::read::check_attribute;
 use crate::federation::read::read_fields;
+use crate::kind::IssuerKind;
 use crate::kind::Unclassified;
 use crate::roles::lookup;
 
 /// One `[[auth.attributes]]` table: where the `persons` issuer `issuer`
-/// states its professional's attributes.
+/// states its professional's attributes, or where a `patients` or `machines`
+/// issuer states the purpose of use.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AttributesSection {
-    /// The `[[auth.issuer]]` this table describes, of kind `persons`.
+    /// The `[[auth.issuer]]` this table describes, of kind `persons`,
+    /// `patients` or `machines`.
     pub issuer: String,
     /// The default sources the table starts from.
     pub mapping: Option<Mapping>,
@@ -85,9 +90,44 @@ impl AttributesSection {
         Ok(())
     }
 
-    /// Returns the attributes the verified `claims` state under this table.
-    pub(crate) fn read(&self, claims: &Map<String, Value>) -> Result<Attributes, Unclassified> {
-        let fields = read_fields(self.sources(), |field, source| {
+    /// Checks the table of an issuer of `kind`: [`AttributesSection::validate`],
+    /// and, on a `patients` or `machines` issuer, no field of the table's
+    /// own but [`Field::PurposeOfUse`], the one such an issuer states.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`AttributesSection::validate`], and
+    /// [`FederationError::PurposeOnly`] for another field of a `patients` or
+    /// `machines` issuer's table.
+    pub fn validate_for(&self, kind: IssuerKind) -> Result<(), FederationError> {
+        self.validate()?;
+        if kind == IssuerKind::Persons {
+            return Ok(());
+        }
+        match self
+            .fields
+            .keys()
+            .find(|field| **field != Field::PurposeOfUse)
+        {
+            Some(field) => Err(FederationError::PurposeOnly {
+                field: field.as_str(),
+            }),
+            None => Ok(()),
+        }
+    }
+
+    /// Returns the attributes the verified `claims` state under this table:
+    /// every field when `professional`, the purposes of use alone otherwise.
+    pub(crate) fn read(
+        &self,
+        claims: &Map<String, Value>,
+        professional: bool,
+    ) -> Result<Attributes, Unclassified> {
+        let mut sources = self.sources();
+        if !professional {
+            sources.retain(|field, _| *field == Field::PurposeOfUse);
+        }
+        let fields = read_fields(sources, |field, source| {
             Ok(match source {
                 Source::Claim(path) => match lookup(claims, path) {
                     None => None,
@@ -170,8 +210,9 @@ fn detail_purposes(claims: &Map<String, Value>) -> Result<Vec<Code>, Unclassifie
     Ok(purposes)
 }
 
-/// What a `persons` token states about its professional under the issuer's
-/// `[[auth.attributes]]` table.
+/// What a token states under its issuer's `[[auth.attributes]]` table: the
+/// professional of a `persons` caller other than `System`, and the purposes
+/// of use of every caller.
 ///
 /// The `Debug` rendering names the fields, never their values.
 #[derive(Clone, PartialEq, Eq)]

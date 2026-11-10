@@ -100,17 +100,19 @@ impl Caller {
         self
     }
 
-    /// Returns this caller carrying what its `persons` token states about
-    /// the professional under the issuer's `[[auth.attributes]]` table.
+    /// Returns this caller carrying what its token states under the
+    /// issuer's `[[auth.attributes]]` table.
     #[must_use]
     pub fn with_attributes(mut self, attributes: Attributes) -> Self {
         self.attributes = Some(attributes);
         self
     }
 
-    /// Returns what the caller's `persons` token states about the
-    /// professional (IHE IUA §3.71.4.2.2.1.1), when the issuer has an
-    /// `[[auth.attributes]]` table and the caller is no machine.
+    /// Returns what the caller's token states under its issuer's
+    /// `[[auth.attributes]]` table (IHE IUA §3.71.4.2.2.1.1): the
+    /// professional of a `persons` caller other than `System`, and the
+    /// purposes of use of every caller, a `System` or a `patients` caller
+    /// included.
     #[must_use]
     pub fn attributes(&self) -> Option<&Attributes> {
         self.attributes.as_ref()

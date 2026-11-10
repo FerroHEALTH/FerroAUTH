@@ -74,18 +74,19 @@ pub(super) fn check_issuer_rules(
     Ok(())
 }
 
-/// Refuses an `[[auth.attributes]]` table on an issuer that is not of kind
-/// `persons`, and checks the table of one that is.
+/// Refuses an `[[auth.attributes]]` table on a `federation` issuer, which
+/// reads its own `[[auth.federation]]` table, and checks the table of any
+/// other.
 pub(super) fn check_attributes(
     kind: IssuerKind,
     attributes: Option<&AttributesSection>,
 ) -> Result<(), ResourceError> {
     match (kind, attributes) {
-        (IssuerKind::Persons, Some(section)) => Ok(section.validate()?),
-        (_, Some(_)) => Err(ResourceError::Kind {
+        (IssuerKind::Federation, Some(_)) => Err(ResourceError::Kind {
             key: "attributes",
             kind,
         }),
+        (_, Some(section)) => Ok(section.validate_for(kind)?),
         (_, None) => Ok(()),
     }
 }

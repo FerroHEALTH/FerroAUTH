@@ -1077,14 +1077,22 @@ under `extensions.ihe_iua` (`subject_name`, `subject_role`,
 RFC 9396 `authorization_details` entry, written `system|code`. Every caller
 of the issuer but a `System` carries what its token states as
 `Caller::attributes`: the fields, the roles and the purposes of use as
-codings, the purposes sorted and without duplicates. An absent claim is an
+codings, the purposes sorted and without duplicates. The purpose of use is
+a property of the request, so a `System` caller of the issuer carries its
+purposes alone, and a `patients` or `machines` issuer may have a table too,
+which names no field but `purpose_of_use` and gives every caller, the
+patient's representative included, its purposes alone (#438). A coding
+whose `code` is empty names no code and an empty `system` no system (FHIR
+R4 datatypes.html: `code` and `uri` have at least one character), so a
+`purpose_of_use` of empty codes states none. An absent claim is an
 absent field; a claim of no attribute shape, a `subject_role` or
 `purpose_of_use` that is no array of codings (IUA: "shall be formatted as
 array of FHIR Coding"), and a value with a control or bidi-control
 character or past its cap refuse the token as `Unclassified::Attribute`,
-naming the field. A table naming no trusted `persons` issuer, two tables
-of one issuer, and an `authorization_details` or presentation source refuse
-the start. Which claims are read is our own design over IUA and RFC 9396.
+naming the field. A table naming no trusted `persons`, `patients` or
+`machines` issuer, two tables of one issuer, a field other than
+`purpose_of_use` on a `patients` or `machines` issuer, and an
+`authorization_details` or presentation source refuse the start. Which claims are read is our own design over IUA and RFC 9396.
 
 **The `federation` kind.** A `federation` issuer's tokens name another
 party's professional or organisation, and its one `[[auth.federation]]`
@@ -2145,7 +2153,7 @@ four agree on and settles each difference:
 | A `scopeless_subjects` entry is `{ issuer, sub }` and admits a `System` caller of that issuer alone; `role_claims` sit on each issuer table; the string forms, bare or `<issuer>#<value>`, are refused at load | `rfc7519 §4.1.2` (a `sub` is unique within its issuer); our own design (#215, after GHSA-pfgx-xq28-2629) | a deployment rewrites each entry as a table and moves `role_claims` onto its issuer tables |
 | Every issuer declares its `kind` and a profile (a preset with keys over it), every issuer setting lives on its table, and a valid token is classified as `Patient`, `System`, `Delegated`, `Representative`, `Person` or `Guest`, or refused as `Rejection::Unclassified`; a Basic credential is always a `Person` (3.14) | `rfc9068 §2.2`, `§4`, `§5`; `rfc8693 §4.1`; `oidc-core §5.7`; the vendor documents each preset cites; the classification is our own design (#215, owner ruling 2026-11-05 on Basic) | a deployment writes `[[auth.issuer]]` tables with `kind`, lists its `first_party_clients`, and drops `token_profile`, `acting_for_claim` and `client_tokens` |
 | A `persons` login is resolved to its party through a `PartySource` the product supplies, once per request with no cache, keyed by the issuer profile's `person_key` in the canonical form of its `identifier_type`, against the identifiers of one `[[auth.party]]` table's `identifier_issuer`; two matches are `Ambiguous`, a source failure is an error and never `Unbound`, and the outcome is the product's to answer (3.17) | `oidc-core §5.7`; `rfc7519 §4.1.2`; Microsoft, "Access token claims reference" (the overage markers); the binding is our own design (#216, owner ruling 2026-11-05 on the cache) | a product binds its `persons` issuers with `[[auth.party]]` tables, implements `PartySource`, maps each Basic user to a key, and answers each outcome |
-| A `persons` issuer's `[[auth.attributes]]` table reads the IHE IUA professional attributes and purposes of use, from claims or constants and, with `authorization_details_purposes`, the `system\|code` of each `authorization_details` entry, onto every non-`System` caller as `Caller::attributes`; a claim of the wrong shape refuses the token (3.14) | IHE IUA §3.71.4.2.2.1.1; `rfc9396 §2`; our own design over them (#376) | a product reads the professional, the organisation and the purposes from `Caller::attributes` and drops its own IUA claim parser |
+| A `persons` issuer's `[[auth.attributes]]` table reads the IHE IUA professional attributes and purposes of use, from claims or constants and, with `authorization_details_purposes`, the `system\|code` of each `authorization_details` entry, onto every non-`System` caller as `Caller::attributes`, and the purposes of use alone onto a `System` caller and every caller of a `patients` or `machines` issuer's table; a claim of the wrong shape refuses the token, and a coding with an empty code names none (3.14) | IHE IUA §3.71.4.2.2.1.1; `rfc9396 §2`; FHIR R4 datatypes.html; our own design over them (#376, #438) | a product reads the professional, the organisation and the purposes from `Caller::attributes` and drops its own IUA claim parser |
 | A `patients` token that carries `act` is the patient's representative under `act_represents_patient`, with the top-level actor only, and is refused without it (3.14) | `rfc8693 §4.1`; Regulation (EU) 2025/327 Art 4(2); our own design (#377) | a product that records a patient's representative sets `act_represents_patient` and reads `CallerKind::PatientRepresentative` |
 | An active introspection response is held until its `exp` and at most `cache_max_age`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
 | Onward tokens are obtained by token exchange or the JWT bearer grant as the issuer's profile names, refused unless they pass the onward check of 3.16, cached by issuer, grant, subject and actor token, target, scope and extra parameters until the earlier `exp` (unless the onward table sets `cache = false`, which exchanges on every call for a performance self-test and never in production, #299), and never refreshed; only a `persons`, `patients` or `federation` issuer issues them, a `patients` one for a patient's own token that keeps its patient context | `rfc8693 §2.1`, `§2.2`, `§4.1`; `rfc7523 §2.1`, `§2.2`; `rfc8707 §2`; the check, the cache and the profile keys are our own design (#217) | a deployment sets `max_onward_lifetime` on each onward issuer, and `exchanges_from` and `person_mapping` on a federation issuer's table |

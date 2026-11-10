@@ -290,7 +290,7 @@ async fn a_claim_in_the_wrong_shape_is_refused() -> Outcome {
 }
 
 #[tokio::test]
-async fn a_machine_token_and_an_issuer_without_a_table_carry_no_attributes() -> Outcome {
+async fn a_machine_token_carries_its_purposes_and_no_professional() -> Outcome {
     let mut app = person(&iua());
     app["sub"] = json!(FIRST_PARTY);
     let caller = admit(
@@ -300,15 +300,64 @@ async fn a_machine_token_and_an_issuer_without_a_table_carry_no_attributes() -> 
     )
     .await?;
     assert_eq!(&CallerKind::System, caller.kind());
-    assert!(caller.attributes().is_none());
+    let attributes = caller.attributes().ok_or("the purposes are read")?;
+    let reason = "http://terminology.hl7.org/CodeSystem/v3-ActReason";
+    assert_eq!(
+        [code(reason, "ETREAT"), code(reason, "TREAT")],
+        attributes.purposes()
+    );
+    assert_eq!(
+        vec![&Field::PurposeOfUse],
+        attributes.fields().keys().collect::<Vec<_>>(),
+        "a machine states no professional"
+    );
+    assert_eq!(Vec::<Code>::new(), attributes.roles().to_vec());
     let caller = admit(IssuerKind::Persons, |_| {}, &person(&iua())).await?;
-    assert!(caller.attributes().is_none());
+    assert!(
+        caller.attributes().is_none(),
+        "an issuer without a table states nothing"
+    );
     Ok(())
 }
 
 #[tokio::test]
-async fn an_attributes_table_outside_a_persons_issuer_or_with_another_source_is_refused() {
-    let mut settings = Settings::new(ISSUER, AUDIENCE, IssuerKind::Patients);
+async fn a_coding_with_an_empty_code_names_no_code() -> Outcome {
+    let claims = person(&json!({ "extensions": { "ihe_iua": {
+        "subject_role": [{ "system": "", "code": "158965000" }],
+        "purpose_of_use": [
+            { "system": "http://terminology.hl7.org/CodeSystem/v3-ActReason", "code": "" },
+            ""
+        ]
+    }}}));
+    let caller = admit(
+        IssuerKind::Persons,
+        |settings| settings.attributes = Some(table(BTreeMap::new())),
+        &claims,
+    )
+    .await?;
+    let attributes = caller.attributes().ok_or("the table is read")?;
+    assert_eq!(
+        Vec::<Code>::new(),
+        attributes.purposes().to_vec(),
+        "an empty code is no purpose of use"
+    );
+    assert!(attributes.field(Field::PurposeOfUse).is_none());
+    assert_eq!(
+        [Code {
+            system: None,
+            code: String::from("158965000"),
+        }],
+        attributes.roles(),
+        "an empty system is no system"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_attributes_table_on_a_federation_issuer_or_with_another_source_is_refused() {
+    let mut settings = Settings::new(ISSUER, AUDIENCE, IssuerKind::Federation);
+    settings.federation = Some(crate::federation::iua());
+    assert!(settings.validate().is_ok(), "the federation table holds");
     settings.attributes = Some(table(BTreeMap::new()));
     assert!(matches!(
         settings.validate(),
@@ -326,6 +375,31 @@ async fn an_attributes_table_outside_a_persons_issuer_or_with_another_source_is_
         settings.validate(),
         Err(ResourceError::Federation(FederationError::Unattested))
     ));
+}
+
+#[test]
+fn a_patients_or_machines_table_names_the_purpose_of_use_alone() {
+    for kind in [IssuerKind::Patients, IssuerKind::Machines] {
+        let mut settings = Settings::new(ISSUER, AUDIENCE, kind);
+        settings.attributes = Some(table(BTreeMap::from([(
+            Field::PurposeOfUse,
+            vec![Source::Claim(String::from("purpose"))],
+        )])));
+        assert!(settings.validate().is_ok(), "{kind:?}");
+        settings.attributes = Some(table(BTreeMap::from([(
+            Field::ProfessionalCountryCode,
+            vec![Source::Constant(String::from("NL"))],
+        )])));
+        assert!(
+            matches!(
+                settings.validate(),
+                Err(ResourceError::Federation(FederationError::PurposeOnly {
+                    field: "professional.country_code"
+                }))
+            ),
+            "{kind:?}"
+        );
+    }
 }
 
 /// The claims of a patient's token naming only the record subject.
@@ -412,6 +486,46 @@ async fn a_patients_token_act_names_the_patients_representative() -> Outcome {
     Ok(())
 }
 
+#[tokio::test]
+async fn a_patient_and_their_representative_carry_their_purposes_and_no_professional() -> Outcome {
+    let reason = "http://terminology.hl7.org/CodeSystem/v3-ActReason";
+    let tables = |settings: &mut Settings| {
+        settings.profile.act_represents_patient = true;
+        settings.attributes = Some(table(BTreeMap::new()));
+    };
+    let claims = |extra: &Value| {
+        let mut claims = patient(&iua());
+        if let (Some(claims), Some(extra)) = (claims.as_object_mut(), extra.as_object()) {
+            claims.extend(extra.clone());
+        }
+        claims
+    };
+    let own = admit(IssuerKind::Patients, tables, &claims(&json!({}))).await?;
+    let represented = admit(
+        IssuerKind::Patients,
+        tables,
+        &claims(&json!({ "act": { "sub": "representative-7" } })),
+    )
+    .await?;
+    assert_eq!(&CallerKind::Patient, own.kind());
+    assert!(matches!(
+        represented.kind(),
+        CallerKind::PatientRepresentative { .. }
+    ));
+    for caller in [own, represented] {
+        let attributes = caller.attributes().ok_or("the purposes are read")?;
+        assert_eq!(
+            [code(reason, "ETREAT"), code(reason, "TREAT")],
+            attributes.purposes()
+        );
+        assert!(
+            attributes.field(Field::ProfessionalName).is_none() && attributes.roles().is_empty(),
+            "a patients token states no professional"
+        );
+    }
+    Ok(())
+}
+
 #[test]
 fn act_represents_patient_outside_a_patients_issuer_is_refused() {
     let mut settings = Settings::new(ISSUER, AUDIENCE, IssuerKind::Persons);
@@ -447,6 +561,10 @@ authorization_details_purposes = true
 
 [attributes.fields]
 "professional.country_code" = [{{ constant = "NL" }}]
+
+[[attributes]]
+issuer = "https://patients.example.org"
+mapping = "iua"
 "#
     );
     let section: ferrohealth_smart::config::AuthSection = toml::from_str(&text)?;
@@ -465,11 +583,21 @@ authorization_details_purposes = true
         .find(|settings| settings.kind == IssuerKind::Patients)
         .ok_or("the patients issuer")?;
     assert!(patients.profile.act_represents_patient);
-    assert!(patients.attributes.is_none());
+    assert_eq!(
+        Some(Mapping::Iua),
+        patients.attributes.as_ref().ok_or("its table")?.mapping
+    );
     for (from, to) in [
         (
-            format!("[[attributes]]\nissuer = \"{ISSUER}\""),
-            String::from("[[attributes]]\nissuer = \"https://patients.example.org\""),
+            String::from("issuer = \"https://patients.example.org\"\nmapping = \"iua\""),
+            String::from(
+                "issuer = \"https://patients.example.org\"\nmapping = \"iua\"\n\n\
+                 [attributes.fields]\n\"professional.name\" = [{ constant = \"x\" }]",
+            ),
+        ),
+        (
+            String::from("issuer = \"https://patients.example.org\"\nmapping"),
+            format!("issuer = \"{ISSUER}\"\nmapping"),
         ),
         (
             String::from("[attributes.fields]"),

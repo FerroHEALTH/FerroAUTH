@@ -11,6 +11,25 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- The purpose of use of every caller, not only a professional's: a
+  `System` caller of a `persons` issuer with an `[[auth.attributes]]` table
+  carries the purposes its token declares as `Caller::attributes`, with no
+  professional field, and a `patients` or `machines` issuer may have a
+  table too, which names no field but `purpose_of_use`, so the patient and
+  the patient's representative carry theirs. A field other than
+  `purpose_of_use` in such a table refuses the start
+  (`FederationError::PurposeOnly`, `AttributesSection::validate_for`);
+  a table on a `federation` issuer is still refused (#438).
+
+### Fixed
+
+- A FHIR Coding whose `code` is empty names no code, and an empty `system`
+  no system (FHIR R4 datatypes.html: both have at least one character), so
+  an IUA `purpose_of_use` of empty codes states no purpose of use instead of
+  an empty one (#438).
+
 ## [0.17.0] - 2026-11-10
 
 ### Added
