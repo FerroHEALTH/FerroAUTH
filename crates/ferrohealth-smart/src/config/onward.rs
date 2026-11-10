@@ -11,6 +11,7 @@
 //! party's node must never become an `[[auth.issuer]]` of this one. No
 //! specification governs the configuration model: our own design.
 
+use ferrohealth_secret::secret_url::SecretUrl;
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -37,8 +38,10 @@ pub struct OnwardSection {
     /// The profile keys set over the preset; `max_onward_lifetime` is
     /// required, here or in the preset.
     pub keys: ProfileKeys,
-    /// The token endpoint itself; empty to discover it from `issuer`.
-    pub token_endpoint: String,
+    /// The token endpoint itself; empty to discover it from `issuer`. It
+    /// renders with its userinfo and its query masked.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub token_endpoint: SecretUrl,
     /// The client id at this issuer; empty for the lane's own.
     pub client_id: String,
     /// The audiences an onward token may name, at least one.
@@ -77,7 +80,7 @@ impl Default for OnwardSection {
             kind: None,
             profile: Preset::default(),
             keys: ProfileKeys::default(),
-            token_endpoint: String::new(),
+            token_endpoint: SecretUrl::default(),
             client_id: String::new(),
             audiences: Vec::new(),
             indicators: Vec::new(),
@@ -219,7 +222,7 @@ mod resolve {
                 Endpoint::Issuer(self.issuer.clone())
             } else {
                 Endpoint::Token(parse_url(
-                    &self.token_endpoint,
+                    self.token_endpoint.expose(),
                     "credentials.onward.token_endpoint",
                 )?)
             };

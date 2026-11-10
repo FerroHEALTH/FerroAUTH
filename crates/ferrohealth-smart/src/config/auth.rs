@@ -497,7 +497,7 @@ impl AuthSection {
         settings.audience.clone_from(&entry.audience);
         if !section.endpoint.is_empty() {
             settings.endpoint = Some(crate::config::read::parse_url(
-                &section.endpoint,
+                section.endpoint.expose(),
                 "auth.issuer.introspection.endpoint",
             )?);
         }

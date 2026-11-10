@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use ferrohealth_config::tls::TlsClientSection;
 use ferrohealth_config::units::Duration;
+use ferrohealth_secret::secret_url::SecretUrl;
 use jsonwebtoken::Algorithm;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -69,9 +70,9 @@ pub struct CredentialsSection {
 
 /// The `[<lane>.credentials.oauth]` table.
 ///
-/// Its rendering, serialized or `Debug`, shows `issuer` and
-/// `token_endpoint` with any userinfo masked and the secrets redacted, so a
-/// product can render its running configuration.
+/// Its rendering, serialized or `Debug`, shows `issuer` with any userinfo
+/// masked, `token_endpoint` as its [`SecretUrl`] renders itself and the
+/// secrets redacted, so a product can render its running configuration.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -80,9 +81,10 @@ pub struct OauthSection {
     /// `token_endpoint`.
     #[serde(serialize_with = "shapes::masked_url")]
     pub issuer: String,
-    /// The token endpoint itself; exclusive with `issuer`.
-    #[serde(serialize_with = "shapes::masked_url")]
-    pub token_endpoint: String,
+    /// The token endpoint itself; exclusive with `issuer`. It renders with
+    /// its userinfo and its query masked.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub token_endpoint: SecretUrl,
     /// The client identifier.
     pub client_id: String,
     /// How the client authenticates.
@@ -356,7 +358,10 @@ impl OauthSection {
                 Endpoint::Issuer(self.issuer.clone())
             }
             (true, false) => {
-                let url = parse_url(&self.token_endpoint, "credentials.oauth.token_endpoint")?;
+                let url = parse_url(
+                    self.token_endpoint.expose(),
+                    "credentials.oauth.token_endpoint",
+                )?;
                 if let Some(part) = crate::client::forbidden_part(&url) {
                     return Err(ConfigError::TokenEndpoint {
                         key: "credentials.oauth.token_endpoint",
@@ -577,7 +582,7 @@ impl Default for OauthSection {
     fn default() -> Self {
         Self {
             issuer: String::new(),
-            token_endpoint: String::new(),
+            token_endpoint: SecretUrl::default(),
             client_id: String::new(),
             client_auth: ClientAuth::ClientSecretBasic,
             client_secret: None,
@@ -608,7 +613,7 @@ impl std::fmt::Debug for OauthSection {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OauthSection")
             .field("issuer", &mask_userinfo(&self.issuer))
-            .field("token_endpoint", &mask_userinfo(&self.token_endpoint))
+            .field("token_endpoint", &self.token_endpoint)
             .field("client_id", &self.client_id)
             .field("client_auth", &self.client_auth)
             .field(
