@@ -94,7 +94,7 @@ fn a_basic_user_role_must_be_one_word() {
 fn a_blank_role_claim_path_is_refused() {
     let mut auth = section(Vec::new());
     auth.issuer = vec![IssuerEntry {
-        issuer: String::from("https://as.example.org"),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new("https://as.example.org"),
         kind: Some(IssuerKind::Persons),
         audience: vec![String::from("a")],
         role_claims: Some(vec![String::from("realm_access..roles")]),

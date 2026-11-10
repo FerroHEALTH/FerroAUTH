@@ -398,7 +398,7 @@ fn a_rendered_section_carries_every_key_and_no_secret() {
         toml::from_str(&rendered[3]).expect("the rendering reads back as a section");
     assert_eq!(
         Some("https://as.example.org"),
-        read_back.issuer.first().map(|entry| entry.issuer.as_str()),
+        read_back.issuer.first().map(|entry| entry.issuer.expose()),
         "the issuer reads back"
     );
 }
@@ -421,7 +421,9 @@ fn the_grant_masks_the_userinfo_of_its_urls() {
         assert!(shown.contains("idp.example.org/token"), "{shown}");
     }
     let issuer = ferrohealth_smart::config::credentials::OauthSection {
-        issuer: String::from("https://a:ISSUER_PW_SENTINEL@as.example.org"),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(
+            "https://a:ISSUER_PW_SENTINEL@as.example.org",
+        ),
         ..ferrohealth_smart::config::credentials::OauthSection::default()
     };
     assert!(
@@ -495,6 +497,64 @@ token_endpoint = "https://u:ONWARD_PW@onward.example/onward-token"
     }
 }
 
+/// Every issuer identifier of `[auth]` and `[<lane>.credentials]` is a
+/// `SecretUrl` too: a password in its userinfo reaches no rendering,
+/// serialized or `Debug`, before validation has run (RFC 3986 §3.2.1), and
+/// the host stays (#445).
+#[test]
+fn every_issuer_identifier_masks_its_userinfo_in_every_rendering() {
+    let auth: AuthSection = toml::from_str(
+        r#"
+[[issuer]]
+issuer = "https://u:AUTH_ISSUER_PW@idp.example/realms/r"
+kind = "persons"
+audience = ["a"]
+"#,
+    )
+    .expect("the section parses");
+    let credentials: CredentialsSection = toml::from_str(
+        r#"
+[oauth]
+issuer = "https://u:OAUTH_ISSUER_PW@as.example/realms/r"
+client_id = "svc"
+[onward]
+issuer = "https://u:ONWARD_ISSUER_PW@onward.example/realms/r"
+"#,
+    )
+    .expect("the section parses");
+    let renderings = [
+        toml::to_string(&auth).expect("renders"),
+        serde_json::to_string(&auth).expect("renders"),
+        format!("{auth:?}"),
+        toml::to_string(&credentials).expect("renders"),
+        serde_json::to_string(&credentials).expect("renders"),
+        format!("{credentials:?}"),
+    ];
+    for (index, shown) in renderings.iter().enumerate() {
+        for password in ["AUTH_ISSUER_PW", "OAUTH_ISSUER_PW", "ONWARD_ISSUER_PW"] {
+            assert!(!shown.contains(password), "rendering {index}: {password}");
+        }
+    }
+    for (index, host) in [
+        (0, "idp.example/realms/r"),
+        (3, "as.example/realms/r"),
+        (3, "onward.example/realms/r"),
+    ] {
+        for offset in 0..3 {
+            assert!(
+                renderings[index + offset].contains(host),
+                "{offset}: {host}"
+            );
+        }
+    }
+    let first = auth.issuer.first().expect("the issuer");
+    assert_eq!(
+        "https://u:AUTH_ISSUER_PW@idp.example/realms/r",
+        first.issuer.expose(),
+        "the identifier itself is held as written"
+    );
+}
+
 /// Every problem of a grant is named under the product's own table, at once.
 #[test]
 fn the_grant_names_every_problem_under_the_products_table() {
@@ -510,7 +570,7 @@ fn the_grant_names_every_problem_under_the_products_table() {
     }
     assert!(!joined.contains("credentials.oauth"), "{joined}");
     let both = ferrohealth_smart::config::credentials::OauthSection {
-        issuer: String::from("https://as.example.org"),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new("https://as.example.org"),
         token_endpoint: ferrohealth_secret::secret_url::SecretUrl::new(String::from(
             "https://as.example.org/token",
         )),

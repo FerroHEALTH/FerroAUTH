@@ -27,8 +27,10 @@ use crate::profile::ProfileKeys;
 #[serde(default, deny_unknown_fields)]
 pub struct OnwardSection {
     /// The identifier of the issuer of the onward tokens, whose metadata
-    /// names its token endpoint unless `token_endpoint` is set.
-    pub issuer: String,
+    /// names its token endpoint unless `token_endpoint` is set. It renders
+    /// with any userinfo masked, as [`SecretUrl`] renders itself.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub issuer: SecretUrl,
     /// Whose tokens the issuer signs: `persons` (a delegated exchange),
     /// `patients` (a patient's own token) or `federation`; required, with no
     /// default.
@@ -76,7 +78,7 @@ pub struct OnwardSection {
 impl Default for OnwardSection {
     fn default() -> Self {
         Self {
-            issuer: String::new(),
+            issuer: SecretUrl::default(),
             kind: None,
             profile: Preset::default(),
             keys: ProfileKeys::default(),
@@ -219,7 +221,7 @@ mod resolve {
                 });
             }
             credentials.endpoint = if self.token_endpoint.is_empty() {
-                Endpoint::Issuer(self.issuer.clone())
+                Endpoint::Issuer(self.issuer.expose().to_owned())
             } else {
                 Endpoint::Token(parse_url(
                     self.token_endpoint.expose(),
@@ -230,13 +232,13 @@ mod resolve {
                 credentials.client_id.clone_from(&self.client_id);
             }
             let refused = |source: ResourceError| ConfigError::Issuer {
-                issuer: self.issuer.clone(),
+                issuer: crate::config::shown(&self.issuer),
                 source: Box::new(source),
             };
             // NOTE: no specification governs this: our own design; the onward
             // check never reads `audience`, which the settings require one of.
             let mut settings =
-                Settings::new(self.issuer.clone(), credentials.client_id.clone(), kind);
+                Settings::new(self.issuer.expose(), credentials.client_id.clone(), kind);
             settings.profile = Profile::resolve(self.profile, &self.keys)
                 .map_err(|source| refused(source.into()))?;
             settings.assurance.clone_from(&self.assurance);
@@ -265,7 +267,7 @@ mod resolve {
                 })?;
             if !self.cache {
                 tracing::warn!(
-                    issuer = self.issuer.as_str(),
+                    issuer = crate::config::shown(&self.issuer),
                     "the onward token cache is off: every call exchanges a token at the issuer"
                 );
                 onward = onward.without_cache();
@@ -302,7 +304,7 @@ mod resolve {
                 (None, Some(defaults)) => Some(defaults),
             };
             Ok(table.map(|table| FederationSection {
-                issuer: self.issuer.clone(),
+                issuer: self.issuer.expose().to_owned(),
                 ..table
             }))
         }

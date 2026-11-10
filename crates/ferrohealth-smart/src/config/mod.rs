@@ -467,8 +467,11 @@ pub struct ScopelessSubject {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct IssuerEntry {
-    /// The issuer identifier.
-    pub issuer: String,
+    /// The issuer identifier. It renders with any userinfo masked, as
+    /// [`SecretUrl`](ferrohealth_secret::secret_url::SecretUrl) renders
+    /// itself.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub issuer: ferrohealth_secret::secret_url::SecretUrl,
     /// Whose tokens the issuer signs; required, with no default.
     pub kind: Option<IssuerKind>,
     /// The preset the profile starts from.
@@ -767,4 +770,10 @@ pub fn mask_userinfo(text: &str) -> String {
     } else {
         text.to_owned()
     }
+}
+
+/// Returns `url` as an error or a log line names it: with any userinfo
+/// masked, and text that is no URL as written ([`mask_userinfo`]).
+pub(crate) fn shown(url: &ferrohealth_secret::secret_url::SecretUrl) -> String {
+    mask_userinfo(url.expose())
 }
