@@ -23,6 +23,7 @@ use crate::config::build_tls;
 use crate::config::issuer::check_entry;
 use crate::config::read::secret;
 use crate::federation::FederationSection;
+use crate::federation::Field;
 use crate::federation::person::AttributesSection;
 use crate::kind::IssuerKind;
 use crate::profile::Profile;
@@ -283,8 +284,8 @@ impl AuthSection {
     }
 
     /// Refuses an `[[auth.attributes]]` table that names no trusted
-    /// `persons` issuer or names one twice (no specification governs this:
-    /// our own design).
+    /// `persons`, `patients` or `machines` issuer or names one twice (no
+    /// specification governs this: our own design).
     fn check_attributes(&self) -> Result<(), ConfigError> {
         let mut seen = BTreeSet::new();
         for section in &self.attributes {
@@ -293,10 +294,21 @@ impl AuthSection {
                 .iter()
                 .find(|entry| entry.issuer == section.issuer)
                 .and_then(|entry| entry.kind);
-            if kind != Some(IssuerKind::Persons) {
+            if kind.is_none_or(|kind| kind == IssuerKind::Federation) {
                 return Err(ConfigError::Attributes {
                     issuer: section.issuer.clone(),
-                    reason: "it names no trusted persons issuer",
+                    reason: "it names no trusted persons, patients or machines issuer",
+                });
+            }
+            if kind != Some(IssuerKind::Persons)
+                && section
+                    .fields
+                    .keys()
+                    .any(|field| *field != Field::PurposeOfUse)
+            {
+                return Err(ConfigError::Attributes {
+                    issuer: section.issuer.clone(),
+                    reason: "a patients or machines issuer states only purpose_of_use",
                 });
             }
             if !seen.insert(section.issuer.as_str()) {

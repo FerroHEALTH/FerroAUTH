@@ -314,8 +314,9 @@ pub enum ConfigError {
         /// Which rule.
         reason: &'static str,
     },
-    /// An `[[auth.attributes]]` table naming no trusted `persons` issuer,
-    /// or naming one twice.
+    /// An `[[auth.attributes]]` table naming no trusted `persons`,
+    /// `patients` or `machines` issuer, naming one twice, or naming a field
+    /// other than the purpose of use on a `patients` or `machines` issuer.
     #[error("the attributes table of {issuer:?} is refused: {reason}")]
     Attributes {
         /// The issuer.

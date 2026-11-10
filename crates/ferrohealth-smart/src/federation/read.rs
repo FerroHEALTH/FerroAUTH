@@ -110,7 +110,9 @@ pub(crate) fn read_fields(
     for (field, list) in sources {
         let mut found: Option<Attribute> = None;
         for source in &list {
-            match (&found, value_of(field, source)?) {
+            let value = value_of(field, source)?
+                .filter(|value| !matches!(value, Attribute::Codes(codes) if codes.is_empty()));
+            match (&found, value) {
                 (_, None) => {}
                 (None, Some(value)) => found = Some(value),
                 (Some(held), Some(value)) if *held == value => {}
@@ -266,31 +268,39 @@ fn attested_entry<'a>(
 
 /// Returns `value` as an attribute: a string or a number as text, an array
 /// of FHIR Coding or of strings as codes.
+///
+/// A coding whose `code` is empty names no code, and an empty `system` no
+/// system: FHIR R4 `code` and `uri` are "restricted to a string which has at
+/// least one character" (datatypes.html). An array whose codings all have an
+/// empty code is codes with none, which `read_fields` reads as an absent
+/// field.
 pub(crate) fn attribute(value: &Value) -> Option<Attribute> {
     match value {
         Value::String(text) => Some(Attribute::Text(text.clone())),
         Value::Number(number) => Some(Attribute::Text(number.to_string())),
         Value::Array(items) => {
-            let codes = items
-                .iter()
-                .filter_map(|item| match item {
-                    Value::String(code) => Some(Code {
-                        system: None,
-                        code: code.clone(),
-                    }),
-                    Value::Object(coding) => {
-                        coding.get("code").and_then(Value::as_str).map(|code| Code {
-                            system: coding
-                                .get("system")
-                                .and_then(Value::as_str)
-                                .map(str::to_owned),
-                            code: code.to_owned(),
-                        })
-                    }
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            (!codes.is_empty()).then_some(Attribute::Codes(codes))
+            let mut a_coding = false;
+            let mut codes = Vec::new();
+            for item in items {
+                let (system, code) = match item {
+                    Value::String(code) => (None, code.as_str()),
+                    Value::Object(coding) => match coding.get("code").and_then(Value::as_str) {
+                        Some(code) => (coding.get("system").and_then(Value::as_str), code),
+                        None => continue,
+                    },
+                    _ => continue,
+                };
+                a_coding = true;
+                if !code.is_empty() {
+                    codes.push(Code {
+                        system: system
+                            .filter(|system| !system.is_empty())
+                            .map(str::to_owned),
+                        code: code.to_owned(),
+                    });
+                }
+            }
+            a_coding.then_some(Attribute::Codes(codes))
         }
         _ => None,
     }

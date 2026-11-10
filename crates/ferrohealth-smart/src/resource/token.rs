@@ -173,13 +173,15 @@ pub(super) fn admit(
         &claims,
     )
     .map_err(|reason| Rejection::Unclassified { reason })?;
+    let professional =
+        admission.kind == IssuerKind::Persons && classified.kind != CallerKind::System;
     let attributes = match admission.attributes {
-        Some(section) if classified.kind != CallerKind::System => Some(
+        Some(section) => Some(
             section
-                .read(&claims)
+                .read(&claims, professional)
                 .map_err(|reason| Rejection::Unclassified { reason })?,
         ),
-        _ => None,
+        None => None,
     };
     let scope_claim = if classified.app_only {
         admission
