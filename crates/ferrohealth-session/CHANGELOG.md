@@ -18,6 +18,16 @@ and this project adheres to
 
 ### Changed
 
+- Breaking: the five endpoint fields of `config::OidcSection`,
+  `authorization_endpoint`, `token_endpoint`, `jwks_uri`,
+  `end_session_endpoint` and `revocation_endpoint`, are
+  `Option<ferrohealth_secret::secret_url::SecretUrl>` in place of
+  `Option<String>`, so a password in a URL's userinfo reaches no rendering
+  of a console's running configuration, serialized or `Debug`; the host and
+  path stay. `issuer`, `redirect_uri` and `post_logout_redirect_uri` stay
+  `String`s. Upgrade: read an endpoint with `.expose()` and build one with
+  `SecretUrl::new` (#430).
+
 - Breaking: requires `ferrohealth-smart` 0.17.0 (caret `0.17.0`) in place of
   `0.16.0`, whose `oidc` and `config::TlsBuilder` types this crate carries
   in its public API. Upgrade: move `ferrohealth-smart` to 0.17.0 with this

@@ -21,6 +21,7 @@ use ferrohealth_config::tls::TlsClientSection;
 use ferrohealth_config::units::Duration as ConfigDuration;
 use ferrohealth_secret::file::{SecretError, read_secret, require_secret};
 use ferrohealth_secret::secret::Secret;
+use ferrohealth_secret::secret_url::SecretUrl;
 use ferrohealth_smart::client::{PresentedTls, Reach, Tls};
 use ferrohealth_smart::config::TlsBuilder;
 use ferrohealth_smart::metadata::{DiscoveryError, Http, ServerMetadata};
@@ -132,7 +133,9 @@ pub enum ConfigError {
 ///
 /// With `issuer` alone, the endpoints are discovered (RFC 8414 §3, OpenID
 /// Connect Discovery 1.0 §4); each endpoint given here takes the place of
-/// the discovered one.
+/// the discovered one. The endpoints render with their userinfo and their
+/// query masked, as [`SecretUrl`] renders itself, in `Debug` and when
+/// serialized.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -141,15 +144,20 @@ pub struct OidcSection {
     /// equal exactly (OpenID Connect Core 1.0 §3.1.3.7).
     pub issuer: String,
     /// The authorization endpoint (RFC 6749 §3.1).
-    pub authorization_endpoint: Option<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
+    pub authorization_endpoint: Option<SecretUrl>,
     /// The token endpoint (RFC 6749 §3.2).
-    pub token_endpoint: Option<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
+    pub token_endpoint: Option<SecretUrl>,
     /// The JWK Set of the keys that sign the ID Tokens.
-    pub jwks_uri: Option<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
+    pub jwks_uri: Option<SecretUrl>,
     /// The end-session endpoint (OpenID Connect RP-Initiated Logout 1.0 §2).
-    pub end_session_endpoint: Option<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
+    pub end_session_endpoint: Option<SecretUrl>,
     /// The revocation endpoint (RFC 7009 §2).
-    pub revocation_endpoint: Option<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
+    pub revocation_endpoint: Option<SecretUrl>,
     /// The console's client identifier (RFC 6749 §2.2).
     pub client_id: String,
     /// The console's client secret, inline, for a confidential client.
@@ -299,17 +307,23 @@ impl OidcSection {
             issuer: issuer.to_owned(),
             authorization_endpoint: endpoint(
                 "oidc.authorization_endpoint",
-                self.authorization_endpoint.as_deref(),
+                self.authorization_endpoint.as_ref().map(SecretUrl::expose),
             )?,
-            token_endpoint: endpoint("oidc.token_endpoint", self.token_endpoint.as_deref())?,
-            jwks_uri: endpoint("oidc.jwks_uri", self.jwks_uri.as_deref())?,
+            token_endpoint: endpoint(
+                "oidc.token_endpoint",
+                self.token_endpoint.as_ref().map(SecretUrl::expose),
+            )?,
+            jwks_uri: endpoint(
+                "oidc.jwks_uri",
+                self.jwks_uri.as_ref().map(SecretUrl::expose),
+            )?,
             end_session_endpoint: endpoint(
                 "oidc.end_session_endpoint",
-                self.end_session_endpoint.as_deref(),
+                self.end_session_endpoint.as_ref().map(SecretUrl::expose),
             )?,
             revocation_endpoint: endpoint(
                 "oidc.revocation_endpoint",
-                self.revocation_endpoint.as_deref(),
+                self.revocation_endpoint.as_ref().map(SecretUrl::expose),
             )?,
             ..ServerMetadata::default()
         };
@@ -705,6 +719,7 @@ fn resolve_entry(entry: &str) -> Option<(String, SocketAddr)> {
 mod tests {
     use base64::Engine as _;
     use ferrohealth_secret::secret::Secret;
+    use ferrohealth_secret::secret_url::SecretUrl;
 
     use ferrohealth_smart::oidc::{OFFLINE_ACCESS, OPENID};
 
@@ -730,6 +745,49 @@ mod tests {
         assert!(refused.is_err(), "deny_unknown_fields");
         let refused = toml::from_str::<OidcSection>("issuer = \"x\"\nclient = \"y\"");
         assert!(refused.is_err(), "deny_unknown_fields");
+    }
+
+    // NOTE: RFC 3986 §3.2.1: a password in a URI's userinfo is not rendered in clear text.
+    #[test]
+    fn every_endpoint_masks_its_userinfo_in_every_rendering() {
+        let section: OidcSection = toml::from_str(
+            r#"
+issuer = "https://idp.example.org"
+client_id = "console"
+redirect_uri = "https://console.example.org/auth/callback"
+authorization_endpoint = "https://u:AUTHORIZE_PW@idp.example.org/authorize"
+token_endpoint = "https://u:TOKEN_PW@idp.example.org/token"
+jwks_uri = "https://u:JWKS_PW@idp.example.org/jwks"
+end_session_endpoint = "https://u:LOGOUT_PW@idp.example.org/logout"
+revocation_endpoint = "https://u:REVOKE_PW@idp.example.org/revoke"
+"#,
+        )
+        .expect("the section parses");
+        let renderings = [
+            toml::to_string(&section).expect("renders"),
+            serde_json::to_string(&section).expect("renders"),
+            format!("{section:?}"),
+        ];
+        for shown in &renderings {
+            for password in [
+                "AUTHORIZE_PW",
+                "TOKEN_PW",
+                "JWKS_PW",
+                "LOGOUT_PW",
+                "REVOKE_PW",
+            ] {
+                assert!(!shown.contains(password), "{password}: {shown}");
+            }
+            for kept in [
+                "idp.example.org/authorize",
+                "idp.example.org/token",
+                "idp.example.org/jwks",
+                "idp.example.org/logout",
+                "idp.example.org/revoke",
+            ] {
+                assert!(shown.contains(kept), "{kept}: {shown}");
+            }
+        }
     }
 
     #[test]
@@ -843,14 +901,18 @@ mod tests {
             (
                 "oidc.token_endpoint",
                 OidcSection {
-                    token_endpoint: Some(String::from("http://idp.example.org/token")),
+                    token_endpoint: Some(SecretUrl::new(String::from(
+                        "http://idp.example.org/token",
+                    ))),
                     ..oidc()
                 },
             ),
             (
                 "oidc.revocation_endpoint",
                 OidcSection {
-                    revocation_endpoint: Some(String::from("http://idp.example.org/revoke")),
+                    revocation_endpoint: Some(SecretUrl::new(String::from(
+                        "http://idp.example.org/revoke",
+                    ))),
                     ..oidc()
                 },
             ),
@@ -863,7 +925,7 @@ mod tests {
         }
         let loopback = OidcSection {
             issuer: String::from("http://127.0.0.1:8081/realm"),
-            jwks_uri: Some(String::from("http://localhost:8081/jwks")),
+            jwks_uri: Some(SecretUrl::new(String::from("http://localhost:8081/jwks"))),
             ..oidc()
         };
         assert!(loopback.check().is_ok(), "plain http on loopback");
