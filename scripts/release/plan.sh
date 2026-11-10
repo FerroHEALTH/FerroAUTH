@@ -280,9 +280,9 @@ readme_pins() {
   '
 }
 
-# The crate README is its crates.io page: its install line pins the version
-# being released, and so does every install line of the crate in the
-# repository README. A pre-release keeps the lines of the release before it.
+# The crate README is its crates.io page and the repository README lists
+# every crate: each has an install line of the crate, and every one pins the
+# version being released. A pre-release keeps the lines of the release before it.
 check_readme_pin() {
   local readme="crates/$CRATE/README.md" pins stale failed=0 file
   if [[ "$VERSION" == *-* ]]; then
@@ -293,15 +293,15 @@ check_readme_pin() {
     echo "::error::$CRATE has no $readme." >&2
     return 1
   fi
-  if [[ -z "$(readme_pins "$CRATE" <"$readme")" ]]; then
-    echo "::error::$readme has no install line pinning $CRATE as '$CRATE = \"=$VERSION\"'." >&2
-    failed=1
-  fi
   for file in "$readme" README.md; do
-    [[ -f "$file" ]] || continue
     pins="$(readme_pins "$CRATE" <"$file")"
+    if [[ -z "$pins" ]]; then
+      echo "::error::$file has no install line pinning $CRATE as '$CRATE = \"=$VERSION\"'." >&2
+      failed=1
+      continue
+    fi
     stale="$(grep -vxF "$VERSION" <<<"$pins" || true)"
-    if [[ -n "$pins" && -n "$stale" ]]; then
+    if [[ -n "$stale" ]]; then
       echo "::error::$file pins $CRATE at $(paste -sd, - <<<"$stale"); the release is $VERSION." >&2
       failed=1
     fi

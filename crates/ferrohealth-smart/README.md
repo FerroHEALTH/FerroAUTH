@@ -150,11 +150,13 @@ product's classifier describes, and **`extract`** hands a handler the
 ## Guarding a router
 
 ```rust,no_run
+# #![allow(dead_code)]
 use std::sync::Arc;
 
 use axum::Router;
 use axum::routing::get;
 use ferrohealth_smart::guard::{AuthLayer, Gate, Requirement, Target};
+use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::resource::{Access, ResourceServer, Settings, Verifier};
 use ferrohealth_smart::scope::Permission;
 use http::{Extensions, Method, Uri};
@@ -179,7 +181,11 @@ fn classify(_method: &Method, uri: &Uri, _extensions: &Extensions) -> Option<Tar
 }
 
 # async fn build() -> Result<Router, Box<dyn std::error::Error>> {
-let settings = Settings::new("https://as.example.org/realms/ferro", "https://bridge.example.org/fhir");
+let settings = Settings::new(
+    "https://as.example.org/realms/ferro",
+    "https://bridge.example.org/fhir",
+    IssuerKind::Persons,
+);
 let verifier: Arc<dyn Verifier> = Arc::new(ResourceServer::discover(settings).await?);
 let gate = Gate::open().with_bearer(verifier).with_realm("ferrobridge");
 let app = Router::new()
@@ -199,6 +205,7 @@ with `Access::ehr_id`; a product scope neither grammar covers is read with
 ## Calling an upstream
 
 ```rust,no_run
+# #![allow(dead_code)]
 use ferrohealth_smart::client::{ClientCredentials, Endpoint};
 use ferrohealth_smart::client::cache::TokenSource;
 use secrecy::SecretString;

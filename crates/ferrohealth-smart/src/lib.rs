@@ -116,3 +116,12 @@ pub mod roles;
 pub mod scope;
 #[cfg(resource_server)]
 pub mod sender;
+
+// The Rust examples of this crate's README and the repository's README
+// compile as doctests, with the features they guard a router with.
+#[cfg(all(doctest, feature = "axum", feature = "fetch"))]
+#[doc = include_str!("../README.md")]
+struct CrateReadme;
+#[cfg(all(doctest, feature = "axum", feature = "fetch"))]
+#[doc = include_str!("../../../README.md")]
+struct RootReadme;
