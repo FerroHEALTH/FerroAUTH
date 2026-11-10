@@ -119,7 +119,7 @@ exactly, as every FerroHEALTH product does:
 ```toml
 [dependencies]
 ferrohealth-smart = { version = "=0.17.1", features = ["axum", "openehr"] }
-ferrohealth-authz = { version = "=0.10.0", features = ["cedar"] }
+ferrohealth-authz = { version = "=0.11.0", features = ["cedar"] }
 ferrohealth-session = { version = "=0.11.0", features = ["axum"] }
 ```
 
