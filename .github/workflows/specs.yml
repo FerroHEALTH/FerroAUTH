@@ -18,6 +18,12 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
+# A newer push to a pull request cancels its running check (#440); a run on
+# main, in the merge queue or on the schedule is never cancelled in flight.
+concurrency:
+  group: specs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions: {}
 
 jobs:
