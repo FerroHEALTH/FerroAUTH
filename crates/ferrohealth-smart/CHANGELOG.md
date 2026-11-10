@@ -13,6 +13,30 @@ and this project adheres to
 
 ## [0.17.0] - Unreleased
 
+### Added
+
+- `federation::Field::MessageId` (`message_id`): the UUID of the
+  cross-border request message, its WS-Addressing `MessageID` (eHDSI NCPeH
+  Components Specifications 10.0.0 §3.5), which a MyHealth@EU contact point
+  relays. The `ehdsi` mapping reads it from `ehdsi.message_id`; it is
+  optional, and held to the bounds of every field. `External::message_id`
+  and `resource::Caller::message_id` return it as a `federation::MessageId`,
+  whose `Debug` rendering never carries the value, so a product joins its
+  access record to the contact point's audit entry (#432).
+
+### Changed
+
+- Breaking: every endpoint URL a configuration table names is a
+  `ferrohealth_secret::secret_url::SecretUrl`, as `EndpointSection::url`
+  is since 0.16, so a password in its userinfo reaches no rendering of a
+  product's running configuration, serialized or `Debug`:
+  `config::onward::OnwardSection::token_endpoint`,
+  `config::IntrospectionSection::endpoint` and
+  `config::credentials::OauthSection::token_endpoint`, whose own masking
+  serializer is gone. An empty URL keeps its meaning (discover the endpoint
+  from the issuer). `OauthSection::issuer` stays a `String`. Upgrade: read
+  the URL with `.expose()` and build one with `SecretUrl::new` (#429).
+
 ### Fixed
 
 - Breaking: an outbound client's TLS refusal names the key the operator

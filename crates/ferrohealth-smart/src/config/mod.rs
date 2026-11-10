@@ -435,8 +435,9 @@ pub enum AuthMode {
 #[serde(default, deny_unknown_fields)]
 pub struct IntrospectionSection {
     /// The introspection endpoint; empty for the one the issuer's metadata
-    /// names.
-    pub endpoint: String,
+    /// names. It renders with its userinfo and its query masked.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub endpoint: ferrohealth_secret::secret_url::SecretUrl,
     /// The longest an active response is used; `0s` caches nothing.
     pub cache_max_age: Duration,
     /// The most responses held at once.

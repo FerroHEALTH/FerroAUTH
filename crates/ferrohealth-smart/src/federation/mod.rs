@@ -160,6 +160,12 @@ pub enum Field {
     /// eHDSI SAML Profile 10.0.0 §2.1 allows. Text only.
     #[serde(rename = "assertion.name_id_format")]
     AssertionNameIdFormat,
+    /// The UUID of the cross-border request message, its WS-Addressing
+    /// `MessageID` (eHDSI `NCPeH` Components Specifications 10.0.0 §3.5),
+    /// which a MyHealth@EU contact point relays so the data holder's access
+    /// record joins the contact point's audit entry. Text only; optional.
+    #[serde(rename = "message_id")]
+    MessageId,
 }
 
 impl Field {
@@ -208,6 +214,7 @@ impl Field {
             Self::ConsentReference => "consent.reference",
             Self::CorrelationId => "correlation_id",
             Self::AssertionNameIdFormat => "assertion.name_id_format",
+            Self::MessageId => "message_id",
         }
     }
 
@@ -237,7 +244,10 @@ impl Field {
     pub(crate) const fn text_only(self) -> bool {
         matches!(
             self,
-            Self::ConsentReference | Self::CorrelationId | Self::AssertionNameIdFormat
+            Self::ConsentReference
+                | Self::CorrelationId
+                | Self::AssertionNameIdFormat
+                | Self::MessageId
         )
     }
 
@@ -408,7 +418,7 @@ impl Mapping {
 /// 10.0.0 §2.1, §2.3) and the treatment relationship confirmation. The
 /// assertion's `NameID` is `professional.hp_identifier`, and its format
 /// `assertion.name_id_format`.
-const EHDSI_FIELDS: [Field; 24] = [
+const EHDSI_FIELDS: [Field; 25] = [
     Field::ProfessionalHpIdentifier,
     Field::ProfessionalName,
     Field::ProfessionalHpProfessionalRole,
@@ -433,6 +443,7 @@ const EHDSI_FIELDS: [Field; 24] = [
     Field::TrcNotOnOrAfter,
     Field::PatientId,
     Field::PatientIdSource,
+    Field::MessageId,
 ];
 
 /// One `[[auth.federation]]` table: what the `federation` issuer `issuer`
@@ -622,6 +633,31 @@ impl CorrelationId {
     }
 }
 
+/// The UUID of the cross-border request message a MyHealth@EU contact
+/// point's token relays.
+///
+/// It is the value of [`Field::MessageId`]: the WS-Addressing `MessageID` of
+/// the request (eHDSI `NCPeH` Components Specifications 10.0.0 §3.5), as
+/// relayed, a `urn:uuid:` form included. A product records it in its access
+/// record to join the contact point's Patient Privacy audit entry. The
+/// `Debug` rendering never carries the value.
+#[derive(Clone, PartialEq, Eq)]
+pub struct MessageId(String);
+
+impl fmt::Debug for MessageId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("MessageId").finish_non_exhaustive()
+    }
+}
+
+impl MessageId {
+    /// Returns the id, as relayed.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
 /// What a `federation` token asserts about another party, recorded as
 /// asserted and never bound to a local party.
 ///
@@ -695,6 +731,16 @@ impl External {
         self.field(Field::CorrelationId)
             .and_then(Attribute::text)
             .map(|text| CorrelationId(text.to_owned()))
+    }
+
+    /// Returns the UUID of the cross-border request message the token
+    /// relays, when its issuer's table maps [`Field::MessageId`] (the
+    /// `ehdsi` mapping reads `ehdsi.message_id`) and the token carries it.
+    #[must_use]
+    pub fn message_id(&self) -> Option<MessageId> {
+        self.field(Field::MessageId)
+            .and_then(Attribute::text)
+            .map(|text| MessageId(text.to_owned()))
     }
 }
 

@@ -73,7 +73,10 @@ impl Graph {
         GraphSection {
             base_url: format!("{}/v1.0", self.server.uri()),
             credentials: OauthSection {
-                token_endpoint: format!("{}/token", self.server.uri()),
+                token_endpoint: ferrohealth_secret::secret_url::SecretUrl::new(format!(
+                    "{}/token",
+                    self.server.uri()
+                )),
                 client_id: String::from("synthetic-graph-reader"),
                 client_secret: Some(SecretString::from("synthetic-graph-secret")),
                 scope: String::from("https://graph.microsoft.com/.default"),
@@ -524,7 +527,9 @@ type Refusal = fn(&GraphError) -> bool;
 fn a_graph_table_breaking_a_rule_fails_to_build() {
     let good = GraphSection {
         credentials: OauthSection {
-            token_endpoint: String::from("https://login.example.org/token"),
+            token_endpoint: ferrohealth_secret::secret_url::SecretUrl::new(String::from(
+                "https://login.example.org/token",
+            )),
             client_id: String::from("synthetic-graph-reader"),
             client_secret: Some(SecretString::from("synthetic-graph-secret")),
             ..OauthSection::default()

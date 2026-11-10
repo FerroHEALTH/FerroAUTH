@@ -1181,6 +1181,17 @@ identifiers, so a product reads them as one pair, `Caller::name_id`, a
 `contact::NameId` with its `contact::NameIdFormat`, beside
 `assertion.issuer` (FerroHEALTH/FerroAUTH#291).
 
+The contact point may relay the UUID of the cross-border request message,
+the WS-Addressing `MessageID` of the request (eHDSI NCPeH Components
+Specifications 10.0.0 §3.5), as the field `message_id`, read by the `ehdsi`
+mapping from `ehdsi.message_id`. It is optional: a token without it is
+admitted. It is one string held to the bounds of every field (no control or
+bidirectional control character, at most 256 characters), a `urn:uuid:`
+form taken as relayed, and a product reads it as `Caller::message_id`, a
+`federation::MessageId` whose `Debug` rendering never carries the value, to
+join its access record to the contact point's audit entry
+(FerroHEALTH/FerroAUTH#432).
+
 **The `nl` profile** (`profile = "nl"`, `profiles/nl.toml`). The harmonised
 BgZ and eOverdracht authentication of the openEHR Federation Tier
 specification 1.0.1 Annex B §B.4a: a requesting care provider signs its own

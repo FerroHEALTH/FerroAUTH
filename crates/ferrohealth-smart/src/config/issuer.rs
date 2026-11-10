@@ -77,7 +77,7 @@ impl Default for IssuerEntry {
 impl Default for IntrospectionSection {
     fn default() -> Self {
         Self {
-            endpoint: String::new(),
+            endpoint: ferrohealth_secret::secret_url::SecretUrl::default(),
             cache_max_age: Duration::from_secs(60),
             cache_capacity: 10_000,
             client: None,

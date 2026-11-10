@@ -57,7 +57,7 @@ impl OauthSection {
                     ));
                 }
             }
-            (true, false) => match self.token_endpoint.parse::<Url>() {
+            (true, false) => match self.token_endpoint.expose().parse::<Url>() {
                 Err(_malformed) => out.push(format!("{table}.token_endpoint is not a URL")),
                 Ok(url) => {
                     if let Some(part) = crate::client::forbidden_part(&url) {

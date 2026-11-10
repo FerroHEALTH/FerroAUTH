@@ -408,7 +408,9 @@ fn a_rendered_section_carries_every_key_and_no_secret() {
 #[test]
 fn the_grant_masks_the_userinfo_of_its_urls() {
     let oauth = ferrohealth_smart::config::credentials::OauthSection {
-        token_endpoint: String::from("https://u:URL_PW_SENTINEL@idp.example.org/token"),
+        token_endpoint: ferrohealth_secret::secret_url::SecretUrl::new(String::from(
+            "https://u:URL_PW_SENTINEL@idp.example.org/token",
+        )),
         client_id: String::from("svc"),
         ..ferrohealth_smart::config::credentials::OauthSection::default()
     };
@@ -429,6 +431,70 @@ fn the_grant_masks_the_userinfo_of_its_urls() {
     );
 }
 
+/// Every endpoint URL of `[auth]` and `[<lane>.credentials]` is a
+/// `SecretUrl`: a password in its userinfo reaches no rendering, serialized
+/// or `Debug`, and the host and path stay (#429).
+#[test]
+fn every_endpoint_url_masks_its_userinfo_in_every_rendering() {
+    let auth: AuthSection = toml::from_str(
+        r#"
+[[issuer]]
+issuer = "https://idp.example"
+kind = "persons"
+audience = ["a"]
+[issuer.introspection]
+endpoint = "https://u:INTROSPECT_PW@idp.example/introspect"
+[issuer.introspection.client]
+token_endpoint = "https://u:CLIENT_PW@idp.example/client-token"
+client_id = "rs"
+[issuer.introspection.bearer]
+token_endpoint = "https://u:BEARER_PW@idp.example/bearer-token"
+client_id = "rs"
+"#,
+    )
+    .expect("the section parses");
+    let credentials: CredentialsSection = toml::from_str(
+        r#"
+[oauth]
+token_endpoint = "https://u:OAUTH_PW@as.example/oauth-token"
+client_id = "svc"
+[onward]
+issuer = "https://onward.example"
+token_endpoint = "https://u:ONWARD_PW@onward.example/onward-token"
+"#,
+    )
+    .expect("the section parses");
+    let renderings = [
+        toml::to_string(&auth).expect("renders"),
+        serde_json::to_string(&auth).expect("renders"),
+        format!("{auth:?}"),
+        toml::to_string(&credentials).expect("renders"),
+        serde_json::to_string(&credentials).expect("renders"),
+        format!("{credentials:?}"),
+    ];
+    for (index, shown) in renderings.iter().enumerate() {
+        for password in [
+            "INTROSPECT_PW",
+            "CLIENT_PW",
+            "BEARER_PW",
+            "OAUTH_PW",
+            "ONWARD_PW",
+        ] {
+            assert!(!shown.contains(password), "rendering {index}: {password}");
+        }
+    }
+    for (index, path) in [
+        (0, "idp.example/introspect"),
+        (0, "idp.example/client-token"),
+        (0, "idp.example/bearer-token"),
+        (3, "as.example/oauth-token"),
+        (3, "onward.example/onward-token"),
+    ] {
+        assert!(renderings[index].contains(path), "{path}");
+        assert!(renderings[index + 2].contains(path), "Debug: {path}");
+    }
+}
+
 /// Every problem of a grant is named under the product's own table, at once.
 #[test]
 fn the_grant_names_every_problem_under_the_products_table() {
@@ -445,7 +511,9 @@ fn the_grant_names_every_problem_under_the_products_table() {
     assert!(!joined.contains("credentials.oauth"), "{joined}");
     let both = ferrohealth_smart::config::credentials::OauthSection {
         issuer: String::from("https://as.example.org"),
-        token_endpoint: String::from("https://as.example.org/token"),
+        token_endpoint: ferrohealth_secret::secret_url::SecretUrl::new(String::from(
+            "https://as.example.org/token",
+        )),
         client_id: String::from("svc"),
         client_secret: Some(secrecy::SecretString::from("s")),
         client_secret_file: Some(std::path::PathBuf::from("/run/secret")),
@@ -461,7 +529,9 @@ fn the_grant_names_every_problem_under_the_products_table() {
         assert!(problems.contains(key), "{key} unnamed in {problems}");
     }
     let mutual = ferrohealth_smart::config::credentials::OauthSection {
-        token_endpoint: String::from("https://as.example.org/token"),
+        token_endpoint: ferrohealth_secret::secret_url::SecretUrl::new(String::from(
+            "https://as.example.org/token",
+        )),
         client_id: String::from("svc"),
         client_auth: ClientAuth::TlsClientAuth,
         ..ferrohealth_smart::config::credentials::OauthSection::default()
@@ -474,7 +544,9 @@ fn the_grant_names_every_problem_under_the_products_table() {
         "{problems}"
     );
     let sound = ferrohealth_smart::config::credentials::OauthSection {
-        token_endpoint: String::from("https://as.example.org/token"),
+        token_endpoint: ferrohealth_secret::secret_url::SecretUrl::new(String::from(
+            "https://as.example.org/token",
+        )),
         client_id: String::from("svc"),
         client_secret: Some(secrecy::SecretString::from("s")),
         ..ferrohealth_smart::config::credentials::OauthSection::default()

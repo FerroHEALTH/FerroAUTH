@@ -104,7 +104,10 @@ fn introspecting(
     grant_ca_file: Option<std::path::PathBuf>,
 ) -> AuthSection {
     let grant = OauthSection {
-        token_endpoint: format!("{issuer}{}", crate::support::TOKEN_PATH),
+        token_endpoint: ferrohealth_secret::secret_url::SecretUrl::new(format!(
+            "{issuer}{}",
+            crate::support::TOKEN_PATH
+        )),
         client_id: String::from("ferro-rs"),
         client_secret: Some(SecretString::from("synthetic-secret")),
         tls: roots(grant_ca_file),
@@ -118,7 +121,9 @@ fn introspecting(
         issuer: vec![IssuerEntry {
             mode: AuthMode::Introspection,
             introspection: Some(IntrospectionSection {
-                endpoint: format!("{issuer}/introspect"),
+                endpoint: ferrohealth_secret::secret_url::SecretUrl::new(format!(
+                    "{issuer}/introspect"
+                )),
                 client,
                 bearer,
                 ..IntrospectionSection::default()
