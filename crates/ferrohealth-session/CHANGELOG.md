@@ -14,6 +14,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.13.0] - Unreleased
+
+### Changed
+
+- Breaking: `config::OidcSection::issuer`, `redirect_uri` and
+  `post_logout_redirect_uri` are `ferrohealth_secret::secret_url::SecretUrl`,
+  as the five endpoints are since 0.11, so a password in their userinfo
+  reaches no rendering of a console's configuration, serialized or `Debug`,
+  even one rendered before the check runs (RFC 3986 §3.2.1). The check
+  still refuses a userinfo in each, naming the key. Upgrade: read a value
+  with `.expose()` and build one with `SecretUrl::new` (#451).
+
 ## [0.12.0] - 2026-11-10
 
 ### Changed

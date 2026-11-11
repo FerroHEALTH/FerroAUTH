@@ -14,6 +14,7 @@ use axum::response::{IntoResponse as _, Response};
 use axum::routing::get;
 use base64::Engine as _;
 use ferrohealth_secret::secret::Secret;
+use ferrohealth_secret::secret_url::SecretUrl;
 use ferrohealth_session::config::{OidcSection, SessionSection, StoreKind};
 use ferrohealth_session::cookies::CookieNames;
 use ferrohealth_session::record::{Credential, Held};
@@ -84,10 +85,10 @@ pub(crate) async fn console(provider: &Provider, store: StoreKind) -> Router {
 /// The sign-in of a console at `provider` over the store `store`.
 pub(crate) async fn sign_in(provider: &Provider, store: StoreKind) -> SignIn<TestPages> {
     let oidc = OidcSection {
-        issuer: provider.uri(),
+        issuer: SecretUrl::new(provider.uri()),
         client_id: String::from(CLIENT),
         client_secret: Some(Secret::new(SECRET)),
-        redirect_uri: String::from(REDIRECT),
+        redirect_uri: SecretUrl::new(REDIRECT),
         scopes: vec![String::from("openid"), String::from("profile")],
         ..OidcSection::default()
     }
