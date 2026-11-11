@@ -8,6 +8,7 @@
 
 use std::error::Error as StdError;
 
+use ferrohealth_secret::secret_url::SecretUrl;
 use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::kind::IssuerKind;
@@ -241,9 +242,14 @@ fn a_product_role_list_names_persons_issuers_only() -> Outcome {
         "[[issuer]]\nissuer = \"https://machines.example.org\"\nkind = \"machines\"\naudience = [\"a\"]\n"
     ))
     .resolve()?;
-    resolved.check_role_issuers("authz.admin_issuers", &["https://as.example.org"])?;
-    let refused =
-        resolved.check_role_issuers("authz.admin_issuers", &["https://machines.example.org"]);
+    resolved.check_role_issuers(
+        "authz.admin_issuers",
+        &[SecretUrl::new("https://as.example.org")],
+    )?;
+    let refused = resolved.check_role_issuers(
+        "authz.admin_issuers",
+        &[SecretUrl::new("https://machines.example.org")],
+    );
     assert!(
         matches!(
             &refused,
@@ -254,11 +260,62 @@ fn a_product_role_list_names_persons_issuers_only() -> Outcome {
         ),
         "{refused:?}"
     );
-    let unknown =
-        resolved.check_role_issuers("authz.admin_issuers", &["https://other.example.org"]);
+    let unknown = resolved.check_role_issuers(
+        "authz.admin_issuers",
+        &[SecretUrl::new("https://other.example.org")],
+    );
     assert!(
         matches!(unknown, Err(ConfigError::RoleIssuer { kind: None, .. })),
         "an issuer the section does not trust"
+    );
+    Ok(())
+}
+
+/// A role list issuer written with userinfo is refused naming its host, and
+/// its password reaches neither the refusal's `Display` nor its `Debug` nor
+/// any error of its source chain (RFC 3986 §3.2.1, #464).
+#[test]
+fn a_credentialed_role_issuer_is_refused_with_its_password_masked() -> Outcome {
+    let resolved = section(&issuer("persons", "")).resolve()?;
+    let refused = resolved
+        .check_role_issuers(
+            "authz.admin_issuers",
+            &[SecretUrl::new(
+                "https://admin:ROLE_ISSUER_PW@as.example.org",
+            )],
+        )
+        .expect_err("an issuer with userinfo is no trusted persons issuer");
+    assert!(
+        matches!(
+            &refused,
+            ConfigError::RoleIssuer {
+                key: "authz.admin_issuers",
+                kind: None,
+                ..
+            }
+        ),
+        "{refused:?}"
+    );
+    let mut renderings = vec![refused.to_string(), format!("{refused:?}")];
+    let mut source = StdError::source(&refused);
+    while let Some(cause) = source {
+        renderings.push(cause.to_string());
+        renderings.push(format!("{cause:?}"));
+        source = cause.source();
+    }
+    for (index, shown) in renderings.iter().enumerate() {
+        assert!(
+            !shown.contains("ROLE_ISSUER_PW"),
+            "rendering {index}: the issuer's password"
+        );
+    }
+    assert!(
+        refused.to_string().contains("as.example.org"),
+        "the refusal names the host: {refused}"
+    );
+    assert!(
+        format!("{refused:?}").contains("as.example.org"),
+        "the Debug rendering names the host"
     );
     Ok(())
 }

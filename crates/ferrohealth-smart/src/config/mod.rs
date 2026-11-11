@@ -300,8 +300,8 @@ pub enum ConfigError {
     RoleIssuer {
         /// The key of the product's list.
         key: &'static str,
-        /// The issuer.
-        issuer: String,
+        /// The issuer, whose `Display` and `Debug` mask its userinfo.
+        issuer: ferrohealth_secret::secret_url::SecretUrl,
         /// Its kind, when the section trusts it.
         kind: Option<IssuerKind>,
     },
