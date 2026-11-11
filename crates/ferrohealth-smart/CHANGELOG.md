@@ -11,6 +11,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.20.0] - Unreleased
+
+### Fixed
+
+- Breaking: a product role list's refusal masks the issuer's userinfo, as
+  every other refusal naming an issuer does since 0.19 (RFC 3986 §3.2.1).
+  `config::Resolved::check_role_issuers` takes the issuers as
+  `&[ferrohealth_secret::secret_url::SecretUrl]` in place of any
+  `&[impl AsRef<str>]`, finds each by its exposed text, and
+  `config::ConfigError::RoleIssuer::issuer` is a `SecretUrl` in place of a
+  `String`, so an issuer written as `https://user:password@host/` reaches
+  neither the refusal's `Display` nor its `Debug` with its password.
+  Upgrade: hold the role list as `SecretUrl` (it deserializes from the same
+  string) and pass it as it is, or wrap each entry with `SecretUrl::new`;
+  read the refused issuer with `.expose()` (#464).
+
 ## [0.19.1] - 2026-11-11
 
 ### Fixed

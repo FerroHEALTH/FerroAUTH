@@ -9,6 +9,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use ferrohealth_config::tls::TlsClientSection;
+use ferrohealth_secret::secret_url::SecretUrl;
 
 use crate::basic::PasswordStore;
 use crate::client::Tls;
@@ -62,19 +63,18 @@ impl Resolved {
     /// # Errors
     ///
     /// [`ConfigError::RoleIssuer`] naming `key` and the first issuer that is
-    /// not a trusted `persons` issuer.
-    pub fn check_role_issuers<S: AsRef<str>>(
+    /// not a trusted `persons` issuer, with any userinfo masked.
+    pub fn check_role_issuers(
         &self,
         key: &'static str,
-        issuers: &[S],
+        issuers: &[SecretUrl],
     ) -> Result<(), ConfigError> {
         for issuer in issuers {
-            let issuer = issuer.as_ref();
-            let kind = self.kinds.get(issuer).copied();
+            let kind = self.kinds.get(issuer.expose()).copied();
             if kind != Some(IssuerKind::Persons) {
                 return Err(ConfigError::RoleIssuer {
                     key,
-                    issuer: issuer.to_owned(),
+                    issuer: issuer.clone(),
                     kind,
                 });
             }

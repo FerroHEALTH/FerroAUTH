@@ -14,6 +14,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.13.0] - Unreleased
+
+Releases beside `ferrohealth-smart` 0.20.0, whose `resource::Caller`,
+`client::cache::TokenSource` and `config::endpoint::RetrySection` this
+crate carries in its public API.
+
+### Changed
+
+- Breaking: requires `ferrohealth-smart` 0.20.0 (caret `0.20.0`) in place of
+  `0.19.0`. Upgrade: move `ferrohealth-smart` to 0.20.0 with this crate, so
+  one copy links (#464).
+
 ## [0.12.0] - 2026-11-11
 
 Releases beside `ferrohealth-smart` 0.19.0, whose `resource::Caller`,
