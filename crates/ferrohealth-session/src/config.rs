@@ -133,16 +133,17 @@ pub enum ConfigError {
 ///
 /// With `issuer` alone, the endpoints are discovered (RFC 8414 §3, OpenID
 /// Connect Discovery 1.0 §4); each endpoint given here takes the place of
-/// the discovered one. The endpoints render with their userinfo and their
-/// query masked, as [`SecretUrl`] renders itself, in `Debug` and when
-/// serialized.
+/// the discovered one. The issuer, the endpoints and the two redirection
+/// URIs render with their userinfo and their query masked, as [`SecretUrl`]
+/// renders itself, in `Debug` and when serialized.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OidcSection {
     /// The provider's issuer identifier, which an ID Token's `iss` must
     /// equal exactly (OpenID Connect Core 1.0 §3.1.3.7).
-    pub issuer: String,
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub issuer: SecretUrl,
     /// The authorization endpoint (RFC 6749 §3.1).
     #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
     pub authorization_endpoint: Option<SecretUrl>,
@@ -167,9 +168,11 @@ pub struct OidcSection {
     pub client_secret_file: Option<PathBuf>,
     /// The redirection endpoint, the console's `/auth/callback`
     /// (RFC 6749 §3.1.2).
-    pub redirect_uri: String,
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub redirect_uri: SecretUrl,
     /// Where the provider sends the operator after a sign-out.
-    pub post_logout_redirect_uri: Option<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
+    pub post_logout_redirect_uri: Option<SecretUrl>,
     /// The scopes requested, `openid` among them.
     pub scopes: Vec<String>,
     /// Whether the sign-in asks for `offline_access` (OpenID Connect Core
@@ -191,7 +194,7 @@ pub struct OidcSection {
 impl Default for OidcSection {
     fn default() -> Self {
         Self {
-            issuer: String::new(),
+            issuer: SecretUrl::default(),
             authorization_endpoint: None,
             token_endpoint: None,
             jwks_uri: None,
@@ -200,7 +203,7 @@ impl Default for OidcSection {
             client_id: String::new(),
             client_secret: None,
             client_secret_file: None,
-            redirect_uri: String::new(),
+            redirect_uri: SecretUrl::default(),
             post_logout_redirect_uri: None,
             scopes: vec![String::from(OPENID)],
             offline_access: false,
@@ -278,12 +281,12 @@ impl OidcSection {
 
     /// Checks the section, over the configuration the console built.
     fn check_over(&self, presented: Option<PresentedTls>) -> Result<OidcSettings, ConfigError> {
-        let issuer = required("oidc.issuer", &self.issuer)?;
+        let issuer = required("oidc.issuer", self.issuer.expose())?;
         provider_url("oidc.issuer", issuer)?;
         let client_id = required("oidc.client_id", &self.client_id)?;
         let redirect_uri = web_url(
             "oidc.redirect_uri",
-            required("oidc.redirect_uri", &self.redirect_uri)?,
+            required("oidc.redirect_uri", self.redirect_uri.expose())?,
         )?;
         // NOTE: RFC 6749 §3.1.2: the redirection endpoint URI MUST NOT include a fragment
         // component.
@@ -329,7 +332,8 @@ impl OidcSection {
         };
         let post_logout_redirect_uri = self
             .post_logout_redirect_uri
-            .as_deref()
+            .as_ref()
+            .map(SecretUrl::expose)
             .map(|value| web_url("oidc.post_logout_redirect_uri", value))
             .transpose()?;
         if self.timeout.is_zero() {
@@ -790,6 +794,62 @@ revocation_endpoint = "https://u:REVOKE_PW@idp.example.org/revoke"
         }
     }
 
+    // NOTE: RFC 3986 §3.2.1: a password in a URI's userinfo is not rendered in clear text.
+    #[test]
+    fn the_issuer_and_the_redirection_uris_mask_their_userinfo_in_every_rendering() {
+        let section: OidcSection = toml::from_str(
+            r#"
+issuer = "https://u:ISSUER_PW@idp.example.org/realms/r"
+client_id = "console"
+redirect_uri = "https://u:REDIRECT_PW@console.example.org/auth/callback"
+post_logout_redirect_uri = "https://u:LOGOUT_REDIRECT_PW@console.example.org/"
+"#,
+        )
+        .expect("the section parses");
+        let renderings = [
+            toml::to_string(&section).expect("renders"),
+            serde_json::to_string(&section).expect("renders"),
+            format!("{section:?}"),
+        ];
+        for (index, shown) in renderings.iter().enumerate() {
+            for (key, sentinel) in [
+                ("issuer", "ISSUER_PW"),
+                ("redirect_uri", "REDIRECT_PW"),
+                ("post_logout_redirect_uri", "LOGOUT_REDIRECT_PW"),
+            ] {
+                assert!(!shown.contains(sentinel), "rendering {index}: {key}");
+            }
+            for kept in [
+                "idp.example.org/realms/r",
+                "console.example.org/auth/callback",
+                "console.example.org/",
+            ] {
+                assert!(shown.contains(kept), "rendering {index}: {kept}");
+            }
+        }
+        assert_eq!(
+            "https://u:ISSUER_PW@idp.example.org/realms/r",
+            section.issuer.expose(),
+            "the identifier itself is held as written"
+        );
+        let refused = section.check();
+        assert!(
+            matches!(
+                refused,
+                Err(ConfigError::UrlShape {
+                    key: "oidc.issuer",
+                    ..
+                })
+            ),
+            "the issuer's userinfo is still refused"
+        );
+        let shown = refused.err().map(|error| format!("{error} {error:?}"));
+        assert!(
+            shown.is_some_and(|shown| !shown.contains("ISSUER_PW")),
+            "the refusal names no password"
+        );
+    }
+
     #[test]
     fn the_defaults_are_a_memory_store_with_secure_cookies() {
         let section: SessionSection = toml::from_str("").expect("all defaults");
@@ -868,10 +928,10 @@ revocation_endpoint = "https://u:REVOKE_PW@idp.example.org/revoke"
         let raw = section.key.as_ref().expect("set").expose().to_owned();
         assert!(!shown.contains(&raw), "{shown}");
         let oidc = OidcSection {
-            issuer: String::from("https://idp.example.org"),
+            issuer: SecretUrl::new("https://idp.example.org"),
             client_id: String::from("console"),
             client_secret: Some(Secret::new("synthetic-client-secret")),
-            redirect_uri: String::from("https://console.example.org/auth/callback"),
+            redirect_uri: SecretUrl::new("https://console.example.org/auth/callback"),
             ..OidcSection::default()
         };
         let shown = format!("{oidc:?} {:?}", oidc.check().expect("valid"));
@@ -880,9 +940,9 @@ revocation_endpoint = "https://u:REVOKE_PW@idp.example.org/revoke"
 
     fn oidc() -> OidcSection {
         OidcSection {
-            issuer: String::from("https://idp.example.org"),
+            issuer: SecretUrl::new("https://idp.example.org"),
             client_id: String::from("console"),
-            redirect_uri: String::from("https://console.example.org/auth/callback"),
+            redirect_uri: SecretUrl::new("https://console.example.org/auth/callback"),
             ..OidcSection::default()
         }
     }
@@ -894,7 +954,7 @@ revocation_endpoint = "https://u:REVOKE_PW@idp.example.org/revoke"
             (
                 "oidc.issuer",
                 OidcSection {
-                    issuer: String::from("http://idp.example.org"),
+                    issuer: SecretUrl::new("http://idp.example.org"),
                     ..oidc()
                 },
             ),
@@ -924,7 +984,7 @@ revocation_endpoint = "https://u:REVOKE_PW@idp.example.org/revoke"
             );
         }
         let loopback = OidcSection {
-            issuer: String::from("http://127.0.0.1:8081/realm"),
+            issuer: SecretUrl::new("http://127.0.0.1:8081/realm"),
             jwks_uri: Some(SecretUrl::new(String::from("http://localhost:8081/jwks"))),
             ..oidc()
         };
@@ -939,7 +999,7 @@ revocation_endpoint = "https://u:REVOKE_PW@idp.example.org/revoke"
             "ftp://console.example.org/auth/callback",
         ] {
             let refused = OidcSection {
-                redirect_uri: String::from(redirect),
+                redirect_uri: SecretUrl::new(redirect),
                 ..oidc()
             }
             .check();
@@ -988,9 +1048,9 @@ revocation_endpoint = "https://u:REVOKE_PW@idp.example.org/revoke"
             "{refused:?}"
         );
         let refused = OidcSection {
-            issuer: String::from("https://idp.example.org"),
+            issuer: SecretUrl::new("https://idp.example.org"),
             client_id: String::from("console"),
-            redirect_uri: String::from("not a url"),
+            redirect_uri: SecretUrl::new("not a url"),
             ..OidcSection::default()
         }
         .check();
