@@ -172,7 +172,7 @@ impl IdpAdapter for FakeAdapter {
 /// `groups`.
 pub(crate) fn table() -> PartySection {
     PartySection {
-        issuer: String::from(ISSUER),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(ISSUER),
         identifier_issuer: String::from(IDENTIFIERS),
         identifier_type: String::from("guid"),
         group_claim: String::from("groups"),

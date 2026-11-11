@@ -54,7 +54,7 @@ const CERTIFICATE: &[u8] = b"synthetic client certificate DER";
 /// issuing authority taken from NCP-B's identity, configured.
 fn table() -> FederationSection {
     FederationSection {
-        issuer: String::from(ISSUER),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(ISSUER),
         contact_point: Some(true),
         mapping: Some(Mapping::Ehdsi),
         fields: BTreeMap::from([

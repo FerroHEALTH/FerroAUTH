@@ -11,6 +11,22 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.19.0] - Unreleased
+
+### Changed
+
+- Breaking: every configuration table that names an `[[auth.issuer]]`
+  holds the issuer as a `ferrohealth_secret::secret_url::SecretUrl`, as the
+  `[[auth.issuer]]` itself is since 0.18, so a password in its userinfo
+  reaches no rendering of a product's configuration, serialized or
+  `Debug`, nor a refusal (RFC 3986 §3.2.1):
+  `federation::person::AttributesSection::issuer` (`[[auth.attributes]]`),
+  `federation::FederationSection::issuer` (`[[auth.federation]]`),
+  `party::config::PartySection::issuer` (`[[auth.party]]`) and
+  `config::ScopelessSubject::issuer` (`auth.scopeless_subjects`). Upgrade:
+  read the issuer with `.expose()` and build one with `SecretUrl::new`
+  (#456).
+
 ## [0.18.0] - 2026-11-10
 
 ### Changed

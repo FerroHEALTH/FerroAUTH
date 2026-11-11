@@ -553,7 +553,7 @@ fn the_introspection_table_reads_from_toml() -> Result<(), Box<dyn StdError>> {
 fn introspection_mode_reads_the_entries_naming_its_issuer() -> Result<(), Box<dyn StdError>> {
     let mut auth = section("https://as.example.org");
     auth.scopeless_subjects = vec![ScopelessSubject {
-        issuer: String::from("https://as.example.org"),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new("https://as.example.org"),
         sub: String::from("batch"),
     }];
     table(&mut auth).role_claims = Some(vec![String::from("realm_access.roles")]);
@@ -572,7 +572,7 @@ fn introspection_mode_reads_the_entries_naming_its_issuer() -> Result<(), Box<dy
         settings.role_claims
     );
     auth.scopeless_subjects = vec![ScopelessSubject {
-        issuer: String::from("https://other.example.org"),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new("https://other.example.org"),
         sub: String::from("batch"),
     }];
     assert!(matches!(

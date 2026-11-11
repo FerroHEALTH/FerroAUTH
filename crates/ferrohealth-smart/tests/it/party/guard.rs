@@ -96,7 +96,7 @@ impl Case {
     ) -> Result<(StatusCode, String, Line), Box<dyn StdError>> {
         let settings = self.issuer.settings();
         let table = PartySection {
-            issuer: settings.issuer.clone(),
+            issuer: ferrohealth_secret::secret_url::SecretUrl::new(settings.issuer.as_str()),
             identifier_issuer: String::from(super::IDENTIFIERS),
             identifier_type: String::from("login"),
             group_claim: String::from("groups"),

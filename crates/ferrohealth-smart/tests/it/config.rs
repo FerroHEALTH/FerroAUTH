@@ -559,6 +559,65 @@ issuer = "https://u:ONWARD_ISSUER_PW@onward.example/realms/r"
     );
 }
 
+/// The tables that name an `[[auth.issuer]]`, `[[auth.attributes]]`,
+/// `[[auth.federation]]`, `[[auth.party]]` and `scopeless_subjects`, hold
+/// its identifier as a `SecretUrl` too: a password in its userinfo reaches no
+/// rendering, serialized or `Debug`, nor the refusal of the start (RFC 3986
+/// §3.2.1, #456).
+#[test]
+fn every_table_naming_an_issuer_masks_its_userinfo() {
+    let auth: AuthSection = toml::from_str(
+        r#"
+[[issuer]]
+issuer = "https://u:TABLE_ISSUER_PW@idp.example/realms/r"
+kind = "persons"
+audience = ["a"]
+
+[[attributes]]
+issuer = "https://u:TABLE_ISSUER_PW@idp.example/realms/r"
+mapping = "iua"
+
+[[federation]]
+issuer = "https://u:TABLE_ISSUER_PW@idp.example/realms/r"
+contact_point = false
+
+[[party]]
+issuer = "https://u:TABLE_ISSUER_PW@idp.example/realms/r"
+identifier_issuer = "urn:example:people"
+identifier_type = "guid"
+
+[[scopeless_subjects]]
+issuer = "https://u:TABLE_ISSUER_PW@idp.example/realms/r"
+sub = "service"
+"#,
+    )
+    .expect("the section parses");
+    let refused = auth.clone().resolve().expect_err("the userinfo is refused");
+    let renderings = [
+        toml::to_string(&auth).expect("renders"),
+        serde_json::to_string(&auth).expect("renders"),
+        format!("{auth:?}"),
+        format!("{refused} {refused:?}"),
+    ];
+    for (index, shown) in renderings.iter().enumerate() {
+        assert!(
+            !shown.contains("TABLE_ISSUER_PW"),
+            "rendering {index}: an issuer's password"
+        );
+        assert!(
+            shown.contains("idp.example/realms/r"),
+            "rendering {index}: the host"
+        );
+    }
+    for table in ["attributes", "federation", "party", "scopeless_subjects"] {
+        assert_eq!(
+            1,
+            renderings[0].matches(&format!("[[{table}]]")).count(),
+            "{table} renders"
+        );
+    }
+}
+
 /// Every problem of a grant is named under the product's own table, at once.
 #[test]
 fn the_grant_names_every_problem_under_the_products_table() {

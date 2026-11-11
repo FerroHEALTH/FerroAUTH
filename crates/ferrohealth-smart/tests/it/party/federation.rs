@@ -43,7 +43,7 @@ const REMOTE: &str = super::LOGIN;
 /// statements.
 fn section() -> FederationSection {
     FederationSection {
-        issuer: String::from(ISSUER),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(ISSUER),
         contact_point: Some(false),
         mapping: Some(Mapping::Iua),
         fields: BTreeMap::from([
