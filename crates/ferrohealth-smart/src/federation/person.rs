@@ -44,8 +44,10 @@ use crate::roles::lookup;
 #[serde(default, deny_unknown_fields)]
 pub struct AttributesSection {
     /// The `[[auth.issuer]]` this table describes, of kind `persons`,
-    /// `patients` or `machines`.
-    pub issuer: String,
+    /// `patients` or `machines`. It renders with any userinfo masked, as
+    /// [`SecretUrl`](ferrohealth_secret::secret_url::SecretUrl) renders itself.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub issuer: ferrohealth_secret::secret_url::SecretUrl,
     /// The default sources the table starts from.
     pub mapping: Option<Mapping>,
     /// The sources of each field, over the mapping's.

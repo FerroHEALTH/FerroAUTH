@@ -113,9 +113,9 @@ impl PartyBinding {
         profile: &Profile,
     ) -> Result<Self, PartyError> {
         check_table(&table, Some(kind), Some(profile))?;
-        if self.issuers.contains_key(&table.issuer) {
+        if self.issuers.contains_key(table.issuer.expose()) {
             return Err(PartyError::DuplicateIssuer {
-                issuer: table.issuer,
+                issuer: crate::config::shown(&table.issuer),
             });
         }
         if let Some(other) = self
@@ -124,8 +124,8 @@ impl PartyBinding {
             .find(|other| other.table.identifier_issuer == table.identifier_issuer)
         {
             return Err(PartyError::SharedIdentifierIssuer {
-                first: other.table.issuer.clone(),
-                second: table.issuer,
+                first: crate::config::shown(&other.table.issuer),
+                second: crate::config::shown(&table.issuer),
                 identifier_issuer: table.identifier_issuer,
             });
         }
@@ -133,12 +133,12 @@ impl PartyBinding {
             && !self.adapters.contains_key(adapter)
         {
             return Err(PartyError::Adapter {
-                issuer: table.issuer,
+                issuer: crate::config::shown(&table.issuer),
                 adapter: adapter.clone(),
             });
         }
         self.issuers.insert(
-            table.issuer.clone(),
+            table.issuer.expose().to_owned(),
             Issuer {
                 adapter: profile.adapter.clone(),
                 table,
@@ -169,10 +169,10 @@ impl PartyBinding {
         resolved.party.iter().try_fold(self, |binding, table| {
             let (kind, profile) =
                 profiles
-                    .get(table.issuer.as_str())
+                    .get(table.issuer.expose())
                     .copied()
                     .ok_or_else(|| PartyError::NotPersons {
-                        issuer: table.issuer.clone(),
+                        issuer: crate::config::shown(&table.issuer),
                         kind: None,
                     })?;
             binding.with_issuer(table.clone(), kind, profile)

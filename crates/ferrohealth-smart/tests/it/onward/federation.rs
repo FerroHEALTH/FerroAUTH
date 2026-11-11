@@ -54,7 +54,7 @@ const ROUTE: &str = "/token";
 /// it maps, and the subject claim it maps from.
 pub(crate) fn section() -> FederationSection {
     FederationSection {
-        issuer: String::from(FEDERATION),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(FEDERATION),
         contact_point: Some(false),
         mapping: Some(Mapping::Iua),
         fields: BTreeMap::from([
@@ -308,7 +308,7 @@ async fn a_token_carrying_only_the_tables_constants_is_an_incomplete_professiona
 /// attested `authorization_details` entry and names no professional field.
 pub(crate) fn organisations() -> FederationSection {
     FederationSection {
-        issuer: String::from(FEDERATION),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(FEDERATION),
         contact_point: Some(false),
         fields: BTreeMap::from([(
             Field::ProviderHealthcareProviderIdentifier,

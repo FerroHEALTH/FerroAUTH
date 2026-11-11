@@ -452,8 +452,11 @@ const EHDSI_FIELDS: [Field; 25] = [
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FederationSection {
-    /// The `[[auth.issuer]]` this table describes, of kind `federation`.
-    pub issuer: String,
+    /// The `[[auth.issuer]]` this table describes, of kind `federation`. It
+    /// renders with any userinfo masked, as
+    /// [`SecretUrl`](ferrohealth_secret::secret_url::SecretUrl) renders itself.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub issuer: ferrohealth_secret::secret_url::SecretUrl,
     /// Whether the issuer is a MyHealth@EU contact point; required, with no
     /// default.
     pub contact_point: Option<bool>,

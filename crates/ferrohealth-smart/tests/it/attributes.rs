@@ -99,7 +99,7 @@ fn iua() -> Value {
 /// A table of the IUA mapping, with `fields` over it.
 fn table(fields: BTreeMap<Field, Vec<Source>>) -> AttributesSection {
     AttributesSection {
-        issuer: String::from(ISSUER),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(ISSUER),
         mapping: Some(Mapping::Iua),
         fields,
         authorization_details_purposes: false,

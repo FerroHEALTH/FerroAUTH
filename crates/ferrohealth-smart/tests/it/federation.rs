@@ -52,7 +52,7 @@ const PREFIX: &str = "urn:oid:2.16.528.1.1007.3.3.";
 /// issuing authority configured, the bounds declared.
 pub(crate) fn iua() -> FederationSection {
     FederationSection {
-        issuer: String::from(ISSUER),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(ISSUER),
         contact_point: Some(false),
         mapping: Some(Mapping::Iua),
         fields: BTreeMap::from([
@@ -525,7 +525,7 @@ mod nuts {
     /// user-authenticated credential type, its fields in the subject.
     fn table(issuer: &str) -> FederationSection {
         FederationSection {
-            issuer: issuer.to_owned(),
+            issuer: ferrohealth_secret::secret_url::SecretUrl::new(issuer),
             contact_point: Some(false),
             presentations_claim: Some(String::from("vps")),
             user_credential_types: vec![String::from("EmployeeCredential")],

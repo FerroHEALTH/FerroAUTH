@@ -21,8 +21,10 @@ use crate::profile::Profile;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PartySection {
-    /// The `persons` issuer whose logins the table binds.
-    pub issuer: String,
+    /// The `persons` issuer whose logins the table binds. It renders with
+    /// any userinfo masked, as [`SecretUrl`](ferrohealth_secret::secret_url::SecretUrl) renders itself.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub issuer: ferrohealth_secret::secret_url::SecretUrl,
     /// The issuer of the identifiers the key is matched against; no two
     /// tables share one.
     pub identifier_issuer: String,
@@ -128,25 +130,26 @@ pub(crate) fn check_tables<'p>(
     tables: &[PartySection],
     issuer: impl Fn(&str) -> Option<(IssuerKind, &'p Profile)>,
 ) -> Result<(), PartyError> {
-    let mut by_identifier: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut by_identifier: BTreeMap<&str, &ferrohealth_secret::secret_url::SecretUrl> =
+        BTreeMap::new();
     let mut seen = Vec::new();
     for table in tables {
-        let described = issuer(&table.issuer);
+        let described = issuer(table.issuer.expose());
         check_table(
             table,
             described.map(|(kind, _)| kind),
             described.map(|(_, profile)| profile),
         )?;
-        if seen.contains(&table.issuer.as_str()) {
+        if seen.contains(&table.issuer.expose()) {
             return Err(PartyError::DuplicateIssuer {
-                issuer: table.issuer.clone(),
+                issuer: crate::config::shown(&table.issuer),
             });
         }
-        seen.push(table.issuer.as_str());
+        seen.push(table.issuer.expose());
         if let Some(first) = by_identifier.insert(&table.identifier_issuer, &table.issuer) {
             return Err(PartyError::SharedIdentifierIssuer {
-                first: first.to_owned(),
-                second: table.issuer.clone(),
+                first: crate::config::shown(first),
+                second: crate::config::shown(&table.issuer),
                 identifier_issuer: table.identifier_issuer.clone(),
             });
         }
@@ -160,7 +163,7 @@ pub(crate) fn check_table(
     kind: Option<IssuerKind>,
     profile: Option<&Profile>,
 ) -> Result<(), PartyError> {
-    let issuer = || table.issuer.clone();
+    let issuer = || crate::config::shown(&table.issuer);
     let (Some(IssuerKind::Persons), Some(profile)) = (kind, profile) else {
         return Err(PartyError::NotPersons {
             issuer: issuer(),
@@ -209,7 +212,7 @@ mod tests {
 
     fn table(issuer: &str, identifier_issuer: &str) -> PartySection {
         PartySection {
-            issuer: issuer.to_owned(),
+            issuer: ferrohealth_secret::secret_url::SecretUrl::new(issuer),
             identifier_issuer: identifier_issuer.to_owned(),
             identifier_type: String::from("guid"),
             ..PartySection::default()

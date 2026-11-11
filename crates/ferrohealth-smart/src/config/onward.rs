@@ -304,7 +304,7 @@ mod resolve {
                 (None, Some(defaults)) => Some(defaults),
             };
             Ok(table.map(|table| FederationSection {
-                issuer: self.issuer.expose().to_owned(),
+                issuer: self.issuer.clone(),
                 ..table
             }))
         }

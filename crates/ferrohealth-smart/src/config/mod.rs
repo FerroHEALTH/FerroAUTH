@@ -455,8 +455,10 @@ pub struct IntrospectionSection {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ScopelessSubject {
-    /// The issuer.
-    pub issuer: String,
+    /// The issuer. It renders with any userinfo masked, as
+    /// [`SecretUrl`](ferrohealth_secret::secret_url::SecretUrl) renders itself.
+    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    pub issuer: ferrohealth_secret::secret_url::SecretUrl,
     /// The `sub`.
     pub sub: String,
 }

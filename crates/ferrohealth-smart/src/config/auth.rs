@@ -239,10 +239,10 @@ impl AuthSection {
             .map(|entry| entry.issuer.expose())
             .collect();
         for entry in &self.scopeless_subjects {
-            if !trusted.contains(entry.issuer.as_str()) {
+            if !trusted.contains(entry.issuer.expose()) {
                 return Err(ConfigError::UnknownIssuer {
                     key: "auth.scopeless_subjects",
-                    issuer: entry.issuer.clone(),
+                    issuer: shown(&entry.issuer),
                 });
             }
         }
@@ -258,17 +258,17 @@ impl AuthSection {
             let kind = self
                 .issuers()
                 .iter()
-                .find(|entry| entry.issuer.expose() == section.issuer)
+                .find(|entry| entry.issuer == section.issuer)
                 .and_then(|entry| entry.kind);
             if kind != Some(IssuerKind::Federation) {
                 return Err(ConfigError::Federation {
-                    issuer: section.issuer.clone(),
+                    issuer: shown(&section.issuer),
                     reason: "it names no trusted federation issuer",
                 });
             }
-            if !seen.insert(section.issuer.as_str()) {
+            if !seen.insert(section.issuer.expose()) {
                 return Err(ConfigError::Federation {
-                    issuer: section.issuer.clone(),
+                    issuer: shown(&section.issuer),
                     reason: "two tables name the issuer",
                 });
             }
@@ -293,11 +293,11 @@ impl AuthSection {
             let kind = self
                 .issuers()
                 .iter()
-                .find(|entry| entry.issuer.expose() == section.issuer)
+                .find(|entry| entry.issuer == section.issuer)
                 .and_then(|entry| entry.kind);
             if kind.is_none_or(|kind| kind == IssuerKind::Federation) {
                 return Err(ConfigError::Attributes {
-                    issuer: section.issuer.clone(),
+                    issuer: shown(&section.issuer),
                     reason: "it names no trusted persons, patients or machines issuer",
                 });
             }
@@ -308,13 +308,13 @@ impl AuthSection {
                     .any(|field| *field != Field::PurposeOfUse)
             {
                 return Err(ConfigError::Attributes {
-                    issuer: section.issuer.clone(),
+                    issuer: shown(&section.issuer),
                     reason: "a patients or machines issuer states only purpose_of_use",
                 });
             }
-            if !seen.insert(section.issuer.as_str()) {
+            if !seen.insert(section.issuer.expose()) {
                 return Err(ConfigError::Attributes {
-                    issuer: section.issuer.clone(),
+                    issuer: shown(&section.issuer),
                     reason: "two tables name the issuer",
                 });
             }
@@ -326,7 +326,7 @@ impl AuthSection {
     fn attributes_of(&self, entry: &IssuerEntry) -> Option<AttributesSection> {
         self.attributes
             .iter()
-            .find(|section| section.issuer == entry.issuer.expose())
+            .find(|section| section.issuer == entry.issuer)
             .cloned()
     }
 
@@ -363,13 +363,13 @@ impl AuthSection {
         let table = self
             .federation
             .iter()
-            .find(|section| section.issuer == entry.issuer.expose())
+            .find(|section| section.issuer == entry.issuer)
             .cloned();
         Ok(match (table, defaults) {
             (Some(table), Some(defaults)) => Some(table.over(defaults)),
             (table, None) => table,
             (None, Some(defaults)) => Some(FederationSection {
-                issuer: entry.issuer.expose().to_owned(),
+                issuer: entry.issuer.clone(),
                 ..defaults
             }),
         })
@@ -379,7 +379,7 @@ impl AuthSection {
     fn scopeless_of(&self, issuer: &str) -> BTreeSet<String> {
         self.scopeless_subjects
             .iter()
-            .filter(|entry| entry.issuer == issuer)
+            .filter(|entry| entry.issuer.expose() == issuer)
             .map(|entry| entry.sub.clone())
             .collect()
     }

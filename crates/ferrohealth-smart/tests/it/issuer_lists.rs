@@ -56,7 +56,7 @@ fn section(entries: Vec<IssuerEntry>, scopeless: Vec<ScopelessSubject>) -> AuthS
 /// Returns the entry `{ issuer, sub }`.
 fn subject(issuer: &str, sub: &str) -> ScopelessSubject {
     ScopelessSubject {
-        issuer: issuer.to_owned(),
+        issuer: ferrohealth_secret::secret_url::SecretUrl::new(issuer),
         sub: sub.to_owned(),
     }
 }
