@@ -125,3 +125,34 @@ fn the_rings_current_key_signs_a_products_own_claims_under_its_type()
     );
     Ok(())
 }
+
+#[test]
+fn a_client_assertion_lives_sixty_seconds() -> Result<(), Box<dyn StdError>> {
+    let key = AssertionKey::from_pem(&ec_key("unused", Algorithm::ES256).pem, None, None)?;
+    let assertion = key.assertion("synthetic-client", "https://as.example.org/token")?;
+
+    let public: Jwk = serde_json::from_value(key.public_jwk())?;
+    let mut validation = Validation::new(Algorithm::ES256);
+    validation.set_audience(&["https://as.example.org/token"]);
+    validation.set_required_spec_claims(&["exp", "iat", "aud"]);
+    let claims = jsonwebtoken::decode::<serde_json::Map<String, serde_json::Value>>(
+        &assertion,
+        &DecodingKey::from_jwk(&public)?,
+        &validation,
+    )?
+    .claims;
+    let iat = claims
+        .get("iat")
+        .and_then(serde_json::Value::as_i64)
+        .ok_or("iat")?;
+    let exp = claims
+        .get("exp")
+        .and_then(serde_json::Value::as_i64)
+        .ok_or("exp")?;
+    assert_eq!(
+        60,
+        exp - iat,
+        "within SMART App Launch 2.2.0's five minutes and an issuer's 120-second cap"
+    );
+    Ok(())
+}

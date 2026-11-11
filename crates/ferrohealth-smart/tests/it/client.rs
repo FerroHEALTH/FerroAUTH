@@ -400,7 +400,11 @@ async fn private_key_jwt_sends_a_signed_assertion_per_request() -> Result<(), Bo
         .get("iat")
         .and_then(serde_json::Value::as_i64)
         .ok_or("iat")?;
-    assert_eq!(300, exp - iat, "no more than five minutes");
+    assert_eq!(
+        60,
+        exp - iat,
+        "within SMART's five minutes and an issuer's 120-second cap"
+    );
     let first_jti = claims.get("jti").cloned();
 
     source.invalidate(token.header());

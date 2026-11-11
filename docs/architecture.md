@@ -493,7 +493,9 @@ ways, configured, never guessed from the server's metadata:
   default, the two the profile mandates a client support), `kid` (required,
   unique in the client's set) and `typ` of `JWT`; claims `iss` and `sub` both
   the `client_id`, `aud` the token endpoint URL, `exp` "no more than five
-  minutes in the future" and a unique `jti`; one assertion per request,
+  minutes in the future" (the library signs it valid for 60 seconds, since
+  it is sent at once and some authorization servers cap the lifetime below
+  five minutes: our own design) and a unique `jti`; one assertion per request,
   never reused (`rfc7523 §3` items 1 to 7). The `aud` is configurable:
   `token_endpoint`, the default and SMART's rule, or `issuer`, the
   configured issuer identifier, which `rfc7523 §3` item 3 also admits as "a

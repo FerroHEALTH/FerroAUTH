@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- A `private_key_jwt` client assertion is valid for 60 seconds
+  (`client::assertion::ASSERTION_LIFETIME_SECONDS`), down from 300, so an
+  authorization server that caps the lifetime below SMART App Launch
+  2.2.0's five-minute ceiling accepts it; mock-oauth2-server, which refuses
+  an assertion that lives longer than 120 seconds, refused every token
+  request and onward exchange signed with one (#461).
+
 ## [0.19.0] - 2026-11-11
 
 ### Changed

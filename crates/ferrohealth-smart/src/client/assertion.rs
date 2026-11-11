@@ -23,9 +23,15 @@ use jsonwebtoken::jwk::AlgorithmParameters;
 use jsonwebtoken::jwk::Jwk;
 use serde::Serialize;
 
-/// How long a client assertion is valid: "no more than five minutes in the
-/// future" (SMART App Launch 2.2.0, Client Authentication: Asymmetric).
-pub const ASSERTION_LIFETIME_SECONDS: i64 = 300;
+/// How long a client assertion is valid: 60 seconds.
+///
+/// SMART App Launch 2.2.0 (Client Authentication: Asymmetric) sets `exp`
+/// "no more than five minutes in the future", a ceiling. An assertion is
+/// signed for one request and sent at once (RFC 7523 §3), so its lifetime
+/// covers only clock skew and transit, and an authorization server may
+/// accept less than five minutes: mock-oauth2-server refuses an assertion
+/// that lives longer than 120 seconds. The value is our own design.
+pub const ASSERTION_LIFETIME_SECONDS: i64 = 60;
 
 /// The `client_assertion_type` of a JWT assertion (RFC 7523 §2.2).
 pub const ASSERTION_TYPE: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
