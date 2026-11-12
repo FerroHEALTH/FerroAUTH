@@ -24,6 +24,7 @@ use crate::resource::ResourceServer;
 use crate::resource::Settings;
 use crate::resource::Verifier;
 use crate::resource::configuration;
+use crate::resource::described::Metadata;
 use crate::resource::jwks::KeySet;
 use crate::resource::jwks::KeySource;
 use crate::resource::token;
@@ -91,6 +92,7 @@ impl ResourceServer {
         Ok(Self {
             settings,
             metadata,
+            supplied: false,
             keys,
             resource_types: None,
             extensions: Extensions::new(),
@@ -185,6 +187,7 @@ impl ResourceServer {
             crate::metadata::secure(&url, member)?;
         }
         self.metadata = metadata;
+        self.supplied = true;
         Ok(self)
     }
 
@@ -198,6 +201,18 @@ impl ResourceServer {
     #[must_use]
     pub const fn metadata(&self) -> &ServerMetadata {
         &self.metadata
+    }
+
+    /// Returns whether the authorization server's metadata is available:
+    /// read from the issuer, or supplied by [`ResourceServer::with_metadata`]
+    /// for a key set read from a `jwks_file`.
+    #[must_use]
+    pub const fn metadata_state(&self) -> Metadata {
+        if self.settings.jwks_file.is_none() || self.supplied {
+            Metadata::Available
+        } else {
+            Metadata::Absent
+        }
     }
 
     /// Returns the caller `token` authenticates.

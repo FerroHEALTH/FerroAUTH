@@ -11,6 +11,40 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.21.0] - Unreleased
+
+### Added
+
+- `resource::described`: the one rule for the issuer a SMART discovery
+  document describes, shared by every product. `describe` takes a
+  `Candidate` per trusted issuer (`Candidate::of_server`,
+  `Candidate::of_introspector` or `Candidate::new`, each carrying the
+  product's own check) and the named issuer, and returns the candidate to
+  describe: the named one, else the one eligible issuer. Eligible is an
+  issuer whose kind is not `machines` and whose metadata is available
+  (SMART App Launch 2.2.0, Conformance, §Metadata: the
+  `authorization_endpoint` is where every user launch starts, and this
+  crate refuses every token of a `machines` issuer that is not app-only).
+  `DescribeError` refuses a named issuer that is unknown
+  (`UnknownIssuer`), `machines` (`MachinesIssuer`) or without metadata
+  (`NoMetadata`), several eligible issuers without a name
+  (`SeveralEligible`, naming them sorted) and none (`NoneEligible`). The
+  order of the `[[auth.issuer]]` tables never decides. FerroBRIDGE,
+  FerroTERM and FerroPIX can drop their first-in-table-order choice for it,
+  and FerroEHR its own copy of the rule (#469).
+- `ResourceServer::metadata_state`: whether the issuer's metadata is
+  available, read from the issuer or supplied by `with_metadata` for a key
+  set read from a `jwks_file` (#469).
+
+### Changed
+
+- Breaking: the `[auth]` section takes an optional `described_issuer`, the
+  issuer the discovery document describes, carried to
+  `Resolved::described_issuer` for `describe`. `AuthSection` and `Resolved`
+  each gain the public field. Upgrade: a product that builds either with a
+  struct literal adds `described_issuer: None`, or ends it with
+  `..Default::default()` for `AuthSection` (#469).
+
 ## [0.20.0] - 2026-11-11
 
 ### Fixed

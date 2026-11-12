@@ -382,6 +382,11 @@ pub struct AuthSection {
     /// scopes the product honours, because "the server SHALL support all
     /// scopes listed here".
     pub scopes_supported: Vec<String>,
+    /// The issuer the discovery document describes; absent for the one
+    /// eligible issuer ([`crate::resource::described`]). It renders with any
+    /// userinfo masked.
+    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
+    pub described_issuer: Option<ferrohealth_secret::secret_url::SecretUrl>,
     /// The product's own scope, a full URI or a string starting with `__`;
     /// empty for none.
     pub product_scope: String,
@@ -663,6 +668,9 @@ pub struct Resolved {
     pub capabilities: Vec<String>,
     /// The scopes the discovery document lists.
     pub scopes_supported: Vec<String>,
+    /// The issuer the discovery document describes, when one is named; the
+    /// `named` argument of [`crate::resource::described::describe`].
+    pub described_issuer: Option<ferrohealth_secret::secret_url::SecretUrl>,
     /// The product's own scope, when one is set.
     pub product_scope: Option<String>,
     /// The `DPoP` proof settings of the surface, when `[auth.dpop]` is set; a

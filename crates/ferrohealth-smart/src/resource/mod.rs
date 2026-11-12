@@ -23,6 +23,7 @@
 
 mod caller;
 pub mod configuration;
+pub mod described;
 mod federated;
 #[cfg(feature = "fetch")]
 pub mod introspection;
@@ -281,6 +282,9 @@ pub struct ResourceServer {
     /// The authorization server's metadata, read at boot; only the issuer
     /// when the key set comes from a file.
     metadata: ServerMetadata,
+    /// Whether the operator supplied the metadata of a key set read from a
+    /// file ([`ResourceServer::with_metadata`]).
+    supplied: bool,
     /// The signing keys.
     keys: KeySet,
     /// The resource types a clinical scope may name, when the product holds

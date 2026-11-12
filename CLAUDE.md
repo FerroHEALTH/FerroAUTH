@@ -89,7 +89,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 ## Repo map
 
 - `crates/ferrohealth-smart`: the library, with its own `CHANGELOG.md`. `src/` (`metadata`, `resource`
-  with `jwks`, `token`, `configuration` and `introspection`, `scope`, `basic`, `client` with
+  with `jwks`, `token`, `configuration`, `described` (the issuer the
+  discovery document describes) and `introspection`, `scope`, `basic`, `client` with
   `cache`, `endpoint`, `outbound` (the client of one outbound integration
   built from its endpoint table, with its retry), `assertion`, `dpop` (the client's DPoP proofs and
   nonces), `binding` (what a grant binds its tokens to, with the RFC 8705 §3
