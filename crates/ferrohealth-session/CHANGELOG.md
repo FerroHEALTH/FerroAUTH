@@ -14,7 +14,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.16.0] - Unreleased
+## [0.16.0] - 2026-11-12
 
 ### Changed
 
@@ -372,7 +372,8 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.15.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.16.0...HEAD
+[0.16.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.15.0...ferrohealth-session-v0.16.0
 [0.15.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.14.0...ferrohealth-session-v0.15.0
 [0.14.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.13.0...ferrohealth-session-v0.14.0
 [0.13.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.12.0...ferrohealth-session-v0.13.0
