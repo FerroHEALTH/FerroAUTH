@@ -5,8 +5,8 @@
 //! §4.3, §7.1), and the authentication of a `DPoP` request through it.
 //!
 //! The proof is held to the request it arrived with: its method, and its
-//! URI as the client addressed it, which is the surface's configured
-//! external base URL plus the request path, never the URI the server sees
+//! URI as the client addressed it, which is the external base URL the
+//! product names plus the request path, never the URI the server sees
 //! behind a TLS-terminating proxy. Its `jti` is recorded in the product's
 //! [`ReplayStore`] for the window the proof is accepted in, so a replay is
 //! refused (RFC 9449 §11.1).
@@ -74,13 +74,7 @@ impl ProofSettings {
     /// and ES384 are accepted, the defaults of [`DpopSection`].
     #[must_use]
     pub fn new(external_url: Url) -> Self {
-        let defaults = DpopSection::default();
-        Self {
-            external_url,
-            max_age: defaults.max_age.get(),
-            clock_skew: defaults.clock_skew.get(),
-            algorithms: defaults.algorithms,
-        }
+        DpopSection::default().settings(external_url)
     }
 
     /// Checks the settings: an `http` or `https` base URL with a host and
@@ -101,42 +95,49 @@ impl ProofSettings {
         {
             return Err(ProofSettingsError::ExternalUrl);
         }
-        if self.max_age.is_zero() || self.max_age > MAX_PROOF_AGE {
-            return Err(ProofSettingsError::MaxAge {
-                max_age: self.max_age,
-            });
-        }
-        if self.clock_skew > MAX_CLOCK_SKEW {
-            return Err(ProofSettingsError::ClockSkew {
-                skew: self.clock_skew,
-            });
-        }
-        if self.algorithms.is_empty() {
-            return Err(ProofSettingsError::NoAlgorithm);
-        }
-        if let Some(algorithm) = self.algorithms.iter().find(|algorithm| {
-            matches!(
-                algorithm,
-                Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512
-            )
-        }) {
-            return Err(ProofSettingsError::SymmetricAlgorithm {
-                algorithm: *algorithm,
-            });
-        }
-        Ok(())
+        check_window(self.max_age, self.clock_skew, &self.algorithms)
     }
+}
+
+/// Checks a proof window within its bound, a clock skew within its bound,
+/// and at least one algorithm and none symmetric.
+fn check_window(
+    max_age: Duration,
+    clock_skew: Duration,
+    algorithms: &[Algorithm],
+) -> Result<(), ProofSettingsError> {
+    if max_age.is_zero() || max_age > MAX_PROOF_AGE {
+        return Err(ProofSettingsError::MaxAge { max_age });
+    }
+    if clock_skew > MAX_CLOCK_SKEW {
+        return Err(ProofSettingsError::ClockSkew { skew: clock_skew });
+    }
+    if algorithms.is_empty() {
+        return Err(ProofSettingsError::NoAlgorithm);
+    }
+    if let Some(algorithm) = algorithms.iter().find(|algorithm| {
+        matches!(
+            algorithm,
+            Algorithm::HS256 | Algorithm::HS384 | Algorithm::HS512
+        )
+    }) {
+        return Err(ProofSettingsError::SymmetricAlgorithm {
+            algorithm: *algorithm,
+        });
+    }
+    Ok(())
 }
 
 /// The `[auth.dpop]` table: how the surface checks the `DPoP` proof of a
 /// `DPoP` request (RFC 9449 §4.3, §7.1).
+///
+/// The surface's base URL, which a proof's `htu` is compared with, is no key
+/// of the table: the product names its own public URL once and hands it to
+/// [`DpopSection::settings`].
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(default, deny_unknown_fields)]
 pub struct DpopSection {
-    /// The surface's base URL as its clients address it, which a proof's
-    /// `htu` is compared with, the request path appended; required.
-    pub external_url: String,
     /// How long after its `iat` a proof is accepted, at most `300s`.
     pub max_age: ferrohealth_config::units::Duration,
     /// How far a proof's `iat` may lie ahead, at most `300s`.
@@ -149,7 +150,6 @@ pub struct DpopSection {
 impl Default for DpopSection {
     fn default() -> Self {
         Self {
-            external_url: String::new(),
             // NOTE: RFC 9449 §11.1 prefers a window "on the order of seconds or
             // minutes"; the values are our own design.
             max_age: ferrohealth_config::units::Duration::from_secs(60),
@@ -162,6 +162,31 @@ impl Default for DpopSection {
                 Algorithm::ES256,
                 Algorithm::ES384,
             ],
+        }
+    }
+}
+
+impl DpopSection {
+    /// Checks the table: a window within its bound, a clock skew within its
+    /// bound, and at least one algorithm and none symmetric.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`ProofSettingsError`] naming the first rule broken.
+    pub fn validate(&self) -> Result<(), ProofSettingsError> {
+        check_window(self.max_age.get(), self.clock_skew.get(), &self.algorithms)
+    }
+
+    /// Returns the settings of proofs addressed to `external_url`, the
+    /// surface's base URL as its clients address it, under this table's
+    /// window and algorithms; [`ProofCheck::new`] checks them.
+    #[must_use]
+    pub fn settings(&self, external_url: Url) -> ProofSettings {
+        ProofSettings {
+            external_url,
+            max_age: self.max_age.get(),
+            clock_skew: self.clock_skew.get(),
+            algorithms: self.algorithms.clone(),
         }
     }
 }

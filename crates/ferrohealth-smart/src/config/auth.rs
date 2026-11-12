@@ -34,7 +34,7 @@ use crate::resource::configuration::SmartOptions;
 use crate::resource::configuration::is_capability;
 use crate::scope::is_extension_scope;
 use crate::scope::is_scope_token;
-use crate::sender::proof::ProofSettings;
+use crate::sender::proof::DpopSection;
 
 /// The replacement each removed section key names.
 impl Resolved {
@@ -385,23 +385,15 @@ impl AuthSection {
             .collect()
     }
 
-    /// Returns the `DPoP` proof settings of `[auth.dpop]`, when the section has
-    /// the table.
-    fn dpop_settings(&self) -> Result<Option<ProofSettings>, ConfigError> {
+    /// Returns the `[auth.dpop]` table checked, when the section has one.
+    fn dpop_settings(&self) -> Result<Option<DpopSection>, ConfigError> {
         let Some(section) = &self.dpop else {
             return Ok(None);
         };
-        let mut settings = ProofSettings::new(crate::config::read::parse_url(
-            &section.external_url,
-            "auth.dpop.external_url",
-        )?);
-        settings.max_age = section.max_age.get();
-        settings.clock_skew = section.clock_skew.get();
-        settings.algorithms.clone_from(&section.algorithms);
-        settings
+        section
             .validate()
             .map_err(|source| ConfigError::Dpop { source })?;
-        Ok(Some(settings))
+        Ok(Some(section.clone()))
     }
 
     /// Returns the Basic store of `[auth.basic]`, when the section has one.

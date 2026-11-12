@@ -4,12 +4,15 @@
 //! The configuration of sender-constrained tokens: the per-issuer
 //! `sender_constraint` key and the surface's `[auth.dpop]` table.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::sender::SenderConstraint;
+use ferrohealth_smart::sender::proof::ProofCheck;
 use ferrohealth_smart::sender::proof::ProofSettingsError;
+use ferrohealth_smart::sender::replay::MemoryReplayStore;
 
 /// Returns the section `text` describes.
 fn section(text: &str) -> AuthSection {
@@ -53,17 +56,22 @@ fn an_issuer_requires_a_sender_constraint_when_it_says_so() {
 }
 
 #[test]
-fn the_dpop_table_names_the_external_url_and_the_window() {
-    let resolved = section(&format!(
-        "[dpop]\nexternal_url = \"https://ehr.example.org/fhir\"\nmax_age = \"30s\"\n{}",
-        issuer("")
-    ))
-    .resolve()
-    .expect("the section resolves");
+fn the_dpop_table_names_the_window_and_the_product_the_external_url() {
+    let resolved = section(&format!("[dpop]\nmax_age = \"30s\"\n{}", issuer("")))
+        .resolve()
+        .expect("the section resolves");
     let dpop = resolved.dpop.expect("the table resolves");
-    assert_eq!("https://ehr.example.org/fhir", dpop.external_url.as_str());
-    assert_eq!(Duration::from_secs(30), dpop.max_age);
-    assert_eq!(Duration::from_secs(10), dpop.clock_skew);
+    let settings = dpop.settings(
+        "https://ehr.example.org/fhir"
+            .parse()
+            .expect("the product's URL"),
+    );
+    assert_eq!(
+        "https://ehr.example.org/fhir",
+        settings.external_url.as_str()
+    );
+    assert_eq!(Duration::from_secs(30), settings.max_age);
+    assert_eq!(Duration::from_secs(10), settings.clock_skew);
     assert!(
         section(&issuer(""))
             .resolve()
@@ -75,41 +83,62 @@ fn the_dpop_table_names_the_external_url_and_the_window() {
 }
 
 #[test]
+fn the_dpop_table_takes_no_external_url() {
+    let outcome = toml::from_str::<AuthSection>(&format!(
+        "[dpop]\nexternal_url = \"https://ehr.example.org\"\n{}",
+        issuer("")
+    ));
+    let error = outcome.expect_err("the key is unknown");
+    assert!(
+        error.to_string().contains("unknown field `external_url`"),
+        "{error}"
+    );
+}
+
+#[test]
 fn a_dpop_table_that_breaks_a_rule_refuses_the_start() {
     for (table, expected) in [
-        ("external_url = \"\"", None),
         (
-            "external_url = \"https://ehr.example.org/?q\"",
-            Some(ProofSettingsError::ExternalUrl),
-        ),
-        (
-            "external_url = \"https://ehr.example.org\"\nmax_age = \"0s\"",
-            Some(ProofSettingsError::MaxAge {
+            "max_age = \"0s\"",
+            ProofSettingsError::MaxAge {
                 max_age: Duration::ZERO,
-            }),
+            },
         ),
         (
-            "external_url = \"https://ehr.example.org\"\nalgorithms = [\"HS256\"]",
-            Some(ProofSettingsError::SymmetricAlgorithm {
+            "algorithms = [\"HS256\"]",
+            ProofSettingsError::SymmetricAlgorithm {
                 algorithm: jsonwebtoken::Algorithm::HS256,
-            }),
+            },
         ),
     ] {
         let outcome = section(&format!("[dpop]\n{table}\n{}", issuer(""))).resolve();
-        match expected {
-            None => assert!(
-                matches!(
-                    outcome,
-                    Err(ConfigError::Missing {
-                        key: "auth.dpop.external_url"
-                    })
-                ),
-                "{table}: {outcome:?}"
-            ),
-            Some(expected) => assert!(
-                matches!(&outcome, Err(ConfigError::Dpop { source }) if *source == expected),
-                "{table}: {outcome:?}"
-            ),
-        }
+        assert!(
+            matches!(&outcome, Err(ConfigError::Dpop { source }) if *source == expected),
+            "{table}: {outcome:?}"
+        );
+    }
+}
+
+#[test]
+fn an_external_url_that_breaks_the_url_rule_is_refused_by_the_check() {
+    let dpop = section(&format!("[dpop]\n{}", issuer("")))
+        .resolve()
+        .expect("the section resolves")
+        .dpop
+        .expect("the table resolves");
+    for url in [
+        "https://ehr.example.org/?q",
+        "https://ehr.example.org/#f",
+        "https://user:pw@ehr.example.org",
+        "ftp://ehr.example.org",
+    ] {
+        let outcome = ProofCheck::new(
+            dpop.settings(url.parse().expect("a URL")),
+            Arc::new(MemoryReplayStore::new()),
+        );
+        assert!(
+            matches!(outcome, Err(ProofSettingsError::ExternalUrl)),
+            "{url}: {outcome:?}"
+        );
     }
 }
