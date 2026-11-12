@@ -18,7 +18,7 @@ a policy decision point and the enforcement point that consults it).
 
 ```toml
 [dependencies]
-ferrohealth-authz = { version = "=0.14.0", features = ["cedar"] }
+ferrohealth-authz = { version = "=0.15.0", features = ["cedar"] }
 ```
 
 Without a feature the crate holds the request model and the trait alone,
