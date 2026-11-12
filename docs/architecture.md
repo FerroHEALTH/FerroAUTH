@@ -739,6 +739,27 @@ issuer is never replaced. The builder is public
 (`resource::configuration::document`) for a product that holds its metadata
 elsewhere.
 
+A product that trusts several issuers serves one document, so it describes
+one of them: the `authorization_endpoint` is "Required if server supports the
+launch-ehr or launch-standalone capability" (`smart conformance`, Metadata),
+and every user launch starts there. SMART does not say which of several, so
+the rule is our own design, one for every product
+(`resource::described::describe`):
+
+- **Eligible:** an issuer whose `kind` is not `machines` and whose metadata
+  is available, read from it, introspected, or supplied by
+  `with_metadata`. A `machines` issuer signs client credentials tokens only,
+  and 3.14 refuses its every token that is not app-only, so no user launch
+  works there. A `jwks_file` issuer without supplied metadata names no
+  `authorization_endpoint`.
+- **Named:** `[auth] described_issuer` must name an eligible issuer; an
+  unknown, `machines` or metadata-less issuer is refused.
+- **Unnamed:** the one eligible issuer is described; several are refused,
+  naming them sorted and the key, and none is refused.
+
+The order of the `[[auth.issuer]]` tables never decides, so an environment
+overlay that adds an issuer cannot change the described issuer.
+
 The route stays public: a client reads it before it holds a token. For an
 openEHR surface the builder adds the `services` map and the openEHR
 capabilities of 3.9, from the product's declaration of its base URLs.
@@ -1722,6 +1743,7 @@ enabled = true                       # a product may refuse `false`
 realm = "ferrobridge"                # the product's default
 capabilities = []                    # SMART capabilities the discovery document adds
 scopes_supported = []                # the scopes the product honours, listed in the discovery document
+# described_issuer = "https://as.example.org/realms/ferro"  # the issuer the discovery document describes; unset for the one eligible issuer (3.8)
 product_scope = ""                   # the product's own scope: `__name` or a full URI
 scopeless_subjects = [               # app-only subjects granted system-wide access without a scope (3.4)
   { issuer = "https://as.example.org/realms/ferro", sub = "batch-client" },
@@ -2162,6 +2184,7 @@ four agree on and settles each difference:
 | A `persons` login is resolved to its party through a `PartySource` the product supplies, once per request with no cache, keyed by the issuer profile's `person_key` in the canonical form of its `identifier_type`, against the identifiers of one `[[auth.party]]` table's `identifier_issuer`; two matches are `Ambiguous`, a source failure is an error and never `Unbound`, and the outcome is the product's to answer (3.17) | `oidc-core §5.7`; `rfc7519 §4.1.2`; Microsoft, "Access token claims reference" (the overage markers); the binding is our own design (#216, owner ruling 2026-11-05 on the cache) | a product binds its `persons` issuers with `[[auth.party]]` tables, implements `PartySource`, maps each Basic user to a key, and answers each outcome |
 | A `persons` issuer's `[[auth.attributes]]` table reads the IHE IUA professional attributes and purposes of use, from claims or constants and, with `authorization_details_purposes`, the `system\|code` of each `authorization_details` entry, onto every non-`System` caller as `Caller::attributes`, and the purposes of use alone onto a `System` caller and every caller of a `patients` or `machines` issuer's table; a claim of the wrong shape refuses the token, and a coding with an empty code names none (3.14) | IHE IUA §3.71.4.2.2.1.1; `rfc9396 §2`; FHIR R4 datatypes.html; our own design over them (#376, #438) | a product reads the professional, the organisation and the purposes from `Caller::attributes` and drops its own IUA claim parser |
 | A `patients` token that carries `act` is the patient's representative under `act_represents_patient`, with the top-level actor only, and is refused without it (3.14) | `rfc8693 §4.1`; Regulation (EU) 2025/327 Art 4(2); our own design (#377) | a product that records a patient's representative sets `act_represents_patient` and reads `CallerKind::PatientRepresentative` |
+| The discovery document describes the issuer `[auth] described_issuer` names, which must be eligible, else the one eligible issuer; eligible is every issuer that is not `machines` and whose metadata is available; several eligible issuers without a name, or none, are refused; the table order never decides (3.8) | `smart conformance`, Metadata (`authorization_endpoint` is where a user launch starts); the choice among several is our own design, settled in FerroEHR (FerroHEALTH/FerroEHR#5426) and moved here (#469) | a product drops its first-in-table-order choice, offers each issuer as a `Candidate` and serves the document of the one `describe` returns |
 | An active introspection response is held until its `exp` and at most `cache_max_age`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
 | Onward tokens are obtained by token exchange or the JWT bearer grant as the issuer's profile names, refused unless they pass the onward check of 3.16, cached by issuer, grant, subject and actor token, target, scope and extra parameters until the earlier `exp` (unless the onward table sets `cache = false`, which exchanges on every call for a performance self-test and never in production, #299), and never refreshed; only a `persons`, `patients` or `federation` issuer issues them, a `patients` one for a patient's own token that keeps its patient context | `rfc8693 §2.1`, `§2.2`, `§4.1`; `rfc7523 §2.1`, `§2.2`; `rfc8707 §2`; the check, the cache and the profile keys are our own design (#217) | a deployment sets `max_onward_lifetime` on each onward issuer, and `exchanges_from` and `person_mapping` on a federation issuer's table |
 | An Entra ID groups overage is resolved by the `idp-entra` adapter, an optional feature a profile names by `adapter`, at the `getMemberObjects` URL it builds from the Graph root and the token's `oid` and `idtyp`, never at `_claim_sources`; every Graph failure is `GroupsUnavailable` carrying the status, the `Retry-After` or the timeout, under a 2 s budget of its own and with no cache (3.17) | Microsoft, "Access token claims reference", §Groups overage claim; "Optional claims reference", `idtyp`; Microsoft Graph v1.0 `directoryObject: getMemberObjects` and "Microsoft Graph throttling guidance"; the bounds are our own design (#221) | a deployment with users above the overage limit compiles `idp-entra`, sets `adapter = "idp-entra"` on its `entra` issuer, grants the Graph permission and registers the adapter |

@@ -38,6 +38,7 @@ mod config;
 mod consent;
 mod contact_point;
 mod correlation;
+mod described;
 #[cfg(feature = "ehdsi-assertion")]
 mod ehdsi_assertion;
 mod endpoint;

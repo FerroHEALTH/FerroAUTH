@@ -215,6 +215,7 @@ impl AuthSection {
             realm: (!self.realm.is_empty()).then(|| self.realm.clone()),
             capabilities: self.capabilities.clone(),
             scopes_supported: self.scopes_supported.clone(),
+            described_issuer: self.described_issuer.clone(),
             product_scope: (!self.product_scope.is_empty()).then(|| self.product_scope.clone()),
             dpop,
             #[cfg(feature = "fetch")]
@@ -561,6 +562,7 @@ impl Default for AuthSection {
             realm: String::new(),
             capabilities: Vec::new(),
             scopes_supported: Vec::new(),
+            described_issuer: None,
             product_scope: String::new(),
             basic: None,
             dpop: None,
