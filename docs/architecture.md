@@ -1288,12 +1288,15 @@ header (6), a `jwk` of type EC, RSA or OKP with no private member (7),
 `jkt` the token's (12). No resource-server nonce is issued (`rfc9449 §9`
 makes it optional), so check 10 has nothing to compare.
 
-**The `htu` is compared with the configured external URL**, never with the
+**The `htu` is compared with the product's external URL**, never with the
 URI the server sees: behind a TLS-terminating proxy the client addressed
 the proxy (`rfc9449 §4.3` check 9, "the HTTP request in which the JWT was
-received"). `[auth.dpop] external_url` is the surface's base URL as its
-clients address it, and the expected `htu` is that URL with the request
-path appended. Both sides are normalized first (`rfc3986 §6.2.2`,
+received"). The external URL is the surface's base URL as its clients
+address it, and the expected `htu` is that URL with the request path
+appended. It is no key of `[auth.dpop]`: a product names its public URL
+once, for every document and check that needs it, and hands it to
+`DpopSection::settings` (no specification governs the configuration model:
+our own design, FerroHEALTH/FerroAUTH#474). Both sides are normalized first (`rfc3986 §6.2.2`,
 `§6.2.3`, which `rfc9449 §4.3` has a server apply): scheme and host
 lowercased, the default port dropped, dot segments resolved, an
 unreserved percent-encoding decoded and every other one in upper case, the
@@ -1780,7 +1783,6 @@ client_id = "ferrobridge-rs"         # the fields of [<lane>.credentials.oauth];
 client_secret_file = "/run/secrets/introspection-secret"
 
 [auth.dpop]                          # absent: the DPoP scheme is not admitted (3.15)
-external_url = "https://bridge.example.org"     # the base URL clients address; htu = this + the path
 max_age = "60s"                      # a proof is accepted this long after its iat; at most 300s
 clock_skew = "10s"                   # an iat this far ahead is accepted; at most 300s
 algorithms = ["RS256", "RS384", "PS256", "PS384", "ES256", "ES384"]
@@ -2152,7 +2154,7 @@ four agree on and settles each difference:
 | Under the `rfc9068` profile only `scope` counts; under the `jwt` profile `scp` is read as a fallback when `scope` is absent, for an issuer such as Entra ID that mints the array form | `rfc9068 §2.2.3` names `scope`; `scp` is no specification's, so it is admitted only outside the profile (owner decision 2026-10-19) | none |
 | Product scopes (`ferrobridge.operator`, `ferroterm/admin`) are renamed to a form SMART's Extensibility section admits, a `__` prefix or a full URI, during each product's migration | `smart scopes-and-launch-context`, Extensibility (owner decision 2026-10-19) | each product's migration names the new scope and the deployments that must update their authorization server |
 | Granular scopes grant nothing without a product evaluator | the safe reading of "MAY be ignored" | none |
-| An access token's `jti` is read, not tracked; DPoP-bound (`rfc9449`) and certificate-bound (`rfc8705 §3`) tokens are verified per issuer, `sender_constraint = "required"` admits a bound token alone, a `cnf` token is never a plain bearer token, the `htu` is compared with the configured external URL, and the proof `jti` is recorded in a product-supplied `ReplayStore` whose in-memory default holds per replica (3.15) | `rfc9700 §4.9.3`; `rfc9449 §4.3`, `§6`, `§7`, `§11.1`; `rfc8705 §3`; the store, the window values and the refusal of an unknown `cnf` method are our own design (FerroHEALTH/FerroAUTH#220, which replaces the owner decision of 2026-10-19 that kept both in FerroFED) | a product with more than one replica supplies a shared `ReplayStore` (FerroHEALTH/FerroFED#1637); a surface admitting `DPoP` sets `[auth.dpop] external_url` |
+| An access token's `jti` is read, not tracked; DPoP-bound (`rfc9449`) and certificate-bound (`rfc8705 §3`) tokens are verified per issuer, `sender_constraint = "required"` admits a bound token alone, a `cnf` token is never a plain bearer token, the `htu` is compared with the external URL the product names, and the proof `jti` is recorded in a product-supplied `ReplayStore` whose in-memory default holds per replica (3.15) | `rfc9700 §4.9.3`; `rfc9449 §4.3`, `§6`, `§7`, `§11.1`; `rfc8705 §3`; the store, the window values and the refusal of an unknown `cnf` method are our own design (FerroHEALTH/FerroAUTH#220, which replaces the owner decision of 2026-10-19 that kept both in FerroFED) | a product with more than one replica supplies a shared `ReplayStore` (FerroHEALTH/FerroFED#1637); a surface admitting `DPoP` sets `[auth.dpop] external_url` |
 | `resource` is the RFC 8707 resource indicator, sent when configured; `audience` has no specification and is sent only when configured | `rfc8707 §2`; FerroBRIDGE sends both today | none |
 | The `kid` of the product's own JWK is configured, or defaults to the RFC 7638 SHA-256 thumbprint | `rfc7638 §3`; the default is our own design | none |
 | A caller's roles are read from the RFC 9068 §2.2.3.1 claims, or the paths a deployment names, and a Basic user's from its configuration; a route table states role requirements beside scope requirements, matched without regard to ASCII case | `rfc9068 §2.2.3.1`, `rfc7643 §2.4`, `§4.1.2`; the matching and the requirement forms are our own design (owner decision 2026-10-25: authentication and the granted subject belong in this crate) | a product that read roles itself (FerroEHR's claim paths and Basic role table) moves them to `[auth] role_claims` and `[[auth.basic.users]] roles` |

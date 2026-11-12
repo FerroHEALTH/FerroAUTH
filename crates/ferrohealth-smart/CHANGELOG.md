@@ -11,6 +11,29 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.22.0] - Unreleased
+
+### Added
+
+- `DpopSection::settings` returns the proof settings of a surface its
+  clients address at the URL the product hands it, under the table's
+  window and algorithms, and `DpopSection::validate` checks the window and
+  the algorithms (#474).
+
+### Changed
+
+- Breaking: `[auth.dpop]` has no `external_url` key, and a table that sets
+  it is refused as an unknown key. The base URL a proof's `htu` is compared
+  with is the product's public URL, which the product names once and
+  hands over in code, so a deployment never sets the same origin twice.
+  `Resolved::dpop` is the checked `Option<DpopSection>` in place of
+  `Option<ProofSettings>`, and `DpopSection` loses its public
+  `external_url` field. A window or an algorithm that breaks a rule still
+  refuses the resolution (`ConfigError::Dpop`); a URL that breaks the URL
+  rule is refused by `ProofCheck::new` (`ProofSettingsError::ExternalUrl`).
+  Upgrade: remove `external_url` from `[auth.dpop]` and build the check
+  with `ProofCheck::new(dpop.settings(public_url), store)` (#474).
+
 ## [0.21.0] - 2026-11-12
 
 ### Added

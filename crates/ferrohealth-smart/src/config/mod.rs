@@ -673,10 +673,11 @@ pub struct Resolved {
     pub described_issuer: Option<ferrohealth_secret::secret_url::SecretUrl>,
     /// The product's own scope, when one is set.
     pub product_scope: Option<String>,
-    /// The `DPoP` proof settings of the surface, when `[auth.dpop]` is set; a
-    /// product builds its [`crate::sender::proof::ProofCheck`] from them with
-    /// its replay store.
-    pub dpop: Option<crate::sender::proof::ProofSettings>,
+    /// The `[auth.dpop]` table of the surface, checked, when one is set; a
+    /// product builds its [`crate::sender::proof::ProofCheck`] from
+    /// [`crate::sender::proof::DpopSection::settings`] with its own public
+    /// URL and its replay store.
+    pub dpop: Option<crate::sender::proof::DpopSection>,
     /// The introspection check of each `mode = "introspection"` issuer, in
     /// the order written.
     #[cfg(feature = "fetch")]
