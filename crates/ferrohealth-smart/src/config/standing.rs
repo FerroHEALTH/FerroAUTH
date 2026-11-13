@@ -258,18 +258,18 @@ impl<'de, A: MapAccess<'de>> MapAccess<'de> for Entries<A> {
         &mut self,
         seed: K,
     ) -> Result<Option<K::Value>, A::Error> {
-        let Some(key) = self.map.next_key::<String>()? else {
+        let Some((key, value)) = self.map.next_key_seed(Key {
+            seed,
+            accepted: self.accepted,
+        })?
+        else {
             return Ok(None);
         };
-        if !self.accepted.contains(&key.as_str()) {
-            return Err(A::Error::unknown_field(&key, self.accepted));
-        }
         self.nested = self
             .level
             .nested
             .and_then(|(nested, level)| (nested == key).then_some(level));
-        seed.deserialize(StringDeserializer::<A::Error>::new(key))
-            .map(Some)
+        Ok(Some(value))
     }
 
     fn next_value_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<S::Value, A::Error> {
@@ -404,5 +404,29 @@ impl<'de, S: DeserializeSeed<'de>> DeserializeSeed<'de> for Element<S> {
             inner: deserializer,
             level: self.level,
         })
+    }
+}
+
+/// The seed of a table's key: refuses a key the level does not accept while
+/// the inner map reads it, so the refusal carries the key's position.
+struct Key<S> {
+    /// The table reader's own key seed.
+    seed: S,
+    /// The keys the level accepts.
+    accepted: &'static [&'static str],
+}
+
+impl<'de, S: DeserializeSeed<'de>> DeserializeSeed<'de> for Key<S> {
+    type Value = (String, S::Value);
+
+    fn deserialize<D: Deserializer<'de>>(self, deserializer: D) -> Result<Self::Value, D::Error> {
+        let key = String::deserialize(deserializer)?;
+        if !self.accepted.contains(&key.as_str()) {
+            return Err(D::Error::unknown_field(&key, self.accepted));
+        }
+        let value = self
+            .seed
+            .deserialize(StringDeserializer::<D::Error>::new(key.clone()))?;
+        Ok((key, value))
     }
 }

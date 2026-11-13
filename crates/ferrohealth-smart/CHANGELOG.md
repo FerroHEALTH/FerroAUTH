@@ -11,6 +11,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- `config::ProductStandingSection` refuses an unknown key, at the `[auth]`
+  level and in an `[[auth.issuer]]` entry, while the key is read, so the
+  TOML error carries the key's own span and a product names its full path
+  (`auth.isser`), as `AuthSection` does, where it named only the `auth`
+  table (#489).
+
 ## [0.24.0] - 2026-11-13
 
 ### Added
