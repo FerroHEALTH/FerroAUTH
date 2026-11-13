@@ -707,8 +707,9 @@ async fn a_basic_credential_is_admitted_beside_a_token_with_its_scopes()
     let hash = Argon2::default()
         .hash_password_with_salt(b"synthetic-pw", b"synthetic-salt-16")?
         .to_string();
-    let store =
-        PasswordStore::new().with_user("alice", SecretString::from(hash), "user/Condition.c")?;
+    let store = PasswordStore::new()
+        .with_user("alice", SecretString::from(hash))?
+        .with_scope("alice", "user/Condition.c")?;
     let key = ec_key("k1", Algorithm::ES256);
     let issuer = Issuer::start(&[&key]).await;
     let verifier: Arc<dyn Verifier> = server(issuer.settings()).await;
@@ -864,7 +865,9 @@ fn alice(scope: &str) -> Result<PasswordStore, Box<dyn StdError>> {
     let hash = Argon2::default()
         .hash_password_with_salt(b"synthetic-pw", b"synthetic-salt-16")?
         .to_string();
-    Ok(PasswordStore::new().with_user("alice", SecretString::from(hash), scope)?)
+    Ok(PasswordStore::new()
+        .with_user("alice", SecretString::from(hash))?
+        .with_scope("alice", scope)?)
 }
 
 // NOTE: RFC 6750 §2.1 fixes the `b64token` syntax, and §3.1 answers a token

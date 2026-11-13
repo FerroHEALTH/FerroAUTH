@@ -9,8 +9,11 @@
 //! derivation against a decoy hash, so the response time carries no
 //! account-existence signal (no specification governs the hash or the
 //! decoy: our own design, after the OWASP Password Storage Cheat Sheet).
-//! A Basic user carries the scope string its configuration grants it, so
-//! the same check serves a Basic caller and a bearer caller.
+//! The store holds the credential alone. A product grants each user its
+//! scope and roles ([`PasswordStore::with_scope`],
+//! [`PasswordStore::with_roles`], [`PasswordStore::with_grants`]), or adds
+//! them to the verified caller ([`crate::resource::Caller::with_granted_scope`]),
+//! so the same check serves a Basic caller and a bearer caller.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -133,8 +136,8 @@ pub enum StoreError {
         /// The role.
         role: String,
     },
-    /// Roles are granted to a user the store does not admit.
-    #[error("roles are granted to the user {username:?}, whom the store does not admit")]
+    /// A scope or roles are granted to a user the store does not admit.
+    #[error("a grant names the user {username:?}, whom the store does not admit")]
     UnknownUser {
         /// The user.
         username: String,
@@ -172,10 +175,10 @@ pub struct InvalidCredential;
 pub struct Verified {
     /// The user-id.
     pub username: String,
-    /// The space-delimited scope the user's configuration grants it
-    /// (RFC 6749 §3.3).
+    /// The space-delimited scope the product grants the user (RFC 6749
+    /// §3.3), empty when it grants none.
     pub scope: String,
-    /// The roles the user's configuration grants it ([`crate::roles`]).
+    /// The roles the product grants the user ([`crate::roles`]).
     pub roles: Vec<String>,
     /// Whether the credential was admitted from the verified-credential
     /// cache, without the key derivation.
@@ -194,7 +197,8 @@ struct Entry {
 }
 
 /// The users a surface admits with HTTP Basic, by name, each with the
-/// Argon2id PHC hash of its password and the scope it is granted.
+/// Argon2id PHC hash of its password and the scope and roles the product
+/// grants it.
 #[derive(Debug, Default)]
 pub struct PasswordStore {
     /// Each user, by user-id.
@@ -305,41 +309,24 @@ impl PasswordStore {
     }
 
     /// Returns this store admitting `username` with the password `hash`
-    /// names, an Argon2id PHC string, granted the space-delimited `scope`.
+    /// names, an Argon2id PHC string, granted no scope and no role until
+    /// [`PasswordStore::with_scope`] or [`PasswordStore::with_roles`] grants
+    /// them.
     ///
     /// # Errors
     ///
     /// Returns [`StoreError`] for a hash that does not parse, names
     /// another algorithm or costs less than the OWASP floor
-    /// ([`StoreError::Weak`]), a user-id that is empty or carries a colon or a
-    /// control character, a scope token outside RFC 6749 §3.3, or a
-    /// `system/` scope ([`StoreError::SystemScope`]).
+    /// ([`StoreError::Weak`]), or a user-id that is empty or carries a colon
+    /// or a control character.
     pub fn with_user(
         mut self,
         username: impl Into<String>,
         hash: SecretString,
-        scope: impl Into<String>,
     ) -> Result<Self, StoreError> {
         let username = username.into();
         if !user_id_ok(&username) {
             return Err(StoreError::UserId { username });
-        }
-        let scope = scope.into();
-        if let Some(bad) = scope
-            .split(' ')
-            .filter(|token| !token.is_empty())
-            .find(|token| !is_scope_token(token))
-        {
-            return Err(StoreError::Scope {
-                scope: bad.to_owned(),
-                username,
-            });
-        }
-        if let Some(system) = scope.split(' ').find(|token| is_system_scope(token)) {
-            return Err(StoreError::SystemScope {
-                scope: system.to_owned(),
-                username,
-            });
         }
         let parsed = PasswordHash::new(hash.expose_secret()).map_err(|_malformed| {
             StoreError::Malformed {
@@ -371,15 +358,45 @@ impl PasswordStore {
             username,
             Entry {
                 hash,
-                scope,
+                scope: String::new(),
                 roles: Vec::new(),
             },
         );
         Ok(self)
     }
 
+    /// Returns this store granting the space-delimited `scope` to
+    /// `username`, a user it already admits, in place of any scope granted
+    /// before.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::UnknownUser`] when the store admits no such
+    /// user, [`StoreError::Scope`] for a scope token outside RFC 6749 §3.3,
+    /// and [`StoreError::SystemScope`] for a `system/` scope.
+    pub fn with_scope(mut self, username: &str, scope: &str) -> Result<Self, StoreError> {
+        if let Some(bad) = scope
+            .split(' ')
+            .filter(|token| !token.is_empty())
+            .find(|token| !is_scope_token(token))
+        {
+            return Err(StoreError::Scope {
+                scope: bad.to_owned(),
+                username: username.to_owned(),
+            });
+        }
+        if let Some(system) = scope.split(' ').find(|token| is_system_scope(token)) {
+            return Err(StoreError::SystemScope {
+                scope: system.to_owned(),
+                username: username.to_owned(),
+            });
+        }
+        scope.clone_into(&mut self.entry(username)?.scope);
+        Ok(self)
+    }
+
     /// Returns this store granting `roles` to `username`, a user it already
-    /// admits.
+    /// admits, in place of any roles granted before.
     ///
     /// # Errors
     ///
@@ -393,14 +410,38 @@ impl PasswordStore {
                 role: bad.clone(),
             });
         }
-        let entry = self
+        self.entry(username)?.roles = roles;
+        Ok(self)
+    }
+
+    /// Returns this store granting each user of `grants` its scopes and
+    /// roles, the table a product that keeps them in its own configuration
+    /// reads ([`crate::config::BasicGrants`]).
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`StoreError`] of [`PasswordStore::with_scope`] or
+    /// [`PasswordStore::with_roles`] for the first grant that does not
+    /// hold, [`StoreError::UnknownUser`] for a grant naming a user the store
+    /// does not admit.
+    pub fn with_grants(self, grants: &crate::config::BasicGrants) -> Result<Self, StoreError> {
+        grants
             .users
+            .iter()
+            .try_fold(self, |store, (username, grant)| {
+                store
+                    .with_scope(username, &grant.scopes.join(" "))?
+                    .with_roles(username, grant.roles.clone())
+            })
+    }
+
+    /// Returns the entry of `username`.
+    fn entry(&mut self, username: &str) -> Result<&mut Entry, StoreError> {
+        self.users
             .get_mut(username)
             .ok_or_else(|| StoreError::UnknownUser {
                 username: username.to_owned(),
-            })?;
-        entry.roles = roles;
-        Ok(self)
+            })
     }
 
     /// Returns how many users the store admits.
@@ -582,7 +623,9 @@ impl Credential {
 
 #[cfg(test)]
 mod tests {
-    use super::{Credential, ENUMERATION_DEFENCE_PHC, InvalidCredential, PasswordStore, Verified};
+    use super::{
+        Credential, ENUMERATION_DEFENCE_PHC, InvalidCredential, PasswordStore, StoreError, Verified,
+    };
     use crate::refusal::Reason;
     use argon2::password_hash::PasswordHasher;
     use argon2::{Argon2, PasswordHash};
@@ -603,7 +646,8 @@ mod tests {
 
     fn store() -> PasswordStore {
         PasswordStore::new()
-            .with_user("alice", hash("s3cret"), "user/*.rs")
+            .with_user("alice", hash("s3cret"))
+            .and_then(|store| store.with_scope("alice", "user/*.rs"))
             .expect("a well-formed hash")
     }
 
@@ -753,34 +797,26 @@ mod tests {
     fn a_store_refuses_a_bad_hash_user_id_or_scope() {
         assert!(
             PasswordStore::new()
-                .with_user("alice", SecretString::from("not-a-phc"), "")
+                .with_user("alice", SecretString::from("not-a-phc"))
                 .is_err()
         );
         assert!(
             PasswordStore::new()
                 .with_user(
                     "alice",
-                    SecretString::from("$pbkdf2-sha256$i=1000,l=32$c2FsdA$YWJj"),
-                    ""
+                    SecretString::from("$pbkdf2-sha256$i=1000,l=32$c2FsdA$YWJj")
                 )
                 .is_err()
         );
-        assert!(
+        assert!(PasswordStore::new().with_user("a:b", hash("x")).is_err());
+        assert!(PasswordStore::new().with_user("", hash("x")).is_err());
+        assert!(PasswordStore::new().with_user("a\tb", hash("x")).is_err());
+        assert!(matches!(
             PasswordStore::new()
-                .with_user("a:b", hash("x"), "")
-                .is_err()
-        );
-        assert!(PasswordStore::new().with_user("", hash("x"), "").is_err());
-        assert!(
-            PasswordStore::new()
-                .with_user("a\tb", hash("x"), "")
-                .is_err()
-        );
-        assert!(
-            PasswordStore::new()
-                .with_user("a", hash("x"), "user/*.rs bad\"scope")
-                .is_err()
-        );
+                .with_user("a", hash("x"))
+                .and_then(|store| store.with_scope("a", "user/*.rs bad\"scope")),
+            Err(StoreError::Scope { .. })
+        ));
         assert!(PasswordStore::new().is_empty());
         assert_eq!(1, store().len());
     }

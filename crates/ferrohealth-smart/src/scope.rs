@@ -207,6 +207,12 @@ impl Scopes {
         }
     }
 
+    /// Adds the clinical scopes of `other`, which a caller is granted
+    /// beside its own.
+    pub(crate) fn extend(&mut self, other: Self) {
+        self.grants.extend(other.grants);
+    }
+
     /// Returns whether the token names no clinical scope at all.
     #[must_use]
     pub fn is_empty(&self) -> bool {

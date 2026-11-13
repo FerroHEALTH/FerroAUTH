@@ -11,6 +11,7 @@ use ferrohealth_smart::basic::StoreError;
 use ferrohealth_smart::client::ClientAuth;
 use ferrohealth_smart::client::Endpoint;
 use ferrohealth_smart::config::AuthSection;
+use ferrohealth_smart::config::BasicGrants;
 use ferrohealth_smart::config::BasicSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::credentials::CredentialsSection;
@@ -294,7 +295,6 @@ fn an_enabled_section_with_basic_users_and_no_issuer_is_basic_only() {
         [[basic.users]]
         user = "etl"
         password_hash = "{PHC}"
-        scopes = ["user/*.rs"]
         "#
     ))
     .expect("the section parses");
@@ -715,22 +715,33 @@ fn an_issuer_that_is_neither_a_string_nor_a_list_is_refused() {
 }
 
 // NOTE: a Basic credential is a person's (owner ruling on #215); a `system/` scope is a backend
-// service's (SMART App Launch 2.2.0, Scopes and Launch Context), so the section refuses it (#274).
+// service's (SMART App Launch 2.2.0, Scopes and Launch Context), so the grant refuses it (#274).
 #[test]
-fn a_basic_user_with_a_system_scope_fails_to_load_naming_the_user_and_the_scope() {
+fn a_basic_grant_with_a_system_scope_fails_to_load_naming_the_user_and_the_scope() {
     let section: AuthSection = toml::from_str(&format!(
         r#"
         enabled = true
         [[basic.users]]
         user = "batch-loader"
         password_hash = "{PHC}"
-        scopes = ["user/CodeSystem.r", "system/CodeSystem.cud"]
         "#
     ))
     .expect("the section parses");
-    let refused = section.resolve();
-    let Err(ConfigError::Basic { source }) = &refused else {
-        panic!("a Basic refusal, not {refused:?}");
+    let grants: BasicGrants = toml::from_str(
+        r#"
+        [batch-loader]
+        scopes = ["user/CodeSystem.r", "system/CodeSystem.cud"]
+        "#,
+    )
+    .expect("the grants parse");
+    let store = section
+        .resolve()
+        .expect("the credential resolves")
+        .basic
+        .expect("a Basic store");
+    let refused = store.with_grants(&grants);
+    let Err(source) = &refused else {
+        panic!("a refusal, not {refused:?}");
     };
     let StoreError::SystemScope { username, scope } = source else {
         panic!("a system scope, not {source:?}");
@@ -742,6 +753,77 @@ fn a_basic_user_with_a_system_scope_fails_to_load_naming_the_user_and_the_scope(
         message.contains("batch-loader") && message.contains("system/CodeSystem.cud"),
         "{message}"
     );
+}
+
+// NOTE: #479: a Basic user's scope and roles are the product's to grant, so the credential table
+// refuses both keys as unknown, naming the fields it reads.
+#[test]
+fn a_basic_user_setting_roles_or_scopes_is_refused_as_an_unknown_key() {
+    for key in ["roles = [\"auditor\"]", "scopes = [\"user/*.rs\"]"] {
+        let refused = toml::from_str::<AuthSection>(&format!(
+            "[[basic.users]]\nuser = \"etl\"\npassword_hash = \"{PHC}\"\n{key}\n"
+        ));
+        let Err(error) = refused else {
+            panic!("{key}: refused, not {refused:?}");
+        };
+        let message = error.to_string();
+        assert!(message.contains("unknown field"), "{key}: {message}");
+        assert!(
+            message.contains("`user`, `password_hash`, `password_hash_file`"),
+            "{key}: {message}"
+        );
+    }
+}
+
+#[test]
+fn a_credential_only_basic_user_resolves_and_is_granted_by_the_product() {
+    let section: AuthSection = toml::from_str(&format!(
+        r#"
+        enabled = true
+        [[basic.users]]
+        user = "etl"
+        password_hash = "{PHC}"
+        [[basic.users]]
+        user = "ops"
+        password_hash = "{PHC}"
+        "#
+    ))
+    .expect("the section parses");
+    let grants: BasicGrants = toml::from_str(
+        r#"
+        [etl]
+        scopes = ["user/*.rs"]
+        roles = ["auditor"]
+        "#,
+    )
+    .expect("the grants parse");
+    let store = section
+        .resolve()
+        .expect("a credential-only section resolves")
+        .basic
+        .expect("a Basic store")
+        .with_grants(&grants)
+        .expect("the grants hold");
+    assert_eq!(vec!["etl", "ops"], store.users().collect::<Vec<_>>());
+}
+
+#[test]
+fn a_basic_grant_refuses_an_unknown_key_and_an_unknown_user() {
+    let refused = toml::from_str::<BasicGrants>("[etl]\nscope = \"user/*.rs\"\n");
+    let Err(error) = refused else {
+        panic!("refused, not {refused:?}");
+    };
+    let message = error.to_string();
+    assert!(
+        message.contains("unknown field `scope`, expected `scopes` or `roles`"),
+        "{message}"
+    );
+    let grants: BasicGrants =
+        toml::from_str("[nobody]\nroles = [\"auditor\"]\n").expect("the grants parse");
+    assert!(matches!(
+        PasswordStore::new().with_grants(&grants),
+        Err(StoreError::UnknownUser { username }) if username == "nobody"
+    ));
 }
 
 /// Returns an enabled section with one `persons` issuer at `issuer`, its

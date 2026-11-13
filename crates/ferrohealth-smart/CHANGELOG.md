@@ -11,6 +11,46 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.23.0] - Unreleased
+
+### Added
+
+- `Caller::with_granted_scope` and `Caller::with_granted_roles` add the
+  scope tokens and roles a product grants a verified caller from its own
+  data, beside the ones it holds, without rebuilding the caller. Every
+  reader sees them: `scope()`, `has_scope()`, `scopes()` and the reach a
+  scope grants, `openehr_scopes()`, `roles()` and `has_role()`. A token or
+  a role already held is added once, and a Basic caller is granted no
+  `system/` scope (#479).
+- `config::BasicGrants`, a table of `config::BasicGrant` (`scopes`,
+  `roles`) by user-id, for a product that keeps its Basic users' scopes
+  and roles in its own configuration, and `PasswordStore::with_grants`,
+  which grants them to the store's users and refuses a grant naming a user
+  the store does not admit. `PasswordStore::with_scope` grants one user its
+  scope, with the checks `with_user` ran before (#479).
+
+### Changed
+
+- Breaking: `[[auth.basic.users]]` holds the credential alone: `user`,
+  `password_hash` and `password_hash_file`. A table that sets `roles` or
+  `scopes` is refused as an unknown key, and `config::BasicUser` loses its
+  `roles` and `scopes` fields. A Basic user's scope and roles are the
+  product's to grant, so a product that keeps them as policy data drops
+  both keys from its schema. `PasswordStore::with_user` takes the user-id
+  and the hash alone, and a scope is granted with
+  `PasswordStore::with_scope` (#479). Upgrade, per product:
+  - FerroEHR: delete `roles` and `scopes` from every shipped
+    `[[auth.basic.users]]` table, and add the `hold_roles` and
+    `hold_scopes` grants of the user's party to the caller the gate admits
+    with `caller.with_granted_scope(scopes).with_granted_roles(roles)` in
+    place of rebuilding it with `Caller::basic(..).with_roles(..)
+    .with_cached(..).with_party(..)`.
+  - FerroBRIDGE, FerroTERM and FerroPIX: move each user's `roles` and
+    `scopes` out of `[[auth.basic.users]]` into a `config::BasicGrants`
+    table the product composes into its own configuration, keyed by
+    user-id, and hand the store of `Resolved::basic` to the gate as
+    `store.with_grants(&grants)?`.
+
 ## [0.22.0] - 2026-11-12
 
 ### Added

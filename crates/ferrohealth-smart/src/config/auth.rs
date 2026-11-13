@@ -409,8 +409,7 @@ impl AuthSection {
                 "auth.basic.users.password_hash",
             )?;
             store = store
-                .with_user(user.user.clone(), hash, user.scopes.join(" "))
-                .and_then(|store| store.with_roles(&user.user, user.roles.clone()))
+                .with_user(user.user.clone(), hash)
                 .map_err(|source| ConfigError::Basic { source })?;
         }
         store

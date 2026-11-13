@@ -401,13 +401,20 @@ unique only within its issuer (`rfc7519 §4.1.2`), so an entry is
 admitted by it, and an entry naming a `patients` or `federation` issuer
 refuses the start (4).
 
-**A Basic principal** carries the scope string its configuration grants it
-(4.1), so the same check serves a Basic caller and a bearer caller, and a
-handler never asks which it was. No specification governs this: our own
-design. A Basic principal is a person, so its configuration grants no
-`system/` scope, a backend service's grant (`smart scopes-and-launch-context`):
-an `[[auth.basic.users]]` entry holding one fails to load naming the user and
-the scope, and `Caller::basic` drops any it is handed (#274).
+**A Basic principal** carries the scope the product grants it, so the same
+check serves a Basic caller and a bearer caller, and a handler never asks
+which it was. No specification governs this: our own design. The
+`[[auth.basic.users]]` entry holds the credential alone (4); the scope and
+the roles are policy, which the product grants from its own configuration
+(`config::BasicGrants`, handed to `PasswordStore::with_grants`) or from its
+own data (`Caller::with_granted_scope` and `Caller::with_granted_roles` on
+the caller the gate admits, which every scope and role reader sees), so a
+product that keeps them in its record store drops the keys from its schema
+(#479). A Basic principal is a person, so it is granted no `system/` scope,
+a backend service's grant (`smart scopes-and-launch-context`): a grant
+holding one fails to load naming the user and the scope, and
+`Caller::basic` and `Caller::with_granted_scope` drop any they are handed
+(#274).
 
 ### 3.5 Machine authentication
 
@@ -960,7 +967,7 @@ object with a string `value` sub-attribute (a SCIM multi-valued attribute,
 `rfc7643 §2.4`), or each whitespace-separated word of a string. A role keeps
 the issuer's spelling, trimmed, and appears once. An introspection answer is
 read the same way (`rfc7662 §2.2` lets it carry further members). A Basic
-user's roles are `[[auth.basic.users]] roles`, each one word.
+user's roles are the ones the product grants it (3.4), each one word.
 `Caller::claim_text` reads a string at a dotted claim path for a product's
 own attribute.
 
@@ -1793,7 +1800,16 @@ cache_ttl = "0s"                     # how long a verified credential is kept; "
 [[auth.basic.users]]                 # a person's credential; absent: no Basic on this surface
 user = "operator"
 password_hash_file = "/run/secrets/operator.phc"   # or password_hash = "$argon2id$…"
-scopes = ["user/*.rs"]
+```
+
+The entry holds the credential alone, and a table that sets `scopes` or
+`roles` is refused as an unknown key. A product that keeps its Basic users'
+scopes and roles in its configuration composes `config::BasicGrants` into
+its own section, one table per user-id (3.4):
+
+```toml
+[operator]                           # a user-id of [[auth.basic.users]]
+scopes = ["user/*.rs"]               # never a system/ scope
 roles = ["auditor"]                  # one word each (3.11)
 ```
 
@@ -2157,7 +2173,7 @@ four agree on and settles each difference:
 | An access token's `jti` is read, not tracked; DPoP-bound (`rfc9449`) and certificate-bound (`rfc8705 §3`) tokens are verified per issuer, `sender_constraint = "required"` admits a bound token alone, a `cnf` token is never a plain bearer token, the `htu` is compared with the external URL the product names, and the proof `jti` is recorded in a product-supplied `ReplayStore` whose in-memory default holds per replica (3.15) | `rfc9700 §4.9.3`; `rfc9449 §4.3`, `§6`, `§7`, `§11.1`; `rfc8705 §3`; the store, the window values and the refusal of an unknown `cnf` method are our own design (FerroHEALTH/FerroAUTH#220, which replaces the owner decision of 2026-10-19 that kept both in FerroFED) | a product with more than one replica supplies a shared `ReplayStore` (FerroHEALTH/FerroFED#1637); a surface admitting `DPoP` sets `[auth.dpop] external_url` |
 | `resource` is the RFC 8707 resource indicator, sent when configured; `audience` has no specification and is sent only when configured | `rfc8707 §2`; FerroBRIDGE sends both today | none |
 | The `kid` of the product's own JWK is configured, or defaults to the RFC 7638 SHA-256 thumbprint | `rfc7638 §3`; the default is our own design | none |
-| A caller's roles are read from the RFC 9068 §2.2.3.1 claims, or the paths a deployment names, and a Basic user's from its configuration; a route table states role requirements beside scope requirements, matched without regard to ASCII case | `rfc9068 §2.2.3.1`, `rfc7643 §2.4`, `§4.1.2`; the matching and the requirement forms are our own design (owner decision 2026-10-25: authentication and the granted subject belong in this crate) | a product that read roles itself (FerroEHR's claim paths and Basic role table) moves them to `[auth] role_claims` and `[[auth.basic.users]] roles` |
+| A caller's roles are read from the RFC 9068 §2.2.3.1 claims, or the paths a deployment names, and a Basic user's from the product's grant; a route table states role requirements beside scope requirements, matched without regard to ASCII case | `rfc9068 §2.2.3.1`, `rfc7643 §2.4`, `§4.1.2`; the matching and the requirement forms are our own design (owner decision 2026-10-25: authentication and the granted subject belong in this crate) | a product that read roles itself (FerroEHR's claim paths and Basic role table) moves them to `[auth] role_claims` and its Basic grants (3.4) |
 | The crate parses (with its own `openehr::smart_scopes`, which moved here from `openehr-sdt` and builds dependency-free behind `openehr-scopes`, for the browser too) and enforces the SMART on openEHR grammar beside the FHIR grammar; the product's route table declares which applies per route | owner decision 2026-10-19, the move 2026-10-27; `soe master07`, `master08`; the rules the draft leaves open are listed in 3.9 as our own design | a product that named `openehr_sdt::smart_scopes` names `ferrohealth_smart::openehr::smart_scopes` |
 | SMART on openEHR is DEVELOPMENT: pinned by commit, its status checked on every vendor run, upstream read weekly, and every upstream change re-vendored and recorded here as a decision naming what changed | the draft's `manifest_vars.adoc`; no release stabilises it | none yet: the draft last changed on 2026-07-19 (amendment record 1.1.0) |
 | A request is the natural person's own access only for a `Patient` caller, a `patients` issuer's token naming the record subject alone; a Basic user is never the person (3.13) | Regulation (EU) 2025/327 Art. 5, 9; `smart scopes-and-launch-context`, Patient-specific scopes leaves *who* open; SMART on openEHR `master08-scopes`; #215 replaces the two answers of #171 | a product that called `Caller::acts_for_the_person` reads `Caller::is_the_person` or `Caller::kind`, and splits patients and professionals into separate issuers |
@@ -2176,6 +2192,7 @@ four agree on and settles each difference:
 | The RFC 9470 step-up challenge is a crate refusal, with `acr_values` and `max_age`, and the crate checks `acr` and `auth_time` against the product's requirement | `rfc9470 §3`, `§6`; what a resource requires is the product's (#60) | none |
 | `Caller` carries a typed extension map a resource server or a product verifier fills; the configuration sections still take no product field (#49) | our own design: the verifier that routed the token already knows the issuer's policy, and the crate reads no extension (#61) | none |
 | `Caller::basic_user_in` and `Requirement::basic_users` answer whether a Basic caller is one of a list | our own design (#62) | none |
+| `[[auth.basic.users]]` holds the credential alone; a Basic user's scopes and roles are the product's to grant, from its configuration through `config::BasicGrants` or from its data through `Caller::with_granted_scope` and `Caller::with_granted_roles` | our own design: policy stays out of the shared credential table, so a product that keeps it as data drops the keys (#479, FerroEHR #5438) | FerroEHR drops `roles` and `scopes` and grants them to the admitted caller; FerroBRIDGE, FerroTERM and FerroPIX move them into a `BasicGrants` table of their own configuration and call `PasswordStore::with_grants` |
 | The outcome of a Basic check says whether the verified-credential cache admitted it | our own design (#63) | none |
 | The metadata `issuer` is compared as exact text; a product may also hold the configured issuer to its canonical URL form | `rfc8414 §3.3`, `§4`; the canonical form is our own design (#67) | none |
 | A metadata document whose objects repeat a member name is refused | `rfc8259 §4` leaves the meaning to each parser; the refusal is our own design (#69) | none |

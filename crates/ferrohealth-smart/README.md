@@ -39,7 +39,9 @@ ferrohealth-smart = { version = "=0.22.0", features = ["axum", "openehr"] }
 - **`roles`**: the roles a caller holds, `Caller::roles()`, read from the
   `roles`, `groups` and `entitlements` claims of RFC 9068 §2.2.3.1 or the
   paths each `[[auth.issuer]] role_claims` names, or granted to a Basic
-  user; the route
+  user by the product (`config::BasicGrants` with
+  `PasswordStore::with_grants`, or `Caller::with_granted_roles` and
+  `Caller::with_granted_scope` from its own data); the route
   table checks them with `Requirement::Role`, `AnyRole`, `WithoutRole` and
   `All`.
 - **`kind`** and **`profile`**: who stands behind a token. Each
@@ -54,7 +56,7 @@ ferrohealth-smart = { version = "=0.22.0", features = ["axum", "openehr"] }
   `ExternalOrganisation`, the patient's representative only on a patients
   issuer that reads one and the last two only on a federation issuer, and a token that matches no step is refused as
   `Rejection::Unclassified`. A Basic credential is a person's, never a
-  system's, and carries no `system/` scope: a Basic user granted one fails
+  system's, and carries no `system/` scope: a Basic grant holding one fails
   to load.
 - **`party`**: the party a person's login belongs to. One `[[auth.party]]`
   table per `persons` issuer names the identifiers its logins are matched

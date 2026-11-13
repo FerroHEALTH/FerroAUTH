@@ -612,8 +612,10 @@ fn every_basic_user_maps_to_a_key_and_only_under_a_bound_table() -> Outcome2 {
         )
     };
     let store = PasswordStore::new()
-        .with_user("clinician", hash(), "user/*.rs")?
-        .with_user("machine", hash(), "user/*.rs")?;
+        .with_user("clinician", hash())?
+        .with_scope("clinician", "user/*.rs")?
+        .with_user("machine", hash())?
+        .with_scope("machine", "user/*.rs")?;
     assert_eq!(
         Err(PartyError::BasicUnmapped {
             user: String::from("machine")
