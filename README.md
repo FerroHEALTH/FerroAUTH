@@ -120,7 +120,7 @@ exactly, as every FerroHEALTH product does:
 [dependencies]
 ferrohealth-smart = { version = "=0.24.0", features = ["axum", "openehr"] }
 ferrohealth-authz = { version = "=0.17.0", features = ["cedar"] }
-ferrohealth-session = { version = "=0.18.0", features = ["axum"] }
+ferrohealth-session = { version = "=0.19.0", features = ["axum"] }
 ```
 
 The release plan of each crate refuses a tag while this page or the crate's
