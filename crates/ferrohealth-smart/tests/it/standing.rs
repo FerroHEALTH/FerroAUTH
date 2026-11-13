@@ -527,6 +527,54 @@ fn the_product_section_refuses_the_three_keys_as_unknown() {
     );
 }
 
+/// The text a TOML error's span covers, read as a product reads `[auth]`.
+fn refused_span<S: serde::de::DeserializeOwned>(text: &str) -> Option<&str> {
+    let error = toml::from_str::<BTreeMap<String, S>>(text).err()?;
+    text.get(error.span()?)
+}
+
+#[test]
+fn an_unknown_key_of_the_product_section_is_refused_at_its_own_position() {
+    let issuer = format!(
+        "[[auth.issuer]]\nissuer = \"{ISSUER}\"\nkind = \"persons\"\n\
+         audience = [\"{AUDIENCE}\"]\njwks_file = \"/dev/null\"\n"
+    );
+    let misspelt = [
+        ("isser", format!("[auth]\nisser = \"{ISSUER}\"\n\n{issuer}")),
+        ("audiense", format!("[auth]\n\n{issuer}audiense = []\n")),
+    ];
+    for (key, text) in &misspelt {
+        assert_eq!(
+            Some(*key),
+            refused_span::<ProductStandingSection>(text),
+            "{text}"
+        );
+        assert_eq!(
+            refused_span::<AuthSection>(text),
+            refused_span::<ProductStandingSection>(text),
+            "the product section refuses where the default section does: {text}"
+        );
+    }
+    let refused = [
+        (
+            "scopeless_subjects",
+            format!("[auth]\nscopeless_subjects = []\n\n{issuer}"),
+        ),
+        (
+            "first_party_clients",
+            format!("[auth]\n\n{issuer}first_party_clients = []\n"),
+        ),
+        ("delegates", format!("[auth]\n\n{issuer}delegates = []\n")),
+    ];
+    for (key, text) in &refused {
+        assert_eq!(
+            Some(*key),
+            refused_span::<ProductStandingSection>(text),
+            "{text}"
+        );
+    }
+}
+
 #[test]
 fn the_product_section_reads_and_writes_as_the_default_without_the_lists() -> Outcome {
     let text = auth("realm = \"ferro\"", "client_claims = [\"azp\"]");
