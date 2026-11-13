@@ -183,6 +183,63 @@ impl Caller {
         self
     }
 
+    /// Returns this caller also holding `roles`, the roles a product grants
+    /// a verified caller from its own data, beside the ones it holds.
+    ///
+    /// Each item is read like a role claim that is one string: each of its
+    /// whitespace-separated words is a role, kept as spelled and added once
+    /// ([`crate::roles`]). Every reader of the roles sees them
+    /// ([`Caller::roles`], [`Caller::has_role`]). No specification governs
+    /// the grant: our own design.
+    #[must_use]
+    pub fn with_granted_roles<I, S>(mut self, roles: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        for role in roles {
+            for word in role.as_ref().split_whitespace() {
+                crate::roles::push(&mut self.roles, word);
+            }
+        }
+        self
+    }
+
+    /// Returns this caller also granted the scope `tokens`, the scopes a
+    /// product grants a verified caller from its own data, beside the ones
+    /// its credential carries.
+    ///
+    /// Each item is a scope token or a space-delimited scope (RFC 6749
+    /// §3.3); a token the caller already holds is added once. A Basic caller
+    /// is a person, so it is granted no `system/` scope, the same rule as
+    /// [`Caller::basic`]. Every reader of the scope sees the tokens added
+    /// ([`Caller::scope`], [`Caller::has_scope`], [`Caller::scopes`],
+    /// `Caller::openehr_scopes` with the `openehr` feature, and the reach a
+    /// scope grants). A clinical scope among them is read like
+    /// [`Scopes::parse`]; a product that holds a resource table re-reads
+    /// [`Caller::scope`] with [`Scopes::parse_known`] and
+    /// [`Caller::with_scopes`]. No specification governs the grant: our own
+    /// design.
+    #[must_use]
+    pub fn with_granted_scope<I, S>(mut self, tokens: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let held = self.scope.len();
+        for item in tokens {
+            for token in item.as_ref().split(' ') {
+                let personal = !(self.via == Via::Basic && crate::basic::is_system_scope(token));
+                if !token.is_empty() && personal && !self.scope.iter().any(|had| had == token) {
+                    self.scope.push(token.to_owned());
+                }
+            }
+        }
+        let joined = self.scope.get(held..).unwrap_or_default().join(" ");
+        self.scopes.extend(Scopes::parse(&joined));
+        self
+    }
+
     /// Returns the roles the caller holds, as the token's claims or the Basic
     /// user's configuration spell them ([`crate::roles`]).
     #[must_use]

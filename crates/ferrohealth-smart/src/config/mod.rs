@@ -609,6 +609,13 @@ pub struct BasicSection {
 
 /// One `[[auth.basic.users]]` entry: a person's credential, never a
 /// machine's ([`crate::resource::Caller::basic`]).
+///
+/// The entry holds the credential alone. The scope and the roles of the
+/// user are the product's to grant: from its own configuration through
+/// [`BasicGrants`], or from its own data through
+/// [`crate::resource::Caller::with_granted_scope`] and
+/// [`crate::resource::Caller::with_granted_roles`] (no specification governs
+/// this: our own design).
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -624,10 +631,6 @@ pub struct BasicUser {
     pub password_hash: Option<SecretString>,
     /// The file holding that PHC string.
     pub password_hash_file: Option<PathBuf>,
-    /// The scopes the user is granted.
-    pub scopes: Vec<String>,
-    /// The roles the user is granted ([`crate::roles`]).
-    pub roles: Vec<String>,
 }
 
 // The exhaustive pattern makes a new field a compile error here until it is compared.
@@ -637,18 +640,44 @@ impl PartialEq for BasicUser {
             user,
             password_hash,
             password_hash_file,
-            scopes,
-            roles,
         } = self;
         shapes::same_secret(password_hash.as_ref(), other.password_hash.as_ref())
             && *user == other.user
             && *password_hash_file == other.password_hash_file
-            && *scopes == other.scopes
-            && *roles == other.roles
     }
 }
 
 impl Eq for BasicUser {}
+
+/// The scopes and roles a product grants its Basic users, by user-id.
+///
+/// A product that keeps them in its own configuration composes the table
+/// into its own section and hands it to
+/// [`crate::basic::PasswordStore::with_grants`].
+///
+/// ```toml
+/// [operator]
+/// scopes = ["user/*.rs"]
+/// roles = ["auditor"]
+/// ```
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(transparent)]
+pub struct BasicGrants {
+    /// The grant of each user, by user-id.
+    pub users: BTreeMap<String, BasicGrant>,
+}
+
+/// What a product grants one Basic user.
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BasicGrant {
+    /// The scopes the user is granted, never a `system/` scope.
+    pub scopes: Vec<String>,
+    /// The roles the user is granted, one word each ([`crate::roles`]).
+    pub roles: Vec<String>,
+}
 
 /// What the `[auth]` section resolves to.
 #[derive(Debug)]

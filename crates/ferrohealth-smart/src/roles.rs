@@ -90,7 +90,7 @@ pub fn holds<S: AsRef<str>>(held: &[S], role: &str) -> bool {
 }
 
 /// Adds `raw`, trimmed, unless it is empty or already present.
-fn push(roles: &mut Vec<String>, raw: &str) {
+pub(crate) fn push(roles: &mut Vec<String>, raw: &str) {
     let role = raw.trim();
     if !role.is_empty() && !roles.iter().any(|held| held == role) {
         roles.push(role.to_owned());

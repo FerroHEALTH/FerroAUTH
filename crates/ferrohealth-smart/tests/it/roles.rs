@@ -3,11 +3,14 @@
 
 //! The roles a caller holds: read from the claims RFC 9068 §2.2.3.1 names,
 //! or from the paths a deployment configures, and granted to a Basic user by
-//! its configuration.
+//! the product.
 
 use std::error::Error as StdError;
 
+use ferrohealth_smart::basic::StoreError;
 use ferrohealth_smart::config::AuthSection;
+use ferrohealth_smart::config::BasicGrant;
+use ferrohealth_smart::config::BasicGrants;
 use ferrohealth_smart::config::BasicSection;
 use ferrohealth_smart::config::BasicUser;
 use ferrohealth_smart::config::ConfigError;
@@ -67,13 +70,12 @@ async fn a_token_without_role_claims_holds_no_role() -> Result<(), Box<dyn StdEr
 /// A synthetic Argon2id hash at the OWASP floor, of no real password.
 const HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c3ludGhldGljLXNhbHQtMTY$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
-fn section(roles: Vec<String>) -> AuthSection {
+fn section() -> AuthSection {
     AuthSection {
         basic: Some(BasicSection {
             users: vec![BasicUser {
                 user: String::from("etl"),
                 password_hash: Some(SecretString::from(HASH)),
-                roles,
                 ..BasicUser::default()
             }],
             ..BasicSection::default()
@@ -83,16 +85,28 @@ fn section(roles: Vec<String>) -> AuthSection {
 }
 
 #[test]
-fn a_basic_user_role_must_be_one_word() {
+fn a_basic_user_role_must_be_one_word() -> Result<(), Box<dyn StdError>> {
+    let grants = BasicGrants {
+        users: [(
+            String::from("etl"),
+            BasicGrant {
+                roles: vec![String::from("two words")],
+                ..BasicGrant::default()
+            },
+        )]
+        .into(),
+    };
+    let store = section().resolve()?.basic.ok_or("a Basic store")?;
     assert!(matches!(
-        section(vec![String::from("two words")]).resolve(),
-        Err(ConfigError::Basic { .. })
+        store.with_grants(&grants),
+        Err(StoreError::Role { username, role }) if username == "etl" && role == "two words"
     ));
+    Ok(())
 }
 
 #[test]
 fn a_blank_role_claim_path_is_refused() {
-    let mut auth = section(Vec::new());
+    let mut auth = section();
     auth.issuer = vec![IssuerEntry {
         issuer: ferrohealth_secret::secret_url::SecretUrl::new("https://as.example.org"),
         kind: Some(IssuerKind::Persons),
