@@ -87,6 +87,7 @@ mod section_eq;
 mod sender;
 #[cfg(feature = "fetch")]
 mod shape;
+mod standing;
 #[cfg_attr(
     not(feature = "fetch"),
     expect(

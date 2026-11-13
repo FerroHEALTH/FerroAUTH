@@ -28,6 +28,7 @@ use crate::federation::FederationSection;
 use crate::federation::Field;
 use crate::federation::person::AttributesSection;
 use crate::kind::IssuerKind;
+use crate::kind::standing::StandingSource;
 use crate::profile::Profile;
 use crate::resource::Settings;
 use crate::resource::configuration::SmartOptions;
@@ -109,7 +110,7 @@ impl AuthSection {
     /// product scope in no extension form, or a cache key the random
     /// source cannot draw.
     pub fn resolve(&self) -> Result<Resolved, ConfigError> {
-        self.resolve_over(None)
+        self.resolve_over(None, &StandingSource::Lists)
     }
 
     /// Resolves the section as [`AuthSection::resolve`] does, every `tls`
@@ -121,12 +122,16 @@ impl AuthSection {
     /// Returns [`ConfigError`] as [`AuthSection::resolve`] does, and
     /// [`ConfigError::TlsBuild`] when `tls` refuses a table.
     pub fn resolve_with_tls(&self, tls: &dyn TlsBuilder) -> Result<Resolved, ConfigError> {
-        self.resolve_over(Some(tls))
+        self.resolve_over(Some(tls), &StandingSource::Lists)
     }
 
     /// Resolves the section, over the product's TLS builder when one is
-    /// handed.
-    fn resolve_over(&self, builder: Option<&dyn TlsBuilder>) -> Result<Resolved, ConfigError> {
+    /// handed, every issuer's standing questions answered by `standing`.
+    pub(super) fn resolve_over(
+        &self,
+        builder: Option<&dyn TlsBuilder>,
+        standing: &StandingSource,
+    ) -> Result<Resolved, ConfigError> {
         if let Some(bad) = self
             .capabilities
             .iter()
@@ -177,6 +182,7 @@ impl AuthSection {
                     AuthMode::Jwt => {
                         let mut settings = self.settings_of(entry, kind)?;
                         settings.tls = tls.clone();
+                        settings.standing = standing.clone();
                         settings.validate().map_err(|source| ConfigError::Issuer {
                             issuer: shown(&entry.issuer),
                             source: Box::new(source),
@@ -185,7 +191,7 @@ impl AuthSection {
                     }
                     #[cfg(feature = "fetch")]
                     AuthMode::Introspection => {
-                        introspection.push(self.introspection_of(entry, kind, builder)?);
+                        introspection.push(self.introspection_of(entry, kind, builder, standing)?);
                     }
                     #[cfg(not(feature = "fetch"))]
                     AuthMode::Introspection => return Err(ConfigError::IntrospectionUnavailable),
@@ -446,6 +452,7 @@ impl AuthSection {
         entry: &IssuerEntry,
         kind: IssuerKind,
         builder: Option<&dyn TlsBuilder>,
+        standing: &StandingSource,
     ) -> Result<crate::resource::introspection::IntrospectionSettings, ConfigError> {
         use crate::resource::introspection::IntrospectionAuth;
         use crate::resource::introspection::IntrospectionError;
@@ -511,6 +518,7 @@ impl AuthSection {
         settings.cache_capacity = section.cache_capacity;
         settings.timeout = entry.timeout.get();
         settings.scopeless_subjects = self.scopeless_of(entry.issuer.expose());
+        settings.standing = standing.clone();
         settings.role_claims = role_claims_of(entry, kind);
         settings.profile = profile_of(entry)?;
         settings.assurance.clone_from(&entry.assurance);

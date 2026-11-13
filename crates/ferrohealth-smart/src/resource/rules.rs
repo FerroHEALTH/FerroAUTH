@@ -10,6 +10,7 @@ use crate::assurance::AssuranceSection;
 use crate::federation::FederationSection;
 use crate::federation::person::AttributesSection;
 use crate::kind::IssuerKind;
+use crate::kind::standing::StandingSource;
 use crate::profile::Profile;
 use crate::resource::ResourceError;
 use crate::sender::SenderConstraint;
@@ -88,5 +89,19 @@ pub(super) fn check_attributes(
         }),
         (_, Some(section)) => Ok(section.validate_for(kind)?),
         (_, None) => Ok(()),
+    }
+}
+
+/// Refuses a list of `profile` or a `scopeless_subjects` entry beside a
+/// product's `standing`, so no list is ever read in two places (no
+/// specification governs the standing: our own design).
+pub(super) fn check_standing(
+    standing: &StandingSource,
+    profile: &Profile,
+    scopeless_subjects: &BTreeSet<String>,
+) -> Result<(), ResourceError> {
+    match standing.listed_beside(profile, scopeless_subjects) {
+        Some(key) => Err(ResourceError::ListedBesideStanding { key }),
+        None => Ok(()),
     }
 }

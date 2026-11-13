@@ -399,7 +399,9 @@ unique only within its issuer (`rfc7519 §4.1.2`), so an entry is
 `{ issuer, sub }` and holds for that issuer's tokens alone, and only for a
 `System` caller (3.14): a person, a patient or another party is never
 admitted by it, and an entry naming a `patients` or `federation` issuer
-refuses the start (4).
+refuses the start (4). A product may answer the same question per request
+through its `Standing` in place of the list (3.14, #484); the rule that a
+caller carrying a resource scope gets only its scopes stays the crate's.
 
 **A Basic principal** carries the scope the product grants it, so the same
 check serves a Basic caller and a bearer caller, and a handler never asks
@@ -950,8 +952,10 @@ window in which a revoked token still passes, the trade-off §4 leaves to the
 deployment. Zero caches nothing. At most `cache_capacity` responses are held;
 a full cache drops its expired entries, then the one that expires first. An
 inactive response is never held, so a token activated later is not refused
-from the cache. A caller admitted from the cache reports `cached()`. The
-cache bounds are no specification's: our own design (FerroBRIDGE #533).
+from the cache. A caller admitted from the cache reports `cached()`, and
+a held response is classified again on each request, so the issuer's
+standing (3.14) answers every one. The cache bounds are no
+specification's: our own design (FerroBRIDGE #533, #484).
 
 ### 3.11 Roles and role requirements
 
@@ -1093,6 +1097,33 @@ person's and always a `Person`, never a `System` (owner ruling of
 (RFC 6749 §4.4). The scopeless allowlist (3.4) admits only a `System`
 caller, the audit line records the kind (3.6), and `Caller::person_key` and
 `Caller::tenant` carry the profile's key and tenant values.
+
+**Who answers the standing questions** (`kind::standing`). The steps ask
+three questions the token cannot answer: the standing of a `persons`
+token's client (first party, delegate or unlisted), whether its current
+RFC 8693 actor is a declared delegate, and whether a `System` caller of a
+`persons` or `machines` issuer is admitted without a scope (3.4). The
+issuer's `StandingSource` answers them. `Lists`, the default, reads the
+profile's `first_party_clients` and `delegates` and the issuer's
+`scopeless_subjects`. `Product` asks the product's `Standing`, for a
+product that keeps these lists as its own data and changes them with no
+restart (FerroEHR keeps them in its CDR, FerroHEALTH/FerroEHR#5437). The
+crate asks at most one question per token, holds no answer, and forces no
+read, so a product answers from memory; an introspected response held in
+the cache (3.10) is classified again on each request, so its standing is
+asked again too. The answers decide as the lists do: `FirstParty` is a
+`Person` or a `Representative`, `Delegate` is `Delegated` and refuses a
+representation (`RepresentationThroughDelegate`), `Unlisted` is
+`UnlistedClient`, and an actor the product does not declare is
+`UnlistedActor`. A `Standing` that cannot answer refuses the token as
+`Rejection::Upstream` (`503`), never as an unlisted client. Beside
+`Product`, a set list refuses the issuer at load
+(`ResourceError::ListedBesideStanding`), so no list is ever read in two
+places; a product reads `[auth]` as `config::ProductStandingSection`, where
+the three keys are unknown (4). No specification governs which clients a
+resource server admits for a person or which subjects it admits without a
+scope: our own design (#484), since SMART App Launch 2.2.0 and
+`rfc8693 §4.1` leave both to the resource server.
 
 How callers are classified is our own design over those sources.
 
@@ -1877,6 +1908,16 @@ the table's minimum version holds; `resolve` refuses such a table
 `ferrohealth_config::units::Duration` (`"30s"`). No specification governs the seam: our own
 design.
 
+A product whose `Standing` answers the client lists and the scopeless
+subjects (3.14) reads `[auth]` as `config::ProductStandingSection`: the
+same section, read by `AuthSection`'s own reader with `scopeless_subjects`
+and each issuer's `first_party_clients` and `delegates` unknown, refused as
+any unknown key is with the accepted keys named, and absent from its
+schema. `ProductStandingSection::resolve` (and `resolve_with_tls`) hands
+every issuer the product's standing and refuses a list set in code
+(`ConfigError::ListedBesideStanding`). Every other product keeps
+`AuthSection` and its lists (#484).
+
 An outbound integration is one table, `config::endpoint::EndpointSection`:
 `url`, `timeout`, `connect_timeout`, `retry` (`max_attempts`,
 `initial_backoff`, `max_backoff`), `tls` and `credentials`, so an operator
@@ -2193,6 +2234,7 @@ four agree on and settles each difference:
 | `Caller` carries a typed extension map a resource server or a product verifier fills; the configuration sections still take no product field (#49) | our own design: the verifier that routed the token already knows the issuer's policy, and the crate reads no extension (#61) | none |
 | `Caller::basic_user_in` and `Requirement::basic_users` answer whether a Basic caller is one of a list | our own design (#62) | none |
 | `[[auth.basic.users]]` holds the credential alone; a Basic user's scopes and roles are the product's to grant, from its configuration through `config::BasicGrants` or from its data through `Caller::with_granted_scope` and `Caller::with_granted_roles` | our own design: policy stays out of the shared credential table, so a product that keeps it as data drops the keys (#479, FerroEHR #5438) | FerroEHR drops `roles` and `scopes` and grants them to the admitted caller; FerroBRIDGE, FerroTERM and FerroPIX move them into a `BasicGrants` table of their own configuration and call `PasswordStore::with_grants` |
+| A `persons` token's client standing, a declared RFC 8693 actor and a `System` caller's scopeless access are answered by the issuer's `StandingSource`: its lists by default, or a product `Standing` asked per request with no cache; beside a product's standing a set list is refused, and `ProductStandingSection` reads `[auth]` with the three keys unknown (3.14) | our own design: SMART App Launch 2.2.0 and `rfc8693 §4.1` leave both to the resource server (#484, FerroEHR #5437) | FerroEHR reads `[auth]` as `ProductStandingSection`, drops the three keys and implements `Standing` over its CDR; the other products keep their lists |
 | The outcome of a Basic check says whether the verified-credential cache admitted it | our own design (#63) | none |
 | The metadata `issuer` is compared as exact text; a product may also hold the configured issuer to its canonical URL form | `rfc8414 §3.3`, `§4`; the canonical form is our own design (#67) | none |
 | A metadata document whose objects repeat a member name is refused | `rfc8259 §4` leaves the meaning to each parser; the refusal is our own design (#69) | none |

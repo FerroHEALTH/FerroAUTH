@@ -234,11 +234,12 @@ fn patient(
     // client, which `named_actor` checked, so it is read here as no representative.
     let mut patient_claims = issued.clone();
     patient_claims.remove("act");
-    crate::kind::classify(
+    crate::kind::classify_listed(
         IssuerKind::Patients,
         &settings.profile,
         None,
         &patient_claims,
+        &settings.issuer,
     )
     .map_err(Rejected::Patient)?;
     for claim in subject.patient_context() {
@@ -285,11 +286,12 @@ fn federation(
             .as_ref()
             .map(|assurance| &assurance.levels),
     };
-    let classified = crate::kind::classify(
+    let classified = crate::kind::classify_listed(
         IssuerKind::Federation,
         &settings.profile,
         Some(&context),
         issued,
+        &settings.issuer,
     )
     .map_err(Rejected::Federation)?;
     let subject_is_person = !matches!(

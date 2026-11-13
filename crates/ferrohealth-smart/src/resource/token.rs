@@ -26,8 +26,12 @@ use crate::federation::FederationSection;
 use crate::federation::person::AttributesSection;
 use crate::kind::CallerKind;
 use crate::kind::IssuerKind;
+use crate::kind::Refused;
 use crate::kind::Unclassified;
 use crate::kind::classify;
+use crate::kind::standing::Issued;
+use crate::kind::standing::StandingError;
+use crate::kind::standing::StandingSource;
 use crate::profile::Profile;
 use crate::refusal::Reason;
 use crate::resource::Caller;
@@ -95,11 +99,13 @@ pub(super) async fn validate(
             audiences: &settings.audience,
             clock_skew: settings.clock_skew,
             scopeless_subjects: &settings.scopeless_subjects,
+            standing: &settings.standing,
             role_claims: &settings.role_claims,
             resource_types: server.resource_types.as_ref(),
             extensions: &server.extensions,
         },
     )
+    .await
 }
 
 /// What a verified token's claims are read under: the issuer that vouched
@@ -124,6 +130,8 @@ pub(super) struct Admission<'a> {
     pub(super) clock_skew: Duration,
     /// The subjects granted system-wide access without a clinical scope.
     pub(super) scopeless_subjects: &'a BTreeSet<String>,
+    /// Who answers the standing questions.
+    pub(super) standing: &'a StandingSource,
     /// The claims the roles are read from.
     pub(super) role_claims: &'a [String],
     /// The resource types a clinical scope may name, when the product holds
@@ -137,8 +145,11 @@ pub(super) struct Admission<'a> {
 /// the JWT check and the introspection check share: `iat` within the clock
 /// skew, a subject that is not blank, the caller's kind by the issuer's
 /// profile, and the scope, the client and the `patient` launch context
-/// read the same way.
-pub(super) fn admit(
+/// read the same way. A person's token asks the issuer's standing which
+/// clients and actors it admits, and a system caller whether it is admitted
+/// without a scope; a standing that cannot answer refuses the token as
+/// [`Rejection::Upstream`].
+pub(super) async fn admit(
     claims: Map<String, Value>,
     subject: String,
     admission: &Admission<'_>,
@@ -171,8 +182,15 @@ pub(super) fn admit(
         admission.profile,
         federation.as_ref(),
         &claims,
+        admission.issuer,
+        admission.standing,
     )
-    .map_err(|reason| Rejection::Unclassified { reason })?;
+    .await
+    .map_err(|refused| match refused {
+        Refused::Unclassified(reason) => Rejection::Unclassified { reason },
+        Refused::Standing(error) => unanswered(error),
+    })?;
+    let scopeless = scopeless(&classified.kind, &subject, admission).await?;
     let professional =
         admission.kind == IssuerKind::Persons && classified.kind != CallerKind::System;
     let attributes = match admission.attributes {
@@ -200,7 +218,6 @@ pub(super) fn admit(
             },
         })?;
     let patient = text(&claims, "patient");
-    let scopeless = admission.scopeless_subjects.contains(&subject);
     let scopes = match admission.resource_types {
         Some(known) => Scopes::parse_known(&scope, |name| known(name)),
         None => Scopes::parse(&scope),
@@ -232,6 +249,37 @@ pub(super) fn admit(
         Some(attributes) => caller.with_attributes(attributes),
         None => caller,
     })
+}
+
+/// Returns whether the caller of `kind` named `subject` is admitted
+/// without a scope.
+async fn scopeless(
+    kind: &CallerKind,
+    subject: &str,
+    admission: &Admission<'_>,
+) -> Result<bool, Rejection> {
+    // NOTE: no specification governs the allowlist: our own design; only a
+    // system caller is ever admitted without a scope, so only one is asked.
+    if *kind != CallerKind::System {
+        return Ok(false);
+    }
+    admission
+        .standing
+        .scopeless(
+            admission.scopeless_subjects,
+            Issued::new(admission.issuer, subject),
+        )
+        .await
+        .map_err(unanswered)
+}
+
+/// Returns the rejection of a token the product's standing could not
+/// answer for.
+fn unanswered(error: StandingError) -> Rejection {
+    Rejection::Upstream {
+        upstream: "standing",
+        source: error.into_source(),
+    }
 }
 
 /// Returns the string claim `name` of `claims`.
