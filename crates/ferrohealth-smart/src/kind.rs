@@ -23,8 +23,13 @@ use serde_json::Value;
 use crate::federation::Context;
 use crate::federation::External;
 use crate::federation::Outcome;
-use crate::profile::Delegate;
+use crate::kind::standing::ClientStanding;
+use crate::kind::standing::Issued;
+use crate::kind::standing::StandingError;
+use crate::kind::standing::StandingSource;
 use crate::profile::Profile;
+
+pub mod standing;
 
 /// Whose tokens an issuer signs, declared on every `[[auth.issuer]]`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -306,14 +311,149 @@ pub(crate) struct Classified {
     pub(crate) app_only: bool,
 }
 
+/// Why a classification refused a token: a step of it, or the product's
+/// standing, which could not answer.
+#[derive(Debug)]
+pub(crate) enum Refused {
+    /// A step refused the token.
+    Unclassified(Unclassified),
+    /// The product's standing could not answer.
+    Standing(StandingError),
+}
+
+impl From<Unclassified> for Refused {
+    fn from(reason: Unclassified) -> Self {
+        Self::Unclassified(reason)
+    }
+}
+
+/// What a token's claims say before a standing question is answered.
+struct Read {
+    /// The kind, or the person whose kind a standing question decides.
+    step: Step,
+    /// The client the profile's client claims name.
+    client: Option<String>,
+    /// Whether the profile's markers call the token app-only.
+    app_only: bool,
+}
+
+/// The kind a token's claims decide, or the person a standing question
+/// decides it for.
+enum Step {
+    /// The claims decide the kind.
+    Known(CallerKind),
+    /// A `persons` token that is not app-only, marked a guest or not.
+    Person {
+        /// What the token says about the person.
+        person: Person,
+        /// Whether a guest marker matches.
+        guest: bool,
+    },
+}
+
+/// What a `persons` token that is not app-only says about its person.
+enum Person {
+    /// The token names its current actor in `act`.
+    Actor(Actor),
+    /// The token names no actor: its client, and the represented subject
+    /// with the ground, when it asserts one.
+    Client {
+        /// The client.
+        client: String,
+        /// The represented subject and the ground, as asserted.
+        represented: Option<(String, Option<String>)>,
+    },
+}
+
 /// Returns the kind of the caller whose verified `claims` an issuer of
-/// `kind` signed under `profile`.
-pub(crate) fn classify(
+/// `kind` signed under `profile`, attributed to `issuer`, asking `standing`
+/// the one standing question a person's token needs.
+pub(crate) async fn classify(
     kind: IssuerKind,
     profile: &Profile,
     federation: Option<&Context<'_>>,
     claims: &Map<String, Value>,
+    issuer: &str,
+    standing: &StandingSource,
+) -> Result<Classified, Refused> {
+    let read = read(kind, profile, federation, claims, issuer)?;
+    let kind = match read.step {
+        Step::Known(kind) => kind,
+        Step::Person { person, guest } => {
+            let person = match person {
+                Person::Actor(actor) => {
+                    let listed = standing
+                        .delegate(profile, issuer, &actor)
+                        .await
+                        .map_err(Refused::Standing)?;
+                    delegated(actor, listed)?
+                }
+                Person::Client {
+                    client,
+                    represented,
+                } => {
+                    let answer = standing
+                        .client(profile, Issued::new(issuer, &client))
+                        .await
+                        .map_err(Refused::Standing)?;
+                    through(answer, represented)?
+                }
+            };
+            guested(person, guest)
+        }
+    };
+    Ok(Classified {
+        kind,
+        client: read.client,
+        app_only: read.app_only,
+    })
+}
+
+/// Returns the kind of the caller whose verified `claims` an issuer of
+/// `kind` signed under `profile`, attributed to `issuer`, every standing
+/// question answered by the profile's own lists.
+#[cfg(feature = "fetch")]
+pub(crate) fn classify_listed(
+    kind: IssuerKind,
+    profile: &Profile,
+    federation: Option<&Context<'_>>,
+    claims: &Map<String, Value>,
+    issuer: &str,
 ) -> Result<Classified, Unclassified> {
+    let read = read(kind, profile, federation, claims, issuer)?;
+    let kind = match read.step {
+        Step::Known(kind) => kind,
+        Step::Person { person, guest } => {
+            let person = match person {
+                Person::Actor(actor) => {
+                    let listed = standing::listed_delegate(profile, issuer, &actor);
+                    delegated(actor, listed)?
+                }
+                Person::Client {
+                    client,
+                    represented,
+                } => through(standing::listed_client(profile, &client), represented)?,
+            };
+            guested(person, guest)
+        }
+    };
+    Ok(Classified {
+        kind,
+        client: read.client,
+        app_only: read.app_only,
+    })
+}
+
+/// Returns what the verified `claims` an issuer of `kind` signed under
+/// `profile` say before any standing question: every check of the profile,
+/// and the kind, or the person a standing question decides it for.
+fn read(
+    kind: IssuerKind,
+    profile: &Profile,
+    federation: Option<&Context<'_>>,
+    claims: &Map<String, Value>,
+    issuer: &str,
+) -> Result<Read, Unclassified> {
     for (claim, value) in &profile.expect {
         let holds = match claims.get(claim) {
             Some(Value::String(text)) => text == value,
@@ -346,12 +486,7 @@ pub(crate) fn classify(
             claim: claim.clone(),
         });
     }
-    let classified = |kind| Classified {
-        kind,
-        client: client.clone(),
-        app_only,
-    };
-    match kind {
+    let step = match kind {
         IssuerKind::Patients => {
             let scope =
                 profile
@@ -367,39 +502,37 @@ pub(crate) fn classify(
                 && !grants_in(&scope, "user")
                 && !grants_in(&scope, "system")
             {
-                Ok(classified(patient(profile, claims)?))
+                Step::Known(patient(profile, claims, issuer)?)
             } else {
-                Err(Unclassified::NotPatientContext)
+                return Err(Unclassified::NotPatientContext);
             }
         }
-        IssuerKind::Machines | IssuerKind::Persons if app_only => {
-            Ok(classified(CallerKind::System))
-        }
-        IssuerKind::Machines => Err(Unclassified::NotAppOnly),
-        IssuerKind::Persons => {
-            let person = person(profile, claims, client.as_deref())?;
-            let guest = profile
+        IssuerKind::Machines | IssuerKind::Persons if app_only => Step::Known(CallerKind::System),
+        IssuerKind::Machines => return Err(Unclassified::NotAppOnly),
+        IssuerKind::Persons => Step::Person {
+            person: person(profile, claims, client.as_deref(), issuer)?,
+            guest: profile
                 .guest
                 .iter()
-                .any(|marker| marker.matches(claims, client.as_deref()));
-            Ok(classified(if guest {
-                CallerKind::Guest(Box::new(person))
-            } else {
-                person
-            }))
-        }
+                .any(|marker| marker.matches(claims, client.as_deref())),
+        },
         IssuerKind::Federation => {
             let context = federation.ok_or(Unclassified::NoStep { kind })?;
-            Ok(classified(
+            Step::Known(
                 match crate::federation::read::classify(claims, client.as_deref(), context)? {
                     Outcome::Person(external) => CallerKind::ExternalPerson(Box::new(external)),
                     Outcome::Organisation(external) => {
                         CallerKind::ExternalOrganisation(Box::new(external))
                     }
                 },
-            ))
+            )
         }
-    }
+    };
+    Ok(Read {
+        step,
+        client,
+        app_only,
+    })
 }
 
 /// Returns whether the profile's app-only markers call the token app-only,
@@ -420,62 +553,93 @@ fn app_only(
     Ok(first)
 }
 
-/// Returns the kind of a `persons` token that is not app-only: delegated
-/// through a declared actor or client, a representative, or the person.
+/// Returns what a `persons` token that is not app-only says about its
+/// person: its current actor, or its client and the subject it represents.
 fn person(
     profile: &Profile,
     claims: &Map<String, Value>,
     client: Option<&str>,
-) -> Result<CallerKind, Unclassified> {
+    issuer: &str,
+) -> Result<Person, Unclassified> {
     let client = client.ok_or(Unclassified::NoClient)?;
     let represented = profile.representation.as_ref().and_then(|representation| {
-        text(claims, &representation.claim).map(|represented| (representation, represented))
+        text(claims, &representation.claim).map(|represented| {
+            let ground = representation
+                .ground_claim
+                .as_deref()
+                .and_then(|claim| text(claims, claim));
+            (represented, ground)
+        })
     });
     if let Some(act) = claims.get("act") {
         if represented.is_some() {
             return Err(Unclassified::RepresentationWithAct);
         }
-        let token_issuer = text(claims, "iss").unwrap_or_default();
-        let actor = actor(act, &token_issuer, profile.max_actor_chain)?;
-        let listed = profile.delegates.iter().any(|delegate| match delegate {
-            Delegate::Actor { issuer, sub } => {
-                *sub == actor.sub && issuer.as_deref().unwrap_or(&token_issuer) == actor.issuer
-            }
-            Delegate::Client(_) => false,
-        });
-        return if listed {
-            Ok(CallerKind::Delegated { actor: Some(actor) })
-        } else {
-            Err(Unclassified::UnlistedActor)
-        };
+        return Ok(Person::Actor(actor(
+            act,
+            &token_issuer(claims, issuer),
+            profile.max_actor_chain,
+        )?));
     }
-    let first_party = profile
-        .first_party_clients
-        .iter()
-        .any(|listed| listed == client);
-    let delegate = profile
-        .delegates
-        .iter()
-        .any(|delegate| matches!(delegate, Delegate::Client(listed) if listed == client));
-    match (first_party, delegate, represented) {
-        (true, _, Some((representation, represented))) => Ok(CallerKind::Representative {
-            represented,
-            ground: representation
-                .ground_claim
-                .as_deref()
-                .and_then(|claim| text(claims, claim)),
-        }),
-        (true, _, None) => Ok(CallerKind::Person),
-        (false, true, Some(_)) => Err(Unclassified::RepresentationThroughDelegate),
-        (false, true, None) => Ok(CallerKind::Delegated { actor: None }),
-        (false, false, _) => Err(Unclassified::UnlistedClient),
+    Ok(Person::Client {
+        client: client.to_owned(),
+        represented,
+    })
+}
+
+/// Returns the kind of a person acting through `actor`, a declared delegate
+/// when `listed`.
+fn delegated(actor: Actor, listed: bool) -> Result<CallerKind, Unclassified> {
+    if listed {
+        Ok(CallerKind::Delegated { actor: Some(actor) })
+    } else {
+        Err(Unclassified::UnlistedActor)
     }
+}
+
+/// Returns the kind of a person signing in through a client of `standing`,
+/// asserting the `represented` subject when one is.
+fn through(
+    standing: ClientStanding,
+    represented: Option<(String, Option<String>)>,
+) -> Result<CallerKind, Unclassified> {
+    match (standing, represented) {
+        (ClientStanding::FirstParty, Some((represented, ground))) => {
+            Ok(CallerKind::Representative {
+                represented,
+                ground,
+            })
+        }
+        (ClientStanding::FirstParty, None) => Ok(CallerKind::Person),
+        (ClientStanding::Delegate, Some(_)) => Err(Unclassified::RepresentationThroughDelegate),
+        (ClientStanding::Delegate, None) => Ok(CallerKind::Delegated { actor: None }),
+        (ClientStanding::Unlisted, _) => Err(Unclassified::UnlistedClient),
+    }
+}
+
+/// Returns `person`, a guest when `guest`.
+fn guested(person: CallerKind, guest: bool) -> CallerKind {
+    if guest {
+        CallerKind::Guest(Box::new(person))
+    } else {
+        person
+    }
+}
+
+/// Returns the issuer of `claims`: its `iss`, or `issuer`, the one it is
+/// attributed to, when it names none (an RFC 7662 §2.2 response).
+fn token_issuer(claims: &Map<String, Value>, issuer: &str) -> String {
+    text(claims, "iss").unwrap_or_else(|| issuer.to_owned())
 }
 
 /// Returns the kind of a `patients` token that names only the record
 /// subject: the patient, or, when it names an actor in `act`, the patient's
 /// representative under a profile that declares `act_represents_patient`.
-fn patient(profile: &Profile, claims: &Map<String, Value>) -> Result<CallerKind, Unclassified> {
+fn patient(
+    profile: &Profile,
+    claims: &Map<String, Value>,
+    issuer: &str,
+) -> Result<CallerKind, Unclassified> {
     let Some(act) = claims.get("act") else {
         return Ok(CallerKind::Patient);
     };
@@ -484,8 +648,7 @@ fn patient(profile: &Profile, claims: &Map<String, Value>) -> Result<CallerKind,
     }
     // NOTE: RFC 8693 §4.1, only the top-level `act` is the current actor, and a
     // nested one is "informational only", so no depth is held against it.
-    let token_issuer = text(claims, "iss").unwrap_or_default();
-    let (actor, _) = current_actor(act, &token_issuer)?;
+    let (actor, _) = current_actor(act, &token_issuer(claims, issuer))?;
     Ok(CallerKind::PatientRepresentative { actor })
 }
 

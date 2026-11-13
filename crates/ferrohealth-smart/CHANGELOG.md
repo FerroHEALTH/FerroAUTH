@@ -11,6 +11,67 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.24.0] - Unreleased
+
+### Added
+
+- `kind::standing::Standing`, the product's answers to the three standing
+  questions of the caller classification, asked on every request whose
+  token needs one and never cached: `client` gives a `persons` token's
+  client its `kind::standing::ClientStanding` (`FirstParty`, `Delegate` or
+  `Unlisted`), `delegate` says whether the current RFC 8693 actor is a
+  declared delegate, and `scopeless` whether a `CallerKind::System` caller
+  of a `persons` or `machines` issuer is admitted without a scope. The
+  answers classify as the lists do, with the same refusals
+  (`UnlistedClient`, `UnlistedActor`, `RepresentationThroughDelegate`), and
+  a token that carries a resource scope still reaches only its scopes. A
+  `kind::standing::StandingError` refuses the token as
+  `Rejection::Upstream` (`503`), never as an unlisted client (#484).
+- `resource::Settings::standing` and
+  `introspection::IntrospectionSettings::standing`, a
+  `kind::standing::StandingSource`: `Lists` (the default) reads the
+  profile's `first_party_clients` and `delegates` and the
+  `scopeless_subjects`, `Product` asks the product's `Standing`. Beside
+  `Product`, a set list is refused as
+  `ResourceError::ListedBesideStanding`, so no list is read in two places
+  (#484).
+- `config::ProductStandingSection`, the `[auth]` section of a product whose
+  standing answers the lists: `AuthSection` with `scopeless_subjects` and
+  each `[[auth.issuer]]` table's `first_party_clients` and `delegates`
+  unknown keys, refused as any unknown key is and absent from its schema.
+  `ProductStandingSection::resolve` and `resolve_with_tls` hand every
+  issuer the product's standing, and refuse a list set in code as
+  `ConfigError::ListedBesideStanding` (#484).
+
+### Changed
+
+- Breaking: the caller classification asks the issuer's
+  `StandingSource`, so `Settings` and `IntrospectionSettings` gain the
+  public `standing` field, `ResourceError` gains `ListedBesideStanding`
+  and `ConfigError` gains `ListedBesideStanding`. `Caller::scopeless` and
+  the scope checks read the standing's answer (#484). Upgrade, per
+  product:
+  - FerroEHR: read `[auth]` as `config::ProductStandingSection` in place
+    of `config::AuthSection`, delete `scopeless_subjects` and every
+    issuer's `first_party_clients` and `delegates` from the shipped
+    configuration and the reference, implement `kind::standing::Standing`
+    over the in-memory copy of the CDR's client lists, and resolve with
+    `section.resolve_with_tls(&tls, Arc::new(standing))?`.
+  - FerroBRIDGE, FerroTERM, FerroPIX and FerroFED: no change; the lists
+    stay in `[auth]` and answer as before. A test or a product that builds
+    `Settings` or `IntrospectionSettings` with a struct literal adds
+    `standing: StandingSource::Lists`.
+- An introspected response held in the cache is classified again on each
+  request it answers, so the standing answers every request (#484).
+- `[auth] scopeless_subjects` is left out when an `AuthSection` is written
+  with no entry (#484).
+
+### Fixed
+
+- An RFC 8693 actor, or a patient's representative, of an introspection
+  response that names no `iss` is attributed to the configured issuer in
+  place of an empty one (#484).
+
 ## [0.23.0] - 2026-11-13
 
 ### Added

@@ -53,6 +53,7 @@ mod issuer;
 pub mod onward;
 mod read;
 mod shapes;
+mod standing;
 
 /// A section that breaks a rule, named by its key.
 #[derive(Debug, thiserror::Error)]
@@ -340,6 +341,13 @@ pub enum ConfigError {
         #[source]
         source: PartyError,
     },
+    /// A key the product's standing answers in its place is set on a
+    /// [`ProductStandingSection`], so the list would be read in two places.
+    #[error("{key} is set, and the product's standing answers it")]
+    ListedBesideStanding {
+        /// The key.
+        key: &'static str,
+    },
     /// An entry of a list read per issuer names an issuer the section does
     /// not trust.
     #[error("a {key} entry names the issuer {issuer:?}, which the section does not trust")]
@@ -370,6 +378,7 @@ pub struct AuthSection {
     /// `persons` or `machines` issuer is ever admitted by an entry.
     ///
     /// [`CallerKind::System`]: crate::kind::CallerKind::System
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub scopeless_subjects: Vec<ScopelessSubject>,
     /// The realm the challenges name; empty for none, which a product
     /// replaces with its own default.
@@ -413,6 +422,29 @@ pub struct AuthSection {
     /// read in a build that compiles it in.
     pub idp: crate::idp::section::IdpSection,
 }
+
+/// The `[auth]` section of a product whose standing answers its lists.
+///
+/// It is [`AuthSection`] without `scopeless_subjects` and without each
+/// `[[auth.issuer]]` table's `first_party_clients` and `delegates`.
+/// The three keys are unknown to it, refused as any unknown key is, and
+/// absent from its schema, so a product that answers them through a
+/// [`Standing`](crate::kind::standing::Standing) drops them from its
+/// configuration. [`ProductStandingSection::resolve`] hands every issuer
+/// the product's standing (no specification governs this: our own design).
+///
+/// ```
+/// use ferrohealth_smart::config::ProductStandingSection;
+///
+/// let issuer = "[[issuer]]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\n";
+/// assert!(toml::from_str::<ProductStandingSection>(issuer).is_ok());
+/// let listed = format!("{issuer}first_party_clients = [\"portal\"]\n");
+/// let refused = toml::from_str::<ProductStandingSection>(&listed).err();
+/// assert!(refused.is_some_and(|error| error.to_string().contains("unknown field")));
+/// ```
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(transparent)]
+pub struct ProductStandingSection(pub AuthSection);
 
 /// How a bearer token is checked.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]

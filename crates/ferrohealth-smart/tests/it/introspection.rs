@@ -7,6 +7,7 @@
 //! endpoint is a `wiremock` stub and every token a synthetic string.
 
 use std::error::Error as StdError;
+use std::sync::Arc;
 use std::time::Duration;
 
 use ferrohealth_smart::client::ClientAuth;
@@ -20,7 +21,12 @@ use ferrohealth_smart::config::IntrospectionSection;
 use ferrohealth_smart::config::IssuerEntry;
 use ferrohealth_smart::config::ScopelessSubject;
 use ferrohealth_smart::config::credentials::OauthSection;
+use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::kind::IssuerKind;
+use ferrohealth_smart::kind::Unclassified;
+use ferrohealth_smart::kind::standing::ClientStanding;
+use ferrohealth_smart::kind::standing::Standing;
+use ferrohealth_smart::kind::standing::StandingSource;
 use ferrohealth_smart::refusal::Reason;
 use ferrohealth_smart::resource::Rejection;
 use ferrohealth_smart::resource::introspection::IntrospectionAuth;
@@ -36,6 +42,7 @@ use wiremock::matchers::header;
 use wiremock::matchers::method;
 use wiremock::matchers::path;
 
+use crate::standing::Product;
 use crate::support::AUDIENCE;
 use crate::support::CLIENT;
 use crate::support::Issuer;
@@ -150,6 +157,37 @@ async fn an_active_response_is_held_and_read_from_the_cache() -> Result<(), Box<
     let again = introspector.authenticate(TOKEN).await?;
     assert!(again.cached(), "the second answer is the held one");
     assert_eq!("synthetic-sub", again.subject());
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_held_response_asks_the_products_standing_again() -> Result<(), Box<dyn StdError>> {
+    let issuer = issuer().await;
+    answer(&issuer, json(&active(&issuer, 300)), 1).await;
+    let product = Arc::new(Product::default());
+    product
+        .held()
+        .clients
+        .insert(String::from(CLIENT), ClientStanding::FirstParty);
+    let mut settings =
+        IntrospectionSettings::new(issuer.uri(), AUDIENCE, client(&issuer), IssuerKind::Persons);
+    let standing: Arc<dyn Standing> = product.clone();
+    settings.standing = StandingSource::Product(standing);
+    let introspector = Introspector::discover(settings).await?;
+    let caller = introspector.authenticate(TOKEN).await?;
+    assert_eq!(&CallerKind::Person, caller.kind());
+    product.held().clients.clear();
+    let held = introspector.authenticate(TOKEN).await;
+    assert!(
+        matches!(
+            held,
+            Err(Rejection::Unclassified {
+                reason: Unclassified::UnlistedClient
+            })
+        ),
+        "the held response is classified under the product's answer now: {held:?}"
+    );
+    assert_eq!(2, product.held().asked.len());
     Ok(())
 }
 
@@ -596,7 +634,7 @@ async fn one_jwt_issuer_and_one_introspection_issuer_verify_both() -> Result<(),
     answer(&introspected, json(&active(&introspected, 300)), 1).await;
     let set = ferrohealth_smart::resource::IssuerSet::new()
         .with(crate::support::server(jwt.settings()).await)
-        .with_introspector(std::sync::Arc::new(
+        .with_introspector(Arc::new(
             Introspector::discover(settings(&introspected)).await?,
         ));
     let signed = crate::support::mint(&key, &jwt.claims("user/Observation.rs"));
