@@ -444,13 +444,20 @@ takes does not say whether the user exists (FerroEHR's enumeration defence,
 carried over). Verification runs on a blocking thread, never on the async
 runtime.
 
-A verified credential may be kept for `[auth.basic] cache_ttl`
-(default 0, none), so a repeat request skips the key derivation. The entry
-is named by an HMAC-SHA-256 of `user-id:password` under a key drawn when the
-store is built, never the password itself; only a credential that verified
-is kept, so a wrong password always pays the derivation; the cache holds at
-most 4096 entries. No specification governs the cache: our own design,
-FerroEHR's, moved into the crate.
+A verified credential may be kept for at most `[auth.basic] cache_ttl`
+(default `5min`, `0s` keeps none), so a repeat request skips the key
+derivation. The entry is named by an HMAC-SHA-256 of `user-id:password`
+under a key drawn when the store is built, never the password itself; only
+a credential that verified is kept, so a wrong password always pays the
+derivation; the cache holds at most 4096 entries. Concurrent misses for one
+credential share one derivation: the first request runs it and the others
+wait for its outcome, a rejection included. Each entry lives between nine
+tenths of `cache_ttl` and `cache_ttl`, by a jitter read from its keyed name,
+so entries derived together expire apart, and in its last tenth one request
+re-derives the credential while the others are still admitted from it. A
+re-derivation that fails drops the entry, and no entry admits past
+`cache_ttl` from the derivation that admitted it (#498). No specification
+governs the cache: our own design, FerroEHR's, moved into the crate.
 
 The outcome says whether a credential was admitted from the cache
 (`Verified::cached`, `Caller::cached`), so a product that records each fresh
@@ -2236,6 +2243,7 @@ four agree on and settles each difference:
 | `[[auth.basic.users]]` holds the credential alone; a Basic user's scopes and roles are the product's to grant, from its configuration through `config::BasicGrants` or from its data through `Caller::with_granted_scope` and `Caller::with_granted_roles` | our own design: policy stays out of the shared credential table, so a product that keeps it as data drops the keys (#479, FerroEHR #5438) | FerroEHR drops `roles` and `scopes` and grants them to the admitted caller; FerroBRIDGE, FerroTERM and FerroPIX move them into a `BasicGrants` table of their own configuration and call `PasswordStore::with_grants` |
 | A `persons` token's client standing, a declared RFC 8693 actor and a `System` caller's scopeless access are answered by the issuer's `StandingSource`: its lists by default, or a product `Standing` asked per request with no cache; beside a product's standing a set list is refused, and `ProductStandingSection` reads `[auth]` with the three keys unknown (3.14) | our own design: SMART App Launch 2.2.0 and `rfc8693 §4.1` leave both to the resource server (#484, FerroEHR #5437) | FerroEHR reads `[auth]` as `ProductStandingSection`, drops the three keys and implements `Standing` over its CDR; the other products keep their lists |
 | The outcome of a Basic check says whether the verified-credential cache admitted it | our own design (#63) | none |
+| Concurrent Basic cache misses for one credential share one derivation; each entry's lifetime is jittered down by up to a tenth of `cache_ttl`, and one request refreshes it in its last tenth | our own design: FerroEHR measured the expiry burst as its capacity knee (FerroEHR #5742, #498) | none |
 | The metadata `issuer` is compared as exact text; a product may also hold the configured issuer to its canonical URL form | `rfc8414 §3.3`, `§4`; the canonical form is our own design (#67) | none |
 | A metadata document whose objects repeat a member name is refused | `rfc8259 §4` leaves the meaning to each parser; the refusal is our own design (#69) | none |
 | A product may refuse metadata whose endpoints are off the issuer's origin; the check is opt-in | `rfc6454 §4`, `§5` define the origin; RFC 8414 places no endpoint, so the policy is our own design (#68) | none |

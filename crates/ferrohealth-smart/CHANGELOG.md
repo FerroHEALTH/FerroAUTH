@@ -11,6 +11,20 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The verified-credential cache of `[auth.basic]` no longer lets one
+  credential's expiry turn into a burst of Argon2id derivations.
+  Concurrent misses for one credential share one derivation, a rejection
+  included; each entry lives between nine tenths of `cache_ttl` and
+  `cache_ttl`, by a jitter per credential, so entries derived together
+  expire apart; and in the last tenth of its lifetime one request
+  re-derives the credential while the others are still admitted. A
+  re-derivation that fails drops the entry, and no entry admits past
+  `cache_ttl` from the derivation that admitted it. `Verified::cached` is
+  also set on a request admitted from a concurrent request's derivation
+  (FerroHEALTH/FerroEHR#5742, #498).
+
 ## [0.25.0] - 2026-11-15
 
 ### Changed

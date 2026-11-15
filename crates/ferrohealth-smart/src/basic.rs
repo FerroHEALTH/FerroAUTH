@@ -15,17 +15,15 @@
 //! them to the verified caller ([`crate::resource::Caller::with_granted_scope`]),
 //! so the same check serves a Basic caller and a bearer caller.
 
+mod cache;
+
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
-use std::sync::Mutex;
 use std::time::Duration;
-use std::time::Instant;
 
 use argon2::Argon2;
 use argon2::PasswordHash;
 use argon2::PasswordVerifier;
-use aws_lc_rs::hmac;
-use aws_lc_rs::rand::SystemRandom;
 use base64::Engine as _;
 use base64::alphabet;
 use base64::engine::DecodePaddingMode;
@@ -37,6 +35,7 @@ use secrecy::SecretString;
 
 use crate::refusal::Reason;
 use crate::scope::is_scope_token;
+use cache::VerifiedCache;
 
 /// The RFC 4648 §4 decoder of the RFC 7617 §2 credential, padded only:
 /// RFC 7617 defers to RFC 4648 §4, and RFC 4648 §3.2 requires the pad
@@ -180,8 +179,9 @@ pub struct Verified {
     pub scope: String,
     /// The roles the product grants the user ([`crate::roles`]).
     pub roles: Vec<String>,
-    /// Whether the credential was admitted from the verified-credential
-    /// cache, without the key derivation.
+    /// Whether the credential was admitted without this request's own key
+    /// derivation: from the verified-credential cache, or from the derivation
+    /// a concurrent request with the same credential ran.
     pub cached: bool,
 }
 
@@ -208,78 +208,6 @@ pub struct PasswordStore {
     cache: Option<VerifiedCache>,
 }
 
-/// The most credentials a [`VerifiedCache`] holds; a full cache admits no
-/// new entry until one expires (no specification governs the bound: our own
-/// design).
-const MAX_CACHED: usize = 4096;
-
-/// The credentials that verified, each kept for the cache's lifetime under
-/// a keyed hash of `user-id:password`, so the password itself is never
-/// held.
-struct VerifiedCache {
-    /// How long a verified credential is kept.
-    ttl: Duration,
-    /// The HMAC key the entries are named with, drawn when the cache is
-    /// built.
-    key: hmac::Key,
-    /// Each entry's expiry and user, by the keyed hash of its credential.
-    entries: Mutex<BTreeMap<Vec<u8>, (Instant, Verified)>>,
-}
-
-impl std::fmt::Debug for VerifiedCache {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VerifiedCache")
-            .field("ttl", &self.ttl)
-            .finish_non_exhaustive()
-    }
-}
-
-impl VerifiedCache {
-    /// Returns an empty cache keeping a credential for `ttl`.
-    fn new(ttl: Duration) -> Result<Self, StoreError> {
-        let key = hmac::Key::generate(hmac::HMAC_SHA256, &SystemRandom::new())
-            .map_err(|_unspecified| StoreError::CacheKey)?;
-        Ok(Self {
-            ttl,
-            key,
-            entries: Mutex::new(BTreeMap::new()),
-        })
-    }
-
-    /// Returns the name of the credential `user_pass` in the cache.
-    fn name(&self, user_pass: &str) -> Vec<u8> {
-        hmac::sign(&self.key, user_pass.as_bytes())
-            .as_ref()
-            .to_vec()
-    }
-
-    /// Returns the user of `user_pass` when the cache holds it unexpired.
-    fn get(&self, user_pass: &str) -> Option<Verified> {
-        let name = self.name(user_pass);
-        // NOTE: no specification governs the cache: our own design, and a
-        // poisoned lock is a miss, which only costs the key derivation.
-        let entries = self.entries.lock().ok()?;
-        let (expires, verified) = entries.get(&name)?;
-        (Instant::now() < *expires).then(|| verified.clone())
-    }
-
-    /// Keeps `verified` as the user of `user_pass` for the cache's lifetime,
-    /// dropping the expired entries first.
-    fn put(&self, user_pass: &str, verified: &Verified) {
-        let now = Instant::now();
-        let Some(expires) = now.checked_add(self.ttl) else {
-            return;
-        };
-        let name = self.name(user_pass);
-        if let Ok(mut entries) = self.entries.lock() {
-            entries.retain(|_name, (expiry, _verified)| *expiry > now);
-            if entries.len() < MAX_CACHED {
-                entries.insert(name, (expires, verified.clone()));
-            }
-        }
-    }
-}
-
 impl PasswordStore {
     /// Returns an empty store, which admits no one.
     #[must_use]
@@ -287,14 +215,18 @@ impl PasswordStore {
         Self::default()
     }
 
-    /// Returns this store keeping a credential that verified for `ttl`, so a
-    /// repeat request within it skips the key derivation; a zero `ttl`
-    /// keeps none.
+    /// Returns this store keeping a credential that verified for at most
+    /// `ttl`, so a repeat request within it skips the key derivation; a zero
+    /// `ttl` keeps none.
     ///
     /// Only a credential that verified is kept, named by an HMAC-SHA-256 of
     /// `user-id:password` under a key drawn here, never the password
-    /// itself, so a wrong password always pays the derivation. No
-    /// specification governs the cache: our own design.
+    /// itself, so a wrong password always pays the derivation. Each entry
+    /// lives between nine tenths of `ttl` and `ttl`, by a jitter per
+    /// credential; in its last tenth one request re-derives it while the
+    /// others are still admitted, and concurrent misses for one credential
+    /// share one derivation. No specification governs the cache: our own
+    /// design.
     ///
     /// # Errors
     ///
@@ -480,7 +412,8 @@ impl PasswordStore {
     /// or which check refused it, for the gate's log.
     ///
     /// A credential the cache holds within its lifetime is admitted without
-    /// the key derivation; one that verifies is added to it.
+    /// the key derivation; one that verifies is added to it, and concurrent
+    /// misses with one credential run one derivation between them.
     pub(crate) fn check(&self, header: &HeaderValue) -> Result<Verified, Reason> {
         let raw = header.to_str().map_err(|_opaque| Reason::BasicMalformed)?;
         let (scheme, encoded) = raw.split_once(' ').ok_or(Reason::BasicMalformed)?;
@@ -492,19 +425,12 @@ impl PasswordStore {
             .map_err(|_malformed| Reason::BasicMalformed)?;
         let decoded = String::from_utf8(decoded).map_err(|_opaque| Reason::BasicMalformed)?;
         let (username, password) = decoded.split_once(':').ok_or(Reason::BasicMalformed)?;
-        if let Some(verified) = self.cache.as_ref().and_then(|cache| cache.get(&decoded)) {
-            return Ok(Verified {
-                cached: true,
-                ..verified
-            });
+        let derive = || self.verify_password(username, password);
+        match &self.cache {
+            Some(cache) => cache.admit(&decoded, derive),
+            None => derive(),
         }
-        let verified = self
-            .verify_password(username, password)
-            .map_err(|_invalid| Reason::BasicRejected)?;
-        if let Some(cache) = &self.cache {
-            cache.put(&decoded, &verified);
-        }
-        Ok(verified)
+        .map_err(|_invalid| Reason::BasicRejected)
     }
 
     /// Returns `username` when `password` is the one its hash names.
@@ -723,6 +649,31 @@ mod tests {
                 .expect("verifies");
             assert!(!verified.cached, "no cache, never cached");
         }
+    }
+
+    #[test]
+    fn parallel_requests_with_an_uncached_credential_run_one_key_derivation() {
+        const REQUESTS: usize = 16;
+        let store = store()
+            .with_cache(Duration::from_secs(60))
+            .expect("the cache key is drawn");
+        let start = std::sync::Barrier::new(REQUESTS);
+        let derived = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..REQUESTS)
+                .map(|_| {
+                    scope.spawn(|| {
+                        start.wait();
+                        store.verify(&header("Basic", "alice", "s3cret"))
+                    })
+                })
+                .collect();
+            handles
+                .into_iter()
+                .map(|handle| handle.join().expect("the request thread ends"))
+                .filter(|outcome| !outcome.as_ref().expect("every request is admitted").cached)
+                .count()
+        });
+        assert_eq!(1, derived, "one Argon2id derivation for the burst");
     }
 
     #[test]
