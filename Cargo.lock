@@ -993,7 +993,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -1004,7 +1004,7 @@ checksum = "da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223"
 
 [[package]]
 name = "ferrohealth-authz"
-version = "0.17.0"
+version = "0.18.0"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -1029,9 +1029,9 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-config"
-version = "0.4.0"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17c97163b43a0d4211ee76c83601b19b2d67fc162afdff0f07359e6317a51d91"
+checksum = "15671f92c6a7aaaf4c59378525bd7ae0501ce35e22e171acc35edb6cc8607269"
 dependencies = [
  "ferrohealth-secret",
  "percent-encoding",
@@ -1054,10 +1054,11 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-secret"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e3ae7119d5b5d61931890e902125642d79baae5dc252525ee4bb2a28fbc5f49"
+checksum = "7fff81811fa608ab1d92b9124969ffc4cf9a8a0159ba0a303fb186f0b8c37ca9"
 dependencies = [
+ "schemars 1.2.3",
  "secrecy",
  "serde",
  "thiserror",
@@ -1066,9 +1067,9 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-server"
-version = "0.8.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9f0a1dafa1db3dd982b9988c30c021e0aec05b63dd3e184a4fd6b537a610cb6"
+checksum = "ec7c1160e768b0929119199cc1549c993a91b84b5a8e5fe7b639439409eefaab"
 dependencies = [
  "axum",
  "clap",
@@ -1097,7 +1098,7 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-session"
-version = "0.19.0"
+version = "0.20.0"
 dependencies = [
  "aws-lc-rs",
  "axum",
@@ -1128,7 +1129,7 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-smart"
-version = "0.24.1"
+version = "0.25.0"
 dependencies = [
  "argon2",
  "aws-lc-rs",
@@ -1164,14 +1165,15 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-telemetry"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "796c92508539000485f0d59584f1555448b8eab6b64ed09bb273dbc29093a8d8"
+checksum = "c1bef07d3744883e3a6bc48a1eb375146a2e731199160eaf452fecaae70d6b0d"
 dependencies = [
  "axum",
  "ferrohealth-config",
  "ferrohealth-secret",
  "http",
+ "log",
  "opentelemetry",
  "opentelemetry_sdk",
  "pin-project-lite",
@@ -1180,6 +1182,7 @@ dependencies = [
  "thiserror",
  "tower",
  "tracing",
+ "tracing-core",
  "tracing-opentelemetry",
  "tracing-subscriber",
 ]
@@ -2601,7 +2604,7 @@ dependencies = [
  "once_cell",
  "socket2",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2883,7 +2886,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2940,7 +2943,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3419,10 +3422,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4068,7 +4071,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

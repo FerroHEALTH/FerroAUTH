@@ -11,6 +11,19 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.25.0] - Unreleased
+
+### Changed
+
+- Breaking: with `server-tls`, requires `ferrohealth-server` 0.9.0 (caret
+  `0.9.0`) in place of `0.8.0`, whose `tls_client::TlsClient`
+  `config::TlsBuilder` carries. ferrohealth-server 0.9 builds on
+  ferrohealth-telemetry 0.5, which installs its own `log` bridge beside the
+  subscriber and no longer has `InitError::AlreadyInstalled`
+  (FerroHEALTH/FerroSYS#389, #391). Upgrade: move `ferrohealth-server` and
+  `ferrohealth-telemetry` to 0.9 and 0.5 with this crate, so one copy of
+  each links (#493).
+
 ## [0.24.1] - 2026-11-13
 
 ### Fixed
