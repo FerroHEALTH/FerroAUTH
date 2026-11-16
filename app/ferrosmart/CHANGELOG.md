@@ -158,3 +158,11 @@ and this project adheres to
   codes are in `urn:ferrosmart:audit-event`, our own design where no IHE or
   BALP pattern exists, and a write whose record cannot be committed does
   not happen (#554).
+
+### Fixed
+
+- The token endpoint answers a request from one of the client's registered
+  origins, the origins of its redirect URIs, with
+  `Access-Control-Allow-Origin` and `Vary: Origin`, so a browser app can
+  read its token response (SMART App Launch 2.2.0, Considerations for CORS
+  support). Every other origin gets no CORS header (#560).
