@@ -42,5 +42,6 @@ and this project adheres to
   and SBOMs as OCI referrers. Every finding of a full scan of the image and
   the tarballs needs an OpenVEX judgement before the release publishes, and
   the image is tagged only once it carries no fixable HIGH or CRITICAL
-  finding. `compose.yaml` is the quickstart beside PostgreSQL, attached to
-  every release (#519).
+  finding, and a weekly scan of the published image files an issue for a
+  new fixable one. `compose.yaml` is the quickstart beside PostgreSQL,
+  attached to every release (#519).

@@ -349,7 +349,7 @@ want="$(grep -oE 'sha256:[0-9a-f]{64}' <<< "$(corpus_pin_cell "FerroSMART image 
 grep -qF "@$want" docker/ferrosmart/Dockerfile ||
   fail "docker/ferrosmart/Dockerfile is not built on the base $want"
 want="$(awk '{ print $1; exit }' <<< "$(corpus_pin_cell "Trivy")")"
-for workflow in .github/workflows/release-ferrosmart.yml .github/workflows/release-ferrosmart-scan.yml; do
+for workflow in .github/workflows/release-ferrosmart.yml .github/workflows/release-ferrosmart-scan.yml .github/workflows/image-scan.yml; do
   grep -qF "TRIVY_VERSION: \"$want\"" "$workflow" ||
     fail "$workflow does not run Trivy $want"
 done

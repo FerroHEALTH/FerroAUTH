@@ -32,6 +32,10 @@ vulnerability, the product, a `status`, a controlled-vocabulary
   with an `action_statement`, or `fixed`. The products are named
   `pkg:oci/ferrosmart` and `pkg:cargo/ferrosmart`, and a statement matches a
   finding by its `vulnerability.name` or an `aliases` entry.
+- **The weekly scan applies them too.** `.github/workflows/image-scan.yml`
+  passes every document here to `trivy --vex` when it scans the published
+  image, so a statement that stops being true lets its finding back into
+  that scan.
 
 ## Documents
 

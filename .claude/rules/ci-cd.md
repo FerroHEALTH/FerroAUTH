@@ -81,6 +81,10 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
   a finding of a full scan lacks an OpenVEX judgement under `security/vex/`
   (`scripts/checks/vex-coverage.sh`). It publishes the release last and closes
   the milestone as `release.yml` does (`docs/release.md`).
+- `.github/workflows/image-scan.yml`: the weekly Trivy scan of the published
+  FerroSMART image at `latest`, with every OpenVEX document under
+  `security/vex/` applied. A finding files or comments on one tracking
+  issue; the run is red only when the scan itself fails.
 - `.github/workflows/publish-crates.yml`: the manual crates.io lane, a dry
   run unless `publish` is set, sharing `scripts/release/publish-crates.sh`
   with the release lane. A real publish runs only at the tag of the

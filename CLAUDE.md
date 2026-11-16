@@ -166,7 +166,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   crates.io Trusted Publishing (`release.yml`, `release-crate.yml`,
   `publish-crates.yml`), and FerroSMART's release lane of attested tarballs
   and a GHCR image scanned before it is tagged (`release-ferrosmart.yml` with
-  its `-build`, `-image` and `-scan` reusable workflows).
+  its `-build`, `-image` and `-scan` reusable workflows), and the weekly scan
+  of the published image (`image-scan.yml`).
 - `docker/ferrosmart/Dockerfile`, `compose.yaml`, `trivy.yaml`,
   `security/vex/`: FerroSMART's distroless image, its quickstart beside
   PostgreSQL, the image gate and the OpenVEX judgements its release reads.

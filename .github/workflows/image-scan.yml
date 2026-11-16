@@ -1,0 +1,170 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# The scheduled vulnerability scan of the PUBLISHED FerroSMART image.
+#
+# The release gate (release-ferrosmart-scan.yml) scans the image when it is
+# built, which catches what was known that day and nothing after. A CVE
+# published the week after a release applies to the image people run, so this
+# lane scans `ghcr.io/ferrohealth/ferrosmart` where a user pulls it, at
+# `latest`, every week: the post-market vulnerability handling of Regulation
+# (EU) 2024/2847 Annex I Part II. No specification governs the lane: our own
+# design, FerroEHR's and FerroBRIDGE's weekly published-image scan.
+#
+# The adjudicated exceptions carry over: `trivy.yaml` brings
+# `.trivyignore.yaml`, `ignore-unfixed` and the HIGH/CRITICAL floor, and
+# `--vex` applies every OpenVEX document under `security/vex/`. The `pkg:oci`
+# product matches a published reference, which is what this lane scans.
+#
+# The run is RED only when the probe fails: an image that cannot be resolved,
+# a trivy crash, output jq cannot read. A finding files or comments on one
+# tracking issue and the run stays green: the issue is the alert, because a
+# red scheduled run is invisible to anyone not watching the Actions tab. An
+# image never yet published at `latest` (before the first release) is named
+# in the summary and skipped.
+name: Published image scan
+
+on:
+  schedule:
+    # Mondays 07:13 UTC, off the hour and in a slot of its own; read the
+    # slots with `grep -rE '^ +- cron:' .github/workflows/`.
+    - cron: "13 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      report_only:
+        description: "Report findings without filing or updating an issue"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: image-scan
+  cancel-in-progress: false
+
+permissions: {}
+
+env:
+  # `latest` moves only on a release that is no pre-release, so it is what an
+  # operator following the quickstart pulls. The resolved digest is in the
+  # run summary, so a finding is attributable to exact bytes.
+  SCAN_TAG: latest
+  IMAGE: ghcr.io/ferrohealth/ferrosmart
+  # The one Trivy version of the release lane and this scan, pinned in
+  # docs/VERSIONS.md and read back by scripts/checks/versions.sh.
+  TRIVY_VERSION: "0.73.0"
+
+jobs:
+  scan:
+    name: scan the published image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read # pull the published image
+      issues: write # file or comment on the one tracking issue
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # No cache: this lane decides whether a published artifact is safe.
+      - name: Install Trivy from its GitHub release, checked by sha256
+        run: bash scripts/release/install-trivy.sh "$TRIVY_VERSION" "$RUNNER_TEMP/trivy-bin"
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Scan the published image on both platforms
+        id: scan
+        run: |
+          set -euo pipefail
+          vex_args=()
+          for doc in security/vex/*.json; do
+            [ -e "$doc" ] || continue
+            vex_args+=(--vex "$doc")
+          done
+          echo "VEX documents applied: $(( ${#vex_args[@]} / 2 ))"
+
+          total=0
+          : > findings.md
+          ref="${IMAGE}:${SCAN_TAG}"
+          if ! digest="$(docker buildx imagetools inspect "$ref" --format '{{.Manifest.Digest}}' 2> inspect.err)"; then
+            if grep -q 'not found' inspect.err; then
+              echo "::warning::${ref} is not published yet; skipped"
+              echo "| \`ferrosmart\` | | not published at \`${SCAN_TAG}\` | skipped |" >> findings.md
+              digest=""
+            else
+              cat inspect.err >&2
+              exit 1
+            fi
+          fi
+          if [ -n "$digest" ]; then
+            for platform in linux/amd64 linux/arm64; do
+              arch="${platform##*/}"
+              echo "::group::ferrosmart ${platform} (${digest})"
+              trivy image --config trivy.yaml --scanners vuln --platform "$platform" \
+                "${vex_args[@]}" -f json -o "ferrosmart.${arch}.json" "$ref"
+              count="$(jq '[.Results[]?.Vulnerabilities // [] | .[]] | length' "ferrosmart.${arch}.json")"
+              trivy convert --format table "ferrosmart.${arch}.json"
+              echo "::endgroup::"
+              echo "| \`ferrosmart\` | \`${platform}\` | \`${digest}\` | ${count} |" >> findings.md
+              total=$((total + count))
+            done
+          fi
+          echo "total=$total" >> "$GITHUB_OUTPUT"
+          # shellcheck disable=SC2016 # the backticks are Markdown in the summary, not a command
+          {
+            printf '## Published image scan\n\n'
+            printf 'Tag `%s`, Trivy %s, HIGH/CRITICAL with a fix available, VEX applied.\n\n' \
+              "$SCAN_TAG" "$TRIVY_VERSION"
+            printf '| image | platform | digest | findings |\n|---|---|---|---|\n'
+            cat findings.md
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "total findings: $total"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: image-scan-reports
+          path: "*.json"
+          if-no-files-found: warn
+          retention-days: 30
+
+      # One open issue carries the report; a later finding comments on it.
+      - name: File or update the tracking issue
+        if: steps.scan.outputs.total != '0' && !inputs.report_only
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TOTAL: ${{ steps.scan.outputs.total }}
+          TITLE: The published FerroSMART image carries fixable HIGH or CRITICAL findings
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2016 # the backticks are Markdown in the issue body, not a command
+          {
+            printf 'A scheduled scan of the published FerroSMART image found **%s** fixable HIGH or CRITICAL findings.\n\n' "$TOTAL"
+            printf '| image | platform | digest | findings |\n|---|---|---|---|\n'
+            cat findings.md
+            printf '\nThe reports are attached to [the run](%s) as `image-scan-reports`.\n' "$RUN_URL"
+            printf '\nThese findings have a fix available, so the remedy is a rebuild and a new'
+            printf ' FerroSMART release. A finding that is unreachable in its usage gets its'
+            printf ' argument as an OpenVEX statement under `security/vex/`'
+            printf ' (`security/vex/README.md`).\n'
+          } > body.md
+          # --limit well past the open count, so a report that scrolled off
+          # the default page of 30 is not filed a second time.
+          existing="$(gh issue list --state open --limit 500 --json number,title \
+            --jq "[.[] | select(.title == \"$TITLE\")][0].number // empty")"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file body.md
+            exit 0
+          fi
+          # fields.sh files the issue as a Bug at High priority; this job's
+          # default token may not read the organisation's issue types, and
+          # then the issue lands with its labels alone and whoever picks it up
+          # sets the three (.claude/rules/issue-workflow.md).
+          bash scripts/gh/fields.sh new bug high medium \
+            --title "$TITLE" --body-file body.md --label security --label ferrosmart

@@ -19,7 +19,7 @@
 #   - the image index (linux/amd64, linux/arm64), pushed by digest with OCI
 #     labels and annotations on the index and both manifests; the tags
 #     (<version>, and for a release that is no pre-release also
-#     <major>.<minor>) are applied by release-ferrosmart-scan.yml after the
+#     <major>.<minor> and latest) are applied by release-ferrosmart-scan.yml after the
 #     scan;
 #   - GitHub attestations pushed as OCI referrers: SLSA provenance for the
 #     index and each platform manifest, and an SPDX SBOM per platform.
@@ -123,9 +123,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      # The version, and for a release that is no pre-release its major.minor,
-      # which the action's semver rule skips for a pre-release. Tags are
-      # mutable on GHCR, so a consumer pins the digest.
+      # The version, and for a release that is no pre-release its major.minor
+      # and `latest` (the action's `latest=auto` flavor), both skipped for a
+      # pre-release by its semver rule. Tags are mutable on GHCR, so a
+      # consumer pins the digest.
       - name: Image tags, labels and annotations
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0

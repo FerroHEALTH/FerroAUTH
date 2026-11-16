@@ -214,7 +214,8 @@ differences:
   6. `scan-and-tag` (`release-ferrosmart-scan.yml`): the gate of
      `trivy.yaml`, fixable HIGH and CRITICAL findings on both platforms, and
      only then the tags `<version>` and, for a release that is no
-     pre-release, `<major>.<minor>`, applied to the scanned digest.
+     pre-release, `<major>.<minor>` and `latest`, applied to the scanned
+     digest.
   7. `finalize-release`: every promised asset is on the draft, then it is
      published. The repository's latest release stays `ferrohealth-smart`'s.
   8. `milestone`: the milestone titled as the tag closes once every leg
@@ -231,6 +232,13 @@ differences:
     --repo FerroHEALTH/FerroAUTH \
     --signer-workflow FerroHEALTH/FerroAUTH/.github/workflows/release-ferrosmart-image.yml
   ```
+
+After the release, `.github/workflows/image-scan.yml` scans the published
+image at `latest` every Monday with Trivy, the `trivy.yaml` gate and every
+OpenVEX document under `security/vex/` applied, and files or comments on one
+tracking issue when it finds a fixable HIGH or CRITICAL finding, whose
+remedy is a rebuild in a new patch release (Regulation (EU) 2024/2847
+Annex I Part II).
 
 The milestone checks hold for the server's tag as for a crate's: the
 release refuses `ferrosmart-vX.Y.Z` while the milestone titled
