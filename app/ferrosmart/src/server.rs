@@ -17,17 +17,19 @@ use axum::Json;
 use axum::Router;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use ferrohealth_health::lifecycle::Lifecycle;
-use ferrohealth_health::registry::Registry;
+use ferrohealth_health::registry::{Check, HealthIndicator, Outcome, Registry};
 use ferrohealth_server::health::Health;
 use ferrohealth_server::stack::{Stack, StackPolicy};
 use ferrohealth_smart::metadata::ServerMetadata;
 use http::{HeaderValue, header};
 use serde_json::Value;
 
+use crate::client_keys::ClientKeySets;
 use crate::config::settings::Settings;
-use crate::discovery::{self, JWKS_ROUTE, SMART_CONFIGURATION_ROUTE};
+use crate::discovery::{self, JWKS_ROUTE, SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE};
+use crate::store::Store;
 
 /// The `Cache-Control` of the JWK Set: an hour, and a next key is published
 /// at least that long before it signs (`docs/architecture.md` §13.11). No
@@ -45,12 +47,16 @@ pub struct AppState {
     smart: Value,
     /// The process's phase, which the drain moves.
     lifecycle: Lifecycle,
+    /// The store.
+    store: Store,
+    /// The clients' JWK Sets.
+    client_keys: ClientKeySets,
 }
 
 impl AppState {
-    /// Returns the state of the server `settings` describe.
+    /// Returns the state of the server `settings` describe over `store`.
     #[must_use]
-    pub fn new(settings: Settings) -> Self {
+    pub fn new(settings: Settings, store: Store) -> Self {
         let metadata = discovery::metadata(&settings);
         let smart = discovery::smart_configuration(&metadata);
         Self {
@@ -58,7 +64,21 @@ impl AppState {
             metadata,
             smart,
             lifecycle: Lifecycle::default(),
+            store,
+            client_keys: ClientKeySets::new(reqwest::Client::new()),
         }
+    }
+
+    /// Returns the clients' JWK Sets.
+    #[must_use]
+    pub const fn client_keys(&self) -> &ClientKeySets {
+        &self.client_keys
+    }
+
+    /// Returns the store.
+    #[must_use]
+    pub const fn store(&self) -> &Store {
+        &self.store
     }
 
     /// Returns the settings.
@@ -76,11 +96,13 @@ impl AppState {
 
 /// Returns the whole application: the routes inside the family's stack.
 pub fn router(state: Arc<AppState>) -> Router {
-    let health = Health::new(Registry::default(), state.lifecycle.clone());
+    let registry = Registry::new(vec![Arc::new(Database(state.store.clone()))]);
+    let health = Health::new(registry, state.lifecycle.clone());
     let section = state.settings.server.clone();
     let issuer = Router::new()
         .route(SMART_CONFIGURATION_ROUTE, get(smart_configuration))
         .route(JWKS_ROUTE, get(jwks))
+        .route(TOKEN_ROUTE, post(crate::token::token))
         .with_state(Arc::clone(&state));
     let beside = Router::new()
         .route(&state.settings.metadata_path(), get(metadata))
@@ -120,4 +142,24 @@ fn public(mut response: Response) -> Response {
         HeaderValue::from_static("*"),
     );
     response
+}
+
+/// The readiness indicator of the database: down while it answers no
+/// statement, naming no URL and no error text.
+#[derive(Debug)]
+struct Database(Store);
+
+impl HealthIndicator for Database {
+    fn name(&self) -> &'static str {
+        "database"
+    }
+
+    fn check(&self) -> Check<'_> {
+        Box::pin(async {
+            match self.0.ping().await {
+                Ok(()) => Outcome::up(),
+                Err(_unreachable) => Outcome::down("the database answers no statement"),
+            }
+        })
+    }
 }

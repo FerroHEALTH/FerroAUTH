@@ -2909,6 +2909,7 @@ online_idle = "8h"
 
 [ferrosmart.database]
 url_file = "/run/secrets/ferrosmart-db-url"
+max_connections = 16
 
 [ferrosmart.keys]                             # the RS256 ring of ferrohealth-smart's KeyRing
 private_key_file = "/run/secrets/rs256.pem"   # signs
@@ -2917,10 +2918,9 @@ next_private_key_file = "/run/secrets/rs256-next.pem"          # published befor
 previous_private_key_file = "/run/secrets/rs256-previous.pem"  # published, never signs
 previous_key_overlap = "1h"                   # "0s": published while it is configured
 
-[[ferrosmart.resource]]                       # each base an `aud` may name
+[[ferrosmart.resource]]                       # each base an `aud` may name; at least one
 base = "https://ehr.example.org/fhir"
 kind = "fhir"                                 # or "openehr"
-picker = true
 
 [ferrosmart.upstream]                         # any OpenID Connect provider
 discovery = "https://idp.example.org/.well-known/openid-configuration"
@@ -2935,8 +2935,13 @@ roles_claim = "roles"
 role = "clinician"
 scopes = ["user/*.cruds", "patient/*.cruds", "launch", "launch/patient", "openid", "fhirUser", "offline_access"]
 
-[ferrosmart.clients]
-seed_file = "/etc/ferrosmart/clients.toml"    # registry rows loaded at start; the admin API edits the rest
+[[ferrosmart.client]]                         # one table per client, written to the store at start
+client_id = "bulk-export"
+name = "Bulk export"
+kind = "confidential_asymmetric"              # or "public"
+jwks_uri = "https://export.example.org/jwks.json"   # or jwks_file, a JWK Set by value
+scopes = ["system/Patient.rs", "system/Observation.rs"]   # the client's ceiling
+grant_types = ["client_credentials"]
 
 [ferrosmart.branding]                          # FerroUI's theme and words, never code (13.15)
 name = "Example Hospital"

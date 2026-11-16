@@ -37,22 +37,35 @@ ferrohealth-server.workspace = true
 ferrohealth-smart = { workspace = true, features = ["fetch"] }
 ferrohealth-telemetry.workspace = true
 http.workspace = true
+# The random token ids and their base64url form.
+aws-lc-rs.workspace = true
+base64.workspace = true
+# The clock of every token's iat and exp.
+jiff.workspace = true
+# The fetch of a client's JWK Set from its registered URL.
+reqwest.workspace = true
 # The algorithm the signing keys are read for.
 jsonwebtoken.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The store: the client registry and every piece of state (13.9).
+sqlx.workspace = true
+secrecy.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 tracing.workspace = true
 url.workspace = true
 
 [dev-dependencies]
-# The RSA and EC keys each case generates, and their PEM form.
-aws-lc-rs.workspace = true
-base64.workspace = true
 http-body-util.workspace = true
 tempfile.workspace = true
+# The per-case database of the store cases.
+sqlx.workspace = true
+url.workspace = true
+secrecy.workspace = true
 tower = { workspace = true, features = ["util"] }
+# The stub server of a client's JWK Set URL.
+wiremock.workspace = true
 
 [lints]
 workspace = true

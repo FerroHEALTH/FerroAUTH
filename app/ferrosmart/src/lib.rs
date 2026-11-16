@@ -10,7 +10,11 @@
 //! its signing keys and the documents that describe it.
 
 pub mod cli;
+pub mod client_keys;
+pub mod clients;
 pub mod command;
 pub mod config;
 pub mod discovery;
 pub mod server;
+pub mod store;
+pub mod token;

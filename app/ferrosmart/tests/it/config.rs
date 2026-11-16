@@ -122,7 +122,10 @@ fn a_missing_or_unreadable_key_is_refused() {
         })
     ));
     let none = ferrosmart::config::Config::from_sources(
-        Some("[ferrosmart]\nissuer = \"https://smart.example.org\""),
+        Some(&format!(
+            "[ferrosmart]\nissuer = \"https://smart.example.org\"\n[ferrosmart.database]\nurl = {:?}",
+            crate::support::UNREACHED_DATABASE
+        )),
         &std::collections::BTreeMap::new(),
     )
     .expect("reads");
@@ -171,4 +174,17 @@ fn an_unknown_key_is_refused_when_the_file_loads() {
         &std::collections::BTreeMap::new(),
     );
     assert!(matches!(refused, Err(Error::Load(_))));
+}
+
+#[test]
+fn a_missing_database_url_is_refused() {
+    let keys = Keys::new();
+    let text = format!(
+        "[ferrosmart]\nissuer = \"https://smart.example.org\"\n[ferrosmart.database]\nmax_connections = 4\n[ferrosmart.keys]\nprivate_key_file = {:?}",
+        keys.current.display().to_string()
+    );
+    assert!(matches!(
+        config(&text, &keys).resolve(),
+        Err(Error::Secret(_))
+    ));
 }
