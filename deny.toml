@@ -45,6 +45,8 @@ exceptions = [
   { allow = ["BUSL-1.1"], crate = "ferrohealth-session" },
   # FerroSMART, the authorization server under app/ferrosmart.
   { allow = ["BUSL-1.1"], crate = "ferrosmart" },
+  # The Actions v2 target of FerroSMART's ZITADEL example, under tools/.
+  { allow = ["BUSL-1.1"], crate = "zitadel-fhir-user" },
   # The family's shared mask crate.
   { allow = ["BUSL-1.1"], crate = "ferrohealth-secret" },
   # The family's configuration types (Duration, ByteSize, the outbound TLS

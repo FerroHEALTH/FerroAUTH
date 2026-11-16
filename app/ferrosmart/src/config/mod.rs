@@ -219,6 +219,10 @@ pub struct ResourceSection {
     pub base: String,
     /// The API the server serves.
     pub kind: ResourceKind,
+    /// For an openEHR server, the namespace its EHRs name their subjects in
+    /// (`EHR_STATUS.subject.external_ref.namespace`), which the patient
+    /// picker looks an EHR up by; unset, the picker is not offered there.
+    pub subject_namespace: Option<String>,
 }
 
 /// The API a resource server serves.

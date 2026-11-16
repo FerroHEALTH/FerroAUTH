@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+[package]
+name = "zitadel-fhir-user"
+description = "The ZITADEL Actions v2 target of FerroSMART's ZITADEL example: it writes a user's fhir_user metadata as the fhirUser claim"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+# Deployment content of the example, never published.
+publish = false
+
+[dependencies]
+# The HMAC-SHA256 of ZITADEL's request signature.
+aws-lc-rs.workspace = true
+axum = { workspace = true, features = ["tokio", "http1", "json"] }
+base64.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt", "macros", "net"] }
+
+[lints]
+workspace = true

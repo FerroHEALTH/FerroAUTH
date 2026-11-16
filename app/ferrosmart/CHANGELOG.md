@@ -13,6 +13,15 @@ and this project adheres to
 
 ### Added
 
+- The patient picker at an openEHR resource server: for a standalone launch
+  with `launch/patient` at an openEHR base whose `[[ferrosmart.resource]]`
+  table names a `subject_namespace`, the signed-in person enters the
+  patient's identifier and FerroSMART looks the EHR up through ITS-REST
+  (`GET [base]/ehr?subject_id=…&subject_namespace=…`) with a token of the
+  person's own, living 30 seconds and revoked after use. The chosen EHR is
+  looked up again before its `ehrId` enters the launch context, the token
+  response and the access token, and every lookup writes the EHDS access
+  record (#571).
 - Microsoft Entra ID and Okta as the upstream login, each with an example
   configuration under `examples/` and no provider code. Entra ID: a
   single-tenant app registration's v2.0 authority, the app roles in `roles`
@@ -23,6 +32,16 @@ and this project adheres to
   custom `fhir_user` claim. Contract tests run each example through a
   standalone launch against a stub serving the provider's published
   discovery document, key set and token answer (#524, #525).
+- ZITADEL as the upstream login (`compose.zitadel.yaml`, an override of the
+  quickstart): `app/ferrosmart/examples/zitadel/bootstrap.sh` makes the
+  project, its role, the application, the user and an Actions v2 target
+  through ZITADEL's v2 APIs and writes FerroSMART's configuration, and the
+  target, `tools/zitadel-fhir-user`, writes the user's `fhirUser` claim. CI
+  drives a SMART standalone launch through it to a token with the mapped
+  `fhirUser` and a role-granted scope (#523).
+- `[ferrosmart.upstream] trusted_audiences`: the audiences an upstream ID
+  Token may name beside FerroSMART's client id (OpenID Connect Core 1.0
+  §3.1.3.7 item 3) (#523).
 - The Inferno lane runs its FHIR server on the family's own stack: FerroBRIDGE's
   facade, with FerroEHR as its CDR, serves the person's `fhirUser` as a
   Practitioner, and Keycloak is the upstream login. Group 4, Token

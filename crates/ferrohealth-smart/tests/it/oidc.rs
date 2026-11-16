@@ -332,6 +332,49 @@ async fn an_id_token_with_another_nonce_audience_or_key_is_refused() {
     assert!(matches!(refused, Err(OidcError::Audience)), "{refused:?}");
 }
 
+// NOTE: OpenID Connect Core 1.0 §3.1.3.7 items 3 and 4: an audience the client trusts
+// beside itself is accepted, and several audiences need an `azp` naming the client.
+#[tokio::test]
+async fn a_trusted_audience_is_accepted_with_an_azp_naming_the_client() {
+    let key = ec_key("op-1", Algorithm::ES256);
+    let (issuer, client) = provider(&key).await;
+    let client = client.with_trusted_audiences(["synthetic-project"]);
+    let pending = client.authorization_request().expect("a sign-in").pending;
+    let callback = Callback::granted("synthetic-code", pending.state());
+    let now = now();
+    let mut header = Header::new(key.alg);
+    header.kid = Some(key.kid.clone());
+    let mint = |claims: serde_json::Value| mint_with(&key, &header, &claims);
+    let base = serde_json::json!({
+        "iss": issuer.uri(), "aud": [CLIENT, "synthetic-project"], "sub": "synthetic-operator",
+        "nonce": pending.nonce(), "iat": now, "exp": now + 300
+    });
+
+    let mut with_azp = base.clone();
+    with_azp["azp"] = serde_json::json!(CLIENT);
+    mount_exchange(&issuer, pending.verifier().expose(), &mint(with_azp)).await;
+    let signed_in = client.exchange(&pending, &callback).await;
+    assert!(signed_in.is_ok(), "{signed_in:?}");
+
+    issuer.server.reset().await;
+    issuer.mount_keys(&[&key], None).await;
+    mount_exchange(&issuer, pending.verifier().expose(), &mint(base.clone())).await;
+    let refused = client.exchange(&pending, &callback).await;
+    assert!(
+        matches!(refused, Err(OidcError::AuthorizedParty)),
+        "{refused:?}"
+    );
+
+    issuer.server.reset().await;
+    issuer.mount_keys(&[&key], None).await;
+    let mut stranger = base;
+    stranger["aud"] = serde_json::json!([CLIENT, "synthetic-project", "another-client"]);
+    stranger["azp"] = serde_json::json!(CLIENT);
+    mount_exchange(&issuer, pending.verifier().expose(), &mint(stranger)).await;
+    let refused = client.exchange(&pending, &callback).await;
+    assert!(matches!(refused, Err(OidcError::Audience)), "{refused:?}");
+}
+
 #[tokio::test]
 async fn the_refresh_grant_rotates_the_tokens_and_a_refusal_carries_its_code() {
     let key = ec_key("op-1", Algorithm::ES256);
