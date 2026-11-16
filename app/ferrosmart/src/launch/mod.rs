@@ -23,6 +23,7 @@
 pub mod context;
 pub mod signed;
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use axum::Json;
@@ -33,7 +34,8 @@ use http::{HeaderMap, StatusCode, header};
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::authorize::{random, sha256};
+use crate::audit::{Connected, Event, Happening, RecordFailure, happened};
+use crate::authorize::{AUTHORIZE_ROUTE, random, sha256};
 use crate::clients::{Client, GrantType};
 use crate::form::Params;
 use crate::launch::context::Context;
@@ -88,6 +90,10 @@ pub enum Unresolved {
     /// The store failed.
     #[error("the launch store failed")]
     Store(#[from] StoreError),
+    /// The audit record of the redemption or the refusal could not be kept,
+    /// so nothing was redeemed.
+    #[error("the launch's audit record could not be kept")]
+    Record(#[from] RecordFailure),
 }
 
 /// A launch resolved at the authorization endpoint.
@@ -100,14 +106,14 @@ pub struct Resolved {
 }
 
 /// Redeems the `launch` an app `client_id` passed to the authorization
-/// endpoint for `audience` with the requested `scope`, and returns its
-/// context.
+/// endpoint from `from` for `audience` with the requested `scope`, and
+/// returns its context.
 ///
 /// "If an app receives the URL parameter `launch=abc123`, then it requests
 /// the scope `launch` and provides an additional URL parameter of
 /// `launch=abc123`" (SMART App Launch 2.2.0, Scopes and Launch Context,
 /// Apps that launch from the EHR), so a `launch` without the `launch` scope
-/// is refused before the launch is touched.
+/// is refused before the launch is touched. Every refusal is recorded.
 ///
 /// # Errors
 /// Returns [`Unresolved::NoLaunchScope`] without the `launch` scope, and
@@ -118,68 +124,169 @@ pub async fn redeem(
     launch: &str,
     audience: &str,
     scope: &str,
+    from: IpAddr,
 ) -> Result<Context, Unresolved> {
-    if !scope.split(' ').any(|requested| requested == "launch") {
-        return Err(Unresolved::NoLaunchScope);
+    let outcome = if scope.split(' ').any(|requested| requested == "launch") {
+        resolve(state, launch, client_id, audience, from).await
+    } else {
+        Err(Unresolved::NoLaunchScope)
+    };
+    match outcome {
+        Ok(resolved) => Ok(resolved.context),
+        Err(refused @ (Unresolved::NoLaunchScope | Unresolved::Refused(_))) => {
+            let (error, reason) = match &refused {
+                Unresolved::Refused(rule) => ("invalid_request", *rule),
+                _ => ("invalid_scope", "a launch needs the launch scope"),
+            };
+            record_refusal(
+                state,
+                &LaunchRefusal {
+                    route: AUTHORIZE_ROUTE,
+                    from,
+                    ehr: None,
+                    app: Some(client_id),
+                    error,
+                    reason,
+                },
+            )
+            .await?;
+            Err(refused)
+        }
+        Err(failed) => Err(failed),
     }
-    let resolved = resolve(state, launch, client_id, audience).await?;
-    tracing::info!(
-        target: "ferrosmart::audit",
-        event = "launch.redeemed",
-        client_id = %client_id,
-        ehr = %resolved.ehr_client_id,
-        "an app redeemed an EHR launch"
-    );
-    Ok(resolved.context)
 }
 
 /// Resolves and redeems the `launch` value an app passed to the authorization endpoint.
 ///
 /// The launch is redeemed for `client_id` at the resource server
-/// `audience`. A compact JWS is read as a launch JWT and its `jti` recorded, anything
-/// else is looked up as a registered launch. A launch for another app or
-/// server is refused and stays unredeemed.
+/// `audience`, from `from`. A compact JWS is read as a launch JWT and its
+/// `jti` recorded, anything else is looked up as a registered launch; the
+/// redemption commits with its audit record or not at all. A launch for
+/// another app or server is refused and stays unredeemed.
 ///
 /// # Errors
 /// Returns [`Unresolved::Refused`] when the value is unknown, used, lapsed,
-/// forged or bound to another app or server, and [`Unresolved::Store`]
-/// when the store fails.
+/// forged or bound to another app or server, [`Unresolved::Store`] when the
+/// store fails, and [`Unresolved::Record`] when the record cannot be kept.
 pub async fn resolve(
     state: &AppState,
     launch: &str,
     client_id: &str,
     audience: &str,
+    from: IpAddr,
 ) -> Result<Resolved, Unresolved> {
-    if launch.split('.').count() == 3 {
+    let mut tx = state.store().begin().await?;
+    let (resolved, form) = if launch.split('.').count() == 3 {
         let signed = signed::read(state, launch).await?;
         if signed.client_id != client_id || signed.audience != audience {
             return Err(Unresolved::Refused(
                 "the launch is for another app or resource server",
             ));
         }
-        let fresh = state
-            .store()
-            .first_use(&signed.ehr_client_id, &signed.jti, signed.expires_at)
+        let fresh = tx
+            .first_launch_use(&signed.ehr_client_id, &signed.jti, signed.expires_at)
             .await?;
         if !fresh {
             return Err(Unresolved::Refused("the launch was used before"));
         }
-        return Ok(Resolved {
+        let resolved = Resolved {
             ehr_client_id: signed.ehr_client_id,
             context: signed.context,
-        });
+        };
+        (resolved, "signed")
+    } else {
+        let redeemed = tx
+            .redeem_launch(&sha256(launch), client_id, audience)
+            .await?
+            .ok_or(Unresolved::Refused(
+                "the launch is unknown, used, lapsed or for another app or resource server",
+            ))?;
+        let resolved = Resolved {
+            ehr_client_id: redeemed.ehr_client_id,
+            context: redeemed.context,
+        };
+        (resolved, "registered")
+    };
+    let endpoint = state.settings().endpoint_url(AUTHORIZE_ROUTE);
+    let happening = Happening {
+        event: Event::LaunchRedeemed,
+        issuer: &state.settings().issuer,
+        client_id: Some(client_id),
+        subject: None,
+        from,
+        endpoint: &endpoint,
+        details: launch_details(&resolved.ehr_client_id, client_id, audience, form),
+    };
+    state.audit().commit_happening(tx, &happening).await?;
+    Ok(resolved)
+}
+
+/// Returns what a launch's record holds: the EHR, the app, the resource
+/// server and the form, never the launch value or a context value.
+fn launch_details(
+    ehr: &str,
+    app: &str,
+    audience: &str,
+    form: &'static str,
+) -> Vec<(&'static str, String)> {
+    vec![
+        ("ehr", ehr.to_owned()),
+        ("app", app.to_owned()),
+        ("resource", audience.to_owned()),
+        ("form", form.to_owned()),
+    ]
+}
+
+/// A refused registration or redemption, as its record names it.
+#[derive(Debug, Clone, Copy)]
+struct LaunchRefusal<'a> {
+    /// The route the request came to.
+    route: &'static str,
+    /// The address it came from.
+    from: IpAddr,
+    /// The EHR client, once it authenticated.
+    ehr: Option<&'a str>,
+    /// The app, when the request names one.
+    app: Option<&'a str>,
+    /// The OAuth error the request was refused with.
+    error: &'static str,
+    /// The rule it broke, a description that quotes no value.
+    reason: &'static str,
+}
+
+/// Records `refused` on its own: nothing else was written.
+async fn record_refusal(
+    state: &AppState,
+    refused: &LaunchRefusal<'_>,
+) -> Result<(), RecordFailure> {
+    let endpoint = state.settings().endpoint_url(refused.route);
+    let mut details = vec![
+        ("error", refused.error.to_owned()),
+        ("reason", refused.reason.to_owned()),
+    ];
+    if let Some(ehr) = refused.ehr {
+        details.push(("ehr", ehr.to_owned()));
     }
-    let redeemed = state
-        .store()
-        .redeem_launch(&sha256(launch), client_id, audience)
-        .await?
-        .ok_or(Unresolved::Refused(
-            "the launch is unknown, used, lapsed or for another app or resource server",
-        ))?;
-    Ok(Resolved {
-        ehr_client_id: redeemed.ehr_client_id,
-        context: redeemed.context,
-    })
+    if let Some(app) = refused.app {
+        details.push(("app", app.to_owned()));
+    }
+    let client_id = refused.ehr.or(refused.app);
+    let happening = Happening {
+        event: Event::LaunchRefused,
+        issuer: &state.settings().issuer,
+        client_id,
+        subject: None,
+        from: refused.from,
+        endpoint: &endpoint,
+        details,
+    };
+    let row = state.audit().row(
+        &happened(&happening),
+        Event::LaunchRefused.code(),
+        None,
+        client_id,
+    )?;
+    state.audit().record(state.store(), &row).await
 }
 
 /// Returns the registered client `client_id` when it may launch
@@ -207,44 +314,57 @@ struct Registered {
     expires_in: u64,
 }
 
+/// A refused registration, with the EHR client once it authenticated.
+#[derive(Debug)]
+struct NotRegistered {
+    /// The refusal.
+    refusal: Refusal,
+    /// The EHR client, once it authenticated.
+    ehr: Option<String>,
+}
+
+impl From<Refusal> for NotRegistered {
+    fn from(refusal: Refusal) -> Self {
+        Self { refusal, ehr: None }
+    }
+}
+
 /// `POST {issuer}/launch`.
 pub async fn launch(
     State(state): State<Arc<AppState>>,
+    Connected(from): Connected,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    match register(&state, &headers, &body).await {
-        Ok((ehr, app, registered)) => {
-            tracing::info!(
-                target: "ferrosmart::audit",
-                event = "launch.registered",
-                client_id = %ehr,
-                app = %app,
-                "an EHR registered a launch"
-            );
-            // NOTE: RFC 9126 §2.2, the pushed request this API is shaped as is
-            // answered 201 Created with its handle and lifetime.
-            no_store((StatusCode::CREATED, Json(registered)).into_response())
-        }
-        Err(refusal) => {
-            tracing::info!(
-                target: "ferrosmart::audit",
-                event = "launch.refused",
-                error = refusal.error,
-                "a launch registration was refused"
-            );
-            refusal.into_response()
+    match register(&state, &headers, &body, from).await {
+        // NOTE: RFC 9126 §2.2, the pushed request this API is shaped as is answered
+        // 201 Created with its handle and lifetime.
+        Ok(registered) => no_store((StatusCode::CREATED, Json(registered)).into_response()),
+        Err(failed) => {
+            let refused = LaunchRefusal {
+                route: LAUNCH_ROUTE,
+                from,
+                ehr: failed.ehr.as_deref(),
+                app: None,
+                error: failed.refusal.error,
+                reason: failed.refusal.description,
+            };
+            if let Err(error) = record_refusal(&state, &refused).await {
+                return server_error("the refusal could not be recorded", &error).into_response();
+            }
+            failed.refusal.into_response()
         }
     }
 }
 
-/// Registers the launch `body` states, returning the EHR, the app and the
-/// answer.
+/// Registers the launch `body` states, committing the launch row with its
+/// audit record.
 async fn register(
     state: &AppState,
     headers: &HeaderMap,
     body: &[u8],
-) -> Result<(String, String, Registered), Refusal> {
+    from: IpAddr,
+) -> Result<Registered, NotRegistered> {
     let media = headers
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
@@ -252,27 +372,27 @@ async fn register(
         .map(str::trim);
     // NOTE: RFC 9126 §2.1, the request is application/x-www-form-urlencoded.
     if !media.is_some_and(|media| media.eq_ignore_ascii_case("application/x-www-form-urlencoded")) {
-        return Err(refusal(
-            "invalid_request",
-            "the request is not form-encoded",
-        ));
+        return Err(refusal("invalid_request", "the request is not form-encoded").into());
     }
     let form = Params::parse(body, &[])
         .map_err(|_repeated| refusal("invalid_request", "a parameter is repeated"))?;
     if url::form_urlencoded::parse(body).any(|(name, _)| !PARAMETERS.contains(&name.as_ref())) {
-        return Err(refusal(
-            "invalid_request",
-            "a parameter is not a launch parameter",
-        ));
+        return Err(refusal("invalid_request", "a parameter is not a launch parameter").into());
     }
     let ehr = authenticate(state, &form).await?;
+    let refused = |refusal: Refusal| NotRegistered {
+        refusal,
+        ehr: Some(ehr.client_id.clone()),
+    };
     if !signed::may_launch(&ehr) {
-        return Err(refusal(
+        return Err(refused(refusal(
             "unauthorized_client",
             "the client may not register a launch",
-        ));
+        )));
     }
-    let app = app(state, form.get("app_client_id")).await?;
+    let app = app(state, form.get("app_client_id"))
+        .await
+        .map_err(refused)?;
     let audience = form
         .get("resource")
         .filter(|base| {
@@ -282,11 +402,13 @@ async fn register(
                 .iter()
                 .any(|served| served == base)
         })
-        .ok_or(refusal(
-            "invalid_target",
-            "the resource is not served by this issuer",
-        ))?;
-    let context = form_context(&form)?;
+        .ok_or_else(|| {
+            refused(refusal(
+                "invalid_target",
+                "the resource is not served by this issuer",
+            ))
+        })?;
+    let context = form_context(&form).map_err(refused)?;
     context
         .check(
             state
@@ -295,31 +417,49 @@ async fn register(
                 .iter()
                 .any(|base| base == audience),
         )
-        .map_err(|rule| refusal("invalid_request", rule))?;
-    let value = random().map_err(|error| server_error("no launch value could be drawn", &error))?;
+        .map_err(|rule| refused(refusal("invalid_request", rule)))?;
+    let value = random()
+        .map_err(|error| refused(server_error("no launch value could be drawn", &error)))?;
     let expires_at = jiff::Timestamp::now()
         .as_second()
         .saturating_add_unsigned(MAX_LAUNCH_SECONDS);
-    state
+    let stored = |error: &dyn std::error::Error| {
+        refused(server_error("the launch could not be recorded", error))
+    };
+    let mut tx = state
         .store()
-        .record_launch(&NewLaunch {
-            launch_hash: &sha256(&value),
-            ehr_client_id: &ehr.client_id,
-            client_id: &app.client_id,
-            audience,
-            context: &context,
-            expires_at,
-        })
+        .begin()
         .await
-        .map_err(|error| server_error("the launch could not be recorded", &error))?;
-    Ok((
-        ehr.client_id,
-        app.client_id,
-        Registered {
-            launch: value,
-            expires_in: MAX_LAUNCH_SECONDS,
-        },
-    ))
+        .map_err(|error| stored(&error))?;
+    tx.record_launch(&NewLaunch {
+        launch_hash: &sha256(&value),
+        ehr_client_id: &ehr.client_id,
+        client_id: &app.client_id,
+        audience,
+        context: &context,
+        expires_at,
+    })
+    .await
+    .map_err(|error| stored(&error))?;
+    let endpoint = state.settings().endpoint_url(LAUNCH_ROUTE);
+    let happening = Happening {
+        event: Event::LaunchRegistered,
+        issuer: &state.settings().issuer,
+        client_id: Some(&ehr.client_id),
+        subject: None,
+        from,
+        endpoint: &endpoint,
+        details: launch_details(&ehr.client_id, &app.client_id, audience, "registered"),
+    };
+    state
+        .audit()
+        .commit_happening(tx, &happening)
+        .await
+        .map_err(|error| stored(&error))?;
+    Ok(Registered {
+        launch: value,
+        expires_in: MAX_LAUNCH_SECONDS,
+    })
 }
 
 /// Returns the registered app `client_id` names: a client of the
