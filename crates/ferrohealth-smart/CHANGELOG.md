@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- A role claim whose value is a JSON object carries each member name as a
+  role, for an issuer that keys what it knows of each role by the role:
+  ZITADEL writes `urn:zitadel:iam:org:project:{projectId}:roles` as
+  `{"<role>": {"<orgId>": "<orgDomain>"}}` (its `retrieve-user-roles.mdx` at
+  v4.20.3, vendored under `docs/specs/zitadel/`). Before, such a value
+  carried no role. Name the claim in the issuer's `role_claims` (#523).
+
 ## [0.28.0] - 2026-11-16
 
 ### Changed

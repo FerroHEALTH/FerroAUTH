@@ -149,7 +149,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   RP-Initiated Logout, FAPI 2.0 Security Profile, NIST SP 800-162 and Cedar language corpora, the
   IHE IUA supplement, the IHE BALP content page, Nuts RFC021, and the
   Microsoft Entra, SCIM workload identity and Keycloak documents the issuer
-  profiles cite, the eHDSI
+  profiles cite, the ZITADEL documentation and API definitions
+  FerroSMART's ZITADEL example and the role claim reader cite, the eHDSI
   specifications the owner supplied with SOG-IS ACM 1.3 recorded by sha256
   and never copied, Implementing Regulation (EU)
   2026/2099, the GDPR and Commission Decision 2011/833/EU, and the

@@ -13,6 +13,8 @@ mod authorize;
 mod clients;
 mod config;
 mod discovery;
+mod introspection;
+mod revocation;
 mod store;
 mod support;
 mod token;

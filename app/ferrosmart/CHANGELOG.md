@@ -51,6 +51,23 @@ and this project adheres to
   the remembered choices and withdraws one, and the OpenID Connect
   discovery document and the App Launch SMART configuration describe the
   login once it is configured (#515).
+- The introspection endpoint, `POST /introspect` (RFC 7662 with SMART App
+  Launch 2.2.0, Token Introspection): a client whose ceiling lists
+  `system/introspect` authenticates by its assertion or presents a bearer
+  token FerroSMART issued for its own issuer with that scope, and may
+  introspect any client's token. An active token answers `scope`,
+  `client_id`, `exp`, `iat`, `sub`, `aud`, `iss`, the grant's launch
+  context and `fhirUser`; an expired, revoked, forged or unknown token
+  answers `{"active": false}` alone (#518).
+- The revocation endpoint, `POST /revoke` (RFC 7009): a confidential client
+  by its assertion, a public client by `client_id`, each only for its own
+  tokens. Revoking a refresh token revokes its grant with every token under
+  it; an unknown token answers `200` (#518).
+- Migration 0005: the grants, the refresh tokens stored as their SHA-256,
+  the upstream sessions an `online_access` grant ends with, and the grant
+  of each access token, so revocation reaches every replica at once. The
+  RFC 8414 metadata names both endpoints and their client authentication
+  methods (#518).
 - The Inferno SMART App Launch test kit lane: the kit's STU 2.2 suite runs
   in CI against FerroSMART with FerroEHR as the resource server, every
   exchange over TLS, and fails on any result that differs from the expected
