@@ -24,3 +24,5 @@
 
 # The binaries the release lane stages for the image build.
 /dist/
+# The quickstart's secret files (compose.yaml), never committed.
+/secrets/

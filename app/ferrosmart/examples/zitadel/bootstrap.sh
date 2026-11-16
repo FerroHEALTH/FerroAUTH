@@ -119,7 +119,7 @@ printf '%s' "$client_secret" > "$OUT/client-secret"
 printf '%s' "$signing_key" > "$OUT/target-signing-key"
 cat > "$OUT/ferrosmart.toml" << TOML
 # Written by app/ferrosmart/examples/zitadel/bootstrap.sh: FerroSMART with
-# ZITADEL as its upstream login (#523, docs/architecture.md §13.17).
+# ZITADEL as its upstream login (#523, docs/architecture.md §13.18).
 
 [ferrosmart]
 issuer = "$FERROSMART_ISSUER"

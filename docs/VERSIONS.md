@@ -192,4 +192,8 @@ the Federation Tier Annex B is under CC0 1.0.
 | syft | 1.51.1, installed through `taiki-e/install-action` | `.github/workflows/release-ferrosmart-build.yml`, `.github/workflows/release-ferrosmart-image.yml` |
 | cargo-auditable | 0.7.5, installed through `taiki-e/install-action` | `.github/workflows/release-ferrosmart-build.yml` |
 | cargo-cyclonedx | 0.5.9, installed through `taiki-e/install-action` | `.github/workflows/release-ferrosmart-build.yml` |
+| ZITADEL image | `ghcr.io/zitadel/zitadel:v4.20.3@sha256:1b30fea7ed88826dc0a98dacee4e2f2c8b05201fd26f5e4cb5386615b29f7638`, the release the ZITADEL documentation pin names and FerroHEALTH/FerroEHR runs, run unmodified (AGPL-3.0-only) by FerroSMART's ZITADEL example and its CI launch (#523) | `compose.zitadel.yaml`, `scripts/idp/zitadel-launch.sh` (read from this row) |
+| ZITADEL Login image | `ghcr.io/zitadel/zitadel-login:v4.20.3@sha256:8f730428dfd65cd8979d07ef4e34a59d44978e956692b7dbbc3bba4e4abb4f92`, ZITADEL's Login v2 UI at the same release (MIT), for a person signing in through the example (#523) | `compose.zitadel.yaml` |
+| curl image | `curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777`, the image FerroHEALTH/FerroEHR pins, which runs the ZITADEL example's bootstrap once (#523) | `compose.zitadel.yaml` |
+| Rust build image | `rust:1.99.1-trixie@sha256:8a4e90c7946b74626488b1446f712c0fe0ed1a596cbd3d871684bc9c5433ae07`, the pinned toolchain, which builds and runs the ZITADEL example's Actions v2 target from the checkout (#523) | `compose.zitadel.yaml` |
 | GitHub Actions | every `uses:` pinned to a full commit SHA with its version in a trailing comment, bumped by Dependabot | `.github/workflows/*.yml`, `.github/actions/setup-rust/action.yml` |
