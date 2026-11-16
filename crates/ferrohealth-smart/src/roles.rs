@@ -12,8 +12,10 @@
 //! authorization server that nests them. Each value is a role:
 //! an array element that is a string, an element that is an object with a
 //! string `value` sub-attribute (a SCIM multi-valued attribute, RFC 7643
-//! §2.4), or, for an issuer that writes one string, each of its
-//! whitespace-separated words. A role keeps the spelling
+//! §2.4), each member name of an object, for an issuer that keys what it
+//! knows of each role by the role (ZITADEL's project role claims), or, for
+//! an issuer that writes one string, each of its whitespace-separated
+//! words. A role keeps the spelling
 //! the issuer gave it, trimmed, and appears once; a role requirement matches
 //! it without regard to ASCII case (no specification governs the matching:
 //! our own design).
@@ -37,9 +39,10 @@ pub fn default_claims() -> Vec<String> {
 /// Returns the roles the claims at `paths` carry, in the order they are
 /// first met.
 ///
-/// A path that is absent, or whose value is neither a string nor an array,
-/// carries none; an array element that is neither a string nor an object
-/// with a string `value` is skipped.
+/// A path that is absent, or whose value is neither a string, an array nor
+/// an object, carries none; an array element that is neither a string nor
+/// an object with a string `value` is skipped. An object carries each of
+/// its member names, whatever the member's value.
 #[must_use]
 pub fn from_claims<S: AsRef<str>>(claims: &Map<String, Value>, paths: &[S]) -> Vec<String> {
     let mut roles = Vec::new();
@@ -57,6 +60,11 @@ pub fn from_claims<S: AsRef<str>>(claims: &Map<String, Value>, paths: &[S]) -> V
             Some(Value::String(words)) => {
                 for word in words.split_whitespace() {
                     push(&mut roles, word);
+                }
+            }
+            Some(Value::Object(members)) => {
+                for name in members.keys() {
+                    push(&mut roles, name);
                 }
             }
             _ => {}
@@ -147,6 +155,33 @@ mod tests {
             ]
         }));
         assert_eq!(from_claims(&claims, &["groups"]), ["e9e30dba", "ward-3"]);
+    }
+
+    // NOTE: docs/specs/zitadel/apps/docs/content/guides/integrate/retrieve-user-roles.mdx,
+    // the sample response of the project role claim, member names and values as published.
+    #[test]
+    fn an_object_names_its_roles_by_its_member_names() {
+        let claims = claims(&json!({
+            "urn:zitadel:iam:org:project:223281986649719041:roles": {
+                "cfo": {
+                    "223281939119866113": "corporate.user-authorizations-io8epz.zitadel.cloud"
+                },
+                "corporate member": {
+                    "223279178798072065": "org-a.user-authorizations-io8epz.zitadel.cloud",
+                    "223279223391912193": "org-b.user-authorizations-io8epz.zitadel.cloud"
+                }
+            },
+            "nested": { "roles": { "auditor": true } }
+        }));
+        let mut roles = from_claims(
+            &claims,
+            &[
+                "urn:zitadel:iam:org:project:223281986649719041:roles",
+                "nested.roles",
+            ],
+        );
+        roles.sort();
+        assert_eq!(roles, ["auditor", "cfo", "corporate member"]);
     }
 
     #[test]
