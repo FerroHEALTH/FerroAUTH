@@ -22,7 +22,6 @@ use ferrohealth_health::lifecycle::Lifecycle;
 use ferrohealth_health::registry::{Check, HealthIndicator, Outcome, Registry};
 use ferrohealth_server::health::Health;
 use ferrohealth_server::stack::{Stack, StackPolicy};
-use ferrohealth_smart::metadata::ServerMetadata;
 use http::{HeaderValue, StatusCode, header};
 use serde_json::Value;
 
@@ -30,7 +29,8 @@ use crate::authorize::{self, AUTHORIZE_ROUTE, CALLBACK_ROUTE, CONSENT_ROUTE, MAN
 use crate::client_keys::ClientKeySets;
 use crate::config::settings::Settings;
 use crate::discovery::{
-    self, JWKS_ROUTE, OPENID_CONFIGURATION_ROUTE, SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE,
+    self, INTROSPECT_ROUTE, JWKS_ROUTE, OPENID_CONFIGURATION_ROUTE, REVOKE_ROUTE,
+    SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE,
 };
 use crate::store::Store;
 use ferrohealth_smart::oidc::RelyingParty;
@@ -45,8 +45,8 @@ pub const JWKS_CACHE_CONTROL: &str = "public, max-age=3600";
 pub struct AppState {
     /// The settings the server runs on.
     settings: Settings,
-    /// The RFC 8414 metadata, built once.
-    metadata: ServerMetadata,
+    /// The RFC 8414 metadata document, built once.
+    metadata: Value,
     /// The SMART configuration, built once.
     smart: Value,
     /// The OpenID Connect discovery document, once people log in.
@@ -68,8 +68,8 @@ impl AppState {
         let metadata = discovery::metadata(&settings, false);
         let smart = discovery::smart_configuration(&metadata, false);
         Self {
+            metadata: discovery::metadata_document(&metadata),
             settings,
-            metadata,
             smart,
             openid: None,
             lifecycle: Lifecycle::default(),
@@ -86,7 +86,7 @@ impl AppState {
         let metadata = discovery::metadata(&self.settings, true);
         self.smart = discovery::smart_configuration(&metadata, true);
         self.openid = Some(discovery::openid_configuration(&metadata));
-        self.metadata = metadata;
+        self.metadata = discovery::metadata_document(&metadata);
         self.relying_party = Some(party);
         self
     }
@@ -131,6 +131,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(SMART_CONFIGURATION_ROUTE, get(smart_configuration))
         .route(JWKS_ROUTE, get(jwks))
         .route(TOKEN_ROUTE, post(crate::token::token))
+        .route(INTROSPECT_ROUTE, post(crate::introspect::introspect))
+        .route(REVOKE_ROUTE, post(crate::revoke::revoke))
         .route(OPENID_CONFIGURATION_ROUTE, get(openid_configuration))
         .route(
             AUTHORIZE_ROUTE,

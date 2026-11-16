@@ -58,7 +58,7 @@ pub struct Refusal {
 
 impl Refusal {
     /// The `invalid_request` refusal.
-    const fn request(description: &'static str) -> Self {
+    pub(crate) const fn request(description: &'static str) -> Self {
         Self {
             error: "invalid_request",
             description,
@@ -68,7 +68,7 @@ impl Refusal {
     /// The `invalid_client` refusal every failure of client authentication
     /// answers ("the server SHALL respond with an `invalid_client` error",
     /// SMART App Launch 2.2.0, Client Authentication: Asymmetric, Response).
-    const fn client(description: &'static str) -> Self {
+    pub(crate) const fn client(description: &'static str) -> Self {
         Self {
             error: "invalid_client",
             description,
@@ -121,7 +121,7 @@ pub async fn token(
 /// response header field with a value of 'no-store'" and "'Pragma' ... with
 /// a value of 'no-cache'" (SMART App Launch 2.2.0, Obtain access token,
 /// Response; RFC 6749 §5.1).
-fn no_store(mut response: Response) -> Response {
+pub(crate) fn no_store(mut response: Response) -> Response {
     let headers = response.headers_mut();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
@@ -166,7 +166,22 @@ struct Issued {
 
 /// Answers the token request `body`.
 async fn issue(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Issued, Refusal> {
-    // NOTE: RFC 6749 §3.2, the request uses application/x-www-form-urlencoded.
+    let form = read_form(headers, body)?;
+    match form.get("grant_type") {
+        Some("client_credentials") => client_credentials(state, &form).await,
+        Some("authorization_code") => authorization_code(state, &form).await,
+        Some(_) => Err(Refusal {
+            error: "unsupported_grant_type",
+            description: "the grant type is not supported",
+        }),
+        None => Err(Refusal::request("the request names no grant_type")),
+    }
+}
+
+/// Reads the form `body`, refused unless `headers` name it form-encoded,
+/// as the token (RFC 6749 §3.2), introspection (RFC 7662 §2.1) and
+/// revocation (RFC 7009 §2.1) requests all are.
+pub(crate) fn read_form(headers: &HeaderMap, body: &[u8]) -> Result<Params, Refusal> {
     let form_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
@@ -179,17 +194,7 @@ async fn issue(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Iss
     if !form_type {
         return Err(Refusal::request("the request is not form-encoded"));
     }
-    let form = Params::parse(body, &[])
-        .map_err(|_repeated| Refusal::request("a parameter is repeated"))?;
-    match form.get("grant_type") {
-        Some("client_credentials") => client_credentials(state, &form).await,
-        Some("authorization_code") => authorization_code(state, &form).await,
-        Some(_) => Err(Refusal {
-            error: "unsupported_grant_type",
-            description: "the grant type is not supported",
-        }),
-        None => Err(Refusal::request("the request names no grant_type")),
-    }
+    Params::parse(body, &[]).map_err(|_repeated| Refusal::request("a parameter is repeated"))
 }
 
 /// The client credentials grant (RFC 6749 §4.4; SMART App Launch 2.2.0,
@@ -348,14 +353,18 @@ fn granted_scope(client: &Client, requested: Option<&str>) -> Result<String, Ref
 
 /// Returns the token's audience: the resource server the request names in
 /// `resource` (RFC 8707 §2), or the one configured when the deployment
-/// configures one alone (RFC 9068 §3, a default audience).
+/// configures one alone (RFC 9068 §3, a default audience). The issuer is
+/// a resource too, the introspection endpoint's (`docs/architecture.md`
+/// §13.6 item 8).
 fn audience(state: &AppState, resource: Option<&str>) -> Result<String, Refusal> {
-    let resources = &state.settings().resources;
+    let settings = state.settings();
+    let resources = &settings.resources;
     let target = |description| Refusal {
         error: "invalid_target",
         description,
     };
     match (resource, resources.as_slice()) {
+        (Some(named), _) if named == settings.issuer => Ok(settings.issuer.clone()),
         (Some(named), _) => resources
             .iter()
             .find(|base| base.as_str() == named)
@@ -367,7 +376,7 @@ fn audience(state: &AppState, resource: Option<&str>) -> Result<String, Refusal>
 }
 
 /// Authenticates the client of `form` by its JWT assertion.
-async fn authenticate(state: &AppState, form: &Params) -> Result<Client, Refusal> {
+pub(crate) async fn authenticate(state: &AppState, form: &Params) -> Result<Client, Refusal> {
     if form.get("client_assertion_type") != Some(JWT_BEARER) {
         return Err(Refusal::client(
             "the client_assertion_type is not jwt-bearer",
@@ -649,6 +658,7 @@ async fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Iss
             issued_at,
             expires_at,
             code_hash: grant.code_hash,
+            grant_id: None,
         })
         .await
         .map_err(|error| server_error("the access token could not be recorded", &error))?;
@@ -704,7 +714,7 @@ fn random_id() -> Result<String, aws_lc_rs::error::Unspecified> {
 
 /// Returns the `server_error` refusal described by `description`, after the
 /// cause is logged with its whole chain and never a value of the request.
-fn server_error(description: &'static str, cause: &dyn std::error::Error) -> Refusal {
+pub(crate) fn server_error(description: &'static str, cause: &dyn std::error::Error) -> Refusal {
     tracing::error!(error = %ferrohealth_server::run::chain(cause), "{description}");
     Refusal {
         error: "server_error",
