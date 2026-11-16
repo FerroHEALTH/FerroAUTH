@@ -752,13 +752,9 @@ fn oauth_clause(error: Option<&OAuthError>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        CLIENT_AUTHENTICATION_TYP, ClientAuth, ClientCredentials, Endpoint, OAuthError,
-        SecurityProfile, TokenError, endpoint, fapi2,
-    };
+    use super::{ClientAuth, ClientCredentials, Endpoint, OAuthError, TokenError};
     use http::StatusCode;
     use secrecy::SecretString;
-    use url::Url;
 
     #[test]
     fn a_refusal_displays_the_oauth_error_and_its_description() {
@@ -810,8 +806,12 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "fetch")]
     #[test]
     fn the_assertion_audience_and_type_follow_the_security_profile() {
+        use super::{CLIENT_AUTHENTICATION_TYP, SecurityProfile, endpoint, fapi2};
+        use url::Url;
+
         let key = super::assertion::AssertionKey::from_pem(
             &aws_lc_rs::signature::EcdsaKeyPair::generate(
                 &aws_lc_rs::signature::ECDSA_P384_SHA384_ASN1_SIGNING,
@@ -864,6 +864,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "fetch")]
     fn pem(der: &[u8]) -> Vec<u8> {
         use base64::Engine as _;
         let body = base64::engine::general_purpose::STANDARD.encode(der);
