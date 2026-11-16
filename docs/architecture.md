@@ -2773,21 +2773,74 @@ specification governs.
    token claims beside the RFC 9068 set, names `rfc9068 §2.2.2` ("arbitrary
    attributes") as the ground, and keeps the claims to what the token
    response carried. Our own design.
-3. **The EHR launch API.** SMART defines the `launch` parameter and no way
-   for an EHR to register the context with the authorization server. Our
-   own design (#517): `POST /launch` from an EHR client authenticated with
-   `private_key_jwt` and the scope `system/launch.c` (a full-URI scope is
-   the alternative SMART's Extensibility section admits), body
-   `{ "aud", "patient", "encounter", "fhirContext", "intent",
-   "need_patient_banner", "smart_style_url", "tenant", "ehrId" }`, answer
-   `{ "launch": "<opaque>", "expires_in": 300 }`. The opaque value is 256
-   random bits, stored hashed, single-use and bound to the EHR client and
-   the `aud`. Without a shared database, the EHR instead signs a launch JWT
-   (`typ` `launch+jwt`, `iss` its `client_id`, `aud` FerroSMART's issuer,
-   `exp` at most five minutes ahead, `jti`, and the context claims) with a
-   key of its registered JWK Set, and passes the compact JWT as `launch`;
-   FerroSMART checks it as it checks a client assertion (signature, `iss`,
-   sole `aud`, `exp`, `jti` replay) and takes the context from it.
+3. **The EHR launch API.** In an EHR launch "an opaque handle to the EHR
+   context is passed along to the app" and "The server will provide the
+   application with EHR context based on this handle" (`smart app-launch`,
+   SMART authorization & FHIR access: overview), but SMART defines no way
+   for an EHR to give the authorization server that context. Our own
+   design (#517), in two forms; 13.17 is the EHR's side.
+   - **The EHR client.** A registered `confidential_asymmetric` client
+     whose ceiling lists `system/launch.c`, a SMART v2 `system/` scope with
+     the `c` permission over a launch, our own name (`smart
+     scopes-and-launch-context`, Extensibility, admits it). Any other
+     client is refused.
+   - **`POST /launch`**, shaped as a pushed authorization request (`rfc9126
+     §2`): an `application/x-www-form-urlencoded` body in which the EHR
+     authenticates with its `private_key_jwt` assertion exactly as at the
+     token endpoint (`client_assertion_type`, `client_assertion`; 13.6 item
+     1), and names `app_client_id` (the registered app of the
+     authorization code grant it launches), `resource` (the base the app
+     receives as `iss`, `rfc8707 §2`) and the context: `patient`,
+     `encounter`, `fhirContext` (the JSON array of the token response, as
+     `rfc9396 §3` carries a JSON parameter in a form), `intent`,
+     `need_patient_banner` (`true` or `false`), `tenant` and, for an
+     openEHR base only, `ehrId`. `smart_style_url` is not a launch
+     parameter: it is the deployment's, from `[ferrosmart.branding]`. Any other parameter
+     is refused, so a misspelt context parameter never vanishes. The
+     context is checked against `smart scopes-and-launch-context`,
+     `fhirContext`: each item names a `reference`, `canonical` or
+     `identifier`; a `role` is never empty and is `launch` or an absolute
+     URI; Patient and Encounter appear there only under another role. The
+     answer is `201` with `{ "launch": "<opaque>", "expires_in": 300 }`
+     and `Cache-Control: no-store` (`rfc9126 §2.2`); a refusal is the
+     `rfc6749 §5.2` body (`rfc9126 §2.3`): `invalid_client`,
+     `unauthorized_client` for a client that may not launch,
+     `invalid_target` for a base FerroSMART does not serve, and
+     `invalid_request` otherwise. The value is 256 random bits, stored as
+     its SHA-256.
+   - **The launch JWT**, for an EHR that calls FerroSMART for nothing: a
+     JWS (`rfc7515`) the EHR signs with a key of its registered JWK Set
+     (`RS384` or `ES384`) and hands the app as `launch`. Its header carries
+     `typ` `launch+jwt` (explicit typing, `rfc8725 §3.11`) and `kid`; its
+     claims are `iss` (the EHR's `client_id`), `aud` (FerroSMART's issuer,
+     one string), `exp` (at most five minutes ahead), `jti`, `client_id`
+     (the app, `rfc8693 §4.3`), `resource` (the base) and the context
+     parameters above under their own names; `iat` and `nbf` may be
+     present. Any other claim is refused. FerroSMART checks it as it
+     checks a client assertion (signature by `kid`, a `jku` only as
+     registered, sole `aud`, `exp`, `jti` once per `iss` in `seen_jti`).
+   - **Redemption.** Both forms are single use, live at most 300 seconds
+     (the bound SMART sets a client assertion) and are bound to the EHR,
+     the app and the base: at `/authorize` the `launch` value resolves
+     only for the `client_id` and the `aud` the launch names, and a
+     resolution for another app or base is refused and leaves the launch
+     unused. The `fhirUser` of the token never comes from a launch; it
+     comes from the person's own login (item 9).
+   - **At `/authorize`.** A `launch` without the `launch` scope is
+     refused (`invalid_scope`), since the app "requests the scope `launch`
+     and provides an additional URL parameter of `launch`" (`smart
+     scopes-and-launch-context`, Apps that launch from the EHR); an
+     unknown, used, lapsed or foreign launch is `invalid_request`. The
+     launch is redeemed before the upstream login. The consent page then
+     offers `launch`, the `launch/patient` and `launch/encounter` hints
+     its context answers, and the `patient/` scopes the client's ceiling
+     and the person's roles allow once the launch put a patient in
+     context. The context reaches the code and the token response only
+     when the person keeps `launch`; without it the `patient/` and
+     `launch/` scopes are dropped too, because a granted `patient/` scope
+     "SHALL establish a patient in context" (same section). The SMART
+     configuration lists `launch-ehr`, `context-ehr-patient`,
+     `context-ehr-encounter`, `context-banner` and `permission-patient`.
 4. **The patient picker.** SMART places the choice inside the
    authorization server's own flow: for `launch/patient` "The EHR's
    'authorize' endpoint will take care of acquiring the context it needs
@@ -2966,7 +3019,7 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 | `authorization_grant` | grant id | client, subject, `fhirUser`, `aud`, scope, launch context, `auth_time`, upstream session, access (`offline`, `online`, none), creation and revocation times (`grant` is an SQL keyword, so the table takes RFC 6749 §1.3's full name) |
 | `refresh_token` | token hash | grant, predecessor, idle expiry, use time (set when rotated, kept for reuse detection), revocation |
 | `access_token` | `jti` | grant or client, `aud`, scope, `exp`, revocation, so introspection and revocation answer for a JWT |
-| `launch` | launch hash | EHR client, `aud`, context, expiry, use time |
+| `launch` | launch hash | EHR client, the app's `client_id`, `aud`, context, expiry, use time |
 | `consent` | subject, client | the scope set the user chose to remember, times, revocation |
 | `upstream_session` | id | upstream issuer, upstream `sid` and `sub`, last seen, end |
 | `seen_jti` | issuer, `jti` | client assertions and launch JWTs, until their `exp` |
@@ -3074,7 +3127,7 @@ Every secret is a `_file` key read through `ferrohealth-secret`; the
 | A signing key leak | keys in a KMS or HSM, rotation, a retiring key published only as long as needed | `rfc6819 §5.1.4` |
 | A database leak | codes, refresh tokens and launch values stored hashed; client secrets as Argon2id | `rfc6819 §5.1.4.1.3` |
 | Scope escalation | narrowing on every grant, refresh never widens, policy as content checked at load | `smart app-launch`, Refresh access token |
-| A forged EHR launch | a launch value bound to an authenticated EHR client and its `aud`, or a launch JWT checked like a client assertion | our own design (13.6 item 3) |
+| A forged, replayed or stolen EHR launch | a launch value bound to an authenticated EHR client, the app and the `aud`, single use and five minutes long, stored hashed; or a launch JWT checked like a client assertion, its `jti` used once | our own design (13.6 item 3) |
 | An upstream IdP that is compromised or misconfigured | one configured issuer per upstream, its ID Token checked by `oidc core §3.1.3.7`, claims mapped explicitly, nothing taken from unlisted claims | `oidc core §3.1.3.7` |
 | Patient data on the picker page | the search runs with the user's own delegated access at the FHIR server; the page shows only display fields | our own design |
 | Credential leakage in logs | no token, code, secret or assertion in a log line or `Debug`, as the library crates already hold | `CLAUDE.md` hard rule |
@@ -3215,3 +3268,74 @@ the client, `fhir_user_claim = "fhir_user"` and `role_claims = ["roles"]`
 knows Keycloak. The example serves every party on the loopback interface
 over plain `http`, which `ferrohealth_smart::metadata::issuer_url` admits
 there. A deployment serves both over TLS.
+
+### 13.17 Launching an app from an EHR
+
+This is what an EHR, FerroEHR's sandbox or any other, does to launch an app
+through FerroSMART. SMART fixes only the last step, the app's launch URL;
+the rest is FerroSMART's own API of 13.6 item 3.
+
+1. **Register once.** The EHR is a `[[ferrosmart.client]]` of kind
+   `confidential_asymmetric` with its JWK Set (`jwks_uri` or `jwks_file`)
+   and `system/launch.c` in its `scopes`; each app it launches is a client
+   of the `authorization_code` grant with its redirect URIs:
+
+   ```toml
+   [[ferrosmart.client]]
+   client_id = "ehr"
+   name = "Example EHR"
+   kind = "confidential_asymmetric"
+   jwks_uri = "https://ehr.example.org/.well-known/jwks.json"
+   scopes = ["system/launch.c"]
+   grant_types = ["client_credentials"]
+   ```
+
+2. **On each launch, get a `launch` value**, one per click and never
+   reused, in one of two ways.
+   - Register the context at FerroSMART. The client assertion is the one
+     the EHR would send to the token endpoint: `iss` and `sub` its
+     `client_id`, `aud` FerroSMART's token URL or issuer, `exp` at most
+     five minutes ahead, a fresh `jti`, signed `RS384` or `ES384`, `typ`
+     `JWT`.
+
+     ```http
+     POST /launch HTTP/1.1
+     Host: smart.example.org
+     Content-Type: application/x-www-form-urlencoded
+
+     client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer
+     &client_assertion=eyJ...
+     &app_client_id=growth-chart
+     &resource=https%3A%2F%2Fehr.example.org%2Ffhir
+     &patient=123&encounter=456&need_patient_banner=false
+     &fhirContext=%5B%7B%22reference%22%3A%22DiagnosticReport%2F7%22%7D%5D
+     ```
+
+     FerroSMART answers `201` with `{"launch": "<43 characters>",
+     "expires_in": 300}`.
+   - Or sign a launch JWT with the same key, and send FerroSMART nothing:
+
+     ```json
+     {"alg": "ES384", "typ": "launch+jwt", "kid": "ehr-1"}
+     {"iss": "ehr", "aud": "https://smart.example.org", "exp": 1794856312,
+      "jti": "b1f0...", "client_id": "growth-chart",
+      "resource": "https://ehr.example.org/fhir",
+      "patient": "123", "encounter": "456", "need_patient_banner": false}
+     ```
+
+     The compact JWS is the `launch` value.
+
+3. **Open the app's launch URL** with `iss`, the FHIR or openEHR base, and
+   `launch` (`smart app-launch`, Launch App: EHR Launch, Request):
+   `https://app.example.org/launch?iss=https%3A%2F%2Fehr.example.org%2Ffhir&launch=<value>`.
+   The `iss` is the `resource` of the launch, since the app's `aud` at the
+   authorization endpoint "is the same as the launch's `iss` value"
+   (`smart app-launch`, Obtain authorization code).
+
+4. **The app takes it from there.** It reads the base's
+   `.well-known/smart-configuration`, which names FerroSMART, and sends
+   the person to `/authorize` with the `launch` scope and the `launch`
+   value. The person logs in at the upstream provider and consents
+   (13.6 item 6), and the token response carries the context the EHR
+   registered. A launch the app does not redeem within five minutes, or
+   redeems for another app or base, fails, and the EHR launches again.

@@ -20,6 +20,7 @@ pub mod config;
 pub mod discovery;
 pub mod form;
 pub mod introspect;
+pub mod launch;
 pub mod pages;
 pub mod refresh;
 pub mod revoke;

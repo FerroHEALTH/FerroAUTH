@@ -44,6 +44,26 @@ and this project adheres to
   `RS256`, recorded in the store and answered with `no-store`. Each refusal
   is its RFC 6749 §5.2 error, and every issue and refusal writes an audit
   line (#514).
+- The EHR launch API, FerroSMART's own design since SMART defines none
+  (#517). An EHR client whose ceiling lists `system/launch.c` posts the
+  launch context to `POST /launch`, authenticated with its
+  `private_key_jwt` assertion as at the token endpoint, and receives a
+  single-use `launch` value that lives five minutes, stored as its SHA-256
+  and bound to the EHR, the app (`app_client_id`) and the resource server
+  (`resource`). An EHR can instead sign a `launch+jwt` with a key of its
+  registered JWK Set and hand it to the app as the `launch` value; its
+  `iss`, sole `aud`, `exp` and `jti` are checked and a replay is refused.
+  The context (`patient`, `encounter`, `fhirContext`, `intent`,
+  `need_patient_banner`, `tenant`, and `ehrId` for an openEHR server) is
+  checked against SMART's rules, and an unknown parameter or claim is
+  refused. At `/authorize` a `launch` with the `launch` scope is redeemed
+  for that app and `aud`, the consent page offers `launch`, its
+  `launch/patient` and `launch/encounter` hints and the `patient/` scopes
+  its patient allows, and the token response carries the context when the
+  person keeps `launch`, with `patient`, `encounter` and `ehrId` in the
+  access token too. The SMART configuration lists `launch-ehr`,
+  `context-ehr-patient`, `context-ehr-encounter`, `context-banner` and
+  `permission-patient`.
 - The authorization code flow of SMART App Launch 2.2.0, standalone
   launch: the authorization endpoint by `GET` and `POST` (code with PKCE
   `S256` only, `aud` among the configured resource servers, the redirect URI

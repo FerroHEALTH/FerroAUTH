@@ -142,6 +142,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(SMART_CONFIGURATION_ROUTE, get(smart_configuration))
         .route(JWKS_ROUTE, get(jwks))
         .route(TOKEN_ROUTE, post(crate::token::token))
+        .route(crate::launch::LAUNCH_ROUTE, post(crate::launch::launch))
         .route(
             crate::audit_log::AUDIT_ROUTE,
             get(crate::audit_log::audit_log),
