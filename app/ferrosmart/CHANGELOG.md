@@ -168,3 +168,11 @@ and this project adheres to
   token as an EHR launch's does. Every search and read writes the access
   record of Regulation (EU) 2025/327 Annex II 3.2 through `ehds-logging`,
   and a failed search is an error page (#516).
+
+### Fixed
+
+- The token endpoint answers a request from one of the client's registered
+  origins, the origins of its redirect URIs, with
+  `Access-Control-Allow-Origin` and `Vary: Origin`, so a browser app can
+  read its token response (SMART App Launch 2.2.0, Considerations for CORS
+  support). Every other origin gets no CORS header (#560).

@@ -251,6 +251,24 @@ impl Smart {
             .await
     }
 
+    /// Posts the form `pairs` to `path` as a browser on `origin` would.
+    async fn post_from(
+        &self,
+        path: &str,
+        pairs: &[(&str, &str)],
+        origin: &str,
+    ) -> (StatusCode, http::HeaderMap, String) {
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(pairs)
+            .finish();
+        let request = Request::post(path)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(header::ORIGIN, origin)
+            .body(Body::from(body))
+            .expect("a request");
+        self.send(request).await
+    }
+
     /// Posts the form `pairs` to `path` with the cookie, if any.
     async fn post(
         &self,
@@ -1513,5 +1531,64 @@ async fn a_failed_search_is_an_error_page_never_an_empty_context() {
         .expect("read")
         .expect("pending");
     assert!(pending.launch_context.is_none(), "no context entered");
+    smart.stop().await;
+}
+
+// NOTE: SMART App Launch 2.2.0, App Launch, Considerations for CORS support: the token
+// endpoint is readable from a client's registered origins and from no other.
+#[tokio::test]
+async fn a_token_response_is_readable_from_the_app_s_origin_alone() {
+    let smart = Smart::start().await;
+    let (cookie, token) = to_consent(&smart, &["clinician"]).await;
+    let (_, headers, _) = smart
+        .post(
+            "/consent",
+            &[
+                ("form_token", &token),
+                ("decision", "approve"),
+                ("scope", "openid"),
+                ("scope", "user/Observation.rs"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let allowed = |headers: &http::HeaderMap| {
+        headers
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    };
+    let (status, headers, body) = smart
+        .post_from("/token", &exchange, "https://app.example.org")
+        .await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    assert_eq!(
+        Some(String::from("https://app.example.org")),
+        allowed(&headers)
+    );
+    assert!(
+        headers
+            .get_all(header::VARY)
+            .iter()
+            .any(|value| value.as_bytes().eq_ignore_ascii_case(b"origin")),
+        "the answer varies by origin"
+    );
+
+    // A second use is refused; from another origin the browser reads nothing.
+    let (status, headers, _) = smart
+        .post_from("/token", &exchange, "https://elsewhere.example.org")
+        .await;
+    assert_eq!(StatusCode::BAD_REQUEST, status);
+    assert_eq!(None, allowed(&headers));
+    let (_, headers, _) = smart.post_from("/token", &exchange, "null").await;
+    assert_eq!(None, allowed(&headers));
     smart.stop().await;
 }
