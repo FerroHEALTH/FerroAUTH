@@ -34,9 +34,14 @@ ferrohealth-secret.workspace = true
 ferrohealth-server.workspace = true
 # The signing key ring with its rotation and JWK Set, and the SMART
 # discovery document builder the resource servers use too (13.7).
-ferrohealth-smart = { workspace = true, features = ["fetch"] }
+ferrohealth-smart = { workspace = true, features = ["fetch", "oidc"] }
 ferrohealth-telemetry.workspace = true
 http.workspace = true
+# The consent page, the picker and the error pages, drawn on the server with
+# FerroUI, pinned exactly as a product pins it (docs/architecture.md 13.15),
+# with its asset router.
+ferrohealth-ui = { version = "=0.6.10", default-features = false, features = ["axum"] }
+fluent-templates.workspace = true
 # The random token ids and their base64url form.
 aws-lc-rs.workspace = true
 base64.workspace = true
