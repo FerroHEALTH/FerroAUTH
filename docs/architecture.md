@@ -3443,8 +3443,8 @@ vendored text are decisions:
 Entra ID advises a certificate over a client secret in production
 (`how-to-add-credentials.md`, Add a client secret). That is `private_key_jwt`
 client authentication at the provider (`oidc core §9`, `rfc7523`), which
-FerroSMART's relying party does not send yet; it is a generic mechanism for
-every provider, decided on its own issue.
+FerroSMART's relying party does not send: it would be one generic mechanism
+for every provider, and until it exists the setup uses a client secret.
 
 ### 13.19 Upstream providers: Okta
 
