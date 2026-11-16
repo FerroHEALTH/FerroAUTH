@@ -24,7 +24,7 @@ use tower::ServiceExt as _;
 use url::Url;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers};
 
-use crate::support::{Database, Keys, RESOURCE, audit, config, from_client, records, spool};
+use crate::support::{Database, Keys, RESOURCE, audit, config, from_client, iua_71, records};
 
 /// FerroSMART's issuer in every case.
 const ISSUER: &str = "https://smart.example.org";
@@ -122,7 +122,7 @@ struct Smart {
     /// The database.
     database: Database,
     /// The keys, kept for the case's length.
-    keys: Keys,
+    _keys: Keys,
 }
 
 impl Smart {
@@ -164,7 +164,7 @@ impl Smart {
             provider,
             store,
             database,
-            keys,
+            _keys: keys,
         }
     }
 
@@ -291,12 +291,12 @@ fn set_cookie(headers: &http::HeaderMap) -> String {
         .expect("a value")
 }
 
-/// Checks that the spool of `smart` holds the login and the token of the
+/// Checks that the store of `smart` holds the login and the token of the
 /// person `claims` names, under their pairwise subject.
-fn login_and_token_recorded(smart: &Smart, claims: &Value, access: &Value) {
+async fn login_and_token_recorded(smart: &Smart, claims: &Value, access: &Value) {
     // NOTE: DICOM PS3.15 A.5.3.12 and IHE IUA ITI TF-2 3.71.5.1, the login and
     // the token, each recorded for the person under their pairwise subject.
-    let stored = records(&spool(&smart.keys));
+    let stored = records(&smart.store).await;
     let of = |code: &str| {
         stored
             .iter()
@@ -313,6 +313,16 @@ fn login_and_token_recorded(smart: &Smart, claims: &Value, access: &Value) {
     assert!(
         !login.contains("synthetic-person"),
         "no upstream sub: {login}"
+    );
+    let token_record = stored
+        .iter()
+        .find(|record| record.pointer("/subtype/0/code") == Some(&json!("ITI-71")))
+        .expect("the token is recorded");
+    // NOTE: BALP 1.1.4 IHE.IUA.71, with the person as agent:user.
+    let verdict = iua_71(token_record);
+    assert!(
+        verdict.is_ok(),
+        "the token record breaks IHE.IUA.71: {verdict:?}"
     );
     let issued = of("ITI-71").expect("the token is recorded");
     let jti = access.get("jti").and_then(Value::as_str).expect("a jti");
@@ -455,7 +465,7 @@ async fn a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens() {
     assert_eq!(json!(RESOURCE), access["aud"]);
     assert_eq!(claims["sub"], access["sub"]);
 
-    login_and_token_recorded(&smart, &claims, &access);
+    login_and_token_recorded(&smart, &claims, &access).await;
 
     // NOTE: OAuth 2.1 draft §4.1.3, a second use is refused and revokes.
     let (status, _, body) = smart.post("/token", &exchange, None).await;
@@ -573,7 +583,7 @@ async fn a_login_declined_at_the_provider_is_recorded_and_sent_back() {
         Some(String::from("access_denied")),
         param(&location(&headers), "error")
     );
-    let stored = records(&spool(&smart.keys));
+    let stored = records(&smart.store).await;
     assert_eq!(1, stored.len(), "{stored:?}");
     let login = stored.first().expect("the login");
     // NOTE: DICOM PS3.15 A.5.3.12, a failed User Authentication is recorded too.

@@ -583,7 +583,7 @@ async fn approve(
 
 /// Records the login `answer` at the upstream provider, or returns the page
 /// of a login that could not be recorded: a login whose record is not
-/// stored does not go on (IHE ITI TF-2 §3.20.4.1.1; our own design).
+/// stored does not go on (no specification governs this: our own design).
 async fn record_login(
     state: &AppState,
     answer: Result<audit::Person<'_>, &str>,
@@ -593,9 +593,21 @@ async fn record_login(
     };
     let provider = Url::parse(&upstream.issuer)
         .map_err(|error| Box::new(pages::server_error(state, &error)))?;
+    let (subject, client_id) = answer.ok().map_or((None, None), |person| {
+        (Some(person.subject), person.client_id)
+    });
+    let recorded = state
+        .audit()
+        .row(
+            &audit::login(&provider, answer),
+            "login",
+            subject,
+            client_id,
+        )
+        .map_err(|error| Box::new(pages::server_error(state, &error)))?;
     state
         .audit()
-        .record(&audit::login(&provider, answer))
+        .record(state.store(), &recorded)
         .await
         .map_err(|error| Box::new(pages::server_error(state, &error)))
 }

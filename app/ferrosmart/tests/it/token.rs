@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
+use base64::Engine as _;
 use ferrohealth_smart::client::assertion::AssertionKey;
 use ferrosmart::server::{AppState, router};
 use ferrosmart::store::Store;
@@ -18,13 +19,14 @@ use http_body_util::BodyExt as _;
 use jsonwebtoken::Algorithm;
 use jsonwebtoken::jwk::JwkSet;
 use serde_json::{Value, json};
+use sqlx::Connection as _;
 use tower::ServiceExt as _;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::support::{
-    AUDIT_FEED, CLIENT_ADDRESS, Database, Keys, RESOURCE, audit, config, ec_key, from_client,
-    records, rsa_key, spool,
+    CLIENT_ADDRESS, Database, Keys, RESOURCE, audit, config, ec_key, from_client, iua_71, records,
+    rsa_key,
 };
 
 /// The issuer every case configures.
@@ -43,7 +45,7 @@ struct Server {
     /// The client's key in PEM form.
     pem: Vec<u8>,
     /// The keys and the database, kept for the case's length.
-    keys: Keys,
+    _keys: Keys,
     /// The database.
     database: Option<Database>,
     /// The store.
@@ -54,24 +56,7 @@ impl Server {
     /// Starts a server whose client `export` registers its key by value
     /// (`jwks_uri` empty) or at `jwks_uri`.
     async fn start(jwks_uri: Option<&str>, algorithm: Algorithm) -> Self {
-        Self::start_with(jwks_uri, algorithm, None).await
-    }
-
-    /// Starts the server of [`Server::start`] whose audit spool holds at
-    /// most `max_records` records, when it names a limit.
-    async fn start_with(
-        jwks_uri: Option<&str>,
-        algorithm: Algorithm,
-        max_records: Option<usize>,
-    ) -> Self {
         let keys = Keys::new();
-        let audit_section = max_records.map_or_else(String::new, |max| {
-            format!(
-                "[ferrosmart.audit]\nspool_dir = {:?}\nmax_records = {max}\n\
-                 [ferrosmart.audit.feed]\nurl = {AUDIT_FEED:?}\n",
-                spool(&keys).display().to_string()
-            )
-        });
         let pem_path = if algorithm == Algorithm::ES384 {
             ec_key(keys.dir.path(), "client.pem")
         } else {
@@ -91,9 +76,9 @@ impl Server {
         );
         let database = Database::create().await;
         let text = format!(
-            "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n{audit_section}\
+            "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
              [[ferrosmart.client]]\nclient_id = \"export\"\nkind = \"confidential_asymmetric\"\n{registration}\n\
-             scopes = [\"system/Patient.rs\", \"system/Observation.rs\"]\ngrant_types = [\"client_credentials\"]\n\
+             scopes = [\"system/Patient.rs\", \"system/Observation.rs\", \"system/AuditEvent.rs\"]\ngrant_types = [\"client_credentials\"]\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\
              redirect_uris = [\"https://app.example.org/callback\"]\ngrant_types = [\"authorization_code\"]",
             secrecy::ExposeSecret::expose_secret(&database.url)
@@ -110,7 +95,7 @@ impl Server {
             app,
             key,
             pem,
-            keys,
+            _keys: keys,
             database: Some(database),
             store,
         }
@@ -136,6 +121,26 @@ impl Server {
             .header(header::CONTENT_TYPE, content_type)
             .body(Body::from(body))
             .expect("a request");
+        self.send(request).await
+    }
+
+    /// Reads the audit records `query` names, with `token` as the bearer.
+    async fn read_audit(
+        &self,
+        query: &str,
+        token: Option<&str>,
+    ) -> (StatusCode, http::HeaderMap, Value) {
+        let mut request = Request::get(format!("/audit?{query}"));
+        if let Some(token) = token {
+            request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        self.send(request.body(Body::empty()).expect("a request"))
+            .await
+    }
+
+    /// Sends `request` from the test client and returns the status, the
+    /// headers and the JSON body.
+    async fn send(&self, request: Request<Body>) -> (StatusCode, http::HeaderMap, Value) {
         let response = self
             .app
             .clone()
@@ -512,17 +517,8 @@ async fn a_jwk_set_url_is_read_and_cached_as_the_client_allows() {
     jwks.verify().await;
 }
 
-/// Returns the agent of `record` whose network address is `address`.
-fn agent_at<'a>(record: &'a Value, address: &str) -> Option<&'a Value> {
-    record["agent"].as_array().and_then(|agents| {
-        agents
-            .iter()
-            .find(|agent| agent.pointer("/network/address") == Some(&json!(address)))
-    })
-}
-
 #[tokio::test]
-async fn each_token_request_is_recorded_as_iti_71_naming_no_secret() {
+async fn each_token_request_is_recorded_as_iua_71_naming_no_secret() {
     let server = Server::start(None, Algorithm::ES384).await;
     let assertion = server.assertion("JWT", &valid_claims());
     let (status, _, body) = server
@@ -530,53 +526,65 @@ async fn each_token_request_is_recorded_as_iti_71_naming_no_secret() {
         .await;
     assert_eq!(StatusCode::OK, status, "{body}");
     let token = body["access_token"].as_str().expect("a token").to_owned();
-    let claims: Value = jsonwebtoken::dangerous::insecure_decode_claims(&token).expect("claims");
     let replayed = server
         .post(&form(&assertion, "system/Observation.rs"))
         .await;
     let error = refused(&replayed);
 
-    let stored = records(&spool(&server.keys));
+    let stored = records(&server.store).await;
     assert_eq!(2, stored.len(), "one record per request");
+    for record in &stored {
+        // NOTE: BALP 1.1.4 IHE.IUA.71, the form of every ITI-71 record.
+        iua_71(record).expect("the record holds to IHE.IUA.71");
+        let text = record.to_string();
+        assert!(!text.contains(&token), "no token in a record");
+        let query = record["entity"][0]["query"].as_str().expect("a query");
+        let raw = String::from_utf8(
+            base64::engine::general_purpose::STANDARD
+                .decode(query)
+                .expect("base64"),
+        )
+        .expect("text");
+        assert!(raw.starts_with("POST /token HTTP/1.1"), "{raw}");
+        assert!(raw.contains("grant_type=client_credentials"), "{raw}");
+        assert!(
+            raw.contains("client_assertion=&") || raw.ends_with("client_assertion="),
+            "{raw}"
+        );
+        assert!(!raw.contains(&assertion), "no assertion in a record");
+    }
     let issued = stored.first().expect("the issue");
-    // NOTE: IHE IUA, ITI TF-2 3.71.5.1, the ITI-71 audit event.
-    assert_eq!(json!("AuditEvent"), issued["resourceType"]);
-    assert_eq!(json!("110114"), issued["type"]["code"]);
-    assert_eq!(json!("ITI-71"), issued["subtype"][0]["code"]);
-    assert_eq!(json!("E"), issued["action"]);
     assert_eq!(json!("0"), issued["outcome"]);
-    let client = agent_at(issued, CLIENT_ADDRESS).expect("the client is the source");
-    assert_eq!(json!("export"), client["who"]["display"]);
+    let client = issued["agent"]
+        .as_array()
+        .and_then(|agents| {
+            agents
+                .iter()
+                .find(|agent| agent["network"]["address"] == json!(CLIENT_ADDRESS))
+        })
+        .expect("the client is an agent at its address");
     assert_eq!(json!("110150"), client["type"]["coding"][0]["code"]);
-    let entity = &issued["entity"][0];
-    assert_eq!(json!("13"), entity["role"]["code"], "a security resource");
-    assert_eq!(claims["jti"], entity["what"]["identifier"]["value"]);
-    let details = entity["detail"].to_string();
-    assert!(
-        details.contains("system/Observation.rs") && details.contains(RESOURCE),
-        "{details}"
-    );
-
     let refusal = stored.get(1).expect("the refusal");
     assert_eq!(json!("4"), refusal["outcome"]);
     assert_eq!(json!(error), refusal["outcomeDesc"]);
-    assert_eq!(Value::Null, refusal["entity"], "a refusal names no token");
-    for record in &stored {
-        let text = record.to_string();
-        assert!(!text.contains(&token), "no token in a record");
-        assert!(!text.contains(&assertion), "no assertion in a record");
-    }
     server.stop().await;
 }
 
 #[tokio::test]
-async fn a_token_request_that_cannot_be_recorded_gets_no_token() {
-    let server = Server::start_with(None, Algorithm::ES384, Some(1)).await;
-    let first = server.assertion("JWT", &valid_claims());
-    let (status, _, _) = server.post(&form(&first, "system/Observation.rs")).await;
-    assert_eq!(StatusCode::OK, status, "the spool holds one record");
-    let second = server.assertion("JWT", &valid_claims());
-    let (status, headers, body) = server.post(&form(&second, "system/Observation.rs")).await;
+async fn a_token_whose_record_cannot_be_stored_is_neither_kept_nor_answered() {
+    let server = Server::start(None, Algorithm::ES384).await;
+    let url =
+        secrecy::ExposeSecret::expose_secret(&server.database.as_ref().expect("a database").url)
+            .to_owned();
+    let mut connection = sqlx::PgConnection::connect(&url).await.expect("connects");
+    sqlx::query("ALTER TABLE audit_record RENAME TO audit_record_gone")
+        .execute(&mut connection)
+        .await
+        .expect("the table moves");
+    let assertion = server.assertion("JWT", &valid_claims());
+    let (status, headers, body) = server
+        .post(&form(&assertion, "system/Observation.rs"))
+        .await;
     assert_eq!(StatusCode::SERVICE_UNAVAILABLE, status, "{body}");
     assert_eq!(Value::Null, body, "no token");
     assert_eq!(
@@ -585,10 +593,75 @@ async fn a_token_request_that_cannot_be_recorded_gets_no_token() {
             .get(header::CACHE_CONTROL)
             .and_then(|v| v.to_str().ok())
     );
-    assert_eq!(
-        1,
-        records(&spool(&server.keys)).len(),
-        "the full spool keeps one record"
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM access_token")
+        .fetch_one(&mut connection)
+        .await
+        .expect("counts");
+    assert_eq!(0, kept, "the token rolled back with its record");
+    sqlx::query("ALTER TABLE audit_record_gone RENAME TO audit_record")
+        .execute(&mut connection)
+        .await
+        .expect("the table returns");
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn an_operator_reads_the_records_with_its_own_token_by_time() {
+    let server = Server::start(None, Algorithm::ES384).await;
+    let assertion = server.assertion("JWT", &valid_claims());
+    let mut asked = form(&assertion, "system/AuditEvent.rs");
+    asked.push(("resource", ISSUER));
+    let (status, _, body) = server.post(&asked).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let token = body["access_token"].as_str().expect("a token").to_owned();
+
+    let (status, headers, _) = server.read_audit("", None).await;
+    // NOTE: RFC 6750 §3, a request with no token is challenged.
+    assert_eq!(StatusCode::UNAUTHORIZED, status);
+    assert!(
+        headers.contains_key(header::WWW_AUTHENTICATE),
+        "a challenge"
     );
+    let other = server.assertion("JWT", &valid_claims());
+    let mut narrow = form(&other, "system/Observation.rs");
+    narrow.push(("resource", ISSUER));
+    let (_, _, body) = server.post(&narrow).await;
+    let narrow = body["access_token"].as_str().expect("a token").to_owned();
+    let (status, _, _) = server.read_audit("", Some(&narrow)).await;
+    assert_eq!(
+        StatusCode::FORBIDDEN,
+        status,
+        "RFC 6750 §3.1, insufficient_scope"
+    );
+
+    let (status, headers, bundle) = server.read_audit("_count=10", Some(&token)).await;
+    assert_eq!(StatusCode::OK, status, "{bundle}");
+    assert_eq!(
+        Some("application/fhir+json"),
+        headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+    );
+    assert_eq!(json!("searchset"), bundle["type"]);
+    let entries = bundle["entry"].as_array().expect("entries");
+    assert_eq!(2, entries.len(), "both token requests");
+    assert_eq!(json!("AuditEvent"), entries[0]["resource"]["resourceType"]);
+    let (_, _, later) = server
+        .read_audit("since=2999-01-01T00:00:00Z", Some(&token))
+        .await;
+    assert_eq!(
+        Some(0),
+        later["entry"].as_array().map(Vec::len),
+        "none after the since"
+    );
+    for bad in [
+        "_count=0",
+        "since=yesterday",
+        "other=1",
+        "_count=1&_count=2",
+    ] {
+        let (status, _, _) = server.read_audit(bad, Some(&token)).await;
+        assert_eq!(StatusCode::BAD_REQUEST, status, "{bad}");
+    }
     server.stop().await;
 }

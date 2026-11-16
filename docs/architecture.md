@@ -2512,19 +2512,30 @@ discovery and token shapes for the two SaaS providers.
   contexts and consents live in PostgreSQL, so any replica answers any
   request; signing keys rotate, with a KMS or HSM as an option.
 - **Its own audit.** Every login and every token request is an audit
-  record, written as a FHIR R4 `AuditEvent` through `ihe-atna`, stored in a
-  spool and sent over the ITI-20 ATX: FHIR Feed (#534). A token request is
-  the authorization server's ITI-71 event (`iua` ITI TF-2 3.71.5.1:
-  `110114` User Authentication, EventTypeCode `ITI-71` User Authorization,
-  the client as the source application, the token as a security resource
-  named by its `jti`); a login at the upstream provider is a DICOM User
-  Authentication event of type `110122` Login (DICOM PS3.15 A.5.3.12). The
-  `AuditEvent` rendering of both DICOM events is our own design. A step
-  whose record cannot be stored does not happen: the token endpoint answers
-  `503` with no token, and a login goes no further. Neither event is an
-  access to personal electronic health data, so neither is an access record
-  of Regulation (EU) 2025/327 Annex II 3.2; the patient picker (#516), which
-  reads Patient resources, writes that record through `ehds-logging`.
+  record, a FHIR R4 `AuditEvent` written through `ihe-atna` into
+  FerroSMART's own PostgreSQL store (#534). A token request is the ITI-71
+  audit event in the form of BALP 1.1.4's profile `IHE.IUA.71`: type
+  `110114`, subtype `ITI-71`, the client (`110150`) and the authorization
+  server (`AuthzOauthService`) as agents, the person as `agent:user` when
+  one logged in, and the one `token-request` entity holding the HTTP
+  request with the values of `code_verifier`, `code`, `refresh_token`,
+  `client_secret` and `client_assertion` left out. A login at the upstream
+  provider is a DICOM User Authentication event of type `110122` Login
+  (DICOM PS3.15 A.5.3.12), whose `AuditEvent` form is our own design. An
+  issued token and its record commit in one transaction; a refusal or a
+  login commits its record alone, and a request whose record cannot be
+  committed fails: the token endpoint answers `503` with no token. With
+  `[ferrosmart.audit.feed]` the store is the outbox the `ihe-atna`
+  forwarder delivers from to an Audit Record Repository over the ITI-20
+  ATX: FHIR Feed; a record the repository refuses is kept and stamped for
+  an operator. `GET {issuer}/audit` reads the records by `subject`,
+  `since` and `until` as a FHIR `searchset` Bundle, with a bearer token
+  FerroSMART issued for its own issuer with `system/AuditEvent.rs`
+  (Regulation (EU) 2025/327 Art 9 has the logs accessible; the parameters
+  are our own design). Neither event is an access to personal electronic
+  health data, so neither is an access record of Annex II 3.2; the patient
+  picker (#516), which reads Patient resources, writes that record through
+  `ehds-logging`.
 - **The family stack.** It is built on `ferrohealth-server`,
   `ferrohealth-telemetry`, `ferrohealth-config` and `ferrohealth-health`,
   and reuses `ferrohealth-smart` (the scope grammar, token and assertion
@@ -2983,15 +2994,11 @@ name = "Example Hospital"                     # the name the pages carry
 smart_style_url = "https://ehr.example.org/smart-style.json"  # an app's token response carries it
 consent_text = "We log every access in your record's audit trail."  # the deployment's own words
 
-[ferrosmart.audit]                             # every login and token request (13.2)
-spool_dir = "/var/spool/ferrosmart/audit"      # records wait here until the repository takes them
-max_records = 10000
-max_bytes = 67108864
-write_timeout = "2s"
+[ferrosmart.audit]                             # every login and token request (13.2), kept in the store
 source_id = "smart.example.org"               # AuditEvent.source.observer; empty: the issuer's host
 site = "Example Hospital"
 
-[ferrosmart.audit.feed]                        # the Audit Record Repository, ITI-20 ATX: FHIR Feed
+[ferrosmart.audit.feed]                        # optional: forward to an Audit Record Repository, ITI-20 ATX: FHIR Feed
 url = "https://audit.example.org/fhir"         # https only: a record names people
 credentials = { user = "ferrosmart", password_file = "/run/secrets/audit-password" }   # or [ferrosmart.audit.feed.credentials.oauth]
 ```

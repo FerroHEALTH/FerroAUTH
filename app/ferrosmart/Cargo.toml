@@ -24,6 +24,8 @@ path = "src/main.rs"
 
 [dependencies]
 axum = { workspace = true, features = ["tokio", "http1", "json"] }
+# The audit outbox the ihe-atna forwarder delivers from.
+async-trait.workspace = true
 clap.workspace = true
 # The configuration loader, the duration type and the `_file` secrets the
 # family shares.

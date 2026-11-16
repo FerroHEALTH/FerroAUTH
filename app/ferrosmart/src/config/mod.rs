@@ -39,9 +39,6 @@
 //! scopes = ["system/Patient.rs", "system/Observation.rs"]
 //! grant_types = ["client_credentials"]
 //!
-//! [ferrosmart.audit]
-//! spool_dir = "/var/spool/ferrosmart/audit"
-//!
 //! [ferrosmart.audit.feed]
 //! url = "https://audit.example.org/fhir"
 //! ```
@@ -170,21 +167,12 @@ impl Default for BrandingSection {
     }
 }
 
-/// `[ferrosmart.audit]`: the spool the audit records wait in and the Audit
-/// Record Repository they go to over the ITI-20 ATX: FHIR Feed. No
-/// specification governs the section's shape: our own design.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+/// `[ferrosmart.audit]`: how FerroSMART names itself in its audit records,
+/// and the Audit Record Repository it forwards them to. No specification
+/// governs the section's shape: our own design.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuditSection {
-    /// The directory records are stored in until the repository takes them;
-    /// required.
-    pub spool_dir: Option<PathBuf>,
-    /// The most records the spool holds at once.
-    pub max_records: usize,
-    /// The most bytes the spool holds at once.
-    pub max_bytes: u64,
-    /// The longest storing one record may take.
-    pub write_timeout: Span,
     /// How FerroSMART names itself as the recording system
     /// (`AuditEvent.source.observer`); empty takes the issuer's host.
     pub source_id: String,
@@ -192,24 +180,11 @@ pub struct AuditSection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub site: Option<String>,
     /// `[ferrosmart.audit.feed]`: the repository's FHIR base, an `https`
-    /// URL records are created under as `[base]/AuditEvent`, with its
-    /// timeouts, TLS and credentials; required.
+    /// URL the records are created under as `[base]/AuditEvent`, with its
+    /// timeouts, TLS and credentials; without it the records stay in
+    /// FerroSMART's own store alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub feed: Option<ferrohealth_smart::config::endpoint::EndpointSection>,
-}
-
-impl Default for AuditSection {
-    fn default() -> Self {
-        Self {
-            spool_dir: None,
-            max_records: 10_000,
-            max_bytes: 64 << 20,
-            write_timeout: Span::from_secs(2),
-            source_id: String::new(),
-            site: None,
-            feed: None,
-        }
-    }
 }
 
 /// One `[[ferrosmart.role]]` table.

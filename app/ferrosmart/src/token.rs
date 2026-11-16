@@ -90,10 +90,10 @@ impl IntoResponse for Refusal {
 
 /// `POST {issuer}/token`.
 ///
-/// Each request is recorded before its answer is returned, and a request
-/// whose record could not be stored is answered `503` with no token: the
-/// record is part of the transaction (IHE IUA, ITI TF-2 3.71.5.1; no
-/// specification governs the refusal: our own design).
+/// Each request is recorded before its answer is returned: an issued token
+/// and its record commit in one transaction, and a request whose record
+/// could not be stored is answered `503` with no token (no specification
+/// governs the refusal: our own design).
 pub async fn token(
     State(state): State<Arc<AppState>>,
     client: Option<Extension<ClientAddress>>,
@@ -104,13 +104,6 @@ pub async fn token(
         tracing::error!("a token request came over no connection, so it cannot be recorded");
         return unrecorded();
     };
-    let place = match state.audit().reserve() {
-        Ok(place) => place,
-        Err(error) => {
-            tracing::error!(error = %ferrohealth_server::run::chain(&error), "a token request has no place in the audit spool");
-            return unrecorded();
-        }
-    };
     let answer = issue(&state, &headers, &body).await;
     // NOTE: a form that cannot be read names no client; the record then says so.
     let form = Params::parse(&body, &[]).ok();
@@ -119,29 +112,61 @@ pub async fn token(
         client_id: form.as_ref().and_then(|form| form.get("client_id")),
         from,
         endpoint: &endpoint,
+        content_type: headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        body: &body,
     };
-    let our_issuer = state.settings().issuer.as_str();
-    let recorded = match &answer {
-        Ok(issued) => audit::token_request(
-            request,
-            Ok(audit::Token {
-                issuer: our_issuer,
-                jti: &issued.jti,
-                client_id: &issued.client_id,
-                audience: &issued.audience,
-                scope: &issued.response.scope,
-                subject: issued.person.as_deref(),
-            }),
-        ),
-        Err(refusal) => audit::token_request(request, Err(refusal.error)),
-    };
-    if let Err(error) = place.record(&recorded).await {
+    let committed = commit(&state, &answer, &request).await;
+    if let Err(error) = committed {
         tracing::error!(error = %ferrohealth_server::run::chain(&error), "a token request could not be recorded");
         return unrecorded();
     }
     match answer {
         Ok(issued) => no_store(Json(issued.response).into_response()),
         Err(refusal) => refusal.into_response(),
+    }
+}
+
+/// Commits the record of `request` answered `answer`: an issued token
+/// together with its record, a refusal's record alone.
+async fn commit(
+    state: &AppState,
+    answer: &Result<Issued, Refusal>,
+    request: &audit::TokenRequest<'_>,
+) -> Result<(), audit::RecordFailure> {
+    let lane = state.audit();
+    match answer {
+        Ok(issued) => {
+            let exchange = audit::token_request(
+                request,
+                Ok(audit::Token {
+                    issuer: &state.settings().issuer,
+                    jti: &issued.jti,
+                    client_id: &issued.client_id,
+                    audience: &issued.audience,
+                    subject: issued.person.as_deref(),
+                }),
+            );
+            let row = lane.row(
+                &exchange,
+                "token",
+                issued.person.as_deref(),
+                Some(&issued.client_id),
+            )?;
+            state
+                .store()
+                .record_token_audited(&issued.record(), &row)
+                .await
+                .map_err(audit::RecordFailure::Store)?;
+            lane.committed();
+            Ok(())
+        }
+        Err(refusal) => {
+            let exchange = audit::token_request(request, Err(refusal.error));
+            let row = lane.row(&exchange, "token", None, request.client_id)?;
+            lane.record(state.store(), &row).await
+        }
     }
 }
 
@@ -198,6 +223,31 @@ struct Issued {
     audience: String,
     /// The person the token was issued for, when one logged in.
     person: Option<String>,
+    /// The token's `sub`.
+    subject: String,
+    /// Its `iat`.
+    iat: i64,
+    /// Its `exp`.
+    exp: i64,
+    /// The SHA-256 of the code it answers, if any.
+    code_hash: Option<String>,
+}
+
+impl Issued {
+    /// Returns the access token as the store records it.
+    fn record(&self) -> IssuedToken<'_> {
+        IssuedToken {
+            jti: &self.jti,
+            client_id: &self.client_id,
+            subject: &self.subject,
+            audience: &self.audience,
+            scope: &self.response.scope,
+            issued_at: self.iat,
+            expires_at: self.exp,
+            code_hash: self.code_hash.as_deref(),
+            grant_id: None,
+        }
+    }
 }
 
 /// Answers the token request `body`.
@@ -259,7 +309,6 @@ async fn client_credentials(state: &AppState, form: &Params) -> Result<Issued, R
             launch: false,
         },
     )
-    .await
 }
 
 /// The authorization code grant (RFC 6749 §4.1.3; SMART App Launch 2.2.0,
@@ -359,7 +408,6 @@ async fn authorization_code(state: &AppState, form: &Params) -> Result<Issued, R
             launch: true,
         },
     )
-    .await
 }
 
 /// Returns the scope the client is granted: each requested scope its
@@ -636,7 +684,7 @@ struct Grant<'a> {
 /// `sub` (RFC 9068 §5); a person's `sub` is pairwise per upstream issuer
 /// (13.6 item 9). The person's `fhirUser` rides in the access token beside
 /// the RFC 9068 set (13.6 item 2).
-async fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Issued, Refusal> {
+fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Issued, Refusal> {
     let settings = state.settings();
     let lifetime = settings.access_token_lifetime.as_secs();
     let issued_at = jiff::Timestamp::now().as_second();
@@ -683,21 +731,6 @@ async fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Iss
         }
         None => None,
     };
-    state
-        .store()
-        .record_token(&IssuedToken {
-            jti: &jti,
-            client_id: &client.client_id,
-            subject: grant.subject,
-            audience: grant.audience,
-            scope: grant.scope,
-            issued_at,
-            expires_at,
-            code_hash: grant.code_hash,
-            grant_id: None,
-        })
-        .await
-        .map_err(|error| server_error("the access token could not be recorded", &error))?;
     Ok(Issued {
         response: TokenResponse {
             access_token,
@@ -714,6 +747,10 @@ async fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Iss
         jti,
         audience: grant.audience.to_owned(),
         person: grant.launch.then(|| grant.subject.to_owned()),
+        subject: grant.subject.to_owned(),
+        iat: issued_at,
+        exp: expires_at,
+        code_hash: grant.code_hash.map(str::to_owned),
     })
 }
 

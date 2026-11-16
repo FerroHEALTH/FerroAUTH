@@ -81,7 +81,7 @@ pub async fn introspect(
 
 /// Why an introspection request is refused.
 #[derive(Debug)]
-enum Refused {
+pub(crate) enum Refused {
     /// The bearer token is not one that may introspect: "the authorization
     /// server responds with an HTTP 401 code as described in Section 3 of
     /// OAuth 2.0 Bearer Token Usage" (RFC 7662 §2.3).
@@ -150,15 +150,8 @@ async fn answer(
 /// Returns the `client_id` of the caller, once it holds the right to
 /// introspect.
 async fn caller(state: &AppState, headers: &HeaderMap, form: &Params) -> Result<String, Refused> {
-    if let Some(authorization) = headers.get(header::AUTHORIZATION) {
-        let token = authorization
-            .to_str()
-            .ok()
-            .and_then(|value| value.split_once(' '))
-            .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
-            .map(|(_, token)| token.trim())
-            .ok_or(Refused::Bearer("invalid_request"))?;
-        return bearer(state, token).await;
+    if let Some(token) = presented(headers)? {
+        return bearer(state, token, INTROSPECT_SCOPE).await;
     }
     let client = authenticate(state, form).await.map_err(Refused::Client)?;
     if !client.scopes.iter().any(|scope| scope == INTROSPECT_SCOPE) {
@@ -170,11 +163,27 @@ async fn caller(state: &AppState, headers: &HeaderMap, form: &Params) -> Result<
     Ok(client.client_id)
 }
 
+/// Returns the bearer token the `Authorization` header presents (RFC 6750
+/// §2.1), or none when the request has no such header.
+pub(crate) fn presented(headers: &HeaderMap) -> Result<Option<&str>, Refused> {
+    headers
+        .get(header::AUTHORIZATION)
+        .map(|authorization| {
+            authorization
+                .to_str()
+                .ok()
+                .and_then(|value| value.split_once(' '))
+                .filter(|(scheme, _)| scheme.eq_ignore_ascii_case("bearer"))
+                .map(|(_, token)| token.trim())
+                .ok_or(Refused::Bearer("invalid_request"))
+        })
+        .transpose()
+}
+
 /// Returns the client of the bearer token `token` when it is an active
-/// access token FerroSMART issued for its own issuer with
-/// [`INTROSPECT_SCOPE`] (RFC 9068 §4: the `aud` names the resource server
-/// that checks it).
-async fn bearer(state: &AppState, token: &str) -> Result<String, Refused> {
+/// access token FerroSMART issued for its own issuer with `scope` (RFC 9068
+/// §4: the `aud` names the resource server that checks it).
+pub(crate) async fn bearer(state: &AppState, token: &str, scope: &str) -> Result<String, Refused> {
     let Some(jti) = own_access_token(state, token) else {
         return Err(Refused::Bearer("invalid_token"));
     };
@@ -188,11 +197,7 @@ async fn bearer(state: &AppState, token: &str) -> Result<String, Refused> {
     if record.audience != state.settings().issuer {
         return Err(Refused::Bearer("invalid_token"));
     }
-    if !record
-        .scope
-        .split(' ')
-        .any(|scope| scope == INTROSPECT_SCOPE)
-    {
+    if !record.scope.split(' ').any(|granted| granted == scope) {
         return Err(Refused::Bearer("insufficient_scope"));
     }
     Ok(record.client_id)
