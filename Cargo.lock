@@ -1202,6 +1202,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "ferrosmart"
+version = "0.1.0"
+dependencies = [
+ "aws-lc-rs",
+ "axum",
+ "base64 0.23.1",
+ "clap",
+ "ferrohealth-config",
+ "ferrohealth-health",
+ "ferrohealth-secret",
+ "ferrohealth-server",
+ "ferrohealth-smart",
+ "ferrohealth-telemetry",
+ "http",
+ "http-body-util",
+ "jsonwebtoken",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "tokio",
+ "tower",
+ "tracing",
+ "url",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"

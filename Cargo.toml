@@ -3,7 +3,7 @@
 
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+members = ["crates/*", "app/*"]
 
 [workspace.package]
 version = "0.28.0"
@@ -66,6 +66,12 @@ axum = { version = "0.8.9", default-features = false }
 # assertion and the HMAC that names a cached Basic credential, from the
 # crypto provider jsonwebtoken already links.
 aws-lc-rs = { version = "1.18.2", default-features = false, features = ["aws-lc-sys"] }
+# FerroSMART, the authorization server under app/ferrosmart: the run path,
+# the console log and the health routes the family's servers share, and the
+# command line. Verified against crates.io on 2026-11-16.
+ferrohealth-telemetry = { version = "0.5.0", default-features = false }
+ferrohealth-health = { version = "0.1.1", default-features = false }
+clap = { version = "4.6.7", features = ["derive"] }
 # Test-only: the stub authorization server, the body reader of the
 # framework tests, and the JSON formatter the audit line is read back through.
 wiremock = "0.6.5"
