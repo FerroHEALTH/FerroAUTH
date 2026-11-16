@@ -2538,8 +2538,33 @@ discovery and token shapes for the two SaaS providers.
   `since` and `until` as a FHIR `searchset` Bundle, with a bearer token
   FerroSMART issued for its own issuer with `system/AuditEvent.rs`
   (Regulation (EU) 2025/327 Art 9 has the logs accessible; the parameters
-  are our own design). Neither event is an access to personal electronic
-  health data, so neither is an access record of Annex II 3.2; the patient
+  are our own design).
+
+  The other writes FerroSMART makes for a person or a client each commit
+  with a record of their own in one transaction, through the store's
+  `Transaction`, whose commit refuses a write with no record (#554). An
+  upstream session ended by a back-channel logout is DICOM User
+  Authentication with `110123` Logout (DICOM PS3.15 A.5.3.12). The rest
+  have no IHE or BALP pattern (BALP's `IHE.BasicAudit.AuthZconsent` needs
+  a patient and the requesting organisation, which an app's authorization
+  consent does not have), so their form is our own design: DICOM `110114`
+  User Authentication or `110113` Security Alert, with a subtype from
+  FerroSMART's code system `urn:ferrosmart:audit-event`:
+
+  | Write | `type` | subtypes | `action` |
+  |---|---|---|---|
+  | a code issued | `110114` | `authorization-code` | `C` |
+  | a consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
+  | a consent withdrawn, with what it covered | `110113` | `110137`, `consent-withdrawn` | `D` |
+  | an access token revoked (RFC 7009) | `110113` | `token-revoked` | `D` |
+  | a grant revoked by its refresh token (RFC 7009 §2.1) | `110113` | `grant-revoked` | `D` |
+  | a refresh token rotated | `110114` | `refresh-rotated` | `E` |
+  | a rotated refresh token reused, its grant revoked | `110113` | `refresh-reused` | `E` |
+  | a code redeemed again, its tokens revoked | `110113` | `code-reused` | `E` |
+  | an upstream session ended | `110114` | `110123` Logout, `session-ended` | `E` |
+
+  None of these events is an access to personal electronic health data,
+  so none is an access record of Annex II 3.2; the patient
   picker (#516), which reads Patient resources, writes that record through
   `ehds-logging`.
 - **The family stack.** It is built on `ferrohealth-server`,
@@ -2615,7 +2640,7 @@ publisher of a Brand Bundle, which FerroSMART is not, and the
 | `authorization_response_iss_parameter_supported` is `true` and every authorization response carries `iss` | MUST (when advertised) | `rfc9207 §2`, `§3` | 3 |
 | Each listed capability is supported: `launch-ehr`, `launch-standalone`, `authorize-post`, `client-public`, `client-confidential-symmetric`, `client-confidential-asymmetric`, `sso-openid-connect`, `context-banner`, `context-style`, `context-ehr-patient`, `context-ehr-encounter`, `context-standalone-patient`, `context-standalone-encounter`, `permission-offline`, `permission-online`, `permission-patient`, `permission-user`, `permission-v1`, `permission-v2` | SHALL (per listed capability) | `smart conformance`, Capabilities | 2 to 6 |
 | The four capability sets (patient and clinician, standalone and EHR launch) | SHOULD support one or more | `smart conformance`, Capability Sets | 3, 5 |
-| CORS on the discovery documents for any origin, and on the token endpoint for a client's registered origins | SHALL (browser apps) | `smart app-launch`, Considerations for CORS support; `rfc7009 §2.3` | 2, 3 |
+| CORS on the discovery documents for any origin, and on the token endpoint for a client's registered origins | SHALL (browser apps) | `smart app-launch`, Considerations for CORS support; `rfc7009 §2.3` | 2, 3 (13.6 item 12) |
 
 **Client registration and authentication**
 
@@ -2957,6 +2982,15 @@ specification governs.
     issued under, with the launch context and the upstream session the
     person logged in under; withdrawing a remembered consent revokes the
     grants it covered with every token under them.
+12. **A client's registered origins.** `smart app-launch`, Considerations
+    for CORS support, has the token endpoint readable "for requests from a
+    client's registered origin(s)" and says nothing of how an origin is
+    registered. A client's registered origins are the origins (`rfc6454
+    §4`) of its registered redirect URIs, where a browser app receives its
+    code. A token response to a request whose `Origin` is one of them
+    carries `Access-Control-Allow-Origin` with it and `Vary: Origin`; any
+    other origin, `null` included, gets no CORS header. Our own design
+    (#560).
 
 ### 13.7 The crate layout
 

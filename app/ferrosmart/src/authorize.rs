@@ -11,6 +11,7 @@
 //! consent page's post issues the code and sends the browser back to the
 //! app. A cookie of FerroSMART's own binds the three to one browser.
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use axum::body::Bytes;
@@ -22,7 +23,7 @@ use ferrohealth_smart::oidc::{Callback, PendingSignIn};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use url::Url;
 
-use crate::audit;
+use crate::audit::{self, Connected};
 use crate::clients::{Client, GrantType};
 use crate::form::Params;
 use crate::launch::Unresolved;
@@ -245,6 +246,7 @@ async fn begin(
 /// back.
 pub async fn callback(
     State(state): State<Arc<AppState>>,
+    Connected(from): Connected,
     headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> Response {
@@ -305,7 +307,7 @@ pub async fn callback(
             });
         }
     };
-    proceed(&state, &pending, &back, &signed_in.claims).await
+    proceed(&state, &pending, &back, &signed_in.claims, from).await
 }
 
 /// Goes on once the person logged in as `claims` for `pending`: to the
@@ -316,6 +318,7 @@ async fn proceed(
     pending: &Pending,
     back: &Back,
     claims: &ferrohealth_smart::oidc::IdTokenClaims,
+    from: IpAddr,
 ) -> Response {
     let Some(upstream) = &state.settings().upstream else {
         return pages::fault(state, Fault::BadRequest);
@@ -401,7 +404,7 @@ async fn proceed(
             Err(response) => return *response,
         };
         let offered: Vec<&str> = offered.iter().map(String::as_str).collect();
-        let mut response = approve(state, &pending, &offered, false, back).await;
+        let mut response = approve(state, &pending, &offered, false, back, from).await;
         set_cookie(state, &mut response, "", 0);
         return response;
     }
@@ -530,6 +533,7 @@ pub async fn consent_get(State(state): State<Arc<AppState>>, headers: HeaderMap)
 /// `POST {issuer}/consent`: the person's decision.
 pub async fn consent_post(
     State(state): State<Arc<AppState>>,
+    Connected(from): Connected,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -552,7 +556,7 @@ pub async fn consent_post(
     let back = Back::of(&state, &pending);
     let mut response = if form.get("decision") == Some("approve") {
         let remember = form.get("remember") == Some("yes");
-        approve(&state, &pending, &form.all("scope"), remember, &back).await
+        approve(&state, &pending, &form.all("scope"), remember, &back, from).await
     } else {
         tracing::info!(
             target: "ferrosmart::audit",
@@ -577,6 +581,7 @@ async fn approve(
     selected: &[&str],
     remember: bool,
     back: &Back,
+    from: IpAddr,
 ) -> Response {
     let offered = pending.offered_scope.as_deref().unwrap_or_default();
     let mut granted: Vec<&str> = offered
@@ -627,29 +632,69 @@ async fn approve(
         launch_context: launch_context.cloned(),
         upstream_session: pending.upstream_session.clone(),
     };
-    if let Err(error) = state.store().issue_code(&hash, &grant).await {
+    if let Err(error) = issue_code(state, &hash, &grant, remember, from).await {
         tracing::error!(error = %ferrohealth_server::run::chain(&error), "the code could not be stored");
         return back.deny(Denial {
             error: "server_error",
             description: "the code could not be stored",
         });
     }
-    if remember
-        && let Err(error) = state
-            .store()
-            .remember(subject, client_id, &grant.scope)
-            .await
-    {
-        tracing::error!(error = %ferrohealth_server::run::chain(&error), "the consent could not be remembered");
-    }
-    tracing::info!(
-        target: "ferrosmart::audit",
-        event = "authorization.granted",
-        client_id = %client_id,
-        scope = %grant.scope,
-        "an authorization code was issued"
-    );
     back.grant(&code)
+}
+
+/// Stores the code `grant` under `hash`, and the person's consent when
+/// they chose to `remember` it, each with its record in one transaction.
+async fn issue_code(
+    state: &AppState,
+    hash: &str,
+    grant: &Code,
+    remember: bool,
+    from: IpAddr,
+) -> Result<(), audit::RecordFailure> {
+    let endpoint = state.settings().endpoint_url(CONSENT_ROUTE);
+    let happening = |event, details| audit::Happening {
+        event,
+        issuer: &state.settings().issuer,
+        client_id: Some(&grant.client_id),
+        subject: Some(&grant.subject),
+        from,
+        endpoint: &endpoint,
+        details,
+    };
+    let lane = state.audit();
+    let mut tx = state
+        .store()
+        .begin()
+        .await
+        .map_err(audit::RecordFailure::Store)?;
+    tx.issue_code(hash, grant)
+        .await
+        .map_err(audit::RecordFailure::Store)?;
+    if remember {
+        tx.remember(&grant.subject, &grant.client_id, &grant.scope)
+            .await
+            .map_err(audit::RecordFailure::Store)?;
+        let remembered = audit::happened(&happening(
+            audit::Event::ConsentRemembered,
+            vec![("scope", grant.scope.clone())],
+        ));
+        tx.record(&lane.row(
+            &remembered,
+            audit::Event::ConsentRemembered.code(),
+            Some(&grant.subject),
+            Some(&grant.client_id),
+        )?)
+        .await
+        .map_err(audit::RecordFailure::Store)?;
+    }
+    lane.commit_happening(
+        tx,
+        &happening(
+            audit::Event::CodeIssued,
+            vec![("scope", grant.scope.clone())],
+        ),
+    )
+    .await
 }
 
 /// Records the login `answer` at the upstream provider, or returns the page
@@ -904,6 +949,7 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
 pub async fn manage_post(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Connected(from): Connected,
     body: Bytes,
 ) -> Response {
     let Ok(form) = Params::parse(&body, &[]) else {
@@ -924,13 +970,45 @@ pub async fn manage_post(
     if !constant_eq(sent.as_bytes(), pending.form_token.as_bytes()) {
         return pages::fault(&state, Fault::BadRequest);
     }
-    match state.store().revoke_consent(subject, client_id).await {
-        Ok(_) => {
-            tracing::info!(target: "ferrosmart::audit", event = "consent.revoked", client_id = %client_id, "a remembered consent was revoked");
-            see_other(&state.settings().endpoint(MANAGE_ROUTE))
-        }
+    match withdraw(&state, subject, client_id, from).await {
+        Ok(()) => see_other(&state.settings().endpoint(MANAGE_ROUTE)),
         Err(error) => pages::server_error(&state, &error),
     }
+}
+
+/// Forgets the consent `subject` gave `client_id`, revoking what it
+/// covered, with its record in one transaction.
+async fn withdraw(
+    state: &AppState,
+    subject: &str,
+    client_id: &str,
+    from: IpAddr,
+) -> Result<(), audit::RecordFailure> {
+    let mut tx = state
+        .store()
+        .begin()
+        .await
+        .map_err(audit::RecordFailure::Store)?;
+    let forgotten = tx
+        .revoke_consent(subject, client_id)
+        .await
+        .map_err(audit::RecordFailure::Store)?;
+    let endpoint = state.settings().endpoint_url(MANAGE_ROUTE);
+    state
+        .audit()
+        .commit_happening(
+            tx,
+            &audit::Happening {
+                event: audit::Event::ConsentWithdrawn,
+                issuer: &state.settings().issuer,
+                client_id: Some(client_id),
+                subject: Some(subject),
+                from,
+                endpoint: &endpoint,
+                details: vec![("remembered", forgotten.to_string())],
+            },
+        )
+        .await
 }
 
 /// Draws the management page of `pending`'s person.

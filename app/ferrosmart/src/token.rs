@@ -13,18 +13,16 @@
 
 use std::sync::Arc;
 
-use axum::Extension;
 use axum::Json;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use ferrohealth_server::client_address::ClientAddress;
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, jwk::Jwk};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
-use crate::audit;
+use crate::audit::{self, Connected};
 use crate::clients::{Client, ClientKeys, ClientKind, GrantType};
 use crate::discovery::TOKEN_ROUTE;
 use crate::form::Params;
@@ -96,15 +94,11 @@ impl IntoResponse for Refusal {
 /// governs the refusal: our own design).
 pub async fn token(
     State(state): State<Arc<AppState>>,
-    client: Option<Extension<ClientAddress>>,
+    Connected(from): Connected,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let Some(Extension(ClientAddress(from))) = client else {
-        tracing::error!("a token request came over no connection, so it cannot be recorded");
-        return unrecorded();
-    };
-    let answer = issue(&state, &headers, &body).await;
+    let answer = issue(&state, &headers, &body, from).await;
     // NOTE: a form that cannot be read names no client; the record then says so.
     let form = Params::parse(&body, &[]).ok();
     let endpoint = state.settings().endpoint_url(TOKEN_ROUTE);
@@ -122,9 +116,49 @@ pub async fn token(
         tracing::error!(error = %ferrohealth_server::run::chain(&error), "a token request could not be recorded");
         return unrecorded();
     }
-    match answer {
+    let client_id = match &answer {
+        Ok(issued) => Some(issued.client_id.clone()),
+        Err(_) => request.client_id.map(str::to_owned),
+    };
+    let mut response = match answer {
         Ok(issued) => no_store(Json(issued.response).into_response()),
         Err(refusal) => refusal.into_response(),
+    };
+    if let Some(client_id) = client_id {
+        allow_registered_origin(&state, &headers, &client_id, &mut response).await;
+    }
+    response
+}
+
+/// Lets the browser read `response` when the request came from one of the
+/// registered origins of the client `client_id`: "For requests from a
+/// client's registered origin(s), CORS configuration permits access to the
+/// token endpoint" (SMART App Launch 2.2.0, App Launch, Considerations for
+/// CORS support). A client's registered origins are the origins (RFC 6454
+/// §4) of its registered redirect URIs, which SMART leaves open: our own
+/// design. Every other request gets no CORS header.
+async fn allow_registered_origin(
+    state: &AppState,
+    headers: &HeaderMap,
+    client_id: &str,
+    response: &mut Response,
+) {
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return;
+    };
+    // NOTE: a registry that cannot be read admits no origin, so the browser reads
+    // nothing; the answer itself is unchanged.
+    let Ok(Some(client)) = state.store().client(client_id).await else {
+        return;
+    };
+    let registered = client.redirect_uris.iter().any(|uri| {
+        url::Url::parse(uri)
+            .is_ok_and(|url| origin.as_bytes() == url.origin().ascii_serialization().as_bytes())
+    });
+    if registered && origin.as_bytes() != b"null" {
+        let headers = response.headers_mut();
+        headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone());
+        headers.append(header::VARY, HeaderValue::from_static("origin"));
     }
 }
 
@@ -148,19 +182,22 @@ async fn commit(
                     subject: issued.person.as_deref(),
                 }),
             );
-            let row = lane.row(
+            let mut tx = state
+                .store()
+                .begin()
+                .await
+                .map_err(audit::RecordFailure::Store)?;
+            tx.insert_token(&issued.record())
+                .await
+                .map_err(audit::RecordFailure::Store)?;
+            lane.commit(
+                tx,
                 &exchange,
                 "token",
                 issued.person.as_deref(),
                 Some(&issued.client_id),
-            )?;
-            state
-                .store()
-                .record_token_audited(&issued.record(), &row)
-                .await
-                .map_err(audit::RecordFailure::Store)?;
-            lane.committed();
-            Ok(())
+            )
+            .await
         }
         Err(refusal) => {
             let exchange = audit::token_request(request, Err(refusal.error));
@@ -258,12 +295,17 @@ impl Issued {
 }
 
 /// Answers the token request `body`.
-async fn issue(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Issued, Refusal> {
+async fn issue(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: &[u8],
+    from: std::net::IpAddr,
+) -> Result<Issued, Refusal> {
     let form = read_form(headers, body)?;
     match form.get("grant_type") {
         Some("client_credentials") => client_credentials(state, &form).await,
-        Some("authorization_code") => authorization_code(state, &form).await,
-        Some("refresh_token") => crate::refresh::refresh(state, &form).await,
+        Some("authorization_code") => authorization_code(from, state, &form).await,
+        Some("refresh_token") => crate::refresh::refresh(state, &form, from).await,
         Some(_) => Err(Refusal {
             error: "unsupported_grant_type",
             description: "the grant type is not supported",
@@ -327,7 +369,11 @@ async fn client_credentials(state: &AppState, form: &Params) -> Result<Issued, R
 /// §4.6). A second use of a code is refused and revokes the tokens the
 /// first issued, once the rest of the request holds (OAuth 2.1 draft
 /// §4.1.3, §7.5.3).
-async fn authorization_code(state: &AppState, form: &Params) -> Result<Issued, Refusal> {
+async fn authorization_code(
+    from: std::net::IpAddr,
+    state: &AppState,
+    form: &Params,
+) -> Result<Issued, Refusal> {
     let client = identify(state, form).await?;
     if !client.grant_types.contains(&GrantType::AuthorizationCode) {
         return Err(Refusal {
@@ -375,12 +421,32 @@ async fn authorization_code(state: &AppState, form: &Params) -> Result<Issued, R
             .await
             .map_err(|error| server_error("the code cannot be redeemed", &error))?;
     if !first {
-        let revoked = state
+        let mut tx = state
             .store()
+            .begin()
+            .await
+            .map_err(|error| server_error("the code's tokens cannot be revoked", &error))?;
+        let revoked = tx
             .revoke_code(&hash)
             .await
             .map_err(|error| server_error("the code's tokens cannot be revoked", &error))?;
-        tracing::warn!(target: "ferrosmart::audit", event = "code.reused", client_id = %client.client_id, revoked, "an authorization code was used twice");
+        let endpoint = state.settings().endpoint_url(TOKEN_ROUTE);
+        state
+            .audit()
+            .commit_happening(
+                tx,
+                &audit::Happening {
+                    event: audit::Event::CodeReused,
+                    issuer: &state.settings().issuer,
+                    client_id: Some(&client.client_id),
+                    subject: Some(&grant.subject),
+                    from,
+                    endpoint: &endpoint,
+                    details: vec![("revoked", revoked.to_string())],
+                },
+            )
+            .await
+            .map_err(|error| server_error("the code's tokens cannot be revoked", &error))?;
         return Err(invalid("the code was used before"));
     }
     let openid = grant.scope.split(' ').any(|scope| scope == "openid");
