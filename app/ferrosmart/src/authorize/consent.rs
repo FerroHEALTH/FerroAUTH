@@ -1,0 +1,284 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The consent page, the scopes it offers and the code its approval issues
+//! (`docs/architecture.md` §13.6 items 5 and 6).
+
+use std::net::IpAddr;
+use std::sync::Arc;
+
+use axum::body::Bytes;
+use axum::extract::State;
+use axum::response::Response;
+use http::HeaderMap;
+
+use crate::audit::{self, Connected};
+use crate::clients::{Client, GrantType};
+use crate::form::Params;
+use crate::launch::context::Context;
+use crate::pages::{self, Fault};
+use crate::server::AppState;
+use crate::store::{Code, Pending};
+
+use super::{
+    Back, CODE_SECONDS, CONSENT_ROUTE, Denial, constant_eq, found, logged_in, now, random,
+    registered, see_other, set_cookie, sha256,
+};
+
+/// Returns the scopes the consent page offers the person.
+///
+/// Of the requested scopes it offers `openid` and `fhirUser` when the client may ask for them (and the
+/// provider carries the person's `fhirUser`, without which "it cannot
+/// support the `fhirUser` scope", SMART App Launch 2.2.0, Scopes for
+/// requesting identity data), and each `user/` scope the client may ask
+/// for and one of the person's roles grants (13.6 item 5). An EHR launch's
+/// `context` adds `launch`, the `launch/patient` and `launch/encounter`
+/// hints its context answers, and the `patient/` scopes the ceiling and a
+/// role allow once the launch put a patient in context (SMART App Launch
+/// 2.2.0, Scopes and Launch Context, Apps that launch from the EHR). Scopes
+/// that need a standalone patient or a refresh token join with the steps
+/// that bring them (#518). A standalone launch whose `picker` can search
+/// the resource server offers `launch/patient` and the `patient/` scopes,
+/// since the patient picker puts the patient in context (#516). Matching a
+/// scope as written is our own design.
+#[must_use]
+pub fn offer(
+    requested: &str,
+    client: &Client,
+    held: &[String],
+    roles: &std::collections::BTreeMap<String, Vec<String>>,
+    has_fhir_user: bool,
+    context: Option<&Context>,
+    picker: bool,
+) -> Vec<String> {
+    // NOTE: SMART App Launch 2.2.0, Obtain authorization code, a standalone
+    // launch's `launch/patient` is answered by the patient selection widget.
+    let chosen_by_picker = picker
+        && context.is_none()
+        && requested.split(' ').any(|scope| scope == "launch/patient")
+        && client
+            .scopes
+            .iter()
+            .any(|allowed| allowed == "launch/patient");
+    let patient = chosen_by_picker || context.is_some_and(|context| context.patient.is_some());
+    let encounter = context.is_some_and(|context| context.encounter.is_some());
+    let ceiling = |scope: &str| client.scopes.iter().any(|allowed| allowed == scope);
+    let granted_by_role = |scope: &str| {
+        held.iter()
+            .filter_map(|role| roles.get(role))
+            .any(|scopes| scopes.iter().any(|allowed| allowed == scope))
+    };
+    let mut offered: Vec<String> = Vec::new();
+    for scope in requested.split(' ').filter(|scope| !scope.is_empty()) {
+        let admitted = match scope {
+            "openid" => ceiling(scope),
+            "fhirUser" => ceiling(scope) && has_fhir_user,
+            user if user.starts_with("user/") => ceiling(user) && granted_by_role(user),
+            "launch" => ceiling(scope) && context.is_some(),
+            "launch/patient" => ceiling(scope) && patient,
+            "launch/encounter" => ceiling(scope) && encounter,
+            single if single.starts_with("patient/") => {
+                patient && ceiling(single) && granted_by_role(single)
+            }
+            // NOTE: SMART App Launch 2.2.0, Refresh access token, the server decides
+            // which clients get a refresh token: those whose ceiling and grants name it.
+            "offline_access" | "online_access" => {
+                ceiling(scope) && client.grant_types.contains(&GrantType::RefreshToken)
+            }
+            _ => false,
+        };
+        if admitted && !offered.iter().any(|kept| kept == scope) {
+            offered.push(scope.to_owned());
+        }
+    }
+    // NOTE: OpenID Connect Core 1.0 §3.1.2.1, `fhirUser` arrives in an ID Token,
+    // which only `openid` asks for.
+    if !offered.iter().any(|scope| scope == "openid") {
+        offered.retain(|scope| scope != "fhirUser");
+    }
+    offered
+}
+
+/// `GET {issuer}/consent`: the consent page of the browser's request.
+pub async fn consent_get(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    let pending = match logged_in(&state, &headers).await {
+        Ok(pending) => pending,
+        Err(response) => return *response,
+    };
+    if crate::picker::waits(&state, &pending) {
+        return see_other(&state.settings().endpoint(crate::picker::PICKER_ROUTE));
+    }
+    let client = match registered(&state, &pending).await {
+        Ok(client) => client,
+        Err(response) => return *response,
+    };
+    pages::consent(&state, &headers, &client, &pending)
+}
+
+/// `POST {issuer}/consent`: the person's decision.
+pub async fn consent_post(
+    State(state): State<Arc<AppState>>,
+    Connected(from): Connected,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let Ok(form) = Params::parse(&body, &["scope"]) else {
+        return pages::fault(&state, Fault::BadRequest);
+    };
+    let pending = match logged_in(&state, &headers).await {
+        Ok(pending) => pending,
+        Err(response) => return *response,
+    };
+    // NOTE: RFC 6749 §10.12, the decision carries the token its page drew.
+    let sent = form.get("form_token").unwrap_or_default();
+    if !constant_eq(sent.as_bytes(), pending.form_token.as_bytes()) {
+        return pages::fault(&state, Fault::BadRequest);
+    }
+    let pending = match found(&state, state.store().finish(&pending.id).await) {
+        Ok(pending) => pending,
+        Err(response) => return *response,
+    };
+    let back = Back::of(&state, &pending);
+    let mut response = if form.get("decision") == Some("approve") {
+        let remember = form.get("remember") == Some("yes");
+        approve(&state, &pending, &form.all("scope"), remember, &back, from).await
+    } else {
+        tracing::info!(
+            target: "ferrosmart::audit",
+            event = "authorization.declined",
+            client_id = ?pending.client_id,
+            "the person declined"
+        );
+        back.deny(Denial {
+            error: "access_denied",
+            description: "the person declined",
+        })
+    };
+    set_cookie(&state, &mut response, "", 0);
+    response
+}
+
+/// Issues the code for the scopes the person kept of those offered, and
+/// sends the browser back to the app with it.
+pub(super) async fn approve(
+    state: &AppState,
+    pending: &Pending,
+    selected: &[&str],
+    remember: bool,
+    back: &Back,
+    from: IpAddr,
+) -> Response {
+    let offered = pending.offered_scope.as_deref().unwrap_or_default();
+    let mut granted: Vec<&str> = offered
+        .split(' ')
+        .filter(|scope| selected.contains(scope))
+        .collect();
+    if !granted.contains(&"openid") {
+        granted.retain(|scope| *scope != "fhirUser");
+    }
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, an EHR launch's context
+    // comes under `launch`, a standalone one's under `launch/patient` from the picker.
+    let launch_context = pending.launch_context.as_ref().filter(|_| {
+        granted.contains(&"launch")
+            || (!pending.scope.split(' ').any(|scope| scope == "launch")
+                && granted.contains(&"launch/patient"))
+    });
+    if launch_context.is_none() {
+        granted.retain(|scope| !scope.starts_with("patient/") && !scope.starts_with("launch/"));
+    }
+    if granted.is_empty() {
+        return back.deny(Denial {
+            error: "access_denied",
+            description: "the person granted no scope",
+        });
+    }
+    let (Some(subject), Some(auth_time), Some(client_id)) =
+        (&pending.subject, pending.auth_time, &pending.client_id)
+    else {
+        return pages::fault(state, Fault::Lapsed);
+    };
+    let issued = random().map(|code| (sha256(&code), code));
+    let Ok((hash, code)) = issued else {
+        return back.deny(Denial {
+            error: "server_error",
+            description: "no code could be drawn",
+        });
+    };
+    let grant = Code {
+        client_id: client_id.clone(),
+        redirect_uri: pending.redirect_uri.clone(),
+        code_challenge: pending.code_challenge.clone(),
+        audience: pending.audience.clone(),
+        subject: subject.clone(),
+        fhir_user: pending.fhir_user.clone(),
+        scope: granted.join(" "),
+        nonce: pending.nonce.clone(),
+        auth_time,
+        expires_at: now().saturating_add(CODE_SECONDS),
+        launch_context: launch_context.cloned(),
+        upstream_session: pending.upstream_session.clone(),
+    };
+    if let Err(error) = issue_code(state, &hash, &grant, remember, from).await {
+        tracing::error!(error = %ferrohealth_server::run::chain(&error), "the code could not be stored");
+        return back.deny(Denial {
+            error: "server_error",
+            description: "the code could not be stored",
+        });
+    }
+    back.grant(&code)
+}
+
+/// Stores the code `grant` under `hash`, and the person's consent when
+/// they chose to `remember` it, each with its record in one transaction.
+async fn issue_code(
+    state: &AppState,
+    hash: &str,
+    grant: &Code,
+    remember: bool,
+    from: IpAddr,
+) -> Result<(), audit::RecordFailure> {
+    let endpoint = state.settings().endpoint_url(CONSENT_ROUTE);
+    let happening = |event, details| audit::Happening {
+        event,
+        issuer: &state.settings().issuer,
+        client_id: Some(&grant.client_id),
+        subject: Some(&grant.subject),
+        from,
+        endpoint: &endpoint,
+        details,
+    };
+    let lane = state.audit();
+    let mut tx = state
+        .store()
+        .begin()
+        .await
+        .map_err(audit::RecordFailure::Store)?;
+    tx.issue_code(hash, grant)
+        .await
+        .map_err(audit::RecordFailure::Store)?;
+    if remember {
+        tx.remember(&grant.subject, &grant.client_id, &grant.scope)
+            .await
+            .map_err(audit::RecordFailure::Store)?;
+        let remembered = audit::happened(&happening(
+            audit::Event::ConsentRemembered,
+            vec![("scope", grant.scope.clone())],
+        ));
+        tx.record(&lane.row(
+            &remembered,
+            audit::Event::ConsentRemembered.code(),
+            Some(&grant.subject),
+            Some(&grant.client_id),
+        )?)
+        .await
+        .map_err(audit::RecordFailure::Store)?;
+    }
+    lane.commit_happening(
+        tx,
+        &happening(
+            audit::Event::CodeIssued,
+            vec![("scope", grant.scope.clone())],
+        ),
+    )
+    .await
+}

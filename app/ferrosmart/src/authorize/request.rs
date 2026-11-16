@@ -1,0 +1,185 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The authorization endpoint: the request checked and the browser sent to
+//! the upstream provider (SMART App Launch 2.2.0, Obtain authorization
+//! code).
+
+use std::net::IpAddr;
+use std::sync::Arc;
+
+use axum::body::Bytes;
+use axum::extract::{RawQuery, State};
+use axum::response::Response;
+
+use crate::audit::Connected;
+use crate::clients::{Client, GrantType};
+use crate::form::Params;
+use crate::launch::Unresolved;
+use crate::pages::{self, Fault};
+use crate::server::AppState;
+use crate::store::{Pending, Purpose};
+
+use super::{Back, Denial, REQUEST_SECONDS, Stop, fail, now, random, see_other, set_cookie};
+
+/// `GET {issuer}/authorize`, the request in the query.
+pub async fn authorize_get(
+    State(state): State<Arc<AppState>>,
+    Connected(from): Connected,
+    RawQuery(query): RawQuery,
+) -> Response {
+    authorize(&state, query.unwrap_or_default().as_bytes(), from).await
+}
+
+/// `POST {issuer}/authorize`, the request as a form.
+///
+/// "Authorization Servers SHALL support the use of the HTTP GET and POST methods at the
+/// Authorization Endpoint", SMART App Launch 2.2.0, Obtain authorization
+/// code).
+pub async fn authorize_post(
+    State(state): State<Arc<AppState>>,
+    Connected(from): Connected,
+    body: Bytes,
+) -> Response {
+    authorize(&state, &body, from).await
+}
+
+/// Checks the authorization request `encoded` and sends the browser to the
+/// upstream provider.
+async fn authorize(state: &AppState, encoded: &[u8], from: IpAddr) -> Response {
+    let Ok(params) = Params::parse(encoded, &[]) else {
+        return pages::fault(state, Fault::BadRequest);
+    };
+    // NOTE: RFC 6749 §4.1.2.1, an unknown client or a redirect URI that is not
+    // registered is told to the person, never redirected to.
+    let client = match params.get("client_id") {
+        Some(client_id) => match state.store().client(client_id).await {
+            Ok(Some(client)) if client.grant_types.contains(&GrantType::AuthorizationCode) => {
+                client
+            }
+            Ok(_) => return pages::fault(state, Fault::UnknownClient),
+            Err(error) => return pages::server_error(state, &error),
+        },
+        None => return pages::fault(state, Fault::UnknownClient),
+    };
+    // NOTE: RFC 9700 §2.1, the redirect URI matches a registered one exactly.
+    let Some(redirect_uri) = params.get("redirect_uri").filter(|uri| {
+        client
+            .redirect_uris
+            .iter()
+            .any(|registered| registered == uri)
+    }) else {
+        return pages::fault(state, Fault::UnknownRedirect);
+    };
+    let back = Back {
+        redirect_uri: redirect_uri.to_owned(),
+        state: params.get("state").map(str::to_owned),
+        issuer: state.settings().issuer.clone(),
+    };
+    match begin(state, &client, &params, redirect_uri, from).await {
+        Ok(response) => response,
+        Err(Stop::Deny(denial)) => back.deny(denial),
+        Err(Stop::Fail(error)) => {
+            tracing::error!(error = %ferrohealth_server::run::chain(&*error), "the authorization request failed");
+            back.deny(Denial {
+                error: "server_error",
+                description: "the authorization server failed",
+            })
+        }
+    }
+}
+
+/// Checks the rest of the request and begins the upstream login.
+async fn begin(
+    state: &AppState,
+    client: &Client,
+    params: &Params,
+    redirect_uri: &str,
+    from: IpAddr,
+) -> Result<Response, Stop> {
+    if params.get("response_type") != Some("code") {
+        return Err(Stop::Deny(Denial {
+            error: "unsupported_response_type",
+            description: "the response_type is not code",
+        }));
+    }
+    // NOTE: SMART App Launch 2.2.0, Obtain authorization code, `state` is required.
+    let client_state = params
+        .get("state")
+        .ok_or(Stop::Deny(Denial::request("the request carries no state")))?;
+    // NOTE: SMART App Launch 2.2.0, Considerations for PKCE Support: S256, never plain.
+    let challenge = params
+        .get("code_challenge")
+        .filter(|_| params.get("code_challenge_method") == Some("S256"))
+        .ok_or(Stop::Deny(Denial::request(
+            "the request carries no S256 code_challenge",
+        )))?;
+    // NOTE: SMART App Launch 2.2.0, `aud` is required and `resource` MAY be its
+    // synonym; it names a resource server this issuer serves.
+    let audience = params
+        .get("aud")
+        .or_else(|| params.get("resource"))
+        .filter(|aud| state.settings().resources.iter().any(|base| base == aud))
+        .ok_or(Stop::Deny(Denial::request(
+            "the aud is not a server this issuer serves",
+        )))?;
+    let scope = params.get("scope").ok_or(Stop::Deny(Denial {
+        error: "invalid_scope",
+        description: "the request names no scope",
+    }))?;
+    let launch_context = match params.get("launch") {
+        Some(launch) => {
+            match crate::launch::redeem(state, &client.client_id, launch, audience, scope, from)
+                .await
+            {
+                Ok(context) => Some(context),
+                Err(Unresolved::NoLaunchScope) => {
+                    return Err(Stop::Deny(Denial {
+                        error: "invalid_scope",
+                        description: "a launch needs the launch scope",
+                    }));
+                }
+                Err(Unresolved::Refused(rule)) => return Err(Stop::Deny(Denial::request(rule))),
+                Err(Unresolved::Store(error)) => return Err(fail(error)),
+                Err(Unresolved::Record(error)) => return Err(fail(error)),
+            }
+        }
+        None => None,
+    };
+    let party = state
+        .relying_party()
+        .ok_or(Stop::Deny(Denial::request("no login is configured")))?;
+    let upstream = party.authorization_request().map_err(fail)?;
+    let id = random().map_err(fail)?;
+    let pending = Pending {
+        id: id.clone(),
+        client_id: Some(client.client_id.clone()),
+        redirect_uri: redirect_uri.to_owned(),
+        scope: scope.to_owned(),
+        state: client_state.to_owned(),
+        nonce: params.get("nonce").map(str::to_owned),
+        code_challenge: challenge.to_owned(),
+        audience: audience.to_owned(),
+        upstream_state: upstream.pending.state().to_owned(),
+        upstream_nonce: upstream.pending.nonce().to_owned(),
+        upstream_verifier: upstream.pending.verifier().expose().to_owned(),
+        form_token: random().map_err(fail)?,
+        subject: None,
+        fhir_user: None,
+        display_name: None,
+        offered_scope: None,
+        auth_time: None,
+        expires_at: now().saturating_add(REQUEST_SECONDS),
+        purpose: Purpose::Authorize,
+        launch_context,
+        upstream_session: None,
+    };
+    state
+        .store()
+        .begin_authorization(&pending)
+        .await
+        .map_err(fail)?;
+    let mut response = see_other(upstream.url.as_str());
+    set_cookie(state, &mut response, &id, REQUEST_SECONDS);
+    Ok(response)
+}

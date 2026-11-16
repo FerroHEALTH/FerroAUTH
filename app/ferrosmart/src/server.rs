@@ -162,16 +162,16 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(OPENID_CONFIGURATION_ROUTE, get(openid_configuration))
         .route(
             AUTHORIZE_ROUTE,
-            get(authorize::authorize_get).post(authorize::authorize_post),
+            get(authorize::request::authorize_get).post(authorize::request::authorize_post),
         )
-        .route(CALLBACK_ROUTE, get(authorize::callback))
+        .route(CALLBACK_ROUTE, get(authorize::callback::callback))
         .route(
             crate::logout::BACKCHANNEL_LOGOUT_ROUTE,
             post(crate::logout::backchannel_logout),
         )
         .route(
             CONSENT_ROUTE,
-            get(authorize::consent_get).post(authorize::consent_post),
+            get(authorize::consent::consent_get).post(authorize::consent::consent_post),
         )
         .route(
             crate::picker::PICKER_ROUTE,
@@ -179,7 +179,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route(
             MANAGE_ROUTE,
-            get(authorize::manage_get).post(authorize::manage_post),
+            get(authorize::manage::manage_get).post(authorize::manage::manage_post),
         )
         .with_state(Arc::clone(&state));
     // NOTE: FerroUI docs/consoles.md, "How a console builds": the asset router at
