@@ -1121,6 +1121,7 @@ fn the_oauth_table_takes_its_tls_from_the_product_s_builder() -> Result<(), Box<
         "timeout_ms = 5000",
         "refresh_margin_ms = 1",
         "previous_key_overlap_ms = 1",
+        "assertion_audience = \"issuer\"",
     ] {
         assert!(
             table(&format!(
@@ -1130,27 +1131,7 @@ fn the_oauth_table_takes_its_tls_from_the_product_s_builder() -> Result<(), Box<
             "{retired} is no key of the table"
         );
     }
-    let pem = temp_file("assertion.pem", &ec_key("unused", Algorithm::ES384).pem);
-    for audience in ["issuer", "token_endpoint"] {
-        let removed = table(&format!(
-            "client_auth = \"private_key_jwt\"\nprivate_key_file = {pem:?}\nassertion_audience = \"{audience}\""
-        ))?;
-        assert!(matches!(
-            removed.resolve(),
-            Err(ConfigError::Removed {
-                key: "credentials.oauth.assertion_audience",
-                ..
-            })
-        ));
-        assert!(
-            removed
-                .problems("lane.credentials.oauth")
-                .iter()
-                .any(|problem| problem.contains("assertion_audience is removed")),
-            "removed in 0.28.0, refused for one release"
-        );
-    }
-    for file in [identity, ca, pem] {
+    for file in [identity, ca] {
         std::fs::remove_file(file)?;
     }
     Ok(())

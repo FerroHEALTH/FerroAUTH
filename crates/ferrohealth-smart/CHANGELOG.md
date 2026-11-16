@@ -11,7 +11,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.28.0] - Unreleased
+## [0.28.0] - 2026-11-16
 
 ### Changed
 
@@ -34,9 +34,9 @@ and this project adheres to
 
 ### Removed
 
-- The `assertion_audience` key of `[<lane>.credentials.oauth]`. This
-  release refuses it with `ConfigError::Removed`, naming what replaced it;
-  the next release deletes the refusal (#529).
+- The `assertion_audience` key of `[<lane>.credentials.oauth]`. The table
+  denies unknown fields, so a configuration that still sets it fails to
+  load as an unknown key (#529).
 
 ## [0.27.0] - 2026-11-16
 
@@ -2240,7 +2240,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.27.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.28.0...HEAD
+[0.28.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.27.0...ferrohealth-smart-v0.28.0
 [0.27.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.26.0...ferrohealth-smart-v0.27.0
 [0.26.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.25.0...ferrohealth-smart-v0.26.0
 [0.25.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.24.1...ferrohealth-smart-v0.25.0

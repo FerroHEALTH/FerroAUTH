@@ -10,7 +10,6 @@ use crate::client::PresentedTls;
 use crate::client::authorization_details::AuthorizationDetails;
 use crate::client::fapi2::ProfileKind;
 use crate::config::credentials::OauthSection;
-use crate::config::credentials::REMOVED_ASSERTION_AUDIENCE;
 use crate::scope::is_scope_token;
 
 impl OauthSection {
@@ -19,7 +18,7 @@ impl OauthSection {
     /// (such as `terminology.server.oauth`): the issuer and the token
     /// endpoint, exactly one set and well formed; the client id; the
     /// credential its `client_auth` needs; the certificate and key files
-    /// set together; no `assertion_audience`, removed in 0.28.0; the
+    /// set together; the
     /// scope tokens; and a resource that is a URL without a fragment.
     /// [`OauthSection::resolve`] still refuses what only the files show.
     #[must_use]
@@ -99,11 +98,6 @@ impl OauthSection {
                     ));
                 }
             }
-        }
-        if self.assertion_audience.is_some() {
-            out.push(format!(
-                "{table}.assertion_audience is removed: {REMOVED_ASSERTION_AUDIENCE}"
-            ));
         }
         if self
             .scope
