@@ -339,6 +339,24 @@ grep -qF "@$want" "$ci" ||
   fail "$ci does not run the PostgreSQL image $want"
 [ "$failures" -ne "$before" ] || ok "the store cases run the PostgreSQL image $want"
 
+# ---- 4d. the FerroSMART release lane ----------------------------------------
+before="$failures"
+want="$(grep -oE 'sha256:[0-9a-f]{64}' <<< "$(corpus_pin_cell "PostgreSQL test image")" | head -n1)"
+grep -qF "@$want" compose.yaml ||
+  fail "compose.yaml does not run the PostgreSQL image $want"
+want="$(grep -oE 'sha256:[0-9a-f]{64}' <<< "$(corpus_pin_cell "FerroSMART image base")" | head -n1)"
+[ -n "$want" ] || fail "docs/VERSIONS.md pins no FerroSMART image base digest"
+grep -qF "@$want" docker/ferrosmart/Dockerfile ||
+  fail "docker/ferrosmart/Dockerfile is not built on the base $want"
+want="$(awk '{ print $1; exit }' <<< "$(corpus_pin_cell "Trivy")")"
+for workflow in .github/workflows/release-ferrosmart.yml .github/workflows/release-ferrosmart-scan.yml; do
+  grep -qF "TRIVY_VERSION: \"$want\"" "$workflow" ||
+    fail "$workflow does not run Trivy $want"
+done
+bash scripts/release/install-trivy.sh --sha256 "$want" > /dev/null ||
+  fail "scripts/release/install-trivy.sh pins no sha256 for Trivy $want"
+[ "$failures" -ne "$before" ] || ok "the FerroSMART release lane runs the pinned base, database and Trivy"
+
 # ---- 5. the licence ---------------------------------------------------------
 licence="$(awk '{ print $1; exit }' <<< "$(corpus_pin_cell "Project licence")")"
 before="$failures"

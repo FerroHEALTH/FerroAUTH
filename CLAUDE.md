@@ -159,11 +159,17 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   `.vendor-cache/`, and the MyHealth@EU Requirements Catalogue is recorded
   by sha256 and never copied).
 - `scripts/`: `vendor/` (the corpus fetchers), `checks/` (the committed
-  guards), `release/` (the crate publish), `gh/` (the tracker helpers).
+  guards), `release/` (the release plan, the crate publish and the Trivy
+  install), `gh/` (the tracker helpers).
 - `.github/`: CI with a single required `conclusion` job, the vendored
   specification guard, CodeQL, Scorecard, Dependabot, the release lane with
   crates.io Trusted Publishing (`release.yml`, `release-crate.yml`,
-  `publish-crates.yml`).
+  `publish-crates.yml`), and FerroSMART's release lane of attested tarballs
+  and a GHCR image scanned before it is tagged (`release-ferrosmart.yml` with
+  its `-build`, `-image` and `-scan` reusable workflows).
+- `docker/ferrosmart/Dockerfile`, `compose.yaml`, `trivy.yaml`,
+  `security/vex/`: FerroSMART's distroless image, its quickstart beside
+  PostgreSQL, the image gate and the OpenVEX judgements its release reads.
 - `.claude/`: the working discipline (rules, agents, skills, hooks, memory).
 
 ## IMPORTANT hard rules

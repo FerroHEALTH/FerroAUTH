@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# Trivy configuration for the FerroSMART image gate
+# (.github/workflows/release-ferrosmart-scan.yml). The per-release
+# vulnerability record in release-ferrosmart.yml reads none of it.
+#
+# Two choices, stated rather than implied:
+#
+#   * `ignore-unfixed`, under `vulnerability:` below. A CVE in the upstream
+#     base with no fix available is not something a merge can resolve, and a
+#     gate that fails on it becomes a thing people re-run until it passes.
+#     Fixed findings block, because a rebuild or a base bump resolves them.
+#     Unfixed findings are still judged: the release record scans with no
+#     floor and refuses any finding without an OpenVEX statement.
+#   * HIGH and CRITICAL only.
+#
+# The adjudicated-exception path for a specific finding is `.trivyignore.yaml`,
+# where each entry carries its reason.
+severity:
+  - HIGH
+  - CRITICAL
+
+vulnerability:
+  # The nesting is load-bearing: Trivy ignores a top-level `ignore-unfixed`.
+  ignore-unfixed: true
+
+scan:
+  skip-dirs:
+    # Vendored upstream material, none of it built into the image.
+    - docs/specs
+    - target
+
+ignorefile: .trivyignore.yaml
+
+# NOTE: Trivy takes VEX sources only as `--vex` arguments, so the OpenVEX documents under security/vex/ are passed by each lane that applies them.

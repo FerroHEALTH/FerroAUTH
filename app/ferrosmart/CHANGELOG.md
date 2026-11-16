@@ -34,3 +34,13 @@ and this project adheres to
   `RS256`, recorded in the store and answered with `no-store`. Each refusal
   is its RFC 6749 §5.2 error, and every issue and refusal writes an audit
   line (#514).
+- The release lane: a `ferrosmart-vX.Y.Z` tag builds `x86_64` and `aarch64`
+  tarballs for GNU and musl libc, each with its checksum, a CycloneDX and an
+  SPDX SBOM and SLSA Build Level 3 provenance signed through Sigstore, and
+  the image `ghcr.io/ferrohealth/ferrosmart` for `linux/amd64` and
+  `linux/arm64` on distroless static, pushed by digest with its provenance
+  and SBOMs as OCI referrers. Every finding of a full scan of the image and
+  the tarballs needs an OpenVEX judgement before the release publishes, and
+  the image is tagged only once it carries no fixable HIGH or CRITICAL
+  finding. `compose.yaml` is the quickstart beside PostgreSQL, attached to
+  every release (#519).

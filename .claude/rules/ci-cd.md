@@ -69,6 +69,18 @@ Actions Security Cheat Sheet, SLSA v1.0, OpenSSF Scorecard, and Sigstore.
   one, and its last job, `milestone`, closes that milestone once every leg,
   crates included, has succeeded; a failed leg leaves it open and the job log
   names the leg. Both call `scripts/release/milestone.sh`.
+- `.github/workflows/release-ferrosmart.yml`: dormant until a
+  `ferrosmart-v*` tag is pushed. It runs the same `plan.sh` list for the
+  server, creates the draft with `compose.yaml` attached, and calls three
+  reusable workflows: `release-ferrosmart-build.yml` builds, packages and
+  attests the binary per target, `release-ferrosmart-image.yml` verifies the
+  musl tarballs against that signer and pushes the distroless image to GHCR
+  by digest with its attestations, and `release-ferrosmart-scan.yml` gates
+  the digest on fixable HIGH and CRITICAL findings before it applies the
+  tags. Between them its `vulnerability-record` job refuses the release while
+  a finding of a full scan lacks an OpenVEX judgement under `security/vex/`
+  (`scripts/checks/vex-coverage.sh`). It publishes the release last and closes
+  the milestone as `release.yml` does (`docs/release.md`).
 - `.github/workflows/publish-crates.yml`: the manual crates.io lane, a dry
   run unless `publish` is set, sharing `scripts/release/publish-crates.sh`
   with the release lane. A real publish runs only at the tag of the

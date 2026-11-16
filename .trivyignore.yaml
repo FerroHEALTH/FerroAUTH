@@ -1,0 +1,14 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# Adjudicated scanner exceptions (Trivy ignore file), read through trivy.yaml.
+#
+# Every entry states what is exempt and why, with an expiry date so an
+# exception cannot become permanent by inattention. There is no blanket
+# suppression and no lowered severity standing in for one.
+
+# No vulnerability exceptions. The image gate reports only findings that have a
+# fix, and those are fixed by a rebuild or a base bump. A finding without a fix
+# gets its argument as an OpenVEX statement under security/vex/, which the
+# release record reads.
+vulnerabilities: []

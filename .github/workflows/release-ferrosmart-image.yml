@@ -1,0 +1,275 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# The FerroSMART image, as a REUSABLE workflow: the container built from the
+# attested static binaries and pushed to GHCR by digest with provenance and
+# SBOM attestations.
+#
+# It is a reusable workflow for the same reason release-ferrosmart-build.yml
+# is one: SLSA v1.2 Build Level 3 needs the signing identity out of reach of
+# caller-defined steps
+# (https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-and-reusable-workflows-to-achieve-slsa-v1-build-level-3).
+#
+# Its inputs are the musl tarballs the build lane produced in THIS run, read
+# from the run's artifacts, and each is verified against the build lane's
+# signer identity before it is extracted, so the image provenance chains to
+# attested inputs.
+#
+# What lands in the registry for one release:
+#   - the image index (linux/amd64, linux/arm64), pushed by digest with OCI
+#     labels and annotations on the index and both manifests; the tags
+#     (<version>, and for a release that is no pre-release also
+#     <major>.<minor>) are applied by release-ferrosmart-scan.yml after the
+#     scan;
+#   - GitHub attestations pushed as OCI referrers: SLSA provenance for the
+#     index and each platform manifest, and an SPDX SBOM per platform.
+#
+# Verify a published image:
+#   gh attestation verify oci://ghcr.io/ferrohealth/ferrosmart:<version> \
+#     --repo FerroHEALTH/FerroAUTH \
+#     --signer-workflow FerroHEALTH/FerroAUTH/.github/workflows/release-ferrosmart-image.yml
+name: Release FerroSMART image (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The version the tag names, which is the image tag.
+        required: true
+        type: string
+    outputs:
+      digest:
+        description: The digest of the pushed image index.
+        value: ${{ jobs.image.outputs.digest }}
+      tags:
+        description: >-
+          The newline-separated tag list for that digest, which
+          release-ferrosmart-scan.yml applies once the scan passes.
+        value: ${{ jobs.image.outputs.tags }}
+
+permissions: {}
+
+env:
+  # NOTE: an OCI reference is lowercase and github.repository_owner is FerroHEALTH, so the owner is a literal.
+  IMAGE: ghcr.io/ferrohealth/ferrosmart
+  # Annotate the index as well as the manifests: GHCR reads the package
+  # description from the index
+  # (https://docs.docker.com/build/ci/github-actions/annotations/).
+  DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read # the attestations API, to verify the inputs
+      packages: write # push the image and its attestations to GHCR
+      id-token: write # Sigstore, for the provenance and SBOM attestations
+      attestations: write # store them against this repository
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      # github.sha in a called workflow is the caller's, the commit the tag
+      # points at. docker/ferrosmart/Dockerfile is read from it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Download the linux/amd64 tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ferrosmart-${{ inputs.version }}-x86_64-unknown-linux-musl
+          path: tarballs/amd64
+      - name: Download the linux/arm64 tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ferrosmart-${{ inputs.version }}-aarch64-unknown-linux-musl
+          path: tarballs/arm64
+
+      # Refuse any input the build lane did not attest. The staged layout is
+      # the one docker/ferrosmart/Dockerfile copies from,
+      # dist/${TARGETOS}_${TARGETARCH}/ferrosmart.
+      - name: Verify the tarballs against the build lane and stage the binaries
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          for arch in amd64 arm64; do
+            case "$arch" in
+              amd64) target=x86_64-unknown-linux-musl ;;
+              arm64) target=aarch64-unknown-linux-musl ;;
+              *) echo "::error::unknown arch ${arch}" >&2; exit 1 ;;
+            esac
+            tarball="tarballs/${arch}/ferrosmart-${VERSION}-${target}.tar.gz"
+            gh attestation verify "$tarball" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-ferrosmart-build.yml"
+            mkdir -p "dist/linux_${arch}"
+            tar -C "dist/linux_${arch}" -xzf "$tarball" ferrosmart
+            test -x "dist/linux_${arch}/ferrosmart"
+          done
+
+      # No QEMU: the Dockerfile runs no command, it copies a binary already
+      # built for each platform, so buildx assembles both manifests without
+      # executing anything
+      # (https://docs.docker.com/build/building/multi-platform/).
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # The version, and for a release that is no pre-release its major.minor,
+      # which the action's semver rule skips for a pre-release. Tags are
+      # mutable on GHCR, so a consumer pins the digest.
+      - name: Image tags, labels and annotations
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ inputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ inputs.version }}
+          # The action adds org.opencontainers.image.version, .revision and
+          # .created; these repeat the set docker/ferrosmart/Dockerfile
+          # carries, so the two never disagree.
+          labels: |
+            org.opencontainers.image.title=FerroSMART
+            org.opencontainers.image.description=The SMART App Launch 2.x authorization server of the FerroHEALTH products, with any OpenID Connect provider upstream for login
+            org.opencontainers.image.source=https://github.com/FerroHEALTH/FerroAUTH
+            org.opencontainers.image.vendor=Cadasto B.V.
+            org.opencontainers.image.licenses=BUSL-1.1
+          # The action derives its annotations from its own default labels
+          # alone, and GHCR reads the description from the index annotation.
+          annotations: |
+            org.opencontainers.image.title=FerroSMART
+            org.opencontainers.image.description=The SMART App Launch 2.x authorization server of the FerroHEALTH products, with any OpenID Connect provider upstream for login
+            org.opencontainers.image.source=https://github.com/FerroHEALTH/FerroAUTH
+            org.opencontainers.image.vendor=Cadasto B.V.
+            org.opencontainers.image.licenses=BUSL-1.1
+
+      # No cache. BuildKit's own provenance and SBOM are off: the GitHub
+      # attestations below carry both, keyless-signed and verifiable with
+      # `gh attestation verify`, and two provenance documents on one image is
+      # a question for a consumer.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: docker/ferrosmart/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          # Pushed by DIGEST only: release-ferrosmart-scan.yml applies the
+          # tags once the scan passes, so a refused image is never
+          # referencable by tag. The attestations bind the digest.
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          no-cache: true
+          provenance: false
+          sbom: false
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+
+      - name: Resolve the platform manifests
+        id: manifests
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+          index="$(docker buildx imagetools inspect "${IMAGE}@${DIGEST}" --raw)"
+          amd64="$(jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "amd64") | .digest' <<< "$index")"
+          arm64="$(jq -r '.manifests[] | select(.platform.os == "linux" and .platform.architecture == "arm64") | .digest' <<< "$index")"
+          case "$amd64" in sha256:*) ;; *) echo "::error::no linux/amd64 manifest in ${DIGEST}" >&2; exit 1 ;; esac
+          case "$arm64" in sha256:*) ;; *) echo "::error::no linux/arm64 manifest in ${DIGEST}" >&2; exit 1 ;; esac
+          {
+            echo "amd64=$amd64"
+            echo "arm64=$arm64"
+          } >> "$GITHUB_OUTPUT"
+
+      # syft reads the dependency list cargo-auditable embedded in the binary,
+      # so the SBOM names the crates.
+      - name: Install syft
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: syft@1.51.1
+      - name: Generate one SBOM per platform
+        env:
+          VERSION: ${{ inputs.version }}
+          AMD64: ${{ steps.manifests.outputs.amd64 }}
+          ARM64: ${{ steps.manifests.outputs.arm64 }}
+        run: |
+          set -euo pipefail
+          syft scan "registry:${IMAGE}@${AMD64}" --platform linux/amd64 \
+            -o "spdx-json=ferrosmart-${VERSION}-image-amd64.spdx.json"
+          syft scan "registry:${IMAGE}@${ARM64}" --platform linux/arm64 \
+            -o "spdx-json=ferrosmart-${VERSION}-image-arm64.spdx.json"
+          for f in "ferrosmart-${VERSION}-image-amd64.spdx.json" "ferrosmart-${VERSION}-image-arm64.spdx.json"; do
+            if ! jq -e '[.packages[].externalRefs[]? | select(.referenceLocator | startswith("pkg:cargo/"))] | length > 0' "$f" > /dev/null; then
+              echo "::error::${f} carries no pkg:cargo purl; was the binary built with cargo auditable?" >&2
+              exit 1
+            fi
+          done
+
+      # `push-to-registry` stores each bundle as an OCI referrer of its
+      # subject. The index carries provenance and each platform manifest
+      # carries provenance and its SBOM.
+      - name: Attest the index provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Attest the linux/amd64 provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.manifests.outputs.amd64 }}
+          push-to-registry: true
+      - name: Attest the linux/amd64 SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.manifests.outputs.amd64 }}
+          sbom-path: ferrosmart-${{ inputs.version }}-image-amd64.spdx.json
+          push-to-registry: true
+      - name: Attest the linux/arm64 provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.manifests.outputs.arm64 }}
+          push-to-registry: true
+      - name: Attest the linux/arm64 SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.manifests.outputs.arm64 }}
+          sbom-path: ferrosmart-${{ inputs.version }}-image-arm64.spdx.json
+          push-to-registry: true
+
+      # The lane checks its own output the way a consumer would.
+      - name: Verify the published image as a consumer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+          AMD64: ${{ steps.manifests.outputs.amd64 }}
+          ARM64: ${{ steps.manifests.outputs.arm64 }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          signer="${GITHUB_REPOSITORY}/.github/workflows/release-ferrosmart-image.yml"
+          # By digest: the version tag exists only after the scan.
+          gh attestation verify "oci://${IMAGE}@${DIGEST}" --repo "$GITHUB_REPOSITORY" --signer-workflow "$signer"
+          for manifest in "$AMD64" "$ARM64"; do
+            gh attestation verify "oci://${IMAGE}@${manifest}" --repo "$GITHUB_REPOSITORY" --signer-workflow "$signer"
+            gh attestation verify "oci://${IMAGE}@${manifest}" --repo "$GITHUB_REPOSITORY" --signer-workflow "$signer" \
+              --predicate-type https://spdx.dev/Document/v2.3
+          done
+          {
+            echo "image ${IMAGE}:${VERSION} (tagged after the scan)"
+            echo "index ${DIGEST}"
+            echo "amd64 ${AMD64}"
+            echo "arm64 ${ARM64}"
+          } >> "$GITHUB_STEP_SUMMARY"

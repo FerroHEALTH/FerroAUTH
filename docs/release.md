@@ -15,6 +15,13 @@ release from this workspace, each on its own version line:
 A release is the signed tag on the merge commit of the release pull request
 on `main`; `.github/workflows/release.yml` does the rest for the crate the
 tag names (`.claude/rules/ci-cd.md`, `.claude/rules/crates-publishing.md`).
+FerroSMART, the authorization server under `app/ferrosmart`, releases beside
+the crates on its own version line and tag, as signed tarballs and an OCI
+image (§ The FerroSMART release):
+
+| Server | Tag | Version | Changelog |
+|---|---|---|---|
+| FerroSMART | `ferrosmart-vX.Y.Z` | `[package]` of `app/ferrosmart/Cargo.toml` | `app/ferrosmart/CHANGELOG.md` |
 Below, `<tag>` is that tag and the steps name the crate's own version and
 changelog. `ferrohealth-smart` 0.1.0 to 0.6.0 were tagged `vX.Y.Z`; those
 tags stay, the plan counts them as its earlier releases, and from 0.7.0 on
@@ -166,6 +173,68 @@ each crate, publishes the release, and its `crates` leg waits on the
 `crates-io` environment's reviewer. Its last job closes the milestone. A
 pushed tag is never moved or deleted; a bad cut ships forward as a new
 patch version.
+
+## The FerroSMART release
+
+A `ferrosmart-vX.Y.Z` tag starts `.github/workflows/release-ferrosmart.yml`
+in place of `release.yml`. The tag names the server, like each crate's tag
+names its crate, so the four version lines never share a tag and
+`plan.sh prev-tag` orders each line apart. The release pull request and the
+tag follow the steps above with the server's manifest and changelog, and two
+differences:
+
+- **No semver check and no install line.** The server has no Rust API and is
+  never on crates.io (`publish = false`). In their place the plan checks that
+  `compose.yaml` pulls `ghcr.io/ferrohealth/ferrosmart` at the version being
+  released (`check_compose_pin`), so the release pull request moves the
+  quickstart's default tag with the version.
+- **The artefacts are tarballs and an image.** The lane runs:
+
+  1. `plan`: the list of § Preflight at the tagged commit.
+  2. `github-release`: the draft, with `compose.yaml` attached.
+  3. `build-binaries` (`release-ferrosmart-build.yml`, once per target):
+     `cargo auditable build` for `x86_64` and `aarch64`, each for GNU and
+     musl libc, on a native runner and with no cache; per target the
+     tarball, its `sha256sum`, a CycloneDX source SBOM and a syft SPDX build
+     SBOM, the SLSA provenance and both SBOMs attested through Sigstore, and
+     the bundles and the in-toto envelope attached to the draft.
+  4. `build-image` (`release-ferrosmart-image.yml`): the two musl tarballs
+     verified against the build lane's signer, staged for
+     `docker/ferrosmart/Dockerfile` (one static binary on
+     `gcr.io/distroless/static-debian13:nonroot`, pinned by index digest),
+     pushed to `ghcr.io/ferrohealth/ferrosmart` for `linux/amd64` and
+     `linux/arm64` by digest with no tag, with the provenance of the index
+     and of each platform and an SBOM per platform pushed as OCI referrers.
+  5. `vulnerability-record`: Trivy scans the image on both platforms and the
+     four tarballs at every severity, unfixed findings included, and
+     `scripts/checks/vex-coverage.sh` refuses the release while a finding
+     has no OpenVEX judgement under `security/vex/` (Regulation (EU)
+     2024/2847 Annex I Part I(2)(a)). The record and the raw reports are
+     attached to the draft.
+  6. `scan-and-tag` (`release-ferrosmart-scan.yml`): the gate of
+     `trivy.yaml`, fixable HIGH and CRITICAL findings on both platforms, and
+     only then the tags `<version>` and, for a release that is no
+     pre-release, `<major>.<minor>`, applied to the scanned digest.
+  7. `finalize-release`: every promised asset is on the draft, then it is
+     published. The repository's latest release stays `ferrohealth-smart`'s.
+  8. `milestone`: the milestone titled as the tag closes once every leg
+     succeeded.
+
+  A consumer verifies a tarball and the image against the lane that built
+  it:
+
+  ```sh
+  gh attestation verify ferrosmart-X.Y.Z-x86_64-unknown-linux-musl.tar.gz \
+    --repo FerroHEALTH/FerroAUTH \
+    --signer-workflow FerroHEALTH/FerroAUTH/.github/workflows/release-ferrosmart-build.yml
+  gh attestation verify oci://ghcr.io/ferrohealth/ferrosmart:X.Y.Z \
+    --repo FerroHEALTH/FerroAUTH \
+    --signer-workflow FerroHEALTH/FerroAUTH/.github/workflows/release-ferrosmart-image.yml
+  ```
+
+The milestone checks hold for the server's tag as for a crate's: the
+release refuses `ferrosmart-vX.Y.Z` while the milestone titled
+`ferrosmart-vX.Y.Z` is missing or holds an open item, and closes it last.
 
 ## The manual publish
 

@@ -19,7 +19,7 @@
 #   milestone.sh --self-test
 #       Proves both modes against a stub gh.
 #
-# A pre-release tag (vX.Y.Z-rc.1) finishes no milestone, so both modes accept
+# A pre-release tag (<name>-vX.Y.Z-rc.1) finishes no milestone, so both modes accept
 # it and change nothing. The repository is GITHUB_REPOSITORY, or the one gh
 # resolves from the checkout; gh authenticates with GH_TOKEN. Exit 2 on a
 # usage error. Requires gh and jq.
@@ -44,8 +44,8 @@ repo() {
 }
 
 valid_tag() {
-  if [[ ! "$1" =~ ^ferrohealth-(smart|authz|session)-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-    echo "::error::milestone: '$1' is not a ferrohealth-smart-vX.Y.Z, ferrohealth-authz-vX.Y.Z or ferrohealth-session-vX.Y.Z tag" >&2
+  if [[ ! "$1" =~ ^(ferrohealth-(smart|authz|session)|ferrosmart)-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+    echo "::error::milestone: '$1' is not a ferrohealth-smart-vX.Y.Z, ferrohealth-authz-vX.Y.Z, ferrohealth-session-vX.Y.Z or ferrosmart-vX.Y.Z tag" >&2
     exit 2
   fi
 }
@@ -77,7 +77,7 @@ refuse_open() {
 check() {
   local tag="$1" repository found number state
   valid_tag "$tag"
-  if [[ "${tag#ferrohealth-*-}" == *-* ]]; then
+  if [[ "${tag#*-v}" == *-* ]]; then
     echo "milestone: $tag is a pre-release, which finishes no milestone."
     return 0
   fi
@@ -92,7 +92,7 @@ check() {
 close() {
   local tag="$1" repository failed leg found number state
   valid_tag "$tag"
-  if [[ "${tag#ferrohealth-*-}" == *-* ]]; then
+  if [[ "${tag#*-v}" == *-* ]]; then
     echo "milestone: $tag is a pre-release, which finishes no milestone."
     return 0
   fi
@@ -155,7 +155,7 @@ self_test() {
   }
   expect "check passes an empty milestone" 0 "holds no open item" no -- check ferrohealth-smart-v1.0.0
   expect "check passes a pre-release" 0 "pre-release" no -- check ferrohealth-smart-v1.0.0-rc.1
-  expect "check refuses a malformed tag" 2 "is not a ferrohealth-smart-vX.Y.Z, ferrohealth-authz-vX.Y.Z or ferrohealth-session-vX.Y.Z tag" no -- check 1.0.0
+  expect "check refuses a malformed tag" 2 "is not a ferrohealth-smart-vX.Y.Z, ferrohealth-authz-vX.Y.Z, ferrohealth-session-vX.Y.Z or ferrosmart-vX.Y.Z tag" no -- check 1.0.0
   expect "check passes an authz pre-release" 0 "pre-release" no -- check ferrohealth-authz-v0.1.0-rc.1
   expect "check refuses a missing milestone" 1 "no milestone of o/r is titled 'ferrohealth-smart-v9.9.9'" no -- check ferrohealth-smart-v9.9.9
   expect "close closes an empty milestone" 0 "closed ferrohealth-smart-v1.0.0 (#3)" yes -- close ferrohealth-smart-v1.0.0
@@ -170,8 +170,11 @@ self_test() {
   expect "check names each open issue" 1 "ferrohealth-smart-v1.0.0 still holds #7 A straggler" no -- check ferrohealth-smart-v1.0.0
   expect "check names each open pull request" 1 "#8 (pull request) A fix" no -- check ferrohealth-smart-v1.0.0
   expect "close refuses a milestone with open items" 1 "has 2 open item(s)" no -- close ferrohealth-smart-v1.0.0
-  STUB_MILESTONES='[{"number":3,"title":"ferrohealth-smart-v1.0.0","state":"closed"}]'
+  STUB_MILESTONES='[{"number":3,"title":"ferrosmart-v0.1.0","state":"open"}]'
   STUB_ISSUES='[]'
+  expect "check passes an empty server milestone" 0 "holds no open item" no -- check ferrosmart-v0.1.0
+  expect "check passes a server pre-release" 0 "pre-release" no -- check ferrosmart-v0.1.0-rc.1
+  STUB_MILESTONES='[{"number":3,"title":"ferrohealth-smart-v1.0.0","state":"closed"}]'
   expect "close counts a closed milestone as done" 0 "already closed" no -- close ferrohealth-smart-v1.0.0
   expect "check passes a closed, empty milestone" 0 "holds no open item" no -- check ferrohealth-smart-v1.0.0
   unset -f gh

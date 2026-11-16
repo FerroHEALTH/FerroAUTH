@@ -1,0 +1,157 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# The FerroSMART quickstart, a standalone file: download it, create the
+# secret files beside it, and run
+#
+#   docker compose up
+#   curl http://localhost:8080/.well-known/smart-configuration
+#
+# It pulls the published image (ghcr.io/ferrohealth/ferrosmart, pinned to the
+# release this file shipped with) beside PostgreSQL, and needs no repository
+# checkout. The release plan refuses a tag whose version differs from the
+# default below (scripts/release/plan.sh, check_compose_pin).
+#
+# SECRETS. Three files under ./secrets are yours to create before the first
+# `docker compose up`; compose refuses to start a service whose secret is
+# missing. Compose mounts each file as it is on the host, and FerroSMART runs
+# as uid 65532, so make the two it reads readable to that user. Never commit
+# them.
+#
+#   mkdir -p secrets
+#   openssl rand -hex 24 > secrets/postgres_password
+#   printf 'postgresql://ferrosmart:%s@postgres:5432/ferrosmart?sslmode=disable' \
+#     "$(cat secrets/postgres_password)" > secrets/database_url
+#   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out secrets/signing_key.pem
+#   chmod 0644 secrets/database_url secrets/signing_key.pem
+#
+# The signing key signs every access token under RS256 and is published,
+# public half only, at /.well-known/jwks.json. Rotation adds a next and a
+# previous key ([ferrosmart.keys] in the configuration below).
+#
+# CONFIGURATION. The configuration file is the `ferrosmart_toml` config at the
+# foot of this file. The issuer is the URL FerroSMART's clients and resource
+# servers reach it by: an https URL, or http on localhost, as here. A
+# resource server it issues tokens for is a [[ferrosmart.resource]] table, and
+# a client is a [[ferrosmart.client]] table: a Backend Services client with
+# its JWK Set URL looks like
+#
+#   [[ferrosmart.client]]
+#   client_id = "bulk-export"
+#   name = "Bulk export"
+#   kind = "confidential_asymmetric"
+#   jwks_uri = "https://export.example.org/jwks.json"
+#   scopes = ["system/Patient.rs", "system/Observation.rs"]
+#   grant_types = ["client_credentials"]
+#
+# Every key is reachable as FERROSMART__<SECTION>__<KEY> too, and
+# `docker compose run --rm ferrosmart config check` prints the resolved
+# configuration with every secret masked.
+#
+# PORTS. The published port binds the loopback interface by default. A
+# published port is DNAT'd ahead of the host firewall's own chains, so a port
+# on 0.0.0.0 is reachable from the network even when the firewall says
+# otherwise (https://docs.docker.com/engine/network/packet-filtering-firewalls/).
+# To serve another machine, put a reverse proxy that terminates TLS in front
+# and set FERROSMART_ISSUER to its https URL.
+#
+# HEALTH. The image's HEALTHCHECK runs `ferrosmart healthcheck`, which asks the
+# server for GET /health/readiness on loopback and exits 0 only on 200, so
+# `docker compose ps` shows FerroSMART healthy once it serves and its database
+# answers.
+
+# Without this the project is named after the directory the file sits in.
+name: ferrosmart
+
+services:
+  ferrosmart:
+    image: ghcr.io/ferrohealth/ferrosmart:${FERROSMART_VERSION:-0.1.0}
+    container_name: ferrosmart
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${FERROSMART_BIND_HOST:-127.0.0.1}:${FERROSMART_PORT:-8080}:8080"
+    environment:
+      FERROSMART_CONFIG: /etc/ferrosmart/ferrosmart.toml
+      # `auto` renders pretty output on a terminal and JSON otherwise.
+      FERROSMART__TELEMETRY__FORMAT: ${FERROSMART_LOG_FORMAT:-auto}
+      FERROSMART__TELEMETRY__FILTER: ${FERROSMART_LOG_FILTER:-info}
+    configs:
+      - source: ferrosmart_toml
+        target: /etc/ferrosmart/ferrosmart.toml
+    secrets:
+      - database_url
+      - signing_key
+    # Every piece of state lives in PostgreSQL and every secret is read once
+    # at boot, so the root filesystem is read-only and nothing is mounted
+    # writable.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  # The store of every client, token record and assertion id. FerroSMART
+  # migrates it at start. The password never reaches the environment: the
+  # official image reads POSTGRES_PASSWORD_FILE.
+  postgres:
+    image: postgres:18.6@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+    container_name: ferrosmart-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ferrosmart
+      POSTGRES_USER: ferrosmart
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "ferrosmart", "-d", "ferrosmart"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    # The entrypoint starts as root to own the data directory, then drops to
+    # the postgres user, so it keeps the capabilities that hand-over needs.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
+    # No published port: only FerroSMART reaches the database.
+
+configs:
+  ferrosmart_toml:
+    content: |
+      [ferrosmart]
+      issuer = "${FERROSMART_ISSUER:-http://localhost:8080}"
+
+      [ferrosmart.keys]
+      private_key_file = "/run/secrets/signing_key"
+
+      [ferrosmart.database]
+      url_file = "/run/secrets/database_url"
+
+      # The FHIR or openEHR server the tokens are for; its base URL is their
+      # `aud`. Add one table per server.
+      [[ferrosmart.resource]]
+      base = "${FERROSMART_RESOURCE:-http://localhost:8090/fhir}"
+      kind = "fhir"
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  database_url:
+    file: ./secrets/database_url
+  signing_key:
+    file: ./secrets/signing_key.pem
+
+volumes:
+  postgres-data:
