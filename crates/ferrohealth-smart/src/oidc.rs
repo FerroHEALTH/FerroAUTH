@@ -775,11 +775,7 @@ impl RelyingParty {
         let (header, key) = self.signing_key(id_token).await?;
         // NOTE: OpenID Connect Core 1.0 §3.1.3.7 items 2, 3, 6 and 9: the `iss`
         // match, this client in `aud`, the signature by the issuer's key and `exp`.
-        let mut validation = Validation::new(header.alg);
-        validation.algorithms = vec![header.alg];
-        validation.leeway = self.clock_skew.as_secs();
-        validation.set_issuer(&[self.provider.issuer.as_str()]);
-        validation.set_audience(&[self.client_id.as_str()]);
+        let mut validation = self.validation(header.alg);
         validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
         let claims = jsonwebtoken::decode::<IdTokenClaims>(id_token, &key, &validation)
             .map_err(|source| OidcError::IdToken { source })?
@@ -837,6 +833,18 @@ impl RelyingParty {
         .ok_or(OidcError::Key)?;
         let key = DecodingKey::from_jwk(jwk).map_err(|_unusable| OidcError::Key)?;
         Ok((header, key))
+    }
+
+    /// Returns the check of a JWT the provider signed under `alg` for this
+    /// client: that algorithm alone, the clock skew, the provider as `iss`
+    /// and this client in `aud`.
+    fn validation(&self, alg: Algorithm) -> Validation {
+        let mut validation = Validation::new(alg);
+        validation.algorithms = vec![alg];
+        validation.leeway = self.clock_skew.as_secs();
+        validation.set_issuer(&[self.provider.issuer.as_str()]);
+        validation.set_audience(&[self.client_id.as_str()]);
+        validation
     }
 }
 

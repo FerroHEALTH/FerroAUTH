@@ -15,7 +15,6 @@
 
 use std::fmt;
 
-use jsonwebtoken::Validation;
 use serde::Deserialize;
 
 use crate::oidc::{Audience, OidcError, RelyingParty};
@@ -94,11 +93,7 @@ impl RelyingParty {
         let (header, key) = self.signing_key(token).await?;
         // NOTE: Back-Channel Logout 1.0 §2.6 items 2 to 4: the signature, `alg`,
         // `iss`, `aud`, `iat` and `exp` are checked as they are for an ID Token.
-        let mut validation = Validation::new(header.alg);
-        validation.algorithms = vec![header.alg];
-        validation.leeway = self.clock_skew.as_secs();
-        validation.set_issuer(&[self.provider.issuer.as_str()]);
-        validation.set_audience(&[self.client_id.as_str()]);
+        let mut validation = self.validation(header.alg);
         validation.set_required_spec_claims(&["exp", "iss", "aud"]);
         let claims = jsonwebtoken::decode::<LogoutClaims>(token, &key, &validation)
             .map_err(|source| OidcError::LogoutToken { source })?
