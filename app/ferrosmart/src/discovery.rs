@@ -14,7 +14,7 @@ use ferrohealth_smart::metadata::ServerMetadata;
 use ferrohealth_smart::resource::configuration::{
     self, OpenIdConnect, PermissionCapability, Purpose, SmartOptions,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::config::settings::Settings;
 
@@ -25,6 +25,10 @@ pub const JWKS_ROUTE: &str = "/jwks";
 /// The SMART configuration's route under the issuer (SMART App Launch
 /// 2.2.0, Conformance, Using well-known).
 pub const SMART_CONFIGURATION_ROUTE: &str = "/.well-known/smart-configuration";
+/// The introspection endpoint's route under the issuer (RFC 7662 §2).
+pub const INTROSPECT_ROUTE: &str = "/introspect";
+/// The revocation endpoint's route under the issuer (RFC 7009 §2).
+pub const REVOKE_ROUTE: &str = "/revoke";
 
 /// The OpenID Connect discovery document's route under the issuer
 /// (OpenID Connect Discovery 1.0 §4).
@@ -54,6 +58,8 @@ pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
         token_endpoint_auth_signing_alg_values_supported: strings(&ASSERTION_ALGORITHMS),
         grant_types_supported: strings(&["client_credentials"]),
         response_types_supported: Some(Vec::new()),
+        introspection_endpoint: Some(settings.endpoint(INTROSPECT_ROUTE)),
+        revocation_endpoint: Some(settings.endpoint(REVOKE_ROUTE)),
         ..ServerMetadata::default()
     };
     if login {
@@ -66,6 +72,48 @@ pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
         metadata.scopes_supported = strings(&["openid", "fhirUser"]);
     }
     metadata
+}
+
+/// Returns the RFC 8414 document of `metadata`: its members with how the
+/// introspection and revocation endpoints authenticate a client, which
+/// RFC 8414 §2 has default to `client_secret_basic` when absent.
+///
+/// The introspection endpoint takes a client's `private_key_jwt` assertion
+/// (or a bearer token, which is no client authentication method); the
+/// revocation endpoint takes it too, and `none` with the `client_id` of a
+/// public client (RFC 7009 §2.1, RFC 6749 §2.3).
+///
+/// # Panics
+///
+/// Never: the metadata is plain strings and lists, which `serde_json`
+/// always serializes.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "ServerMetadata is plain strings and lists, which serde_json always serializes"
+)]
+pub fn metadata_document(metadata: &ServerMetadata) -> Value {
+    let mut document =
+        serde_json::to_value(metadata).expect("the metadata should serialize as JSON");
+    if let Some(members) = document.as_object_mut() {
+        members.insert(
+            String::from("introspection_endpoint_auth_methods_supported"),
+            json!(["private_key_jwt"]),
+        );
+        members.insert(
+            String::from("introspection_endpoint_auth_signing_alg_values_supported"),
+            json!(ASSERTION_ALGORITHMS),
+        );
+        members.insert(
+            String::from("revocation_endpoint_auth_methods_supported"),
+            json!(["private_key_jwt", "none"]),
+        );
+        members.insert(
+            String::from("revocation_endpoint_auth_signing_alg_values_supported"),
+            json!(ASSERTION_ALGORITHMS),
+        );
+    }
+    document
 }
 
 /// Returns the SMART configuration of `metadata`.

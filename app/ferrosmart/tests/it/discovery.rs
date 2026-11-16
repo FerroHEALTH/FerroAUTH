@@ -74,6 +74,44 @@ async fn the_rfc_8414_metadata_names_the_issuer_and_only_what_is_supported() {
 }
 
 #[tokio::test]
+async fn the_metadata_names_introspection_and_revocation_and_how_they_authenticate() {
+    let keys = Keys::new();
+    let (_, _, body) = get(ROOT, &keys, "/.well-known/oauth-authorization-server").await;
+    assert_eq!(
+        json!("https://smart.example.org/introspect"),
+        body["introspection_endpoint"]
+    );
+    assert_eq!(
+        json!("https://smart.example.org/revoke"),
+        body["revocation_endpoint"]
+    );
+    // NOTE: RFC 8414 §2, absent auth methods would mean client_secret_basic.
+    assert_eq!(
+        json!(["private_key_jwt"]),
+        body["introspection_endpoint_auth_methods_supported"]
+    );
+    assert_eq!(
+        json!(["RS384", "ES384"]),
+        body["introspection_endpoint_auth_signing_alg_values_supported"]
+    );
+    assert_eq!(
+        json!(["private_key_jwt", "none"]),
+        body["revocation_endpoint_auth_methods_supported"]
+    );
+    assert_eq!(
+        json!(["RS384", "ES384"]),
+        body["revocation_endpoint_auth_signing_alg_values_supported"]
+    );
+    // NOTE: SMART App Launch 2.2.0, Conformance, Metadata: both RECOMMENDED.
+    let (_, _, smart) = get(ROOT, &keys, "/.well-known/smart-configuration").await;
+    assert_eq!(
+        body["introspection_endpoint"],
+        smart["introspection_endpoint"]
+    );
+    assert_eq!(body["revocation_endpoint"], smart["revocation_endpoint"]);
+}
+
+#[tokio::test]
 async fn the_smart_configuration_is_json_whatever_the_accept_header() {
     let keys = Keys::new();
     let (status, headers, body) = get(ROOT, &keys, "/.well-known/smart-configuration").await;
