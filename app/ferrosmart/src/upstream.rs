@@ -48,6 +48,10 @@ pub struct UpstreamSection {
     pub fhir_user_claim: String,
     /// The dotted claims of the ID Token that hold the user's roles.
     pub role_claims: Vec<String>,
+    /// The audiences an ID Token may name beside FerroSMART's client id, which
+    /// FerroSMART trusts (OpenID Connect Core 1.0 §3.1.3.7 item 3), such as
+    /// the project a provider adds; empty trusts none.
+    pub trusted_audiences: Vec<String>,
 }
 
 impl Default for UpstreamSection {
@@ -60,6 +64,7 @@ impl Default for UpstreamSection {
             scopes: vec![String::from(ferrohealth_smart::oidc::OPENID)],
             fhir_user_claim: String::new(),
             role_claims: ferrohealth_smart::roles::default_claims(),
+            trusted_audiences: Vec::new(),
         }
     }
 }
@@ -79,6 +84,8 @@ pub struct Upstream {
     pub fhir_user_claim: Option<String>,
     /// The claims of the roles.
     pub role_claims: Vec<String>,
+    /// The audiences trusted beside the client id.
+    pub trusted_audiences: Vec<String>,
 }
 
 impl Upstream {
@@ -92,7 +99,8 @@ impl Upstream {
         let http = Http::new(UPSTREAM_TIMEOUT)?;
         let provider = Provider::discover(&http, &self.issuer).await?;
         let mut party = RelyingParty::new(http, provider, self.client_id.clone(), callback)
-            .with_scopes(self.scopes.iter().map(String::as_str));
+            .with_scopes(self.scopes.iter().map(String::as_str))
+            .with_trusted_audiences(self.trusted_audiences.iter().cloned());
         if let Some(secret) = &self.client_secret {
             party = party.with_client_secret(secret.clone());
         }

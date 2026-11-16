@@ -23,9 +23,9 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   and `ghcr.io/zitadel/zitadel-login` (the Login v2 UI, MIT), pinned by
   digest in docs/VERSIONS.md and run unmodified by the example
 - Layout: the upstream paths, unchanged
-- Files: 27
+- Files: 35
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `0ae979b0dda589cf3c83dd701d4a7021102cbd0074b2cbe6bb232ad26c32de89`
+  `PROVENANCE.md` excluded): `1344889b9433c02f97c0a633dbf573294c4c383f6c3e9d7148ce54e0c9a5e48c`
 - Read by: FerroSMART's ZITADEL example and the role claim reader of
   `ferrohealth_smart::roles` (#523)
 
@@ -46,6 +46,12 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 - `proto/zitadel/*/v2/`: the organization, project, application, OIDC
   application settings, user, authorization, session and OIDC services the
   bootstrap calls.
+- `apps/docs/content/guides/integrate/actions/`, `apps/docs/content/concepts/features/actions_v2.mdx`,
+  `proto/zitadel/action/v2/` and `pkg/actions/signing.go`: Actions v2,
+  the `preuserinfo` function whose target writes the `fhirUser` claim, and
+  the `ZITADEL-Signature` that target checks.
+- `cmd/defaults.yaml`: the defaults the example's environment overrides,
+  the first instance and the HTTP client's deny list among them.
 
 | File | sha256 | git blob id |
 |---|---|---|
@@ -55,6 +61,9 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 | `apps/docs/content/apis/openidoauth/endpoints.mdx` | `da481abbf7d11d7fc3409baad0393a985f3bf5732e4062173f57af9b177a8323` | `addbfef2a1b69cb9f39da30d543b77d8ccbc11eb` |
 | `apps/docs/content/apis/openidoauth/grant-types.mdx` | `0455350d47cc9989f874f4b64b9b359712b61503f77441801398fc8fcacd8cb9` | `bd303173093a86a71a1f67dd437c79aa4a0bac52` |
 | `apps/docs/content/apis/openidoauth/scopes.mdx` | `43d3649accd295538cf3169095c074de8398a47a8fb03421678ea8042fa707e2` | `5a4e0905588b3aa19900b207dbf412dce45acc45` |
+| `apps/docs/content/concepts/features/actions_v2.mdx` | `ad1d175f7ed745b6d62c9ea2e5973f9e5b13afb21588cec28d5323b2b1aefa7e` | `ecb8bcc18df8ca0de43b66ee21061f6805adfc4d` |
+| `apps/docs/content/guides/integrate/actions/testing-request-signature.mdx` | `d78f7d1577bfebbd9f5f640d104232de0222e4c2556281f890e0eb642309c4eb` | `adc5a2a0d6918db4072254ed98b744bd1fe0b4d9` |
+| `apps/docs/content/guides/integrate/actions/usage.mdx` | `3de63ecba6aecd977d822c3f7b6aca3bf2cbb0b9d03dda509fe94078ba2b62c5` | `8442491369896eb3ea5d5912c09735a53f405bba` |
 | `apps/docs/content/guides/integrate/login-ui/login-app.mdx` | `b06f3b3cb3b8e624f0ee612106e6da5ace49c7aed6e791c0c2c9e12630a0eaf1` | `ecdc3fcce20922a20e7d31ce370156be912c3dfc` |
 | `apps/docs/content/guides/integrate/login-ui/oidc-standard.mdx` | `6fb12712152b8d5f4bd7da5eec4d113e2e567f3cdd0e928d3f6b93fb7f45a8af` | `d1e869fd0cdba557e989cddaa942766c58686f71` |
 | `apps/docs/content/guides/integrate/login-ui/username-password.mdx` | `c315e0dbd896ef5273c4b9ba339976eaaac8070fd9178c5c511b4efb427d811e` | `dcd82d5629c5b6a47ca2699d994f199974cb0db7` |
@@ -66,8 +75,13 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 | `apps/docs/content/self-hosting/manage/database/_postgres.mdx` | `90acc1647f0a2b90c965de3ffe21ef3322d5787479e5806a9474edb89d4cb8de` | `85a13a0f4d6333c35f65c304ac290ccf0fbbe55b` |
 | `apps/docs/content/self-hosting/manage/login-client.mdx` | `4e3d691dd3a1948a25e6882fb93463663578be8c1be5079c8961c5f6c5208423` | `3adc1f4ee62208e3ead4bcdaf974131a267bfc89` |
 | `apps/docs/content/self-hosting/manage/tls_modes.mdx` | `6f71c71d7c8c8e812478f0207442df5a24303cdd703fec6afc120f0bfda12034` | `e488c02449d361b59d2a24f7a1cc6deed6f89909` |
+| `cmd/defaults.yaml` | `adc49d5bca041126b9a89dd561d7a8af07c41045eae6b4b6cb459fccfbcda10a` | `d183121106ff92fc0caab051861a9e972b11c8e3` |
 | `cmd/setup/steps.yaml` | `0fab79eb9a50251813f8404fc274194833d5768d92f3c82d91a7bb44b9744eb2` | `3622f81b88d9a8c1a7a8efbca10b5dd9d3b2c961` |
 | `deploy/compose/docker-compose.yml` | `38221d76e2e86b01fa4b692b87ac2ecce53efe0a33836e69b9d34a120068e12c` | `c1d836c2b519614e73b67e0ec48c0b158f2060c9` |
+| `pkg/actions/signing.go` | `9f15e313d67d8792281c0e4a3ed6ea3d07bfce0e41595263ced65c07eb14bbfa` | `0b39327450fd0accf333fef52c109f9a8b685856` |
+| `proto/zitadel/action/v2/action_service.proto` | `f8190d4487b3fd0c4e36aaa3c8ae05415bea82f30f4865ed4385f632b074366b` | `a5282685d88e5fd8846f6ab99f495cdefba95915` |
+| `proto/zitadel/action/v2/execution.proto` | `78c4d70d139ec100ac30772712ed20f4f1c5b5f9f15ac3bd61bc4068715c5945` | `98cd5abc074d8fab0eca24c8b5dc4f164302eb26` |
+| `proto/zitadel/action/v2/target.proto` | `5483ed605d3d4713a635699cb720193d4648ce667fb9f4739c436906c50cc368` | `5f2068446c6f302afe2caa031eaeb0192deb31f8` |
 | `proto/zitadel/application/v2/application_service.proto` | `db6e732147d3f95707fd548f05a1357dab60a5a7640807cf9a393fded85f5507` | `256136f9febd382f8ad308dfe3ceebe5a99b9ecf` |
 | `proto/zitadel/application/v2/oidc.proto` | `a910481a440a7e08579fb5badb384c3a5fb45004319cc35fd944811054c7b3ee` | `db5b22316c7af175f47c0a4372e4efc7e31c73b0` |
 | `proto/zitadel/authorization/v2/authorization_service.proto` | `80c7035eb83e44b09efc5325bc8c2644a53df89c2cad69e5f0017c159ecd125d` | `bf93ffbb6ea54a3d346fd6d530d23d2c19147ff0` |

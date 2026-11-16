@@ -310,6 +310,7 @@ fn upstream(section: &UpstreamSection) -> Result<Upstream, Error> {
             .filter(|claim| named(claim))
             .cloned()
             .collect(),
+        trusted_audiences: section.trusted_audiences.clone(),
     })
 }
 
