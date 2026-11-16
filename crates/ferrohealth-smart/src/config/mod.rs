@@ -392,7 +392,7 @@ pub struct AuthSection {
     /// scopes listed here".
     pub scopes_supported: Vec<String>,
     /// The issuer the discovery document describes; absent for the one
-    /// eligible issuer ([`crate::resource::described`]). It renders with any
+    /// issuer the rule of [`crate::resource::described`] picks. It renders with any
     /// userinfo masked.
     #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
     pub described_issuer: Option<ferrohealth_secret::secret_url::SecretUrl>,

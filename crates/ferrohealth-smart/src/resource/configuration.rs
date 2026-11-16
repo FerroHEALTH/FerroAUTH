@@ -169,9 +169,29 @@ pub const OPENEHR_REST_SERVICE: &str = "org.openehr.rest";
 /// (`master04 §Services`).
 pub const FHIR_REST_SERVICE: &str = "org.fhir.rest";
 
+/// What the discovery document advertises its issuer for, which
+/// [`crate::resource::described::describe`] decides.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Purpose {
+    /// SMART App Launch: user launches start at the issuer's authorization
+    /// endpoint, and the client types and launch modes it supports are
+    /// derived from its metadata.
+    #[default]
+    AppLaunch,
+    /// SMART Backend Services only: the token endpoint, the client
+    /// credentials grant and `private_key_jwt`, with no app-launch
+    /// capability (SMART App Launch 2.2.0, Backend Services, §Retrieve
+    /// `.well-known/smart-configuration`).
+    BackendServices,
+}
+
 /// What the product adds to the discovery document.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SmartOptions {
+    /// What the document advertises its issuer for; the purpose of the
+    /// [`Described`](crate::resource::described::Described) issuer.
+    pub purpose: Purpose,
     /// The scopes the product honours, listed as `scopes_supported`;
     /// omitted when empty.
     ///
@@ -231,9 +251,13 @@ impl SmartOptions {
 /// "The `S256` method SHALL be included in this list, and the `plain`
 /// method SHALL NOT be included" (SMART App Launch 2.2.0, Conformance,
 /// §Metadata). The client types and the standalone launch are derived from
-/// what the issuer supports.
+/// what the issuer supports. Under [`Purpose::BackendServices`] the document
+/// is the Backend Services one [`backend_services`] describes.
 #[must_use]
 pub fn document(metadata: &ServerMetadata, options: &SmartOptions) -> Value {
+    if options.purpose == Purpose::BackendServices {
+        return backend_services(metadata, options);
+    }
     let mut document = Map::new();
     let mut put = |name: &str, value: Option<Value>| {
         if let Some(value) = value {
@@ -317,6 +341,115 @@ pub fn document(metadata: &ServerMetadata, options: &SmartOptions) -> Value {
     Value::Object(document)
 }
 
+/// The capabilities a Backend Services document lists of its own: the
+/// asymmetric client authentication Backend Services requires (SMART App
+/// Launch 2.2.0, Backend Services, §Register SMART Backend Service), and the
+/// scope syntaxes.
+const BACKEND_CAPABILITIES: [&str; 4] = [
+    "client-confidential-asymmetric",
+    "permission-v1",
+    "permission-v2",
+    "openehr-permission-v1",
+];
+
+/// The prefix of a system-level scope (SMART App Launch 2.2.0, Scopes and
+/// Launch Context, §System-level scopes), the scopes a Backend Services
+/// client requests.
+const SYSTEM_SCOPE_PREFIX: &str = "system/";
+
+/// Returns the Backend Services discovery document of `metadata` under
+/// `options`.
+///
+/// It carries the members SMART App Launch 2.2.0, Client Authentication:
+/// Asymmetric, §Advertising server support for this profile names, the
+/// requirements Backend Services discovery points at: `token_endpoint`,
+/// `token_endpoint_auth_methods_supported` of `private_key_jwt`, the
+/// issuer's `token_endpoint_auth_signing_alg_values_supported`, and
+/// `scopes_supported` (only the `system/` scopes of `options`), with
+/// `grant_types_supported` of `client_credentials` ("when SMART Backend
+/// Services is supported", Conformance, §Metadata). It names no
+/// `authorization_endpoint`, `issuer` or `response_types_supported` and no
+/// launch, context, single sign-on or user-facing permission capability,
+/// since no user launch starts at a `machines` issuer.
+/// `code_challenge_methods_supported` stays `["S256"]`, a member §Metadata
+/// requires of every document.
+#[must_use]
+pub fn backend_services(metadata: &ServerMetadata, options: &SmartOptions) -> Value {
+    let mut document = Map::new();
+    let mut put = |name: &str, value: Option<Value>| {
+        if let Some(value) = value {
+            document.insert(String::from(name), value);
+        }
+    };
+    let text = |value: &Option<String>| value.clone().map(Value::String);
+    put("jwks_uri", text(&metadata.jwks_uri));
+    put("token_endpoint", text(&metadata.token_endpoint));
+    put(
+        "token_endpoint_auth_methods_supported",
+        Some(serde_json::json!(["private_key_jwt"])),
+    );
+    put(
+        "token_endpoint_auth_signing_alg_values_supported",
+        metadata
+            .token_endpoint_auth_signing_alg_values_supported
+            .clone()
+            .map(Value::from),
+    );
+    put(
+        "grant_types_supported",
+        Some(serde_json::json!(["client_credentials"])),
+    );
+    put(
+        "registration_endpoint",
+        text(&metadata.registration_endpoint),
+    );
+    let scopes: Vec<&str> = options
+        .scopes_supported
+        .iter()
+        .map(String::as_str)
+        .filter(|scope| scope.starts_with(SYSTEM_SCOPE_PREFIX))
+        .collect();
+    if !scopes.is_empty() {
+        put("scopes_supported", Some(Value::from(scopes)));
+    }
+    if !options.services.is_empty() {
+        put(
+            "services",
+            Some(Value::Object(
+                options
+                    .services
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            )),
+        );
+    }
+    put(
+        "introspection_endpoint",
+        text(&metadata.introspection_endpoint),
+    );
+    put("revocation_endpoint", text(&metadata.revocation_endpoint));
+    put(
+        "code_challenge_methods_supported",
+        Some(serde_json::json!(["S256"])),
+    );
+    let mut capabilities: Vec<&str> = vec!["client-confidential-asymmetric"];
+    let declared = options
+        .permissions
+        .iter()
+        .map(|permission| permission.as_str())
+        .chain(options.capabilities.iter().map(String::as_str));
+    for capability in declared {
+        let backend = BACKEND_CAPABILITIES.contains(&capability)
+            || (crate::scope::is_scope_token(capability) && crate::scope::is_full_uri(capability));
+        if backend && !capabilities.contains(&capability) {
+            capabilities.push(capability);
+        }
+    }
+    put("capabilities", Some(Value::from(capabilities)));
+    Value::Object(document)
+}
+
 /// Returns whether the document advertises `sso-openid-connect` under
 /// `options`.
 ///
@@ -397,7 +530,10 @@ fn capabilities<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::{OpenIdConnect, PermissionCapability, SmartOptions, document, is_capability};
+    use super::{
+        OpenIdConnect, PermissionCapability, Purpose, SmartOptions, backend_services, document,
+        is_capability,
+    };
     use crate::metadata::ServerMetadata;
     use std::collections::BTreeSet;
 
@@ -567,6 +703,85 @@ mod tests {
         assert!(
             !sso(&unbacked) && unbacked.get("issuer").is_none(),
             "sso-openid-connect requires a jwks_uri the document can carry"
+        );
+    }
+
+    // NOTE: SMART App Launch 2.2.0, Backend Services, §Retrieve
+    // `.well-known/smart-configuration`, and Client Authentication: Asymmetric,
+    // §Advertising server support for this profile.
+    #[test]
+    fn the_backend_services_document_advertises_no_app_launch() {
+        let metadata = ServerMetadata {
+            authorization_endpoint: Some(String::from("https://as.example.org/authorize")),
+            token_endpoint: Some(String::from("https://as.example.org/token")),
+            grant_types_supported: Some(vec![
+                String::from("authorization_code"),
+                String::from("client_credentials"),
+            ]),
+            token_endpoint_auth_methods_supported: Some(vec![
+                String::from("client_secret_basic"),
+                String::from("none"),
+            ]),
+            token_endpoint_auth_signing_alg_values_supported: Some(vec![
+                String::from("RS384"),
+                String::from("ES384"),
+            ]),
+            response_types_supported: Some(vec![String::from("code")]),
+            introspection_endpoint: Some(String::from("https://as.example.org/introspect")),
+            ..openid_issuer()
+        };
+        let options = SmartOptions {
+            purpose: Purpose::BackendServices,
+            scopes_supported: vec![
+                String::from("system/*.rs"),
+                String::from("patient/*.rs"),
+                String::from("openid"),
+            ],
+            capabilities: vec![
+                String::from("launch-ehr"),
+                String::from("sso-openid-connect"),
+                String::from("context-openehr-ehr"),
+                String::from("openehr-permission-v1"),
+                String::from("https://example.org/capability/bulk"),
+            ],
+            permissions: BTreeSet::from([
+                PermissionCapability::V2,
+                PermissionCapability::Patient,
+                PermissionCapability::Offline,
+            ]),
+            openid_connect: OpenIdConnect::Advertised,
+            ..SmartOptions::default()
+        };
+        let document = document(&metadata, &options);
+        assert_eq!(document, backend_services(&metadata, &options));
+        assert_eq!(
+            serde_json::json!({
+                "jwks_uri": "https://as.example.org/jwks",
+                "token_endpoint": "https://as.example.org/token",
+                "token_endpoint_auth_methods_supported": ["private_key_jwt"],
+                "token_endpoint_auth_signing_alg_values_supported": ["RS384", "ES384"],
+                "grant_types_supported": ["client_credentials"],
+                "scopes_supported": ["system/*.rs"],
+                "introspection_endpoint": "https://as.example.org/introspect",
+                "code_challenge_methods_supported": ["S256"],
+                "capabilities": [
+                    "client-confidential-asymmetric",
+                    "permission-v2",
+                    "openehr-permission-v1",
+                    "https://example.org/capability/bulk"
+                ]
+            }),
+            document
+        );
+    }
+
+    #[test]
+    fn the_app_launch_document_is_the_default_purpose() {
+        assert_eq!(SmartOptions::default().purpose, Purpose::AppLaunch);
+        let launch = document(&openid_issuer(), &SmartOptions::default());
+        assert_eq!(
+            serde_json::json!(["authorization_code"]),
+            launch["grant_types_supported"]
         );
     }
 

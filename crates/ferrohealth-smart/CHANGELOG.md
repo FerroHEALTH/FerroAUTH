@@ -11,6 +11,36 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.27.0] - Unreleased
+
+### Changed
+
+- Breaking: `resource::described::describe` describes a deployment that
+  trusts only `machines` issuers. When no trusted issuer signs user tokens
+  (no `persons`, `patients` or `federation` issuer), the one `machines`
+  issuer with metadata is described for SMART Backend Services; several are
+  refused with the new `DescribeError::SeveralMachines`, naming them sorted.
+  A named `described_issuer` of kind `machines` is described for Backend
+  Services while no issuer is eligible for app launch, and still refused
+  with `DescribeError::MachinesIssuer` beside one. `describe` returns a
+  `Described` in place of the `Candidate`, with the same `issuer`, `kind`,
+  `check` and `into_check` and a `purpose`. Upgrade: set
+  `SmartOptions::purpose` to `Described::purpose` when building the
+  document, and drop any refusal of a machines-only deployment (#507).
+
+### Added
+
+- `resource::configuration::Purpose`, the `SmartOptions::purpose` the
+  discovery document is built under (`AppLaunch` by default), and
+  `resource::configuration::backend_services`, the Backend Services
+  document: `token_endpoint`, `private_key_jwt` with the issuer's signing
+  algorithms, the `client_credentials` grant, the `system/` scopes of
+  `scopes_supported` and `client-confidential-asymmetric` with the
+  scope-syntax capabilities, and no `authorization_endpoint`, `issuer` or
+  app-launch capability (SMART App Launch 2.2.0, Backend Services, Retrieve
+  `.well-known/smart-configuration`) (#507).
+- `Candidate::is_backend_eligible` (#507).
+
 ## [0.26.0] - 2026-11-15
 
 ### Changed
