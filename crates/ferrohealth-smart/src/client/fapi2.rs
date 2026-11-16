@@ -40,7 +40,6 @@
 use jsonwebtoken::Algorithm;
 use url::Url;
 
-use crate::client::AssertionAudience;
 use crate::client::ClientAuth;
 use crate::client::ClientCredentials;
 use crate::client::Endpoint;
@@ -172,9 +171,6 @@ pub enum Fapi2Error {
         "a FAPI 2.0 grant authenticates with private_key_jwt or mutual TLS (FAPI 2.0 §5.3.3.1)"
     )]
     ClientAuthentication,
-    /// The assertion names the token endpoint (FAPI 2.0 §5.3.3.1).
-    #[error("a FAPI 2.0 client assertion names the issuer as its aud (FAPI 2.0 §5.3.3.1)")]
-    AssertionAudience,
     /// A key signs an algorithm the profile does not admit (§5.4.1).
     #[error("the {role} key signs {algorithm:?}, which FAPI 2.0 §5.4.1 does not admit")]
     Algorithm {
@@ -239,12 +235,9 @@ pub(crate) fn check_grant(config: &ClientCredentials, profile: &Fapi2) -> Result
         return Err(Fapi2Error::NoIssuer);
     }
     match config.client_auth {
-        ClientAuth::PrivateKeyJwt => {
-            if config.assertion_audience != AssertionAudience::Issuer {
-                return Err(Fapi2Error::AssertionAudience);
-            }
-        }
-        ClientAuth::TlsClientAuth | ClientAuth::SelfSignedTlsClientAuth => {}
+        ClientAuth::PrivateKeyJwt
+        | ClientAuth::TlsClientAuth
+        | ClientAuth::SelfSignedTlsClientAuth => {}
         ClientAuth::ClientSecretBasic | ClientAuth::ClientSecretPost => {
             return Err(Fapi2Error::ClientAuthentication);
         }

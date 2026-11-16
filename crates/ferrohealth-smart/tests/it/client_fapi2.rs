@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
 
-use ferrohealth_smart::client::AssertionAudience;
 use ferrohealth_smart::client::ClientCredentials;
 use ferrohealth_smart::client::Endpoint;
 use ferrohealth_smart::client::TokenError;
@@ -68,7 +67,6 @@ fn fapi2(issuer: &str) -> ClientCredentials {
         assertion_key("client", Algorithm::ES256),
     )
     .with_dpop(dpop_key(Algorithm::ES256));
-    grant.assertion_audience = AssertionAudience::Issuer;
     grant.scope = Some(String::from("system/Patient.r"));
     grant.profile = SecurityProfile::Fapi2(Fapi2::new());
     grant.timeout = Duration::from_secs(5);
@@ -184,11 +182,7 @@ fn a_fapi2_grant_that_breaks_a_build_rule_is_refused() -> TestResult {
     assert!(fapi2(issuer).validate().is_ok());
     let mut grant = fapi2(issuer);
     grant.endpoint = Endpoint::Token("https://as.example.org/token".parse()?);
-    grant.assertion_audience = AssertionAudience::TokenEndpoint;
     assert_eq!(Some(Fapi2Error::NoIssuer), refused(&grant));
-    let mut grant = fapi2(issuer);
-    grant.assertion_audience = AssertionAudience::TokenEndpoint;
-    assert_eq!(Some(Fapi2Error::AssertionAudience), refused(&grant));
     let mut grant = ClientCredentials::new(
         Endpoint::Issuer(issuer.to_owned()),
         String::from("gateway"),
@@ -284,6 +278,11 @@ async fn a_fapi2_grant_discovers_its_endpoint_and_sends_the_issuer_as_aud() -> T
     let assertion = param(request, "client_assertion").ok_or("an assertion")?;
     // NOTE: FAPI 2.0 §5.3.3.1, the issuer as aud, a string and never an array.
     assert_eq!(json!(server.uri()), claims(&assertion)?["aud"]);
+    // NOTE: RFC 10070 §4, a client authentication JWT is explicitly typed.
+    assert_eq!(
+        Some(String::from("client-authentication+jwt")),
+        jsonwebtoken::decode_header(&assertion)?.typ
+    );
     assert!(request.headers.contains_key("dpop"));
     Ok(())
 }
@@ -470,7 +469,6 @@ client_id = "gateway"
 client_auth = "private_key_jwt"
 private_key_file = {current:?}
 assertion_alg = "ES256"
-assertion_audience = "issuer"
 previous_private_key_file = {previous:?}
 next_private_key_file = {next:?}
 dpop_key_file = {dpop:?}

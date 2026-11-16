@@ -11,7 +11,7 @@ use secrecy::SecretString;
 use serde::Deserialize;
 use url::Url;
 
-use crate::client::AssertionAudience;
+use crate::client::CLIENT_AUTHENTICATION_TYP;
 use crate::client::ClientAuth;
 use crate::client::ClientCredentials;
 use crate::client::Endpoint;
@@ -338,19 +338,48 @@ pub(crate) fn authorization(scheme: &str, token: &str) -> Result<HeaderValue, To
     Ok(value)
 }
 
-/// Returns a client assertion of `config` signed with `key` for `endpoint`:
-/// its `aud` the token endpoint, or the issuer identifier when the grant
-/// names one and asks for it (RFC 7523 §3).
+/// Returns the client assertion of `config` signed with `key` for
+/// `endpoint`, its `aud` and `typ` fixed by the grant's security profile:
+/// the token endpoint under `JWT` for a SMART grant ("The FHIR
+/// authorization server's 'token URL'", `typ` "Fixed value: JWT", SMART App
+/// Launch 2.2.0, Client Authentication: Asymmetric), and the issuer
+/// identifier as a string under `client-authentication+jwt` for a FAPI 2.0
+/// grant (FAPI 2.0 Security Profile §5.3.3.1; RFC 10070 §4), which is
+/// always configured by its issuer.
 pub(crate) fn client_assertion(
     key: &crate::client::assertion::AssertionKey,
     config: &ClientCredentials,
     endpoint: &Url,
 ) -> Result<String, TokenError> {
-    let audience = match (config.assertion_audience, &config.endpoint) {
-        (AssertionAudience::Issuer, Endpoint::Issuer(issuer)) => issuer.as_str(),
-        (AssertionAudience::TokenEndpoint | AssertionAudience::Issuer, _) => endpoint.as_str(),
+    let (audience, typ) = match (&config.profile, &config.endpoint) {
+        (SecurityProfile::Fapi2(_), Endpoint::Issuer(issuer)) => {
+            (issuer.as_str(), CLIENT_AUTHENTICATION_TYP)
+        }
+        (SecurityProfile::Fapi2(_), Endpoint::Token(_)) => {
+            return Err(TokenError::Credential {
+                what: "issuer for the FAPI 2.0 assertion audience",
+            });
+        }
+        (SecurityProfile::OAuth2, _) => (endpoint.as_str(), "JWT"),
     };
-    key.assertion(&config.client_id, audience)
+    key.assertion(&config.client_id, audience, typ)
+        .map_err(|source| TokenError::Assertion { source })
+}
+
+/// Returns the actor assertion of `config` signed with `key` for
+/// `endpoint`: the JWT that names the client the actor of a token exchange
+/// (RFC 8693 §2.1, `actor_token_type` JWT), typed `JWT` because it
+/// authenticates no client, with the audience of the client assertion.
+pub(crate) fn actor_assertion(
+    key: &crate::client::assertion::AssertionKey,
+    config: &ClientCredentials,
+    endpoint: &Url,
+) -> Result<String, TokenError> {
+    let audience = match (&config.profile, &config.endpoint) {
+        (SecurityProfile::Fapi2(_), Endpoint::Issuer(issuer)) => issuer.as_str(),
+        (SecurityProfile::Fapi2(_) | SecurityProfile::OAuth2, _) => endpoint.as_str(),
+    };
+    key.assertion(&config.client_id, audience, "JWT")
         .map_err(|source| TokenError::Assertion { source })
 }
 

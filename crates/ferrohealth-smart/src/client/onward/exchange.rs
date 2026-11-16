@@ -709,7 +709,7 @@ impl Onward {
                         // NOTE: RFC 7523 §3, every assertion carries a jti of its own,
                         // so each send, the DPoP nonce resend among them, signs anew.
                         let assertion =
-                            endpoint::client_assertion(keys.current(), credentials, &url)?;
+                            endpoint::actor_assertion(keys.current(), credentials, &url)?;
                         form.append_pair("actor_token", &assertion);
                         form.append_pair("actor_token_type", TokenType::Jwt.uri());
                     }

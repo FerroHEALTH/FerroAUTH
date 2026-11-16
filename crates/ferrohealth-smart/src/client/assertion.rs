@@ -8,12 +8,15 @@
 //! no resource server accepts the assertion as an access token (RFC 9068
 //! §4, the `typ` and `aud` checks). It also signs a JWT of the product's own
 //! claims ([`AssertionKey::sign`]), each kind under its own `typ` (RFC 8725
-//! §3.11), so the one key the product publishes verifies both. The assertion is the one SMART
-//! App Launch 2.2.0, Client Authentication: Asymmetric, fixes: header `alg`,
-//! `kid` and `typ` of `JWT`; claims `iss` and `sub` both the client id,
-//! `aud` the token endpoint, `exp` at most five minutes ahead and a unique
-//! `jti`; one assertion per request (RFC 7523 §3). The product serves the
-//! matching public keys as a JWK Set (RFC 7517 §5) at a route of its own.
+//! §3.11), so the one key the product publishes verifies both. The assertion
+//! carries the header `alg`, `kid` and `typ`, and the claims `iss` and `sub`
+//! both the client id, `aud`, `exp` at most five minutes ahead and a unique
+//! `jti`; one assertion per request (RFC 7523 §3). Its `aud` and `typ` follow
+//! the grant's security profile: the token endpoint under `JWT` (SMART App
+//! Launch 2.2.0, Client Authentication: Asymmetric), or under FAPI 2.0 the
+//! issuer identifier under `client-authentication+jwt` (FAPI 2.0 §5.3.3.1,
+//! RFC 10070 §4). The product serves the matching public keys as a JWK Set
+//! (RFC 7517 §5) at a route of its own.
 
 use base64::Engine as _;
 use jsonwebtoken::Algorithm;
@@ -180,8 +183,8 @@ impl AssertionKey {
     /// key's algorithm, its header naming the key's `kid` and `typ`.
     ///
     /// Give each kind of token the product signs a `typ` of its own (RFC 8725
-    /// §3.11), never `JWT`, the type of the client assertion, so a token of
-    /// one kind is never read as another.
+    /// §3.11), never `JWT` or `client-authentication+jwt`, the types of the
+    /// client assertion, so a token of one kind is never read as another.
     ///
     /// # Errors
     ///
@@ -195,8 +198,10 @@ impl AssertionKey {
             .map_err(|source| AssertionError::Sign { source })
     }
 
-    /// Returns the client assertion of `client_id` for `token_endpoint`,
-    /// signed now and valid for [`ASSERTION_LIFETIME_SECONDS`].
+    /// Returns the assertion of `client_id` for the sole audience
+    /// `audience`, typed `typ`, signed now and valid for
+    /// [`ASSERTION_LIFETIME_SECONDS`]. A token client takes both from the
+    /// grant's security profile.
     ///
     /// # Errors
     ///
@@ -205,7 +210,8 @@ impl AssertionKey {
     pub fn assertion(
         &self,
         client_id: &str,
-        token_endpoint: &str,
+        audience: &str,
+        typ: &str,
     ) -> Result<String, AssertionError> {
         let now = jiff::Timestamp::now().as_second();
         let mut random = [0u8; 16];
@@ -213,12 +219,12 @@ impl AssertionKey {
         let claims = Claims {
             iss: client_id,
             sub: client_id,
-            aud: token_endpoint,
+            aud: audience,
             exp: now.saturating_add(ASSERTION_LIFETIME_SECONDS),
             iat: now,
             jti: base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(random),
         };
-        self.sign("JWT", &claims)
+        self.sign(typ, &claims)
     }
 }
 
@@ -257,7 +263,7 @@ struct Claims<'a> {
     iss: &'a str,
     /// The client id.
     sub: &'a str,
-    /// The token endpoint.
+    /// The authorization server: its token endpoint or issuer identifier.
     aud: &'a str,
     /// The expiry.
     exp: i64,
