@@ -19,6 +19,8 @@
 //! code are held in a [`Secret`] or never kept, and none reaches a log line,
 //! a `Debug` rendering or an error message.
 
+pub mod logout;
+
 use std::fmt;
 use std::time::Duration;
 
@@ -155,6 +157,21 @@ pub enum OidcError {
     Revocation {
         /// The status it answered.
         status: StatusCode,
+    },
+    /// The Logout Token's signature or its `iss`, `aud`, `iat` or `exp` do
+    /// not verify (OpenID Connect Back-Channel Logout 1.0 §2.6).
+    #[error("the Logout Token does not verify")]
+    LogoutToken {
+        /// What the verifier reported.
+        #[source]
+        source: jsonwebtoken::errors::Error,
+    },
+    /// The Logout Token breaks a rule of OpenID Connect Back-Channel Logout
+    /// 1.0 §2.4 that §2.6 checks.
+    #[error("the Logout Token {rule}")]
+    LogoutClaims {
+        /// The rule it breaks.
+        rule: &'static str,
     },
 }
 
@@ -755,26 +772,7 @@ impl RelyingParty {
         id_token: &str,
         nonce: &str,
     ) -> Result<IdTokenClaims, OidcError> {
-        let header = jsonwebtoken::decode_header(id_token).map_err(|_unreadable| OidcError::Key)?;
-        if !self.algorithms.contains(&header.alg) {
-            return Err(OidcError::Key);
-        }
-        let (_url, status, body) = self.http.get(self.provider.jwks_uri.clone()).await?;
-        if status != StatusCode::OK {
-            return Err(OidcError::KeySet { status });
-        }
-        let keys: JwkSet = serde_json::from_str(&body).map_err(|source| OidcError::KeySetBody {
-            source: source.into(),
-        })?;
-        let jwk = match header.kid.as_deref() {
-            Some(kid) => keys.find(kid),
-            None => match keys.keys.as_slice() {
-                [only] => Some(only),
-                _ => None,
-            },
-        }
-        .ok_or(OidcError::Key)?;
-        let key = DecodingKey::from_jwk(jwk).map_err(|_unusable| OidcError::Key)?;
+        let (header, key) = self.signing_key(id_token).await?;
         // NOTE: OpenID Connect Core 1.0 §3.1.3.7 items 2, 3, 6 and 9: the `iss`
         // match, this client in `aud`, the signature by the issuer's key and `exp`.
         let mut validation = Validation::new(header.alg);
@@ -807,6 +805,38 @@ impl RelyingParty {
             return Err(OidcError::Nonce);
         }
         Ok(claims)
+    }
+}
+
+impl RelyingParty {
+    /// Returns the header of the JWT `token` and the provider's key that
+    /// signed it: the key its `kid` names, or the set's only key when it
+    /// names none, under an algorithm the client accepts.
+    async fn signing_key(
+        &self,
+        token: &str,
+    ) -> Result<(jsonwebtoken::Header, DecodingKey), OidcError> {
+        let header = jsonwebtoken::decode_header(token).map_err(|_unreadable| OidcError::Key)?;
+        if !self.algorithms.contains(&header.alg) {
+            return Err(OidcError::Key);
+        }
+        let (_url, status, body) = self.http.get(self.provider.jwks_uri.clone()).await?;
+        if status != StatusCode::OK {
+            return Err(OidcError::KeySet { status });
+        }
+        let keys: JwkSet = serde_json::from_str(&body).map_err(|source| OidcError::KeySetBody {
+            source: source.into(),
+        })?;
+        let jwk = match header.kid.as_deref() {
+            Some(kid) => keys.find(kid),
+            None => match keys.keys.as_slice() {
+                [only] => Some(only),
+                _ => None,
+            },
+        }
+        .ok_or(OidcError::Key)?;
+        let key = DecodingKey::from_jwk(jwk).map_err(|_unusable| OidcError::Key)?;
+        Ok((header, key))
     }
 }
 

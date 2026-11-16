@@ -485,3 +485,109 @@ async fn a_provider_without_an_end_session_endpoint_has_no_logout_url() {
         .await
         .expect("no revocation endpoint is no failure");
 }
+
+/// A Logout Token for this client, with `claims` over the valid set, signed
+/// by `key` and typed `logout+jwt`.
+fn logout_token(issuer: &Issuer, key: &SigningKey, claims: &serde_json::Value) -> String {
+    let now = now();
+    let mut body = serde_json::json!({
+        "iss": issuer.uri(),
+        "aud": CLIENT,
+        "sub": "synthetic-operator",
+        "sid": "synthetic-session",
+        "iat": now,
+        "exp": now + 120,
+        "jti": "synthetic-logout-1",
+        "events": { ferrohealth_smart::oidc::logout::BACKCHANNEL_LOGOUT_EVENT: {} }
+    });
+    if let (Some(base), Some(over)) = (body.as_object_mut(), claims.as_object()) {
+        for (name, value) in over {
+            if value.is_null() && name != "nonce" {
+                base.remove(name);
+            } else {
+                base.insert(name.clone(), value.clone());
+            }
+        }
+    }
+    let mut header = Header::new(key.alg);
+    header.kid = Some(key.kid.clone());
+    header.typ = Some(String::from("logout+jwt"));
+    mint_with(key, &header, &body)
+}
+
+#[tokio::test]
+async fn a_logout_token_is_checked_and_its_session_returned() {
+    let key = ec_key("op-1", Algorithm::ES256);
+    let (issuer, client) = provider(&key).await;
+    let token = logout_token(&issuer, &key, &serde_json::json!({}));
+    let claims = client.logout_token(&token).await.expect("a valid token");
+    assert_eq!(issuer.uri(), claims.issuer);
+    assert_eq!(Some("synthetic-operator"), claims.subject.as_deref());
+    assert_eq!(Some("synthetic-session"), claims.session.as_deref());
+    assert_eq!("synthetic-logout-1", claims.jti);
+    assert!(!format!("{claims:?}").contains("synthetic-operator"));
+    // NOTE: Back-Channel Logout 1.0 §2.4, sub or sid or both.
+    let sid_only = logout_token(&issuer, &key, &serde_json::json!({"sub": null}));
+    let claims = client.logout_token(&sid_only).await.expect("a valid token");
+    assert_eq!(None, claims.subject);
+}
+
+#[tokio::test]
+async fn a_logout_token_breaking_section_2_6_is_refused() {
+    let key = ec_key("op-1", Algorithm::ES256);
+    let (issuer, client) = provider(&key).await;
+    let now = now();
+    // NOTE: Back-Channel Logout 1.0 §2.6: each check refuses the token.
+    let cases = [
+        (
+            serde_json::json!({"sub": null, "sid": null}),
+            "neither sub nor sid",
+        ),
+        (serde_json::json!({"events": {}}), "no logout event"),
+        (
+            serde_json::json!({"events": {"http://schemas.openid.net/event/backchannel-logout": "yes"}}),
+            "an event that is not an object",
+        ),
+        (serde_json::json!({"nonce": "n-1"}), "a nonce"),
+        (
+            serde_json::json!({"nonce": null}),
+            "a null nonce is still a nonce",
+        ),
+        (
+            serde_json::json!({"aud": "another-client"}),
+            "another audience",
+        ),
+        (
+            serde_json::json!({"aud": [CLIENT, "another-client"]}),
+            "an audience beyond the client",
+        ),
+        (
+            serde_json::json!({"iss": "https://other.example.org"}),
+            "another issuer",
+        ),
+        (serde_json::json!({"exp": now - 600}), "expired"),
+        (serde_json::json!({"iat": null}), "no iat"),
+        (serde_json::json!({"jti": null}), "no jti"),
+    ];
+    for (claims, case) in cases {
+        let token = logout_token(&issuer, &key, &claims);
+        assert!(
+            matches!(
+                client.logout_token(&token).await,
+                Err(OidcError::LogoutClaims { .. }
+                    | OidcError::LogoutToken { .. }
+                    | OidcError::Audience)
+            ),
+            "{case}"
+        );
+    }
+    let stranger = ec_key("op-1", Algorithm::ES256);
+    let forged = logout_token(&issuer, &stranger, &serde_json::json!({}));
+    assert!(
+        matches!(
+            client.logout_token(&forged).await,
+            Err(OidcError::LogoutToken { .. })
+        ),
+        "a key the provider does not hold under its kid"
+    );
+}
