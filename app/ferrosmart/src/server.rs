@@ -103,6 +103,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(SMART_CONFIGURATION_ROUTE, get(smart_configuration))
         .route(JWKS_ROUTE, get(jwks))
         .route(TOKEN_ROUTE, post(crate::token::token))
+        .route(crate::launch::LAUNCH_ROUTE, post(crate::launch::launch))
         .with_state(Arc::clone(&state));
     let beside = Router::new()
         .route(&state.settings.metadata_path(), get(metadata))

@@ -8,6 +8,8 @@
 //! PostgreSQL advisory lock around them, so replicas starting together
 //! migrate once. No specification governs the storage: our own design.
 
+pub mod launch;
+
 use std::time::Duration;
 
 use secrecy::ExposeSecret as _;
@@ -172,7 +174,8 @@ impl Store {
         Ok(())
     }
 
-    /// Deletes the assertion ids and the access tokens past their expiry.
+    /// Deletes the assertion ids, the access tokens and the launches past
+    /// their expiry.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when a statement fails.
@@ -181,6 +184,9 @@ impl Store {
             .execute(&self.pool)
             .await?;
         sqlx::query("DELETE FROM access_token WHERE expires_at < now()")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM launch WHERE expires_at < now()")
             .execute(&self.pool)
             .await?;
         Ok(())

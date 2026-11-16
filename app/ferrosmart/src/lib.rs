@@ -15,6 +15,7 @@ pub mod clients;
 pub mod command;
 pub mod config;
 pub mod discovery;
+pub mod launch;
 pub mod server;
 pub mod store;
 pub mod token;

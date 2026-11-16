@@ -121,7 +121,7 @@ pub async fn token(
 /// response header field with a value of 'no-store'" and "'Pragma' ... with
 /// a value of 'no-cache'" (SMART App Launch 2.2.0, Obtain access token,
 /// Response; RFC 6749 §5.1).
-fn no_store(mut response: Response) -> Response {
+pub(crate) fn no_store(mut response: Response) -> Response {
     let headers = response.headers_mut();
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
@@ -183,12 +183,12 @@ async fn issue(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Iss
 
 /// The parameters of a form, each named once.
 #[derive(Debug)]
-struct Form(Vec<(String, String)>);
+pub(crate) struct Form(Vec<(String, String)>);
 
 impl Form {
     /// Reads `body`, refusing a parameter named twice ("Request and response
     /// parameters MUST NOT be included more than once", RFC 6749 §3.1, §3.2).
-    fn parse(body: &[u8]) -> Result<Self, Refusal> {
+    pub(crate) fn parse(body: &[u8]) -> Result<Self, Refusal> {
         let pairs: Vec<(String, String)> = url::form_urlencoded::parse(body).into_owned().collect();
         let mut names = BTreeSet::new();
         if pairs.iter().any(|(name, _)| !names.insert(name.as_str())) {
@@ -198,7 +198,7 @@ impl Form {
     }
 
     /// Returns the value of `name`, an empty value as absent (RFC 6749 §3.1).
-    fn get(&self, name: &str) -> Option<&str> {
+    pub(crate) fn get(&self, name: &str) -> Option<&str> {
         self.0
             .iter()
             .find(|(key, value)| key == name && !value.is_empty())
@@ -267,7 +267,7 @@ fn audience(state: &AppState, resource: Option<&str>) -> Result<String, Refusal>
 }
 
 /// Authenticates the client of `form` by its JWT assertion.
-async fn authenticate(state: &AppState, form: &Form) -> Result<Client, Refusal> {
+pub(crate) async fn authenticate(state: &AppState, form: &Form) -> Result<Client, Refusal> {
     if form.get("client_assertion_type") != Some(JWT_BEARER) {
         return Err(Refusal::client(
             "the client_assertion_type is not jwt-bearer",
@@ -351,7 +351,7 @@ async fn authenticate(state: &AppState, form: &Form) -> Result<Client, Refusal> 
 /// `kty` fits `algorithm` (SMART App Launch 2.2.0, Client Authentication:
 /// Asymmetric, Signature Verification, step 3), reading the set again once
 /// when the cached set holds none.
-async fn key_of(
+pub(crate) async fn key_of(
     state: &AppState,
     client: &Client,
     kid: &str,
@@ -529,7 +529,7 @@ fn random_id() -> Result<String, aws_lc_rs::error::Unspecified> {
 
 /// Returns the `server_error` refusal described by `description`, after the
 /// cause is logged with its whole chain and never a value of the request.
-fn server_error(description: &'static str, cause: &dyn std::error::Error) -> Refusal {
+pub(crate) fn server_error(description: &'static str, cause: &dyn std::error::Error) -> Refusal {
     tracing::error!(error = %ferrohealth_server::run::chain(cause), "{description}");
     Refusal {
         error: "server_error",

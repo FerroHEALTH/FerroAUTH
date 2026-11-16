@@ -12,6 +12,7 @@
 mod clients;
 mod config;
 mod discovery;
+mod launch;
 mod store;
 mod support;
 mod token;

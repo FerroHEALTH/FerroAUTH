@@ -43,6 +43,8 @@ pub struct Settings {
     pub clients: Vec<Client>,
     /// The base URLs of the resource servers, each as configured.
     pub resources: Vec<String>,
+    /// The base URLs among them that serve openEHR.
+    pub openehr_resources: Vec<String>,
 }
 
 impl Settings {
@@ -114,6 +116,12 @@ impl Config {
             max_connections: section.database.max_connections,
             clients: crate::clients::resolve(&section.client)?,
             resources: resources(&section.resource)?,
+            openehr_resources: section
+                .resource
+                .iter()
+                .filter(|resource| resource.kind == crate::config::ResourceKind::Openehr)
+                .map(|resource| resource.base.clone())
+                .collect(),
         })
     }
 }
