@@ -2755,7 +2755,7 @@ specification governs.
    application with EHR context based on this handle" (`smart app-launch`,
    SMART authorization & FHIR access: overview), but SMART defines no way
    for an EHR to give the authorization server that context. Our own
-   design (#517), in two forms; 13.16 is the EHR's side.
+   design (#517), in two forms; 13.17 is the EHR's side.
    - **The EHR client.** A registered `confidential_asymmetric` client
      whose ceiling lists `system/launch.c`, a SMART v2 `system/` scope with
      the `c` permission over a launch, our own name (`smart
@@ -3161,7 +3161,39 @@ picker, search, a refusal and an error page; it has no design under
 locales and consent wording come from `[ferrosmart.branding]`, never a code
 edit.
 
-### 13.16 Launching an app from an EHR
+### 13.16 Upstream providers: Keycloak
+
+Keycloak 26.8.2 (the release the Keycloak documentation pin names) runs
+upstream of FerroSMART for login only (#522). The realm is
+`app/ferrosmart/examples/keycloak/ferrosmart-realm.json`, FerroSMART's side
+is `ferrosmart.toml` beside it, and `scripts/idp/keycloak-launch.sh` runs both
+in CI: a SMART standalone launch through Keycloak's login form and
+FerroSMART's consent page, to a token response whose ID Token and access
+token carry the person's mapped `fhirUser`. The realm's ids are fixed in the
+file, so an import is reproducible; its secrets are placeholders the
+environment fills at import, so none is in the tree. Citations are to
+`docs/specs/keycloak-docs/`, server administration guide `topics/` unless
+named otherwise.
+
+| Setting | Value | Ground |
+|---|---|---|
+| Realm import | `--import-realm`, with `${...}` placeholders for the client secret, the redirect URI, the user's password and `fhirUser` | server guide `importExport.adoc`, Importing a Realm during Startup, Using Environment Variables within the Realm Configuration Files |
+| Client `ferrosmart` | `publicClient: false`, `clientAuthenticatorType: client-secret`: a confidential client whose secret FerroSMART sends as HTTP Basic | `clients/oidc/con-basic-settings.adoc`, Client authentication; `clients/oidc/con-confidential-client-credentials.adoc`, Client ID and Secret; `oidc core §9` |
+| Flows | `standardFlowEnabled: true`, implicit and direct access grants off | `con-basic-settings.adoc`, Standard Flow, Direct Access Grants; `rfc9700 §2.4` |
+| PKCE | `pkce.code.challenge.method: S256` | `con-basic-settings.adoc`, Proof Key for Code Exchange Code Challenge Method; `rfc7636 §4.2` |
+| Redirect URI | FerroSMART's `{issuer}/callback`, one exact URI | `con-basic-settings.adoc`, Valid Redirect URIs; `rfc9700 §2.1` |
+| `fhir_user` claim | a user attribute mapper (`oidc-usermodel-attribute-mapper`, `user.attribute` `fhir_user`) into the ID Token only | `clients/con-protocol-mappers.adoc`; `UserAttributeMapper.java`, `ProtocolMapperUtils.java`, `OIDCAttributeMapperHelper.java` (`claim.name`, `id.token.claim`) |
+| `roles` claim | a realm role mapper (`oidc-usermodel-realm-role-mapper`, `multivalued`) into the ID Token only | `clients/con-protocol-mappers.adoc`; `UserRealmRoleMappingMapper.java` |
+| Realm role | `clinician`, which `[[ferrosmart.role]]` maps to `user/` scopes | `roles-groups/proc-creating-realm-roles.adoc`; 13.6 item 5 |
+
+On FerroSMART's side, `[ferrosmart.upstream]` names the realm's issuer and
+the client, `fhir_user_claim = "fhir_user"` and `role_claims = ["roles"]`
+(the generic dotted claim reader of `ferrohealth_smart::roles`). No code
+knows Keycloak. The example serves every party on the loopback interface
+over plain `http`, which `ferrohealth_smart::metadata::issuer_url` admits
+there. A deployment serves both over TLS.
+
+### 13.17 Launching an app from an EHR
 
 This is what an EHR, FerroEHR's sandbox or any other, does to launch an app
 through FerroSMART. SMART fixes only the last step, the app's launch URL;
