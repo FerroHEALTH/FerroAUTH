@@ -9,7 +9,12 @@
 //! claim types. A deployment names the claims it reads on each
 //! `[[auth.issuer]]` ([`crate::config::IssuerEntry::role_claims`], by
 //! default those three); a dotted path reaches into a JSON object, for an
-//! authorization server that nests them. Each value is a role:
+//! authorization server that nests them. A claim name may itself contain a
+//! dot (OpenID Connect Core 1.0 §5.1.2 lets it be any string; Microsoft
+//! Entra ID writes a directory extension as `extn.<name>`), so at each
+//! level the member named by the longest run of the remaining steps is
+//! taken first (no specification governs the reading of a path: our own
+//! design). Each value is a role:
 //! an array element that is a string, an element that is an object with a
 //! string `value` sub-attribute (a SCIM multi-valued attribute, RFC 7643
 //! §2.4), each member name of an object, for an issuer that keys what it
@@ -113,13 +118,22 @@ pub(crate) fn well_formed(path: &str) -> bool {
 }
 
 /// Returns the value at the dotted `path`, each step a member of an object.
+///
+/// A member's name may hold dots, so at each level the member named by the
+/// longest run of the remaining steps, joined by `.`, is taken first; a
+/// shorter run reaches into an object only when no longer one leads to a
+/// value.
 pub(crate) fn lookup<'a>(claims: &'a Map<String, Value>, path: &str) -> Option<&'a Value> {
-    let mut steps = path.split('.');
-    let mut current = claims.get(steps.next()?)?;
-    for step in steps {
-        current = current.as_object()?.get(step)?;
+    if let Some(value) = claims.get(path) {
+        return Some(value);
     }
-    Some(current)
+    path.char_indices()
+        .rev()
+        .filter(|&(_, c)| c == '.')
+        .find_map(|(at, _)| {
+            let (name, rest) = (path.get(..at)?, path.get(at.checked_add(1)?..)?);
+            lookup(claims.get(name)?.as_object()?, rest)
+        })
 }
 
 #[cfg(test)]
@@ -189,6 +203,38 @@ mod tests {
         let claims = claims(&json!({ "realm_access": { "roles": ["auditor"] } }));
         assert_eq!(from_claims(&claims, &["realm_access.roles"]), ["auditor"]);
         assert_eq!(claim_text(&claims, "realm_access"), None);
+    }
+
+    // NOTE: docs/specs/entra-docs/docs/identity-platform/optional-claims.md, Directory
+    // extension formatting: a directory extension is emitted in a JWT as `extn.<name>`.
+    #[test]
+    fn a_claim_name_may_hold_a_dot() {
+        let claims = claims(&json!({
+            "extn.fhirUser": "Practitioner/1",
+            "https://example.org/claims": { "roles": ["auditor"] },
+            "nested": { "extn.roles": ["clerk"] }
+        }));
+        assert_eq!(claim_text(&claims, "extn.fhirUser"), Some("Practitioner/1"));
+        assert_eq!(
+            from_claims(&claims, &["https://example.org/claims.roles"]),
+            ["auditor"]
+        );
+        assert_eq!(from_claims(&claims, &["nested.extn.roles"]), ["clerk"]);
+        assert_eq!(claim_text(&claims, "extn.missing"), None);
+    }
+
+    #[test]
+    fn the_longest_member_name_is_taken_first() {
+        let claims = claims(&json!({
+            "a.b": { "c": "longer" },
+            "a": { "b": { "c": "shorter" }, "x": "only nested" },
+            "a.b.c": "whole"
+        }));
+        assert_eq!(claim_text(&claims, "a.b.c"), Some("whole"));
+        assert_eq!(claim_text(&claims, "a.x"), Some("only nested"));
+        let mut without_whole = claims.clone();
+        without_whole.remove("a.b.c");
+        assert_eq!(claim_text(&without_whole, "a.b.c"), Some("longer"));
     }
 
     #[test]
