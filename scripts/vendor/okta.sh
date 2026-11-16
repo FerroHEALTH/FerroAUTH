@@ -93,6 +93,6 @@ source of the guides, which holds no source of the API reference pages and
 declares no licence; the guides are pinned as developer.okta.com renders
 them." \
   "" \
-  "the \`okta\` issuer profile of #215, vendored by #222; FerroSMART's Okta login (#525, docs/architecture.md §13.18)"
+  "the \`okta\` issuer profile of #215, vendored by #222; FerroSMART's Okta login (#525, docs/architecture.md §13.19)"
 
 say "done"

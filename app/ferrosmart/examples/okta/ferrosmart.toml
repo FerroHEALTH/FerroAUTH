@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 
 # FerroSMART with Okta as its upstream OpenID Connect provider, for login
-# only (#525, docs/architecture.md §13.18): Okta authenticates the person,
+# only (#525, docs/architecture.md §13.19): Okta authenticates the person,
 # FerroSMART issues the SMART tokens. The Okta domain and client id are
 # placeholders for the org's and the app integration's values. The contract
 # tests of tests/it/upstream_vendors.rs run this file against a stub of Okta.

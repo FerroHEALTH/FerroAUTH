@@ -29,7 +29,7 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 - Read by: the `entra` issuer profile of #215, the person key of #216, the
   on-behalf-of grant of #217 and the `idp-entra` groups overage adapter of
   #221, vendored by #222; FerroSMART's Entra ID login (#524,
-  docs/architecture.md §13.17)
+  docs/architecture.md §13.18)
 
 ## What is taken
 

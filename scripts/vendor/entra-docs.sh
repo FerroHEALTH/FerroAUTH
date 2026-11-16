@@ -83,8 +83,8 @@ grep -q '^ *MIT License' "$tmp/tree/LICENSE" || die "LICENSE no longer holds the
 grep -q '^The MIT License (MIT)' "$tmp/tree/LICENSE-CODE" || die "LICENSE-CODE no longer holds the MIT text"
 grep -q '^### Groups overage claim' "$tmp/tree/$base/access-token-claims-reference.md" ||
   die "the access token claims reference has no groups overage section"
-grep -qF 'emitted with the following name format:  `extn.<attributename>`' "$tmp/tree/$base/optional-claims.md" ||
-  die "the optional claims page no longer names the extn. claim format"
+grep -qF 'emitted with the following name format:  ' "$tmp/tree/$base/optional-claims.md" ||
+  die "the optional claims page no longer states the JWT name format of a directory extension"
 
 rm -rf "$dest"
 mkdir -p "$dest"
@@ -133,7 +133,7 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 - Read by: the \`entra\` issuer profile of #215, the person key of #216, the
   on-behalf-of grant of #217 and the \`idp-entra\` groups overage adapter of
   #221, vendored by #222; FerroSMART's Entra ID login (#524,
-  docs/architecture.md §13.17)
+  docs/architecture.md §13.18)
 
 ## What is taken
 

@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: BUSL-1.1
 
 # FerroSMART with Microsoft Entra ID as its upstream OpenID Connect provider,
-# for login only (#524, docs/architecture.md §13.17): Entra ID authenticates
+# for login only (#524, docs/architecture.md §13.18): Entra ID authenticates
 # the person, FerroSMART issues the SMART tokens. The tenant and client ids
 # are placeholders for the app registration's values. The contract tests of
 # tests/it/upstream_vendors.rs run this file against a stub of Entra ID.

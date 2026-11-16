@@ -16,7 +16,7 @@ the script and the pin-set digest in docs/VERSIONS.md, and re-run the script.
   publisher serves it
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
   `PROVENANCE.md` excluded): `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
-- Read by: the `okta` issuer profile of #215, vendored by #222; FerroSMART's Okta login (#525, docs/architecture.md §13.18)
+- Read by: the `okta` issuer profile of #215, vendored by #222; FerroSMART's Okta login (#525, docs/architecture.md §13.19)
 
 The "OpenID Connect & OAuth 2.0" API reference of Okta's developer
 documentation (the overview page that lists the claims of an Okta access
