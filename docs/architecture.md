@@ -2859,11 +2859,12 @@ online_idle = "8h"
 [ferrosmart.database]
 url_file = "/run/secrets/ferrosmart-db-url"
 
-[ferrosmart.keys]
-signer = "file"                               # or "kms"
-active = ["/run/secrets/rs256.pem"]           # RS256 is always one of them
-next = ["/run/secrets/rs256-next.pem"]        # published before it signs
-retired = []                                  # published, never signs
+[ferrosmart.keys]                             # the RS256 ring of ferrohealth-smart's KeyRing
+private_key_file = "/run/secrets/rs256.pem"   # signs
+kid = ""                                      # the RFC 7638 thumbprint when empty
+next_private_key_file = "/run/secrets/rs256-next.pem"          # published before it signs
+previous_private_key_file = "/run/secrets/rs256-previous.pem"  # published, never signs
+previous_key_overlap = "1h"                   # "0s": published while it is configured
 
 [[ferrosmart.resource]]                       # each base an `aud` may name
 base = "https://ehr.example.org/fhir"
@@ -2909,9 +2910,11 @@ Every secret is a `_file` key read through `ferrohealth-secret`; the
   refetch on an unknown `kid` (3.2) relies on. The replicas agree on the state
   through the `signing_key` table; the private material never enters the
   database.
-- **Signers.** The `Signer` trait has a file signer (PEM from a mounted
-  secret, `ferrohealth-secret`) and a KMS signer that sends the digest to
-  a cloud KMS or a PKCS#11 HSM, so the private key can stay in hardware.
+- **Signers.** The ring is `ferrohealth-smart`'s `client::keys::KeyRing`
+  over PEM files from mounted secrets, the same ring a product's
+  `private_key_jwt` key lives in, so rotation has one implementation. A
+  KMS or PKCS#11 HSM signer, which keeps the private key in hardware, joins
+  as a second source of the ring's keys.
 - **Separation.** One key ring signs access tokens and ID Tokens; RFC 9068
   §5 says resource servers cannot rely on separate keys, and the `typ`
   values (`at+jwt` against `JWT`) are what keeps an ID Token from passing

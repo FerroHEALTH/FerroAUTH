@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+[package]
+name = "ferrosmart"
+description = "FerroSMART, the SMART App Launch 2.x authorization server of the FerroHEALTH products, with any OpenID Connect provider upstream for login"
+# Its own version line, released as an OCI image and release artefacts by
+# the tag ferrosmart-v<version> (#519).
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+# The server ships as an image and release artefacts, never on crates.io.
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "ferrosmart"
+path = "src/main.rs"
+
+[dependencies]
+axum = { workspace = true, features = ["tokio", "http1", "json"] }
+clap.workspace = true
+# The configuration loader, the duration type and the `_file` secrets the
+# family shares.
+ferrohealth-config.workspace = true
+ferrohealth-health = { workspace = true, features = ["registry"] }
+ferrohealth-secret.workspace = true
+# The run path, the subcommands, the stack, the health routes and the drain.
+ferrohealth-server.workspace = true
+# The signing key ring with its rotation and JWK Set, and the SMART
+# discovery document builder the resource servers use too (13.7).
+ferrohealth-smart = { workspace = true, features = ["fetch"] }
+ferrohealth-telemetry.workspace = true
+http.workspace = true
+# The algorithm the signing keys are read for.
+jsonwebtoken.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+tracing.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+# The RSA and EC keys each case generates, and their PEM form.
+aws-lc-rs.workspace = true
+base64.workspace = true
+http-body-util.workspace = true
+tempfile.workspace = true
+tower = { workspace = true, features = ["util"] }
+
+[lints]
+workspace = true
