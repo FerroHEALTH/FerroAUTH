@@ -34,9 +34,6 @@ pub struct Context {
     /// Whether the app shows a patient banner.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub need_patient_banner: Option<bool>,
-    /// The URL of the EHR's SMART Style.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub smart_style_url: Option<String>,
     /// The organization that launches.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tenant: Option<String>,
@@ -55,7 +52,6 @@ impl std::fmt::Debug for Context {
             .field("fhir_context", &self.fhir_context.len())
             .field("intent", &self.intent.is_some())
             .field("need_patient_banner", &self.need_patient_banner.is_some())
-            .field("smart_style_url", &self.smart_style_url.is_some())
             .field("tenant", &self.tenant.is_some())
             .field("ehr_id", &self.ehr_id.is_some())
             .finish()
@@ -75,7 +71,6 @@ impl Context {
             &self.intent,
             &self.tenant,
             &self.ehr_id,
-            &self.smart_style_url,
         ];
         if present
             .iter()
@@ -87,11 +82,6 @@ impl Context {
         // the openEHR server the token is for.
         if self.ehr_id.is_some() && !openehr {
             return Err("an ehrId is only for an openEHR resource server");
-        }
-        if let Some(url) = &self.smart_style_url
-            && Url::parse(url).is_err()
-        {
-            return Err("the smart_style_url is no absolute URL");
         }
         self.fhir_context.iter().try_for_each(check_item)
     }
@@ -178,11 +168,6 @@ mod tests {
             ..Context::default()
         };
         assert!(empty.check(false).is_err());
-        let style = Context {
-            smart_style_url: Some(String::from("styles/v1.json")),
-            ..Context::default()
-        };
-        assert!(style.check(false).is_err());
     }
 
     #[test]

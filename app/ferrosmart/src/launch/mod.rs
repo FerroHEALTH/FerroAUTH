@@ -33,12 +33,14 @@ use http::{HeaderMap, StatusCode, header};
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::authorize::{random, sha256};
 use crate::clients::{Client, GrantType};
+use crate::form::Params;
 use crate::launch::context::Context;
 use crate::server::AppState;
 use crate::store::StoreError;
 use crate::store::launch::NewLaunch;
-use crate::token::{Form, Refusal, authenticate, no_store, server_error};
+use crate::token::{Refusal, authenticate, no_store, server_error};
 
 /// The route of the launch API under the issuer.
 pub const LAUNCH_ROUTE: &str = "/launch";
@@ -59,7 +61,7 @@ pub const MAX_LAUNCH_SECONDS: u64 = 300;
 /// The parameters of a launch registration: the client authentication of
 /// RFC 7521 §4.2, the app (`app_client_id`), the resource server (`resource`,
 /// RFC 8707 §2) and the context parameters.
-const PARAMETERS: [&str; 12] = [
+const PARAMETERS: [&str; 11] = [
     "client_assertion_type",
     "client_assertion",
     "app_client_id",
@@ -69,7 +71,6 @@ const PARAMETERS: [&str; 12] = [
     "fhirContext",
     "intent",
     "need_patient_banner",
-    "smart_style_url",
     "tenant",
     "ehrId",
 ];
@@ -77,6 +78,9 @@ const PARAMETERS: [&str; 12] = [
 /// Why a launch value was not resolved.
 #[derive(Debug, thiserror::Error)]
 pub enum Unresolved {
+    /// The request carries a `launch` and not the `launch` scope.
+    #[error("a launch needs the launch scope")]
+    NoLaunchScope,
     /// The value names no launch the request may redeem; the description
     /// quotes no value.
     #[error("{0}")]
@@ -93,6 +97,40 @@ pub struct Resolved {
     pub ehr_client_id: String,
     /// The launch context.
     pub context: Context,
+}
+
+/// Redeems the `launch` an app `client_id` passed to the authorization
+/// endpoint for `audience` with the requested `scope`, and returns its
+/// context.
+///
+/// "If an app receives the URL parameter `launch=abc123`, then it requests
+/// the scope `launch` and provides an additional URL parameter of
+/// `launch=abc123`" (SMART App Launch 2.2.0, Scopes and Launch Context,
+/// Apps that launch from the EHR), so a `launch` without the `launch` scope
+/// is refused before the launch is touched.
+///
+/// # Errors
+/// Returns [`Unresolved::NoLaunchScope`] without the `launch` scope, and
+/// the errors of [`resolve`].
+pub async fn redeem(
+    state: &AppState,
+    client_id: &str,
+    launch: &str,
+    audience: &str,
+    scope: &str,
+) -> Result<Context, Unresolved> {
+    if !scope.split(' ').any(|requested| requested == "launch") {
+        return Err(Unresolved::NoLaunchScope);
+    }
+    let resolved = resolve(state, launch, client_id, audience).await?;
+    tracing::info!(
+        target: "ferrosmart::audit",
+        event = "launch.redeemed",
+        client_id = %client_id,
+        ehr = %resolved.ehr_client_id,
+        "an app redeemed an EHR launch"
+    );
+    Ok(resolved.context)
 }
 
 /// Resolves and redeems the `launch` value an app passed to the authorization endpoint.
@@ -219,7 +257,8 @@ async fn register(
             "the request is not form-encoded",
         ));
     }
-    let form = Form::parse(body)?;
+    let form = Params::parse(body, &[])
+        .map_err(|_repeated| refusal("invalid_request", "a parameter is repeated"))?;
     if url::form_urlencoded::parse(body).any(|(name, _)| !PARAMETERS.contains(&name.as_ref())) {
         return Err(refusal(
             "invalid_request",
@@ -305,7 +344,7 @@ async fn app(state: &AppState, client_id: Option<&str>) -> Result<Client, Refusa
 /// Returns the context the form `form` states: `fhirContext` as the JSON
 /// array the token response carries (the form RFC 9396 §3 gives a JSON
 /// parameter), `need_patient_banner` as `true` or `false`.
-fn form_context(form: &Form) -> Result<Context, Refusal> {
+fn form_context(form: &Params) -> Result<Context, Refusal> {
     let text = |name: &str| form.get(name).map(str::to_owned);
     let fhir_context = form
         .get("fhirContext")
@@ -330,7 +369,6 @@ fn form_context(form: &Form) -> Result<Context, Refusal> {
         fhir_context,
         intent: text("intent"),
         need_patient_banner,
-        smart_style_url: text("smart_style_url"),
         tenant: text("tenant"),
         ehr_id: text("ehrId"),
     })
@@ -339,22 +377,4 @@ fn form_context(form: &Form) -> Result<Context, Refusal> {
 /// Returns the refusal `error` described by `description`.
 const fn refusal(error: &'static str, description: &'static str) -> Refusal {
     Refusal { error, description }
-}
-
-/// Returns 256 random bits, base64url without padding.
-fn random() -> Result<String, aws_lc_rs::error::Unspecified> {
-    use base64::Engine as _;
-    let mut bytes = [0_u8; 32];
-    aws_lc_rs::rand::fill(&mut bytes)?;
-    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
-}
-
-/// Returns the SHA-256 of `value`, base64url without padding: how the store
-/// keeps a launch value (`docs/architecture.md` §13.9).
-fn sha256(value: &str) -> String {
-    use base64::Engine as _;
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(aws_lc_rs::digest::digest(
-        &aws_lc_rs::digest::SHA256,
-        value.as_bytes(),
-    ))
 }

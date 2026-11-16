@@ -44,6 +44,30 @@ and this project adheres to
   registered JWK Set and hand it to the app as the `launch` value; its
   `iss`, sole `aud`, `exp` and `jti` are checked and a replay is refused.
   The context (`patient`, `encounter`, `fhirContext`, `intent`,
-  `need_patient_banner`, `smart_style_url`, `tenant`, and `ehrId` for an
-  openEHR server) is checked against SMART's rules, and an unknown
-  parameter or claim is refused.
+  `need_patient_banner`, `tenant`, and `ehrId` for an openEHR server) is
+  checked against SMART's rules, and an unknown parameter or claim is
+  refused. At `/authorize` a `launch` with the `launch` scope is redeemed
+  for that app and `aud`, the consent page offers `launch`, its
+  `launch/patient` and `launch/encounter` hints and the `patient/` scopes
+  its patient allows, and the token response carries the context when the
+  person keeps `launch`, with `patient`, `encounter` and `ehrId` in the
+  access token too. The SMART configuration lists `launch-ehr`,
+  `context-ehr-patient`, `context-ehr-encounter`, `context-banner` and
+  `permission-patient`.
+- The authorization code flow of SMART App Launch 2.2.0, standalone
+  launch: the authorization endpoint by `GET` and `POST` (code with PKCE
+  `S256` only, `aud` among the configured resource servers, the redirect URI
+  matched exactly, an untrusted client or redirect shown and never
+  redirected to), the login at any OpenID Connect provider through
+  `[ferrosmart.upstream]`, the person's pairwise `sub`, `fhirUser` and roles
+  from configured claims, the scopes narrowed by the client's ceiling and
+  `[[ferrosmart.role]]` before the consent page, which FerroUI draws in the
+  FerroSMART brand with no script and lets the person untick any scope,
+  decline or remember the choice, the single-use code with `state` and
+  `iss` (RFC 9207), and the code exchange for public and asymmetric clients
+  with an RFC 9068 access token, an RS256 ID Token carrying `fhirUser` and
+  the `smart_style_url` of `[ferrosmart.branding]`;
+  a second use of a code revokes what the first issued. `GET /manage` lists
+  the remembered choices and withdraws one, and the OpenID Connect
+  discovery document and the App Launch SMART configuration describe the
+  login once it is configured (#515).

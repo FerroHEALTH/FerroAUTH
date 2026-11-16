@@ -271,7 +271,6 @@ async fn an_ehr_registers_a_launch_the_app_redeems_once() {
                 ("fhirContext", fhir_context),
                 ("intent", "reconcile-medications"),
                 ("need_patient_banner", "false"),
-                ("smart_style_url", "https://ehr.example.org/styles/v1.json"),
                 ("tenant", "2ddd6c3a"),
             ],
         )
@@ -298,7 +297,7 @@ async fn an_ehr_registers_a_launch_the_app_redeems_once() {
             "patient": "123", "encounter": "456",
             "fhirContext": serde_json::from_str::<Value>(fhir_context).expect("JSON"),
             "intent": "reconcile-medications", "need_patient_banner": false,
-            "smart_style_url": "https://ehr.example.org/styles/v1.json", "tenant": "2ddd6c3a"
+            "tenant": "2ddd6c3a"
         }),
         serde_json::to_value(&context).expect("JSON"),
         "the token response's context parameters, as SMART names them"

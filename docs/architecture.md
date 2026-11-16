@@ -2757,8 +2757,9 @@ specification governs.
      receives as `iss`, `rfc8707 §2`) and the context: `patient`,
      `encounter`, `fhirContext` (the JSON array of the token response, as
      `rfc9396 §3` carries a JSON parameter in a form), `intent`,
-     `need_patient_banner` (`true` or `false`), `smart_style_url`,
-     `tenant` and, for an openEHR base only, `ehrId`. Any other parameter
+     `need_patient_banner` (`true` or `false`), `tenant` and, for an
+     openEHR base only, `ehrId`. `smart_style_url` is not a launch
+     parameter: it is the deployment's, from `[ferrosmart.branding]`. Any other parameter
      is refused, so a misspelt context parameter never vanishes. The
      context is checked against `smart scopes-and-launch-context`,
      `fhirContext`: each item names a `reference`, `canonical` or
@@ -2789,6 +2790,21 @@ specification governs.
      resolution for another app or base is refused and leaves the launch
      unused. The `fhirUser` of the token never comes from a launch; it
      comes from the person's own login (item 9).
+   - **At `/authorize`.** A `launch` without the `launch` scope is
+     refused (`invalid_scope`), since the app "requests the scope `launch`
+     and provides an additional URL parameter of `launch`" (`smart
+     scopes-and-launch-context`, Apps that launch from the EHR); an
+     unknown, used, lapsed or foreign launch is `invalid_request`. The
+     launch is redeemed before the upstream login. The consent page then
+     offers `launch`, the `launch/patient` and `launch/encounter` hints
+     its context answers, and the `patient/` scopes the client's ceiling
+     and the person's roles allow once the launch put a patient in
+     context. The context reaches the code and the token response only
+     when the person keeps `launch`; without it the `patient/` and
+     `launch/` scopes are dropped too, because a granted `patient/` scope
+     "SHALL establish a patient in context" (same section). The SMART
+     configuration lists `launch-ehr`, `context-ehr-patient`,
+     `context-ehr-encounter`, `context-banner` and `permission-patient`.
 4. **The patient picker.** SMART places the choice inside the
    authorization server's own flow: for `launch/patient` "The EHR's
    'authorize' endpoint will take care of acquiring the context it needs
@@ -2812,7 +2828,11 @@ specification governs.
    token, Response) and requires the server's policy to win (`smart
    scopes-and-launch-context`, SMART's scopes are used to delegate access).
    The mapping is content, never code.
-6. **Consent.** SMART leaves the user's part open: "The authorization
+6. **Consent.** (Built in #515: the consent page's "Remember this choice"
+   box writes the `consent` row; a later request whose offered scopes the
+   row covers goes back with a code at once; `GET /manage` logs the person
+   in at the provider and lists the rows, each withdrawn by a post that also
+   revokes the client's live access tokens about them.) SMART leaves the user's part open: "The authorization
    decision is up to the EHR authorization server which may request
    authorization from the end-user. The EHR authorization server will
    enforce access rules based on local policies and optionally direct
@@ -2959,18 +2979,17 @@ previous_key_overlap = "1h"                   # "0s": published while it is conf
 base = "https://ehr.example.org/fhir"
 kind = "fhir"                                 # or "openehr"
 
-[ferrosmart.upstream]                         # any OpenID Connect provider
-discovery = "https://idp.example.org/.well-known/openid-configuration"
+[ferrosmart.upstream]                         # any OpenID Connect provider, discovered at start
+issuer = "https://idp.example.org/realms/hospital"
 client_id = "ferrosmart"
-client_secret_file = "/run/secrets/upstream-secret"   # or private_key_file
+client_secret_file = "/run/secrets/upstream-secret"   # unset: a public client with PKCE
 scopes = ["openid", "profile"]
-user_claim = "sub"
-fhir_user_claim = "fhir_user"                 # or a [ferrosmart.upstream.fhir_user] table
-roles_claim = "roles"
+fhir_user_claim = "fhir_user"                 # the ID Token claim holding fhirUser; empty for none
+role_claims = ["roles"]                       # the dotted claims holding the person's roles
 
-[[ferrosmart.policy.role]]                    # policy as content
-role = "clinician"
-scopes = ["user/*.cruds", "patient/*.cruds", "launch", "launch/patient", "openid", "fhirUser", "offline_access"]
+[[ferrosmart.role]]                           # policy as content: what a role may be granted
+name = "clinician"
+scopes = ["user/Observation.rs", "user/Patient.rs"]    # user/ and patient/ scopes only
 
 [[ferrosmart.client]]                         # one table per client, written to the store at start
 client_id = "bulk-export"
@@ -2980,12 +2999,10 @@ jwks_uri = "https://export.example.org/jwks.json"   # or jwks_file, a JWK Set by
 scopes = ["system/Patient.rs", "system/Observation.rs"]   # the client's ceiling
 grant_types = ["client_credentials"]
 
-[ferrosmart.branding]                          # FerroUI's theme and words, never code (13.15)
-name = "Example Hospital"
-logo_file = "/etc/ferrosmart/logo.svg"
-locales = ["en", "nl"]
-consent_text_file = "/etc/ferrosmart/consent.ftl"     # the deployment's own consent wording, per locale
-smart_style_url = "https://smart.example.org/style.json"
+[ferrosmart.branding]                          # content, never code (13.15)
+name = "Example Hospital"                     # the name the pages carry
+smart_style_url = "https://ehr.example.org/smart-style.json"  # an app's token response carries it
+consent_text = "We log every access in your record's audit trail."  # the deployment's own words
 ```
 
 Every secret is a `_file` key read through `ferrohealth-secret`; the

@@ -1,0 +1,465 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The EHR launch through the whole stack against a real PostgreSQL and a
+//! stub upstream OpenID Provider: an EHR registers a launch at `POST
+//! /launch`, the app passes it to `/authorize` with the `launch` scope, and
+//! the token response carries the context (SMART App Launch 2.2.0, Launch
+//! App: EHR Launch; Scopes and Launch Context, Launch context arrives with
+//! your `access_token`; `docs/architecture.md` §13.6 items 2 and 3).
+
+use std::sync::Arc;
+
+use aws_lc_rs::rand::SystemRandom;
+use aws_lc_rs::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair};
+use axum::Router;
+use axum::body::Body;
+use ferrohealth_smart::client::assertion::AssertionKey;
+use ferrosmart::authorize::COOKIE;
+use ferrosmart::server::{AppState, router};
+use ferrosmart::store::Store;
+use http::{Request, StatusCode, header};
+use http_body_util::BodyExt as _;
+use jsonwebtoken::jwk::Jwk;
+use jsonwebtoken::{Algorithm, EncodingKey, Header};
+use serde_json::{Value, json};
+use tower::ServiceExt as _;
+use url::Url;
+use wiremock::{Mock, MockServer, ResponseTemplate, matchers};
+
+use crate::support::{Database, Keys, RESOURCE, config, ec_key};
+
+/// FerroSMART's issuer.
+const ISSUER: &str = "https://smart.example.org";
+/// The app's redirect URI.
+const REDIRECT: &str = "https://app.example.org/callback";
+/// The client FerroSMART is at the provider.
+const UPSTREAM_CLIENT: &str = "ferrosmart";
+/// The style document of `[ferrosmart.branding]`.
+const STYLE: &str = "https://smart.example.org/smart-style.json";
+/// The PKCE verifier of RFC 7636 Appendix B.
+const VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+/// Its `S256` challenge.
+const CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+/// The assertion type of RFC 7523 §2.2.
+const JWT_BEARER: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+/// The scope the app asks for.
+const SCOPE: &str =
+    "openid fhirUser launch launch/patient patient/Observation.rs user/Observation.rs";
+
+/// FerroSMART with a login upstream, an EHR client `ehr` and the app `app`.
+struct Smart {
+    /// The application.
+    app: Router,
+    /// The provider.
+    provider: MockServer,
+    /// The provider's signing key.
+    provider_key: EncodingKey,
+    /// The EHR's signing key.
+    ehr: AssertionKey,
+    /// The store.
+    store: Store,
+    /// The database.
+    database: Database,
+    /// The keys, kept for the case's length.
+    _keys: Keys,
+}
+
+impl Smart {
+    /// Starts FerroSMART.
+    async fn start() -> Self {
+        let provider = MockServer::start().await;
+        let pkcs8 =
+            EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &SystemRandom::new())
+                .expect("a key pair");
+        let provider_key = EncodingKey::from_ec_der(pkcs8.as_ref());
+        let mut jwk = serde_json::to_value(
+            Jwk::from_encoding_key(&provider_key, Algorithm::ES256).expect("a JWK"),
+        )
+        .expect("serializes");
+        if let Some(members) = jwk.as_object_mut() {
+            members.insert(String::from("kid"), json!("op-1"));
+        }
+        let uri = provider.uri();
+        Mock::given(matchers::path("/.well-known/oauth-authorization-server"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "issuer": uri, "authorization_endpoint": format!("{uri}/authorize"),
+                "token_endpoint": format!("{uri}/token"), "jwks_uri": format!("{uri}/jwks"),
+                "code_challenge_methods_supported": ["S256"]
+            })))
+            .mount(&provider)
+            .await;
+        Mock::given(matchers::path("/jwks"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "keys": [jwk] })))
+            .mount(&provider)
+            .await;
+
+        let keys = Keys::new();
+        let pem = std::fs::read(ec_key(keys.dir.path(), "ehr.pem")).expect("the key reads");
+        let ehr = AssertionKey::from_pem(&pem, Some(Algorithm::ES384), Some(String::from("ehr-1")))
+            .expect("a key");
+        let set = keys.dir.path().join("ehr-jwks.json");
+        std::fs::write(&set, json!({"keys": [ehr.public_jwk()]}).to_string()).expect("written");
+        let database = Database::create().await;
+        let text = format!(
+            "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
+             [ferrosmart.upstream]\nissuer = {uri:?}\nclient_id = {UPSTREAM_CLIENT:?}\nfhir_user_claim = \"fhir_user\"\n\
+             [ferrosmart.branding]\nsmart_style_url = {STYLE:?}\n\
+             [[ferrosmart.role]]\nname = \"clinician\"\nscopes = [\"user/Observation.rs\", \"patient/Observation.rs\"]\n\
+             [[ferrosmart.client]]\nclient_id = \"ehr\"\nkind = \"confidential_asymmetric\"\n\
+             jwks_file = {:?}\nscopes = [\"system/launch.c\"]\ngrant_types = [\"client_credentials\"]\n\
+             [[ferrosmart.client]]\nclient_id = \"app\"\nname = \"Synthetic App\"\nkind = \"public\"\n\
+             redirect_uris = [{REDIRECT:?}]\ngrant_types = [\"authorization_code\"]\n\
+             scopes = [\"openid\", \"fhirUser\", \"launch\", \"launch/patient\", \"patient/Observation.rs\", \"user/Observation.rs\"]",
+            secrecy::ExposeSecret::expose_secret(&database.url),
+            set.display().to_string(),
+        );
+        let settings = config(&text, &keys).resolve().expect("resolves");
+        let store = Store::connect(&settings.database_url, 2)
+            .await
+            .expect("connects");
+        store.migrate().await.expect("migrates");
+        store.register(&settings.clients).await.expect("registered");
+        let callback =
+            Url::parse(&settings.endpoint(ferrosmart::authorize::CALLBACK_ROUTE)).expect("a URL");
+        let party = settings
+            .upstream
+            .as_ref()
+            .expect("an upstream")
+            .relying_party(callback)
+            .await
+            .expect("the provider is discovered");
+        let state = AppState::new(settings, store.clone()).with_login(party);
+        Self {
+            app: router(Arc::new(state)),
+            provider,
+            provider_key,
+            ehr,
+            store,
+            database,
+            _keys: keys,
+        }
+    }
+
+    /// Mounts the provider's code exchange for one login carrying `nonce`.
+    async fn answer(&self, nonce: &str) {
+        let now = jiff::Timestamp::now().as_second();
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(String::from("op-1"));
+        let id_token = jsonwebtoken::encode(
+            &header,
+            &json!({
+                "iss": self.provider.uri(), "aud": UPSTREAM_CLIENT, "sub": "synthetic-person",
+                "nonce": nonce, "iat": now, "exp": now + 300, "name": "Synthetic Clinician",
+                "roles": ["clinician"], "fhir_user": "Practitioner/synthetic-1"
+            }),
+            &self.provider_key,
+        )
+        .expect("signs");
+        Mock::given(matchers::method("POST"))
+            .and(matchers::path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "access_token": "synthetic-upstream-token", "token_type": "Bearer",
+                "expires_in": 300, "id_token": id_token
+            })))
+            .up_to_n_times(1)
+            .mount(&self.provider)
+            .await;
+    }
+
+    /// Sends `request` and returns the status, the headers and the body.
+    async fn send(&self, request: Request<Body>) -> (StatusCode, http::HeaderMap, String) {
+        let response = self.app.clone().oneshot(request).await.expect("an answer");
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("the body")
+            .to_bytes();
+        (
+            status,
+            headers,
+            String::from_utf8_lossy(&bytes).into_owned(),
+        )
+    }
+
+    /// Gets `path` with the request cookie, if any.
+    async fn get(&self, path: &str, cookie: Option<&str>) -> (StatusCode, http::HeaderMap, String) {
+        let mut request = Request::get(path);
+        if let Some(cookie) = cookie {
+            request = request.header(header::COOKIE, format!("{COOKIE}={cookie}"));
+        }
+        self.send(request.body(Body::empty()).expect("a request"))
+            .await
+    }
+
+    /// Posts the form `pairs` to `path` with the cookie, if any.
+    async fn post(
+        &self,
+        path: &str,
+        pairs: &[(&str, &str)],
+        cookie: Option<&str>,
+    ) -> (StatusCode, http::HeaderMap, String) {
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(pairs)
+            .finish();
+        let mut request =
+            Request::post(path).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
+        if let Some(cookie) = cookie {
+            request = request.header(header::COOKIE, format!("{COOKIE}={cookie}"));
+        }
+        self.send(request.body(Body::from(body)).expect("a request"))
+            .await
+    }
+
+    /// Registers a launch of patient `123` in encounter `456` for `app` and
+    /// returns its value.
+    async fn launch(&self) -> String {
+        let now = jiff::Timestamp::now().as_second();
+        let mut bytes = [0_u8; 12];
+        aws_lc_rs::rand::fill(&mut bytes).expect("draws");
+        let jti = bytes.iter().fold(String::new(), |mut id, byte| {
+            use std::fmt::Write as _;
+            write!(id, "{byte:02x}").expect("a String takes every write");
+            id
+        });
+        let assertion = self
+            .ehr
+            .sign(
+                "JWT",
+                &json!({"iss": "ehr", "sub": "ehr", "aud": format!("{ISSUER}/token"), "exp": now + 120, "jti": jti}),
+            )
+            .expect("signs");
+        let (status, _, body) = self
+            .post(
+                "/launch",
+                &[
+                    ("client_assertion_type", JWT_BEARER),
+                    ("client_assertion", &assertion),
+                    ("app_client_id", "app"),
+                    ("resource", RESOURCE),
+                    ("patient", "123"),
+                    ("encounter", "456"),
+                    ("need_patient_banner", "false"),
+                    ("fhirContext", r#"[{"reference":"DiagnosticReport/7"}]"#),
+                ],
+                None,
+            )
+            .await;
+        assert_eq!(StatusCode::CREATED, status, "{body}");
+        let body: Value = serde_json::from_str(&body).expect("JSON");
+        body.get("launch")
+            .and_then(Value::as_str)
+            .expect("a launch value")
+            .to_owned()
+    }
+
+    /// Drops the database.
+    async fn stop(self) {
+        self.database.drop(self.store).await;
+    }
+}
+
+/// Returns the authorization request carrying `launch` and `scope`.
+fn authorize_path(launch: &str, scope: &str) -> String {
+    let pairs = [
+        ("response_type", "code"),
+        ("client_id", "app"),
+        ("redirect_uri", REDIRECT),
+        ("scope", scope),
+        ("state", "synthetic-state"),
+        ("aud", RESOURCE),
+        ("code_challenge", CHALLENGE),
+        ("code_challenge_method", "S256"),
+        ("launch", launch),
+    ];
+    format!(
+        "/authorize?{}",
+        url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(pairs)
+            .finish()
+    )
+}
+
+/// Returns the location of a `303`, parsed.
+fn location(headers: &http::HeaderMap) -> Url {
+    let location = headers
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .expect("a location");
+    Url::parse(location).unwrap_or_else(|_relative| {
+        Url::parse(ISSUER)
+            .expect("a URL")
+            .join(location)
+            .expect("a URL")
+    })
+}
+
+/// Returns the query parameter `name` of `url`.
+fn param(url: &Url, name: &str) -> Option<String> {
+    url.query_pairs()
+        .find(|(key, _)| key == name)
+        .map(|(_, value)| value.into_owned())
+}
+
+/// Runs the EHR launch `launch` to the consent page and returns the
+/// cookie, the form token and the page.
+async fn to_consent(smart: &Smart, launch: &str) -> (String, String, String) {
+    let (status, headers, _) = smart.get(&authorize_path(launch, SCOPE), None).await;
+    assert_eq!(StatusCode::SEE_OTHER, status, "on to the provider");
+    let upstream = location(&headers);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|cookie| cookie.split(';').next())
+        .and_then(|pair| pair.split_once('='))
+        .map(|(_, value)| value.to_owned())
+        .expect("a cookie");
+    smart
+        .answer(&param(&upstream, "nonce").expect("a nonce"))
+        .await;
+    let callback = format!(
+        "/callback?code=synthetic-upstream-code&state={}",
+        param(&upstream, "state").expect("a state")
+    );
+    let (status, _, _) = smart.get(&callback, Some(&cookie)).await;
+    assert_eq!(StatusCode::SEE_OTHER, status, "on to the consent page");
+    let (status, _, page) = smart.get("/consent", Some(&cookie)).await;
+    assert_eq!(StatusCode::OK, status, "{page}");
+    let token = page
+        .split("name=\"form_token\" value=\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("a form token")
+        .to_owned();
+    (cookie, token, page)
+}
+
+/// Approves `scopes` on the consent page and exchanges the code, returning
+/// the token response.
+async fn approve_and_exchange(smart: &Smart, cookie: &str, token: &str, scopes: &[&str]) -> Value {
+    let mut form = vec![("form_token", token), ("decision", "approve")];
+    form.extend(scopes.iter().map(|scope| ("scope", *scope)));
+    let (status, headers, _) = smart.post("/consent", &form, Some(cookie)).await;
+    assert_eq!(StatusCode::SEE_OTHER, status, "back to the app");
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    serde_json::from_str(&body).expect("JSON")
+}
+
+#[tokio::test]
+async fn an_ehr_launch_carries_its_context_to_the_token_response() {
+    let smart = Smart::start().await;
+    let (_, _, document) = smart.get("/.well-known/smart-configuration", None).await;
+    let document: Value = serde_json::from_str(&document).expect("JSON");
+    for capability in [
+        "launch-ehr",
+        "context-ehr-patient",
+        "context-ehr-encounter",
+        "context-banner",
+        "permission-patient",
+    ] {
+        // NOTE: SMART App Launch 2.2.0, Conformance, Capabilities.
+        assert!(
+            document["capabilities"]
+                .as_array()
+                .is_some_and(|listed| listed.contains(&json!(capability))),
+            "{capability}"
+        );
+    }
+    let launch = smart.launch().await;
+    let (cookie, token, page) = to_consent(&smart, &launch).await;
+    for scope in ["launch", "launch/patient", "patient/Observation.rs"] {
+        assert!(
+            page.contains(&format!("value=\"{scope}\"")),
+            "the launch puts a patient in context, so {scope} is offered"
+        );
+    }
+    let body = approve_and_exchange(
+        &smart,
+        &cookie,
+        &token,
+        &[
+            "openid",
+            "launch",
+            "launch/patient",
+            "patient/Observation.rs",
+        ],
+    )
+    .await;
+    assert_eq!(
+        json!("openid launch launch/patient patient/Observation.rs"),
+        body["scope"]
+    );
+    // NOTE: SMART App Launch 2.2.0, Launch context arrives with your access_token.
+    assert_eq!(json!("123"), body["patient"]);
+    assert_eq!(json!("456"), body["encounter"]);
+    assert_eq!(json!(false), body["need_patient_banner"]);
+    assert_eq!(
+        json!([{"reference": "DiagnosticReport/7"}]),
+        body["fhirContext"]
+    );
+    assert_eq!(json!(STYLE), body["smart_style_url"], "from the branding");
+    let access: Value = jsonwebtoken::dangerous::insecure_decode_claims(
+        body["access_token"].as_str().expect("a token"),
+    )
+    .expect("claims");
+    // NOTE: docs/architecture.md §13.6 item 2, the context in the access token.
+    assert_eq!(json!("123"), access["patient"]);
+    assert_eq!(json!("456"), access["encounter"]);
+    assert_eq!(Value::Null, access["need_patient_banner"]);
+
+    // NOTE: docs/architecture.md §13.6 item 3, a launch is redeemed once.
+    let (status, headers, _) = smart.get(&authorize_path(&launch, SCOPE), None).await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let back = location(&headers);
+    assert!(back.as_str().starts_with(REDIRECT), "{back}");
+    assert_eq!(Some(String::from("invalid_request")), param(&back, "error"));
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_launch_needs_the_launch_scope_and_unticking_it_drops_the_context() {
+    let smart = Smart::start().await;
+    let launch = smart.launch().await;
+    let (status, headers, _) = smart
+        .get(&authorize_path(&launch, "openid user/Observation.rs"), None)
+        .await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let back = location(&headers);
+    assert!(back.as_str().starts_with(REDIRECT), "{back}");
+    assert_eq!(Some(String::from("invalid_scope")), param(&back, "error"));
+
+    let launch = smart.launch().await;
+    let (cookie, token, _) = to_consent(&smart, &launch).await;
+    let body = approve_and_exchange(
+        &smart,
+        &cookie,
+        &token,
+        &[
+            "openid",
+            "launch/patient",
+            "patient/Observation.rs",
+            "user/Observation.rs",
+        ],
+    )
+    .await;
+    assert_eq!(
+        json!("openid user/Observation.rs"),
+        body["scope"],
+        "no patient in context without launch, so no patient/ scope"
+    );
+    assert_eq!(Value::Null, body["patient"]);
+    assert_eq!(Value::Null, body["need_patient_banner"]);
+    smart.stop().await;
+}
