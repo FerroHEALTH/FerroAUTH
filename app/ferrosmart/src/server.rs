@@ -17,7 +17,7 @@ use axum::Json;
 use axum::Router;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use ferrohealth_health::lifecycle::Lifecycle;
 use ferrohealth_health::registry::{Check, HealthIndicator, Outcome, Registry};
 use ferrohealth_server::health::Health;
@@ -26,8 +26,9 @@ use ferrohealth_smart::metadata::ServerMetadata;
 use http::{HeaderValue, header};
 use serde_json::Value;
 
+use crate::client_keys::ClientKeySets;
 use crate::config::settings::Settings;
-use crate::discovery::{self, JWKS_ROUTE, SMART_CONFIGURATION_ROUTE};
+use crate::discovery::{self, JWKS_ROUTE, SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE};
 use crate::store::Store;
 
 /// The `Cache-Control` of the JWK Set: an hour, and a next key is published
@@ -48,6 +49,8 @@ pub struct AppState {
     lifecycle: Lifecycle,
     /// The store.
     store: Store,
+    /// The clients' JWK Sets.
+    client_keys: ClientKeySets,
 }
 
 impl AppState {
@@ -62,7 +65,14 @@ impl AppState {
             smart,
             lifecycle: Lifecycle::default(),
             store,
+            client_keys: ClientKeySets::new(reqwest::Client::new()),
         }
+    }
+
+    /// Returns the clients' JWK Sets.
+    #[must_use]
+    pub const fn client_keys(&self) -> &ClientKeySets {
+        &self.client_keys
     }
 
     /// Returns the store.
@@ -92,6 +102,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     let issuer = Router::new()
         .route(SMART_CONFIGURATION_ROUTE, get(smart_configuration))
         .route(JWKS_ROUTE, get(jwks))
+        .route(TOKEN_ROUTE, post(crate::token::token))
         .with_state(Arc::clone(&state));
     let beside = Router::new()
         .route(&state.settings.metadata_path(), get(metadata))

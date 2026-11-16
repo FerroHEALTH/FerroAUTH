@@ -126,6 +126,7 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
         .register(&settings.clients)
         .await
         .map_err(|error| Failure::not_up(error).with_context("cannot register the clients"))?;
+    let sweeper = tokio::spawn(sweep(store.clone()));
     let state = Arc::new(AppState::new(settings, store));
     let listener = tokio::net::TcpListener::bind(listen)
         .await
@@ -134,11 +135,29 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
     let lifecycle = state.lifecycle().clone();
     let app = crate::server::router(state);
     let stop = ferrohealth_server::serve::shutdown_signal();
-    match ferrohealth_server::serve::run(listener, app, &section, lifecycle, stop).await {
+    let served = ferrohealth_server::serve::run(listener, app, &section, lifecycle, stop).await;
+    sweeper.abort();
+    match served {
         Ok(_drained) => Ok(ExitCode::SUCCESS),
         Err(error) => {
             tracing::error!(error = %chain(&error), "the listener failed");
             Ok(ExitCode::FAILURE)
+        }
+    }
+}
+
+/// How often a replica deletes the expired assertion ids and token records.
+/// No specification governs the value: our own design.
+pub const SWEEP_INTERVAL: Duration = Duration::from_secs(60);
+
+/// Deletes the expired rows every [`SWEEP_INTERVAL`]; a failed sweep is
+/// logged and the next one tries again.
+async fn sweep(store: Store) {
+    let mut interval = tokio::time::interval(SWEEP_INTERVAL);
+    loop {
+        interval.tick().await;
+        if let Err(error) = store.sweep().await {
+            tracing::warn!(error = %chain(&error), "the expired rows were not swept");
         }
     }
 }

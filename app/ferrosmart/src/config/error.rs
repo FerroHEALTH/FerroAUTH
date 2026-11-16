@@ -30,6 +30,19 @@ pub enum Error {
     /// The issuer's path is not the base path the server serves under.
     #[error("the path of `ferrosmart.issuer` is not `server.base_path`")]
     IssuerPath,
+    /// No resource server is configured, or a base URL is outside the rule.
+    #[error("`ferrosmart.resource`: {rule}")]
+    Resource {
+        /// The rule broken.
+        rule: &'static str,
+    },
+    /// A resource server's base URL is outside the rule.
+    #[error("a `ferrosmart.resource` base is no https URL without a query or a fragment")]
+    ResourceBase {
+        /// Why.
+        #[source]
+        source: ferrohealth_smart::metadata::DiscoveryError,
+    },
     /// A lifetime that must be positive is zero.
     #[error("`{key}` must be greater than zero")]
     Zero {

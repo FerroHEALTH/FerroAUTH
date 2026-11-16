@@ -127,6 +127,65 @@ impl Store {
         row.map(|row| read_client(&row)).transpose()
     }
 
+    /// Records the assertion `jti` of `issuer`, kept until `expires_at`
+    /// (seconds since the epoch), and returns whether it was unseen: a
+    /// `false` is a replay.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn first_use(
+        &self,
+        issuer: &str,
+        jti: &str,
+        expires_at: i64,
+    ) -> Result<bool, StoreError> {
+        let inserted = sqlx::query(
+            "INSERT INTO seen_jti (issuer, jti, expires_at) VALUES ($1, $2, to_timestamp($3)) \
+             ON CONFLICT (issuer, jti) DO NOTHING",
+        )
+        .bind(issuer)
+        .bind(jti)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(inserted.rows_affected() == 1)
+    }
+
+    /// Records the access token `token` describes.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn record_token(&self, token: &IssuedToken<'_>) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO access_token (jti, client_id, subject, audience, scope, issued_at, expires_at) \
+             VALUES ($1, $2, $3, $4, $5, to_timestamp($6), to_timestamp($7))",
+        )
+        .bind(token.jti)
+        .bind(token.client_id)
+        .bind(token.subject)
+        .bind(token.audience)
+        .bind(token.scope)
+        .bind(token.issued_at)
+        .bind(token.expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Deletes the assertion ids and the access tokens past their expiry.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when a statement fails.
+    pub async fn sweep(&self) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM seen_jti WHERE expires_at < now()")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM access_token WHERE expires_at < now()")
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Returns whether the database answers a statement, for readiness.
     ///
     /// # Errors
@@ -207,4 +266,23 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
         grant_types,
         client_id,
     })
+}
+
+/// What the store records of an issued access token.
+#[derive(Debug, Clone, Copy)]
+pub struct IssuedToken<'a> {
+    /// Its `jti`.
+    pub jti: &'a str,
+    /// The client it was issued to.
+    pub client_id: &'a str,
+    /// Its `sub`.
+    pub subject: &'a str,
+    /// Its `aud`.
+    pub audience: &'a str,
+    /// Its `scope`.
+    pub scope: &'a str,
+    /// Its `iat`, in seconds since the epoch.
+    pub issued_at: i64,
+    /// Its `exp`, in seconds since the epoch.
+    pub expires_at: i64,
 }

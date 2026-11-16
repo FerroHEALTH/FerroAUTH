@@ -9,67 +9,8 @@
 use ferrosmart::clients::{ClientKind, ClientSection, GrantType, resolve};
 use ferrosmart::store::Store;
 use secrecy::SecretString;
-use sqlx::Connection as _;
 
-/// The variable naming the test server.
-const ENV: &str = "FERROSMART_TEST_PG_URL";
-
-/// A database that lives as long as the case.
-struct Database {
-    /// The server's administrative URL.
-    admin: String,
-    /// The database's name.
-    name: String,
-    /// The database's URL.
-    url: SecretString,
-}
-
-impl Database {
-    /// Creates a fresh, empty database.
-    async fn create() -> Self {
-        let admin = std::env::var(ENV)
-            .expect("FERROSMART_TEST_PG_URL names the PostgreSQL server to test against");
-        let mut bytes = [0_u8; 8];
-        aws_lc_rs::rand::fill(&mut bytes).expect("the random source draws");
-        let name = bytes
-            .iter()
-            .fold(String::from("ferrosmart_test_"), |mut name, byte| {
-                use std::fmt::Write as _;
-                write!(name, "{byte:02x}").expect("a String takes every write");
-                name
-            });
-        let mut connection = sqlx::PgConnection::connect(&admin)
-            .await
-            .expect("the server answers");
-        // The name is the fixed prefix and the hex digits this case drew, never input.
-        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
-            .execute(&mut connection)
-            .await
-            .expect("the database is created");
-        let mut url = url::Url::parse(&admin).expect("a URL");
-        url.set_path(&name);
-        Self {
-            admin,
-            name,
-            url: SecretString::from(url.to_string()),
-        }
-    }
-
-    /// Drops the database.
-    async fn drop(self, store: Store) {
-        drop(store);
-        let mut connection = sqlx::PgConnection::connect(&self.admin)
-            .await
-            .expect("the server answers");
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP DATABASE {} WITH (FORCE)",
-            self.name
-        )))
-        .execute(&mut connection)
-        .await
-        .expect("the database is dropped");
-    }
-}
+use crate::support::Database;
 
 /// Returns a configured Backend Services client.
 fn backend(client_id: &str, scope: &str) -> ClientSection {

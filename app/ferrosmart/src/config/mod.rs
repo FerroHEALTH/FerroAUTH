@@ -27,6 +27,10 @@
 //! [ferrosmart.database]
 //! url_file = "/run/secrets/ferrosmart-database-url"
 //!
+//! [[ferrosmart.resource]]
+//! base = "https://ehr.example.org/fhir"
+//! kind = "fhir"
+//!
 //! [[ferrosmart.client]]
 //! client_id = "bulk-export"
 //! name = "Bulk export"
@@ -119,6 +123,32 @@ pub struct FerroSmartSection {
     pub database: DatabaseSection,
     /// `[[ferrosmart.client]]`: the registered clients.
     pub client: Vec<crate::clients::ClientSection>,
+    /// `[[ferrosmart.resource]]`: the FHIR and openEHR servers a token may
+    /// be for, each its own audience.
+    pub resource: Vec<ResourceSection>,
+}
+
+/// One `[[ferrosmart.resource]]` table: a server whose base URL is the
+/// `aud` of the tokens issued for it (SMART App Launch 2.2.0, Obtain
+/// authorization code, `aud`; RFC 9068 §3).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ResourceSection {
+    /// The server's base URL, as its clients name it.
+    pub base: String,
+    /// The API the server serves.
+    pub kind: ResourceKind,
+}
+
+/// The API a resource server serves.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResourceKind {
+    /// A FHIR server.
+    #[default]
+    Fhir,
+    /// An openEHR server (the SMART on openEHR draft).
+    Openehr,
 }
 
 impl Default for FerroSmartSection {
@@ -129,6 +159,7 @@ impl Default for FerroSmartSection {
             keys: KeysSection::default(),
             database: DatabaseSection::default(),
             client: Vec::new(),
+            resource: Vec::new(),
         }
     }
 }

@@ -2918,10 +2918,9 @@ next_private_key_file = "/run/secrets/rs256-next.pem"          # published befor
 previous_private_key_file = "/run/secrets/rs256-previous.pem"  # published, never signs
 previous_key_overlap = "1h"                   # "0s": published while it is configured
 
-[[ferrosmart.resource]]                       # each base an `aud` may name
+[[ferrosmart.resource]]                       # each base an `aud` may name; at least one
 base = "https://ehr.example.org/fhir"
 kind = "fhir"                                 # or "openehr"
-picker = true
 
 [ferrosmart.upstream]                         # any OpenID Connect provider
 discovery = "https://idp.example.org/.well-known/openid-configuration"
