@@ -31,12 +31,29 @@ is asking, and may they do this? Getting either wrong exposes patient data.
 FerroAUTH answers both once, for every FerroHEALTH product, so each server
 checks sign-in and permissions the same tested way.
 
-It does not run a login page or issue passwords. A hospital keeps the
-sign-in system it already has (such as Keycloak or Microsoft Entra ID), and
-FerroAUTH checks the access tokens that system hands out: is the token
+The libraries run no login page and issue no passwords. A hospital keeps
+the sign-in system it already has (such as Keycloak or Microsoft Entra ID),
+and FerroAUTH checks the access tokens that system hands out: is the token
 genuine, still valid, meant for this server, and does it grant this action
 on this patient's record? It speaks SMART, the standard health apps use to
 ask for access to openEHR and FHIR data.
+
+### FerroSMART, the SMART authorization server
+
+Most sign-in systems cannot issue real SMART tokens: they drop the SMART
+scopes and the launch context a health app asks for. FerroSMART fills that
+gap. It is a SMART App Launch 2.x authorization server that sits beside
+your sign-in system: people still log in there, and FerroSMART issues the
+SMART access tokens, with the patient and encounter context, the scopes the
+user approved and an OpenID Connect identity, for any FHIR or openEHR server.
+It speaks only published standards (SMART App Launch 2.2, OAuth 2.0 and its
+RFCs, OpenID Connect), so it works with any OpenID Connect sign-in system
+upstream and any FHIR server downstream.
+
+FerroSMART is being built in this repository (its design is
+[`docs/architecture.md`](docs/architecture.md) §13) and will ship as its
+own container image beside the crates. The repository carried the name
+FerroSMART until 2026-10-25; the name now belongs to the server.
 
 ### Who it is for
 
@@ -197,9 +214,11 @@ model, each check cited to its specification section.
 
 ## Security
 
-- FerroAUTH runs no login page, issues no token and holds no signing key: a
-  hospital keeps its own identity provider, and FerroAUTH checks what that
-  provider hands out.
+- The library crates run no login page, issue no token and hold no signing
+  key: a hospital keeps its own identity provider, and the crates check what
+  its authorization server hands out. FerroSMART is the one part of this
+  repository that issues tokens and holds signing keys, and it leaves login
+  to the identity provider.
 - The audit line has a fixed field set and never carries the token or any
   request content.
 - The crates contain no `unsafe` code (`unsafe_code = "forbid"`), and

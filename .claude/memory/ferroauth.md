@@ -1,6 +1,6 @@
 ---
 name: ferroauth
-description: "FerroAUTH holds the FerroHEALTH products' shared authentication and authorization crates, never an authorization server: ferrohealth-smart (the resource server, the SMART v2 scopes, HTTP Basic and the client credentials grant as the only machine-auth modes, the audit line) and ferrohealth-authz (the policy decision); owner 2026-10-19 and 2026-10-25"
+description: "FerroAUTH holds the FerroHEALTH products' shared authentication and authorization crates, which are never an authorization server (FerroSMART beside them is, owner 2026-11-16): ferrohealth-smart (the resource server, the SMART v2 scopes, HTTP Basic and the client credentials grant as the only machine-auth modes, the audit line) and ferrohealth-authz (the policy decision); owner 2026-10-19 and 2026-10-25"
 metadata:
   type: project
 ---
@@ -22,9 +22,9 @@ FerroHEALTH product uses, the way FerroUI holds the shared UI crate
 The points below are about `ferrohealth-smart`.
 
 - **Not an authorization server.** It never issues a token and never holds
-  a key that signs one; each deployment points it at its own
-  standards-compliant authorization server (Keycloak, Entra ID, Cadasto's
-  smart-auth). The `private_key_jwt` key is a client credential that signs
+  a key that signs one; each deployment points it at its authorization
+  server, FerroSMART ([[ferrosmart]]) or any other standards-compliant one
+  (Keycloak, Entra ID). The `private_key_jwt` key is a client credential that signs
   only the product's own client assertion (RFC 7523 §2.2), which the owner
   confirmed keeps "never holds a token-signing key" true.
 - **What it is:** the resource server (discovery, the key set with
@@ -41,7 +41,7 @@ The points below are about `ferrohealth-smart`.
   `// NOTE:`.
 
 **How to apply:** build every behaviour to `docs/architecture.md`; a change
-that would issue a token, add a third machine-auth mode or name a product
+that would make a library crate issue a token (that is FerroSMART's work), add a third machine-auth mode or name a product
 in the library is refused and goes back to the owner. A policy decision
 (roles and attributes evaluated against a rule set, Cedar, a PDP call)
 goes to `ferrohealth-authz`, not to `ferrohealth-smart`.

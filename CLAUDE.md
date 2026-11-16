@@ -19,6 +19,9 @@ owner placed here on 2026-11-03. Each crate keeps its own version line and
 tag: `ferrohealth-smart-vX.Y.Z` releases `ferrohealth-smart`,
 `ferrohealth-authz-vX.Y.Z` releases `ferrohealth-authz` and
 `ferrohealth-session-vX.Y.Z` releases `ferrohealth-session` (`docs/release.md`).
+Beside the crates the repository holds FerroSMART, the family's SMART App
+Launch 2.x authorization server, which ships as its own OCI image and
+release artefacts (owner decision 2026-11-16, section below).
 
 FerroAUTH in prose (the repository was FerroSMART until the owner renamed
 it on 2026-10-25), `ferrohealth-smart` in identifiers. The crate name and
@@ -27,16 +30,33 @@ under BUSL-1.1, because it is hand-written code that implements a
 specification, and in this family only generator-emitted code is Apache-2.0
 (`.claude/memory/crate-name.md`, `.claude/memory/license-busl.md`).
 
-## What the library is, and is not
+## The libraries and the one authorization server
 
-**FerroAUTH is not an authorization server.** It never issues a token and
-never holds a key that signs one. Each deployment points it at its own
-standards-compliant authorization server (Keycloak, Entra ID, Cadasto's
-smart-auth, any other). The one private key it can hold is the client
-credential of `private_key_jwt`, which signs only the product's own client
-assertion to the token endpoint (RFC 7523 §2.2), never an access token.
+**The library crates are not an authorization server.** `ferrohealth-smart`,
+`ferrohealth-authz` and `ferrohealth-session` are resource-server, policy and
+session crates: they never issue a token and never hold a key that signs
+one. Each deployment points them at its authorization server, FerroSMART or
+any other standards-compliant one (Keycloak, Entra ID, any other). The one
+private key the libraries can hold is the client credential of
+`private_key_jwt`, which signs only the product's own client assertion to
+the token endpoint (RFC 7523 §2.2), never an access token.
 
-**FerroAUTH is the library every product uses to:**
+**FerroSMART is the one component that issues tokens and holds signing
+keys** (owner decision 2026-11-16, `.claude/memory/ferrosmart.md`). It is the
+family's SMART App Launch 2.x authorization server, built here because no
+IdP the family supports issues real SMART tokens (scopes, `launch`, the
+launch context, asymmetric clients). It uses any OpenID Connect IdP upstream
+for login only, speaks only published standards on every interface (SMART
+App Launch 2.2, OAuth 2.x, OpenID Connect, RFC 9068, 7662, 7009, 7523, 8414,
+7591, 7636) with no Ferro-specific claim, and serves any FHIR or openEHR
+server downstream. It lives in this repository permanently, licensed
+BUSL-1.1, and ships as its own OCI image and release artefacts beside the
+library crates. "FerroSMART" was this repository's name until 2026-10-25;
+the product name is reused. Its design is `docs/architecture.md` §13. A
+change that would make a library crate issue a token or hold a signing key
+is refused: that work belongs in FerroSMART.
+
+**`ferrohealth-smart` is the library every product uses to:**
 
 - act as an OAuth 2.0 and SMART App Launch 2.x resource server
   (`resource`, `metadata`): discover the issuer (RFC 8414, with OpenID
@@ -119,6 +139,9 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   `cookies`, `return_path`, `paths`, and `routes` behind `axum`),
   `tests/it/` (the four routes of a synthetic console against a test OpenID
   Provider, a `wiremock` stub with a key generated when the case runs).
+- FerroSMART, the authorization server: being built (its tracker issue
+  carries the steps); `docs/architecture.md` §13 fixes its crate layout,
+  storage, endpoints and configuration.
 - `docs/`: `architecture.md`, `VERSIONS.md`, `release.md`, `specs/` (the
   vendored SMART App Launch, RFC, OpenID Connect Discovery, Core and
   RP-Initiated Logout, FAPI 2.0 Security Profile, NIST SP 800-162 and Cedar language corpora, the

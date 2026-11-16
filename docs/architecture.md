@@ -5,7 +5,9 @@
 
 FerroAUTH holds three crates: authentication, `ferrohealth-smart`, the
 policy decision, `ferrohealth-authz` (section 11), and the console sign-in
-and session, `ferrohealth-session` (section 12). Sections 0 to 10 design
+and session, `ferrohealth-session` (section 12). Beside them it holds
+FerroSMART, the family's SMART App Launch 2.x authorization server (section
+13, owner decision 2026-11-16). Sections 0 to 10 design
 `ferrohealth-smart`, the shared library with which every
 FerroHEALTH product (FerroBRIDGE, FerroEHR, FerroFED, FerroPIX and FerroTERM) acts as an
 OAuth 2.0 and SMART App Launch 2.x resource server, verifies and sends
@@ -53,6 +55,10 @@ error body, a JSON document), and every policy beyond the SMART grant
 (FerroEHR's roles and attributes, FerroFED's purpose of use and trust list).
 
 ## 1. The role: a resource server, never an authorization server
+
+This section is the role of the library crates. The family's one
+authorization server is FerroSMART (section 13), a separate component of
+this repository that no product links.
 
 OAuth 2.0 names four roles: the resource owner, the resource server, the
 client and the authorization server (`rfc6749 §1.1`). SMART App Launch has an
@@ -2125,14 +2131,15 @@ by editing the test.
 
 ## 6. What `ferrohealth-smart` deliberately does not do
 
-- **Issue tokens.** That is the authorization server (`rfc6749 §1.1`), and
-  the family takes one off the shelf per deployment. A token-issuing library
-  would hold a signing key in every product, which is the one key whose
-  leak forges every caller.
+- **Issue tokens.** That is the authorization server (`rfc6749 §1.1`):
+  FerroSMART (section 13) or any other standards-compliant one a deployment
+  names. A token-issuing library would hold a signing key in every product,
+  which is the one key whose leak forges every caller, so the signing keys
+  live in FerroSMART alone.
 - **Log a user in, show a consent screen, or hold an app registry.** All
   three are the authorization server's (SMART App Launch's authorize
-  endpoint and registration, `smart app-launch`), and each is a product in
-  itself with its own threat surface.
+  endpoint and registration, `smart app-launch`), and each has its own
+  threat surface, which FerroSMART carries as its own component.
 - **Introspect by default.** RFC 7662 trades a signature check for a network
   call per request, so a resource server that introspects by default
   inherits the authorization server's availability and latency on every
@@ -2223,7 +2230,8 @@ four agree on and settles each difference:
 
 | Decision | Ground | Owner items |
 |---|---|---|
-| `ferrohealth-smart` is a library, a resource server and a credential client, never an authorization server | owner decision 2026-10-19 | the repository's `README.md` still describes a SMART on openEHR server that issues tokens and launch context; it needs the new statement |
+| `ferrohealth-smart` is a library, a resource server and a credential client, never an authorization server | owner decision 2026-10-19, kept for the three library crates by the owner decision of 2026-11-16 | none |
+| FerroSMART, a SMART App Launch 2.x authorization server, is built in this repository, licensed BUSL-1.1 and shipped as its own OCI image; it is the one component that issues tokens and holds signing keys, and any OpenID Connect IdP upstream serves login only | owner decision 2026-11-16: no IdP the family supports issues real SMART tokens (FerroHEALTH/FerroEHR#5827) | a deployment that wants SMART launch points its products' issuer at FerroSMART (section 13) |
 | The crate is licensed BUSL-1.1 | It is hand-written code that implements the specifications above, which is the family's rule for its own code; only generator-emitted code (`fhir-types`, `hl7v2-types` in FerroBRIDGE) is published under Apache-2.0, because it is emitted from CC0 inputs and three servers depend on it. `ferrohealth-smart` emits nothing and is consumed by the family's own products (owner decision 2026-10-19). `docs/VERSIONS.md` records the licence row and `scripts/checks/versions.sh` fails on any other claim. | none |
 | Machine-to-machine traffic is the client credentials grant, beside the onward grants and federation tokens; HTTP Basic is a person's credential and carries no `system/` scope; no static bearer token and no API key | owner decision 2026-10-19; owner ruling 2026-11-05 on Basic (#215, #274) | none |
 | The `private_key_jwt` key is a client credential, held under `[<lane>.credentials.oauth]`, and is the one private key the library can hold; "never holds a signing key" means never a key that signs an access token, and this key signs only the product's own client assertion (owner decision 2026-10-19) | `rfc7523 §2.2`; the assertion authenticates the client to the token endpoint and no resource server accepts it as an access token (`rfc9068 §4`, the `typ` and `aud` checks) | none |
@@ -2436,3 +2444,82 @@ FerroTERM and the FerroEHR viewer carried (owner decision 2026-11-03, #177).
 | A sealed store without a key is refused when the configuration loads; there is no per-process key | our own design, fail closed (owner decision 2026-11-03) | the FerroEHR viewer's deployments set `session.key` |
 | One route set, `/login`, `/auth/callback`, `/logout` and `/session`, on every console | our own design (owner decision 2026-11-03) | FerroTERM and the FerroEHR viewer change the redirect URI registered at their provider |
 | The store, the lifetimes and the watch route | no specification governs them: our own design, held to the OWASP Session Management Cheat Sheet | none |
+
+## 13. FerroSMART: the SMART authorization server
+
+FerroSMART is the family's SMART App Launch 2.x authorization server
+(`smart conformance`, Actors; `rfc6749 §1.1`). The owner decided on
+2026-11-16 to build it, for these reasons and on these terms.
+
+### 13.1 Why the family builds one
+
+The products need tokens that carry SMART: the `launch` and `launch/patient`
+scopes, the patient and encounter context in the token response, v2 scopes
+chosen per request, and asymmetric client authentication. No identity
+provider the family supports issues those. ZITADEL drops the SMART scopes
+and `launch`, puts no `scope` claim in its access tokens and refuses a
+client that authenticates in the asymmetric form `smart client-confidential-asymmetric`
+describes (FerroHEALTH/FerroEHR#5827). Keycloak, as the family configures
+it, gives each client a fixed scope set and has no launch context. SMART
+has to work whichever identity provider a hospital runs, so the family
+supplies the authorization server and leaves login to the identity
+provider.
+
+FerroSMART is required for FerroEHR v6.0.0: v6.0.0-rc1 waits for it,
+because v6.0.0 must be the full, proper setup (owner decision 2026-11-16,
+FerroHEALTH/FerroEHR#5844). Keycloak, ZITADEL, Microsoft Entra ID and Okta
+each run upstream of FerroSMART, with cited configuration and a test:
+compose examples for the first two, contract tests against the published
+discovery and token shapes for the two SaaS providers.
+
+### 13.2 What it is, and what it is not
+
+- **The one component that issues tokens and holds signing keys.** The
+  library crates (sections 0 to 12) stay resource-server, policy and
+  session crates and never issue a token; FerroSMART uses them, and no
+  product links FerroSMART.
+- **An authorization server, never an identity provider.** A person logs in
+  at an upstream OpenID Connect provider, any one, named by configuration
+  (its discovery URL, the client FerroSMART is registered as, and the
+  mapping of its claims to the user and to `fhirUser`). FerroSMART keeps no
+  password.
+- **Standards only on every interface.** SMART App Launch 2.2, OAuth 2.0
+  (RFC 6749 with the OAuth 2.1 consolidation and RFC 9700), OpenID Connect
+  Core and Discovery, RFC 9068, 7662, 7009, 7523, 8414, 7591 and 7636; PAR
+  (RFC 9126), DPoP (RFC 9449), token exchange (RFC 8693) and FAPI 2.0 follow.
+  No interface requires a Ferro-specific claim or parameter.
+- **Vendor neutral on both sides.** Any OpenID Connect provider upstream;
+  any FHIR or openEHR server downstream, which reads FerroSMART's tokens as
+  RFC 9068 JWTs whose `aud` is its base URL, or by RFC 7662 introspection.
+- **Policy is content.** The role-to-scope mapping, the client registry, the
+  consent text and the branding are configuration or database rows, never
+  code.
+- **Stateless replicas.** Authorization codes, refresh tokens, launch
+  contexts and consents live in PostgreSQL, so any replica answers any
+  request; signing keys rotate, with a KMS or HSM as an option.
+- **Its own audit.** Every login and every issued token is an audit record
+  in the family's BALP and EHDS forms.
+- **The family stack.** It is built on `ferrohealth-server`,
+  `ferrohealth-telemetry`, `ferrohealth-config` and `ferrohealth-health`,
+  and reuses `ferrohealth-smart` (the scope grammar, token and assertion
+  checks) and `ferrohealth-session` (the upstream OpenID Connect login with
+  PKCE).
+- **Conformance oracle.** The SMART App Launch specification, with the
+  Inferno SMART App Launch test kit run as a CI lane.
+
+### 13.3 Where it lives, and its licence
+
+FerroSMART lives in this repository permanently: the owner chose fewer
+repositories over a new one. It ships as its own OCI image and the family's
+release artefacts (signed, with SLSA provenance and an SBOM), on its own
+version line beside the library crates. It is licensed BUSL-1.1, like the
+rest of the family's hand-written code. "FerroSMART" was this repository's
+name until the owner renamed it FerroAUTH on 2026-10-25; the product name is
+reused for the server.
+
+### 13.4 The design
+
+The requirements checklist, the crate layout, the storage schema, the
+endpoints, the configuration, the key handling and the threat model are the
+output of the step-1 research on the FerroSMART tracker issue, and are
+recorded here when that research lands.
