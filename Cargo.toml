@@ -71,6 +71,7 @@ aws-lc-rs = { version = "1.18.2", default-features = false, features = ["aws-lc-
 # command line. Verified against crates.io on 2026-11-16.
 ferrohealth-telemetry = { version = "0.5.0", default-features = false }
 ferrohealth-health = { version = "0.1.1", default-features = false }
+ehds-logging = { version = "0.22.0", default-features = false }
 ihe-atna = { version = "0.22.0", default-features = false }
 clap = { version = "4.6.7", features = ["derive"] }
 # FerroSMART's own words, beside the library's (FerroUI `docs/consoles.md`).

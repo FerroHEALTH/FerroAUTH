@@ -62,6 +62,8 @@ exceptions = [
   # The family's audit crate (FerroAUDIT), FerroSMART's AuditEvent, spool and
   # FHIR Feed forwarder.
   { allow = ["BUSL-1.1"], crate = "ihe-atna" },
+  # The family's EHDS access record, which the patient picker writes (#516).
+  { allow = ["BUSL-1.1"], crate = "ehds-logging" },
 ]
 
 [bans]

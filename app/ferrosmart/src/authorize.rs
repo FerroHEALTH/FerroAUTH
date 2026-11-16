@@ -380,6 +380,7 @@ async fn proceed(
         &state.settings().roles,
         login.fhir_user.is_some(),
         pending.launch_context.as_ref(),
+        crate::picker::searchable(state, &pending.audience),
     );
     if offered.is_empty() {
         forget(state, pending).await;
@@ -389,31 +390,56 @@ async fn proceed(
         });
     }
     login.offered_scope = offered.join(" ");
+    if let Err(error) = state.store().logged_in(&pending.id, &login).await {
+        return pages::server_error(state, &error);
+    }
+    let offered: Vec<&str> = offered.iter().map(String::as_str).collect();
+    // NOTE: SMART App Launch 2.2.0, Obtain authorization code, the patient is
+    // chosen within the authorization flow, before the consent.
+    if pending.launch_context.is_none() && offered.contains(&"launch/patient") {
+        return see_other(&state.settings().endpoint(crate::picker::PICKER_ROUTE));
+    }
+    onward(
+        state,
+        &pending.id,
+        &login.subject,
+        &client.client_id,
+        &offered,
+        back,
+        from,
+    )
+    .await
+}
+
+/// Goes on once the person logged in and the context is complete: straight
+/// back to the app with a code when a remembered consent covers `offered`,
+/// to the consent page otherwise.
+pub(crate) async fn onward(
+    state: &AppState,
+    id: &str,
+    subject: &str,
+    client_id: &str,
+    offered: &[&str],
+    back: &Back,
+    from: IpAddr,
+) -> Response {
     // NOTE: docs/architecture.md §13.6 item 6, a consent the person chose to
     // remember answers again while it covers every scope offered.
-    let remembered = match state
-        .store()
-        .remembered(&login.subject, &client.client_id)
-        .await
-    {
+    let remembered = match state.store().remembered(subject, client_id).await {
         Ok(remembered) => remembered,
         Err(error) => return pages::server_error(state, &error),
     };
     let covered = remembered.is_some_and(|scope| {
         offered
             .iter()
-            .all(|wanted| scope.split(' ').any(|given| given == wanted))
+            .all(|wanted| scope.split(' ').any(|given| given == *wanted))
     });
-    if let Err(error) = state.store().logged_in(&pending.id, &login).await {
-        return pages::server_error(state, &error);
-    }
     if covered {
-        let pending = match found(state, state.store().finish(&pending.id).await) {
+        let pending = match found(state, state.store().finish(id).await) {
             Ok(pending) => pending,
             Err(response) => return *response,
         };
-        let offered: Vec<&str> = offered.iter().map(String::as_str).collect();
-        let mut response = approve(state, &pending, &offered, false, back, from).await;
+        let mut response = approve(state, &pending, offered, false, back, from).await;
         set_cookie(state, &mut response, "", 0);
         return response;
     }
@@ -476,8 +502,10 @@ fn read_callback(query: &str) -> Result<Callback, crate::form::Repeated> {
 /// role allow once the launch put a patient in context (SMART App Launch
 /// 2.2.0, Scopes and Launch Context, Apps that launch from the EHR). Scopes
 /// that need a standalone patient or a refresh token join with the steps
-/// that bring them (#516, #518). Matching a scope as written is our own
-/// design.
+/// that bring them (#518). A standalone launch whose `picker` can search
+/// the resource server offers `launch/patient` and the `patient/` scopes,
+/// since the patient picker puts the patient in context (#516). Matching a
+/// scope as written is our own design.
 #[must_use]
 pub fn offer(
     requested: &str,
@@ -486,8 +514,18 @@ pub fn offer(
     roles: &std::collections::BTreeMap<String, Vec<String>>,
     has_fhir_user: bool,
     context: Option<&Context>,
+    picker: bool,
 ) -> Vec<String> {
-    let patient = context.is_some_and(|context| context.patient.is_some());
+    // NOTE: SMART App Launch 2.2.0, Obtain authorization code, a standalone
+    // launch's `launch/patient` is answered by the patient selection widget.
+    let chosen_by_picker = picker
+        && context.is_none()
+        && requested.split(' ').any(|scope| scope == "launch/patient")
+        && client
+            .scopes
+            .iter()
+            .any(|allowed| allowed == "launch/patient");
+    let patient = chosen_by_picker || context.is_some_and(|context| context.patient.is_some());
     let encounter = context.is_some_and(|context| context.encounter.is_some());
     let ceiling = |scope: &str| client.scopes.iter().any(|allowed| allowed == scope);
     let granted_by_role = |scope: &str| {
@@ -532,6 +570,9 @@ pub async fn consent_get(State(state): State<Arc<AppState>>, headers: HeaderMap)
         Ok(pending) => pending,
         Err(response) => return *response,
     };
+    if crate::picker::waits(&state, &pending) {
+        return see_other(&state.settings().endpoint(crate::picker::PICKER_ROUTE));
+    }
     let client = match registered(&state, &pending).await {
         Ok(client) => client,
         Err(response) => return *response,
@@ -600,12 +641,13 @@ async fn approve(
     if !granted.contains(&"openid") {
         granted.retain(|scope| *scope != "fhirUser");
     }
-    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, the context comes
-    // under `launch`, and a granted `patient/` scope needs its patient.
-    let launch_context = pending
-        .launch_context
-        .as_ref()
-        .filter(|_| granted.contains(&"launch"));
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, an EHR launch's context
+    // comes under `launch`, a standalone one's under `launch/patient` from the picker.
+    let launch_context = pending.launch_context.as_ref().filter(|_| {
+        granted.contains(&"launch")
+            || (!pending.scope.split(' ').any(|scope| scope == "launch")
+                && granted.contains(&"launch/patient"))
+    });
     if launch_context.is_none() {
         granted.retain(|scope| !scope.starts_with("patient/") && !scope.starts_with("launch/"));
     }
@@ -752,7 +794,10 @@ fn found(
 
 /// Returns the browser's request once its person logged in, or the page
 /// that says why there is none.
-async fn logged_in(state: &AppState, headers: &HeaderMap) -> Result<Pending, Box<Response>> {
+pub(crate) async fn logged_in(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<Pending, Box<Response>> {
     let Some(id) = cookie(headers) else {
         return Err(Box::new(pages::fault(state, Fault::Lapsed)));
     };
@@ -766,7 +811,7 @@ async fn logged_in(state: &AppState, headers: &HeaderMap) -> Result<Pending, Box
 
 /// Where and how the browser goes back to the app.
 #[derive(Debug, Clone)]
-struct Back {
+pub(crate) struct Back {
     /// The app's redirect URI.
     redirect_uri: String,
     /// The app's `state`.
@@ -777,7 +822,7 @@ struct Back {
 
 impl Back {
     /// Returns the way back for `pending`.
-    fn of(state: &AppState, pending: &Pending) -> Self {
+    pub(crate) fn of(state: &AppState, pending: &Pending) -> Self {
         Self {
             redirect_uri: pending.redirect_uri.clone(),
             state: Some(pending.state.clone()),
@@ -824,7 +869,7 @@ async fn forget(state: &AppState, pending: &Pending) {
 }
 
 /// Returns a `303 See Other` to `location`.
-fn see_other(location: &str) -> Response {
+pub(crate) fn see_other(location: &str) -> Response {
     let mut response = StatusCode::SEE_OTHER.into_response();
     if let Ok(value) = HeaderValue::from_str(location) {
         response.headers_mut().insert(header::LOCATION, value);
@@ -872,7 +917,7 @@ fn cookie(headers: &HeaderMap) -> Option<String> {
 
 /// Returns whether `a` and `b` are equal, in time that depends only on
 /// their lengths.
-fn constant_eq(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn constant_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0_u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 

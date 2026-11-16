@@ -21,7 +21,7 @@
 # WHAT RUNS. ZITADEL v4.20.3 with its Login v2 UI on its own PostgreSQL, and
 # `zitadel-bootstrap` once: app/ferrosmart/examples/zitadel/bootstrap.sh makes
 # the project, its role, the application, the user and the Actions v2
-# target (docs/architecture.md §13.18), and writes FerroSMART's
+# target (docs/architecture.md §13.20), and writes FerroSMART's
 # configuration with the client id ZITADEL generated. `zitadel-fhir-user` is
 # that target (tools/zitadel-fhir-user), built from this checkout on its first
 # start; it writes the user's `fhirUser` claim from the user's metadata.

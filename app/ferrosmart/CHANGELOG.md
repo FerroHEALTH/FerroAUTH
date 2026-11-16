@@ -13,6 +13,16 @@ and this project adheres to
 
 ### Added
 
+- Microsoft Entra ID and Okta as the upstream login, each with an example
+  configuration under `examples/` and no provider code. Entra ID: a
+  single-tenant app registration's v2.0 authority, the app roles in `roles`
+  and the directory extension attribute `fhirUser` as the optional claim
+  `extn.fhirUser`; the multitenant `/common` and `/organizations`
+  authorities fail discovery, since their metadata names another issuer.
+  Okta: the `default` custom authorization server, a `groups` claim and a
+  custom `fhir_user` claim. Contract tests run each example through a
+  standalone launch against a stub serving the provider's published
+  discovery document, key set and token answer (#524, #525).
 - ZITADEL as the upstream login (`compose.zitadel.yaml`, an override of the
   quickstart): `app/ferrosmart/examples/zitadel/bootstrap.sh` makes the
   project, its role, the application, the user and an Actions v2 target
@@ -180,6 +190,16 @@ and this project adheres to
   registration or redemption is a `launch-refused` record. A launch whose
   record cannot be kept is not kept. No record holds the launch value or a
   context value.
+- The patient picker of a standalone launch: a client that may ask for
+  `launch/patient` at a FHIR resource server is shown, after the login and
+  before the consent, a page that searches `Patient` by name or identifier
+  as the signed-in person, with a token of FerroSMART's own carrying their
+  pairwise `sub` and `fhirUser`, scope `user/Patient.rs`, living 30 seconds
+  and revoked after the request. The chosen patient is read again as them,
+  enters the launch context, and reaches the token response and the access
+  token as an EHR launch's does. Every search and read writes the access
+  record of Regulation (EU) 2025/327 Annex II 3.2 through `ehds-logging`,
+  and a failed search is an error page (#516).
 
 ### Fixed
 

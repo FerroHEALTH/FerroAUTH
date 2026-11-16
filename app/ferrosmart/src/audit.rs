@@ -544,6 +544,9 @@ pub enum Event {
     LaunchRedeemed,
     /// A launch registration or redemption refused.
     LaunchRefused,
+    /// The short-lived token the patient picker searches with, issued for
+    /// the signed-in person (`docs/architecture.md` §13.6 item 4).
+    PickerToken,
 }
 
 impl Event {
@@ -561,6 +564,7 @@ impl Event {
             Self::RefreshReused => "refresh-reused",
             Self::CodeReused => "code-reused",
             Self::SessionEnded => "session-ended",
+            Self::PickerToken => "picker-token",
             Self::LaunchRegistered => "launch-registered",
             Self::LaunchRedeemed => "launch-redeemed",
             Self::LaunchRefused => "launch-refused",
@@ -591,6 +595,7 @@ impl Event {
             Self::LaunchRegistered => "EHR launch registered",
             Self::LaunchRedeemed => "EHR launch redeemed",
             Self::LaunchRefused => "EHR launch refused",
+            Self::PickerToken => "Patient picker token issued",
         }
     }
 
@@ -602,7 +607,9 @@ impl Event {
         let own = Coded::fixed(OWN_EVENTS, self.code(), self.display());
         match self {
             Self::SessionEnded => (USER_AUTHENTICATION, vec![LOGOUT, own], "E"),
-            Self::CodeIssued | Self::LaunchRegistered => (USER_AUTHENTICATION, vec![own], "C"),
+            Self::CodeIssued | Self::LaunchRegistered | Self::PickerToken => {
+                (USER_AUTHENTICATION, vec![own], "C")
+            }
             Self::RefreshRotated | Self::LaunchRedeemed => (USER_AUTHENTICATION, vec![own], "E"),
             Self::ConsentRemembered => {
                 (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "C")

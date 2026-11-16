@@ -214,6 +214,20 @@ impl Store {
         row.map(|row| read_pending(&row)).transpose()
     }
 
+    /// Puts `context` in the launch context of the pending request `id`,
+    /// as the patient picker chose it.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn set_launch_context(&self, id: &str, context: &Context) -> Result<(), StoreError> {
+        sqlx::query("UPDATE pending_authorization SET launch_context = $2 WHERE id = $1")
+            .bind(id)
+            .bind(Json(context))
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Records who logged in for the request `id` and what the consent
     /// page offers them.
     ///
