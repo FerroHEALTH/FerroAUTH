@@ -15,8 +15,9 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 - Upstream licence: the repository is AGPL-3.0-only (`LICENSE`, vendored).
   Its `LICENSING.md`, vendored beside it, licenses `apps/docs/` and
   `proto/` under the Apache License 2.0, so the pages and the definitions
-  are Apache-2.0. `cmd/setup/steps.yaml` and
-  `deploy/compose/docker-compose.yml` are AGPL-3.0-only, copied verbatim
+  are Apache-2.0. `cmd/setup/steps.yaml`, `cmd/defaults.yaml`,
+  `pkg/actions/signing.go` and `deploy/compose/docker-compose.yml` are
+  AGPL-3.0-only, copied verbatim
   for citation and never built, linked or modified. The files are
   unmodified.
 - Images run, never vendored: `ghcr.io/zitadel/zitadel` (AGPL-3.0-only)
