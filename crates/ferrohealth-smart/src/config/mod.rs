@@ -540,7 +540,8 @@ pub struct IssuerEntry {
     /// Whether the issuer's tokens must be bound to a `DPoP` key or a client
     /// certificate: `none` (the default) or `required` ([`crate::sender`]).
     pub sender_constraint: SenderConstraint,
-    /// The claims the issuer's roles are read from, each a dotted path; by
+    /// The claims the issuer's roles are read from, each a dotted path that
+    /// [`crate::roles`] reads, a claim name with dots included; by
     /// default `roles`, `groups` and `entitlements` (RFC 9068 §2.2.3.1), and
     /// none, never settable, on a `federation` issuer.
     pub role_claims: Option<Vec<String>>,
