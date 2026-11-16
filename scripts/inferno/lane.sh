@@ -2,8 +2,9 @@
 # SPDX-FileCopyrightText: Cadasto B.V.
 # SPDX-License-Identifier: BUSL-1.1
 # The Inferno SMART App Launch lane (#520, docs/architecture.md §13.13):
-# FerroSMART, FerroEHR as the resource server and the Inferno SMART App
-# Launch test kit on one host network, the kit's STU 2.2 suite run by
+# FerroSMART with Keycloak upstream, FerroBRIDGE as the FHIR server with
+# FerroEHR as its CDR, and the Inferno SMART App Launch test kit on one host
+# network, the kit's STU 2.2 suite run by
 # `inferno execute_script` over app/ferrosmart/inferno/smart_stu2_2.yaml.
 # No specification governs the lane itself: our own design.
 #
@@ -16,7 +17,8 @@
 # them: a built `target/debug/ferrosmart`; the kit checked out at the
 # pinned commit in INFERNO_KIT; PostgreSQL at
 # LANE_PG (a superuser URL without a database); docker, openssl, psql, jq
-# and curl; and sudo for the two /etc/hosts names. It writes its files and
+# xxd and curl; ports 4567, 6379, 8180, 8443, 9080 and 9443 free on the
+# loopback interface; and sudo for the two /etc/hosts names. It writes its files and
 # the logs to LANE_DIR.
 # shellcheck disable=SC2016 # every backtick in a pattern or a format is a Markdown code span, matched or written literally
 set -euo pipefail
@@ -27,9 +29,11 @@ versions="$root/docs/VERSIONS.md"
 
 # The image a row of docs/VERSIONS.md pins, by its item name.
 pinned_image() {
-  local image
-  image=$(awk -F'|' -v item="$1" '$2 ~ "^ "item" $" { print $3 }' "$versions" |
-    grep -oE '`[^`]+@sha256:[0-9a-f]{64}`' | head -1 | tr -d '`')
+  local cell image
+  cell=$(awk -F'|' -v item="$1" '$2 ~ "^ "item" $" { print $3 }' "$versions")
+  image=$(grep -oE '`[^`]+@sha256:[0-9a-f]{64}`' <<< "$cell" | head -1 | tr -d '`' || true)
+  # A row may name the tag and the index digest apart.
+  [ -n "$image" ] || image=$(sed -nE 's/^ *`([^`]+)`, index digest `(sha256:[0-9a-f]{64})`.*/\1@\2/p' <<< "$cell")
   [ -n "$image" ] || { echo "lane: no image pin for '$1' in docs/VERSIONS.md" >&2; exit 1; }
   printf '%s\n' "$image"
 }
@@ -114,7 +118,7 @@ record() {
 
 wait_for() {
   local what=$1 url=$2
-  for _ in $(seq 1 60); do
+  for _ in $(seq 1 90); do
     if curl -fsS --cacert "$LANE_DIR/ca.crt" -o /dev/null "$url"; then
       return 0
     fi
@@ -124,13 +128,17 @@ wait_for() {
   return 1
 }
 
-# The development CA, the two server certificates and FerroSMART's signing
-# key, made for this run and never kept.
+# base64url without padding (RFC 7515 §2), of standard input.
+b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
+
+# The development CA, the server certificates of FerroSMART and FerroBRIDGE,
+# FerroSMART's signing key and the lane client's key, made for this run and
+# never kept, with the JWK Sets FerroSMART registers.
 make_keys() {
-  local dir=$1 name
+  local dir=$1 name modulus
   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 \
     -subj '/CN=FerroSMART Inferno lane CA' -keyout "$dir/ca.key" -out "$dir/ca.crt" 2> /dev/null
-  for name in smart ehr; do
+  for name in smart bridge; do
     openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
       -subj "/CN=$name.localhost" -keyout "$dir/$name.key" -out "$dir/$name.csr" 2> /dev/null
     printf 'subjectAltName=DNS:%s.localhost\nextendedKeyUsage=serverAuth\nbasicConstraints=CA:FALSE\n' "$name" > "$dir/$name.ext"
@@ -139,49 +147,113 @@ make_keys() {
   done
   rm -f "$dir/ca.key"
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$dir/signing.pem" 2> /dev/null
+  openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$dir/lane-client.pem" 2> /dev/null
+  modulus=$(openssl rsa -in "$dir/lane-client.pem" -noout -modulus | cut -d= -f2 | xxd -r -p | b64url)
+  jq -n --arg n "$modulus" '{keys: [{kty: "RSA", kid: "lane", alg: "RS384", n: $n, e: "AQAB"}]}' \
+    > "$dir/lane-client.jwks.json"
   # The public half of the kit's verification keys, its registered JWK Set.
   jq '{keys: [.keys[] | select(.key_ops | index("verify"))
         | {kty, kid, alg, crv, x, y, n, e} | with_entries(select(.value != null))]}' \
     "$INFERNO_KIT/lib/smart_app_launch/smart_jwks.json" > "$dir/inferno-client.jwks.json"
-  chmod 0644 "$dir"/*.key "$dir/signing.pem"
+  openssl rand -hex 32 | tr -d '\n' > "$dir/keycloak-client-secret"
+  chmod 0644 "$dir"/*.key "$dir"/*.pem "$dir/keycloak-client-secret"
+}
+
+# An access token of the lane's own client for `scope` with the audience
+# `resource`, by the client credentials grant with a private_key_jwt
+# assertion (RFC 7523 §2.2; SMART App Launch 2.2.0, Client Authentication:
+# Asymmetric) signed RS384 here.
+lane_token() {
+  local scope=$1 resource=$2 now header claims signature
+  now=$(date +%s)
+  header=$(printf '{"alg":"RS384","typ":"JWT","kid":"lane"}' | b64url)
+  claims=$(jq -nc --argjson now "$now" --arg jti "$(openssl rand -hex 16)" \
+    '{iss: "inferno-lane", sub: "inferno-lane", aud: "https://smart.localhost:8443/token",
+      iat: $now, exp: ($now + 240), jti: $jti}' | b64url)
+  signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha384 -sign "$LANE_DIR/lane-client.pem" | b64url)
+  curl -fsS --cacert "$LANE_DIR/ca.crt" https://smart.localhost:8443/token \
+    --data-urlencode grant_type=client_credentials --data-urlencode "scope=$scope" \
+    --data-urlencode "resource=$resource" \
+    --data-urlencode client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer \
+    --data-urlencode "client_assertion=$header.$claims.$signature" | jq -r .access_token
 }
 
 run() {
   : "${INFERNO_KIT:?the kit checkout}" "${LANE_PG:?the PostgreSQL URL}" "${LANE_DIR:?the lane directory}"
-  mkdir -p "$LANE_DIR"
+  local vendored="$root/docs/specs/ferrobridge-practitioner" cdr=http://127.0.0.1:9080/ferroehr/rest/openehr/v1
+  local password person practitioner status session
+  mkdir -p "$LANE_DIR/mappings"
   check
   make_keys "$LANE_DIR"
-  echo '127.0.0.1 smart.localhost ehr.localhost' | sudo tee -a /etc/hosts > /dev/null
+  cp "$vendored"/app/ferrobridge-server/tests/it/fixtures_demographic/*.yml "$LANE_DIR/mappings/"
+  echo '127.0.0.1 smart.localhost bridge.localhost' | sudo tee -a /etc/hosts > /dev/null
   psql "$LANE_PG/postgres" -qc 'CREATE DATABASE ferrosmart' -c 'CREATE DATABASE ferroehr'
 
+  # 1. FerroEHR, holding the PERSON the facade serves as the Practitioner.
+  docker run -d --name inferno-lane-ferroehr --network host \
+    -v "$lane/ferroehr.toml:/etc/ferroehr/ferroehr.toml:ro" \
+    -e FERROEHR_CONFIG=/etc/ferroehr/ferroehr.toml \
+    -e "FERROEHR__DATABASE__URL=$LANE_PG/ferroehr" \
+    -e FERROEHR__USAGE_REPORT__ENABLED=false \
+    "$(pinned_image 'FerroEHR resource server image')" > /dev/null
+  wait_for FerroEHR "$cdr/definition/template/adl1.4"
+  curl -fsS -o /dev/null -X POST -H 'Content-Type: application/xml' \
+    --data-binary "@$vendored/tools/ferrobridge-testkit/fixtures/opt/person.opt" "$cdr/definition/template/adl1.4"
+  person=$(curl -fsS -D - -o /dev/null -X POST -H 'Content-Type: application/json' -H 'Prefer: return=minimal' \
+    --data-binary "@$lane/practitioner-person.json" "$cdr/demographic/person" |
+    grep -i '^etag:' | grep -oE '[0-9a-f-]{36}' | head -1)
+  [ -n "$person" ] || { echo "lane: FerroEHR stored no PERSON" >&2; return 1; }
+  practitioner="https://bridge.localhost:9443/fhir/Practitioner/$person"
+
+  # 2. Keycloak, the upstream login, whose person's fhirUser names it.
+  password=$(openssl rand -hex 16)
+  docker run -d --name inferno-lane-keycloak --network host \
+    -v "$root/app/ferrosmart/examples/keycloak/ferrosmart-realm.json:/opt/keycloak/data/import/ferrosmart-realm.json:ro" \
+    -e KC_HTTP_PORT=8180 -e KC_HTTP_HOST=127.0.0.1 \
+    -e "FERROSMART_KEYCLOAK_CLIENT_SECRET=$(cat "$LANE_DIR/keycloak-client-secret")" \
+    -e FERROSMART_KEYCLOAK_REDIRECT_URI=https://smart.localhost:8443/callback \
+    -e "FERROSMART_KEYCLOAK_USER_PASSWORD=$password" \
+    -e "FERROSMART_KEYCLOAK_FHIR_USER=$practitioner" \
+    "$(pinned_image 'Keycloak test image')" start-dev --import-realm > /dev/null
+  wait_for Keycloak http://localhost:8180/realms/ferrosmart/.well-known/openid-configuration
+
+  # 3. FerroSMART.
   "$root/target/debug/ferrosmart" --config "$lane/ferrosmart.toml" \
     --set "server.tls.certificate_file=$LANE_DIR/smart.crt" \
     --set "server.tls.key_file=$LANE_DIR/smart.key" \
     --set "ferrosmart.keys.private_key_file=$LANE_DIR/signing.pem" \
     --set "ferrosmart.database.url=$LANE_PG/ferrosmart" \
+    --set "ferrosmart.upstream.client_secret_file=$LANE_DIR/keycloak-client-secret" \
     --set "ferrosmart.client[0].jwks_file=$LANE_DIR/inferno-client.jwks.json" \
+    --set "ferrosmart.client[2].jwks_file=$LANE_DIR/lane-client.jwks.json" \
     serve > "$LANE_DIR/ferrosmart.log" 2>&1 &
   wait_for FerroSMART https://smart.localhost:8443/.well-known/smart-configuration
 
-  docker run -d --name inferno-lane-redis --network host "$(pinned_image 'Redis test image')" > /dev/null
-  docker run -d --name inferno-lane-ferroehr --network host \
-    -v "$lane/ferroehr.toml:/etc/ferroehr/ferroehr.toml:ro" -v "$LANE_DIR:/lane:ro" \
-    -e FERROEHR_CONFIG=/etc/ferroehr/ferroehr.toml \
-    -e "FERROEHR__DATABASE__URL=$LANE_PG/ferroehr" \
-    -e FERROEHR__AUTH__TLS__TRUST_ROOTS_FILE=/lane/ca.crt \
-    -e FERROEHR__SERVER__TLS__CERTIFICATE_FILE=/lane/ehr.crt \
-    -e FERROEHR__SERVER__TLS__KEY_FILE=/lane/ehr.key \
-    --add-host smart.localhost:127.0.0.1 --add-host ehr.localhost:127.0.0.1 \
-    -e FERROEHR__USAGE_REPORT__ENABLED=false \
-    "$(pinned_image 'FerroEHR resource server image')" > /dev/null
-  wait_for FerroEHR https://ehr.localhost:9443/ferroehr/rest/.well-known/smart-configuration
+  # 4. FerroBRIDGE, the FHIR server the kit is pointed at.
+  docker run -d --name inferno-lane-ferrobridge --network host \
+    -v "$lane/ferrobridge.toml:/etc/ferrobridge/ferrobridge.toml:ro" -v "$LANE_DIR:/lane:ro" \
+    -e FERROBRIDGE_CONFIG=/etc/ferrobridge/ferrobridge.toml \
+    -e FERROBRIDGE__SERVER__LISTEN=127.0.0.1:9443 \
+    -e FERROBRIDGE__SERVER__TLS__CERTIFICATE_FILE=/lane/bridge.crt \
+    -e FERROBRIDGE__SERVER__TLS__KEY_FILE=/lane/bridge.key \
+    -e FERROBRIDGE__AUTH__TLS__TRUST_ROOTS_FILE=/lane/ca.crt \
+    -e FERROBRIDGE__MAPPINGS__DIRECTORY=/lane/mappings \
+    -e FERROBRIDGE__FACADE__IDENTITY_STORE=/tmp/identity.redb \
+    --add-host smart.localhost:127.0.0.1 --add-host bridge.localhost:127.0.0.1 \
+    "$(pinned_image 'FerroBRIDGE FHIR server image')" > /dev/null
+  wait_for FerroBRIDGE https://bridge.localhost:9443/fhir/metadata
 
-  # The kit runs in the Ruby image docs/VERSIONS.md pins, on the gems its
-  # Gemfile.lock locks, trusting the lane's CA beside the system roots.
+  # 5. The kit, in the Ruby image docs/VERSIONS.md pins, on the gems its
+  #    Gemfile.lock locks, trusting the lane's CA beside the system roots.
+  #    Group 4 introspects with the lane client's token.
+  printf 'Authorization: Bearer %s' "$(lane_token system/introspect https://smart.localhost:8443)" \
+    > "$LANE_DIR/introspection-header.txt"
+  docker run -d --name inferno-lane-redis --network host "$(pinned_image 'Redis test image')" > /dev/null
   docker run -d --name inferno-lane-kit --network host \
-    -v "$INFERNO_KIT:/kit" -v "$lane:/script" -v "$LANE_DIR:/lane:ro" -w /kit \
-    -e APP_ENV=development -e SSL_CERT_FILE=/tmp/trust.pem \
-    --add-host smart.localhost:127.0.0.1 --add-host ehr.localhost:127.0.0.1 \
+    -v "$INFERNO_KIT:/kit" -v "$lane:/script" -v "$LANE_DIR:/lane:ro" -v "$root/scripts:/repo/scripts:ro" -w /kit \
+    -e APP_ENV=development -e SSL_CERT_FILE=/tmp/trust.pem -e CURL_CA_BUNDLE=/tmp/trust.pem \
+    -e LAUNCH_USER=clinician -e "LAUNCH_PASSWORD=$password" \
+    --add-host smart.localhost:127.0.0.1 --add-host bridge.localhost:127.0.0.1 \
     "$(pinned_image 'Inferno runtime')" sh -c '
       cat /etc/ssl/certs/ca-certificates.crt /lane/ca.crt > /tmp/trust.pem &&
       bundle install --quiet && bundle exec inferno migrate &&
@@ -191,11 +263,12 @@ run() {
     curl -fsS -o /dev/null http://localhost:4567 && break
     sleep 2
   done
-  docker exec inferno-lane-kit bundle exec inferno execute_script /script/smart_stu2_2.yaml \
+  docker exec inferno-lane-kit bundle exec inferno execute_script --allow-commands /script/smart_stu2_2.yaml \
     2> "$LANE_DIR/execute.log" && status=0 || status=$?
   cat "$LANE_DIR/execute.log"
-  docker logs inferno-lane-kit > "$LANE_DIR/inferno.log" 2>&1
-  local session
+  for name in kit ferroehr keycloak ferrobridge; do
+    docker logs "inferno-lane-$name" > "$LANE_DIR/$name.log" 2>&1 || true
+  done
   session=$(grep -oE 'Session created: [A-Za-z0-9_-]+' "$LANE_DIR/execute.log" | head -1 | cut -d' ' -f3 || true)
   if [ -n "$session" ]; then
     docker exec inferno-lane-kit bundle exec inferno session results "$session" > "$LANE_DIR/results.json"

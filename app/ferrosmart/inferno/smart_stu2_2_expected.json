@@ -1,25 +1,173 @@
 [
   {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_discovery_stu2_2-well_known_endpoint",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_discovery_stu2_2-well_known_capabilities_stu2",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_discovery_stu2_2-smart_cors_well_known_endpoint",
+    "result": "fail",
+    "result_message": "No `Access-Control-Allow-Origin` header received."
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_discovery_stu2_2-smart_cors_metadata_request",
+    "result": "fail",
+    "result_message": "No `Access-Control-Allow-Origin` header received."
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_standalone_launch_stu2_2-standalone_auth_tls",
+    "result": "pass",
+    "messages": [
+      {
+        "message": "https://smart.localhost:8443/authorize correctly denied SSL 2.0 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/authorize correctly denied SSL 3.0 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/authorize correctly denied TLS 1.0 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/authorize correctly denied TLS 1.1 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/authorize denied TLS 1.2 connection.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/authorize accepted TLS 1.3 connection.",
+        "type": "info"
+      }
+    ]
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_standalone_launch_stu2_2-smart_app_redirect_stu2",
+    "result": "pass",
+    "messages": [
+      {
+        "message": "Inferno redirecting browser to https://smart.localhost:8443/authorize?response_type=code&client_id=inferno-standalone&redirect_uri=http%3A%2F%2Flocalhost%3A4567%2Fcustom%2Fsmart_stu2_2%2Fredirect&scope=openid+fhirUser+user%2FPractitioner.rs&state=63e46d32-4991-49fa-b4d6-e5a3043c9819&aud=https%3A%2F%2Fbridge.localhost%3A9443%2Ffhir&code_challenge=s1lVAKjsqYfxkpNTyZUxR1vxQ7uQECi2O26Ti1csf8s&code_challenge_method=S256.",
+        "type": "info"
+      }
+    ]
+  },
+  {
+    "test_group_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_discovery_stu2_2",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_standalone_launch_stu2_2-smart_code_received",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_standalone_launch_stu2_2-standalone_token_tls",
+    "result": "pass",
+    "messages": [
+      {
+        "message": "https://smart.localhost:8443/token correctly denied SSL 2.0 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/token correctly denied SSL 3.0 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/token correctly denied TLS 1.0 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/token correctly denied TLS 1.1 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/token denied TLS 1.2 connection.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/token accepted TLS 1.3 connection.",
+        "type": "info"
+      }
+    ]
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_standalone_launch_stu2_2-smart_token_exchange_stu2_2",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_standalone_launch_stu2_2-smart_token_response_body_stu2_2",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_standalone_launch_stu2_2-smart_token_response_headers",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_standalone_launch_stu2_2-smart_cors_token_exchange",
+    "result": "pass"
+  },
+  {
+    "test_group_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_standalone_launch_stu2_2",
+    "result": "pass"
+  },
+  {
+    "test_group_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_request_group-Test01",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_request_group-Test02",
+    "result": "pass"
+  },
+  {
+    "test_group_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_request_group",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_response_group-Test01",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_response_group-Test02",
+    "result": "pass"
+  },
+  {
+    "test_group_id": "smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_response_group",
+    "result": "pass"
+  },
+  {
+    "test_group_id": "smart_stu2_2-smart_token_introspection_stu2_2",
+    "result": "pass"
+  },
+  {
     "test_id": "smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-well_known_endpoint",
     "result": "pass"
   },
   {
     "test_id": "smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-well_known_capabilities_stu2",
-    "result": "fail",
-    "result_message": "Well-known configuration does not include `authorization_endpoint`"
+    "result": "pass"
   },
   {
     "test_id": "smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_well_known_endpoint",
-    "result": "pass"
+    "result": "fail",
+    "result_message": "No `Access-Control-Allow-Origin` header received."
   },
   {
     "test_id": "smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_metadata_request",
     "result": "fail",
-    "result_message": "Unexpected response status: expected 200, but received 404"
+    "result_message": "No `Access-Control-Allow-Origin` header received."
   },
   {
     "test_group_id": "smart_stu2_2-smart_backend_services-smart_discovery_stu2_2",
-    "result": "fail"
+    "result": "pass"
   },
   {
     "test_id": "smart_stu2_2-smart_backend_services-backend_services_authorization-smart_backend_services_token_tls_version",
@@ -77,6 +225,6 @@
   },
   {
     "test_group_id": "smart_stu2_2-smart_backend_services",
-    "result": "fail"
+    "result": "pass"
   }
 ]

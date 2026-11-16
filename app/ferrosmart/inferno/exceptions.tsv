@@ -6,7 +6,8 @@
 # expected results hold any other test to anything but `pass`, and warns once
 # the issue of a `pending` row is closed. Columns: test id, kind (`pending`:
 # a FerroSMART step will make it pass; `downstream`: the test reads the
-# resource server, never FerroSMART), issue (FerroHEALTH/FerroAUTH) or `-`,
-# reason.
-smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-well_known_capabilities_stu2	pending	515	the kit requires `authorization_endpoint` and the `authorization_code` grant in every discovery document, which FerroSMART advertises once its authorization endpoint exists
-smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_metadata_request	downstream	-	`GET [base]/metadata` is the FHIR server's CapabilityStatement; FerroEHR 5.7.0 is an openEHR CDR and answers 404
+# resource server, never FerroSMART), issue or `-`, reason.
+smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_well_known_endpoint	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/.well-known/smart-configuration` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
+smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_metadata_request	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/metadata` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
+smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_discovery_stu2_2-smart_cors_well_known_endpoint	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/.well-known/smart-configuration` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
+smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_discovery_stu2_2-smart_cors_metadata_request	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/metadata` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE

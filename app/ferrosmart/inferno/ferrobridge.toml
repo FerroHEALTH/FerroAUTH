@@ -1,0 +1,41 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# FerroBRIDGE as the Inferno lane's FHIR R4 server (#520): its facade serves
+# the Practitioner the person's fhirUser names, from FerroEHR's demographic
+# store, and checks FerroSMART's tokens as a SMART resource server.
+# scripts/inferno/lane.sh passes the certificate, the trust root and the
+# mapping directory through the FERROBRIDGE__ environment.
+
+[server]
+listen = "127.0.0.1:9443"
+
+[cdr]
+endpoint.url = "http://127.0.0.1:9080/ferroehr/rest/openehr/v1"
+demographic = true
+
+[facade]
+enabled = true
+base_url = "https://bridge.localhost:9443/fhir"
+composition_language = "en"
+composition_territory = "NL"
+
+[operations]
+enabled = false
+
+[usage_report]
+enabled = false
+
+# FerroSMART is an OpenID Connect provider too, so the document lists
+# `sso-openid-connect` and writes the issuer (SMART App Launch 2.2.0,
+# Conformance, Metadata).
+[auth]
+capabilities = ["sso-openid-connect"]
+
+# FerroSMART issues the tokens the facade takes: a person's through the
+# kit's standalone client, a machine's by client credentials.
+[[auth.issuer]]
+issuer = "https://smart.localhost:8443"
+kind = "persons"
+audience = ["https://bridge.localhost:9443/fhir"]
+first_party_clients = ["inferno-standalone"]
