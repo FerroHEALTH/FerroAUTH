@@ -3167,6 +3167,12 @@ named otherwise.
 | `roles` claim | a realm role mapper (`oidc-usermodel-realm-role-mapper`, `multivalued`) into the ID Token only | `clients/con-protocol-mappers.adoc`; `UserRealmRoleMappingMapper.java` |
 | Realm role | `clinician`, which `[[ferrosmart.role]]` maps to `user/` scopes | `roles-groups/proc-creating-realm-roles.adoc`; 13.6 item 5 |
 
+`compose.keycloak.yaml` runs the same realm beside the quickstart of
+`compose.yaml`, as an override in the same project: FerroSMART shares
+Keycloak's network namespace, so both issuers are one `localhost` URL for
+the browser and for each other, and the configuration below arrives as
+`FERROSMART__` environment.
+
 On FerroSMART's side, `[ferrosmart.upstream]` names the realm's issuer and
 the client, `fhir_user_claim = "fhir_user"` and `role_claims = ["roles"]`
 (the generic dotted claim reader of `ferrohealth_smart::roles`). No code

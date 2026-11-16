@@ -13,6 +13,9 @@ and this project adheres to
 
 ### Added
 
+- `compose.keycloak.yaml`, an override of the quickstart that runs Keycloak
+  with the example realm as the login of `compose.yaml`'s FerroSMART, in the
+  same compose project (#522).
 - A Keycloak example as the upstream login: a realm with fixed ids whose
   confidential client `ferrosmart` takes the authorization code flow with
   PKCE S256, and whose mappers write the user's `fhir_user` attribute and
