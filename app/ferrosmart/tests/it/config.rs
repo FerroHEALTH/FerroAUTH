@@ -93,6 +93,22 @@ fn an_issuer_path_other_than_the_base_path_is_refused() {
 }
 
 #[test]
+fn a_style_url_other_than_https_is_refused() {
+    let keys = Keys::new();
+    for style in ["http://ehr.example.org/style.json", "style.json"] {
+        let refused = config(
+            &format!(
+                "[ferrosmart]\nissuer = \"https://smart.example.org\"\n\
+                 [ferrosmart.branding]\nsmart_style_url = {style:?}"
+            ),
+            &keys,
+        )
+        .resolve();
+        assert!(matches!(refused, Err(Error::StyleUrl)), "{style}");
+    }
+}
+
+#[test]
 fn a_zero_token_lifetime_is_refused() {
     let keys = Keys::new();
     assert!(matches!(

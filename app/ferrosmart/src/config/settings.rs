@@ -3,6 +3,7 @@
 
 //! The checked settings the server runs on, resolved from [`Config`].
 
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,9 +17,10 @@ use secrecy::SecretString;
 use url::Url;
 
 use crate::clients::Client;
+use crate::upstream::{Upstream, UpstreamSection};
 
 use crate::config::error::Error;
-use crate::config::{Config, KeysSection};
+use crate::config::{BrandingSection, Config, KeysSection};
 
 /// The settings the server runs on.
 #[derive(Debug, Clone)]
@@ -47,6 +49,12 @@ pub struct Settings {
     pub clients: Vec<Client>,
     /// The base URLs of the resource servers, each as configured.
     pub resources: Vec<String>,
+    /// The upstream provider, when people log in.
+    pub upstream: Option<Upstream>,
+    /// The scopes each role may be granted.
+    pub roles: BTreeMap<String, Vec<String>>,
+    /// The deployment's name and words on the pages.
+    pub branding: BrandingSection,
 }
 
 impl Settings {
@@ -130,8 +138,22 @@ impl Config {
             max_connections: section.database.max_connections,
             clients: crate::clients::resolve(&section.client)?,
             resources: resources(&section.resource)?,
+            upstream: section.upstream.as_ref().map(upstream).transpose()?,
+            roles: roles(&section.role)?,
+            branding: branding(&section.branding)?,
         })
     }
+}
+
+/// Returns `section` once its style URL holds: empty, or an https URL.
+fn branding(section: &BrandingSection) -> Result<BrandingSection, Error> {
+    let style = &section.smart_style_url;
+    // NOTE: SMART App Launch 2.2.0, App Launch, Styling: the app downloads the
+    // document `smart_style_url` names, so it is an absolute https URL.
+    if !style.is_empty() && Url::parse(style).map_or(true, |url| url.scheme() != "https") {
+        return Err(Error::StyleUrl);
+    }
+    Ok(section.clone())
 }
 
 /// Returns the ring `keys` names: the current key, the previous one for its
@@ -194,4 +216,68 @@ fn resources(sections: &[crate::config::ResourceSection]) -> Result<Vec<String>,
         bases.push(section.base.clone());
     }
     Ok(bases)
+}
+
+/// Returns the upstream provider `section` names.
+fn upstream(section: &UpstreamSection) -> Result<Upstream, Error> {
+    if section.issuer.is_empty() || section.client_id.is_empty() {
+        return Err(Error::Upstream {
+            rule: "`issuer` and `client_id` are set",
+        });
+    }
+    let client_secret = ferrohealth_secret::file::read_secret(
+        "ferrosmart.upstream.client_secret",
+        section
+            .client_secret
+            .as_ref()
+            .map(ferrohealth_secret::secret::Secret::to_secret_string),
+        section.client_secret_file.as_deref(),
+    )?;
+    let named = |claim: &String| !claim.is_empty();
+    Ok(Upstream {
+        issuer: section.issuer.clone(),
+        client_id: section.client_id.clone(),
+        client_secret,
+        scopes: section.scopes.clone(),
+        fhir_user_claim: Some(section.fhir_user_claim.clone()).filter(named),
+        role_claims: section
+            .role_claims
+            .iter()
+            .filter(|claim| named(claim))
+            .cloned()
+            .collect(),
+    })
+}
+
+/// Returns the scopes of each role `sections` name: a role named once,
+/// each scope a `user/` or `patient/` scope token (SMART App Launch 2.2.0,
+/// Scopes and Launch Context), since a person's role grants a person's
+/// access, never a system's.
+fn roles(sections: &[crate::config::RoleSection]) -> Result<BTreeMap<String, Vec<String>>, Error> {
+    let mut roles = BTreeMap::new();
+    for section in sections {
+        if !ferrohealth_smart::roles::is_role(&section.name) {
+            return Err(Error::Role {
+                rule: "a role has no name, or one with a space",
+            });
+        }
+        let person = section.scopes.iter().all(|scope| {
+            ferrohealth_smart::scope::is_scope_token(scope)
+                && (scope.starts_with("user/") || scope.starts_with("patient/"))
+        });
+        if !person {
+            return Err(Error::Role {
+                rule: "a role grants a scope other than a user/ or patient/ one",
+            });
+        }
+        if roles
+            .insert(section.name.clone(), section.scopes.clone())
+            .is_some()
+        {
+            return Err(Error::Role {
+                rule: "a role is named twice",
+            });
+        }
+    }
+    Ok(roles)
 }

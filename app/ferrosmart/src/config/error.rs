@@ -43,6 +43,21 @@ pub enum Error {
         #[source]
         source: ferrohealth_smart::metadata::DiscoveryError,
     },
+    /// The upstream provider's table breaks a rule.
+    #[error("`ferrosmart.upstream`: {rule}")]
+    Upstream {
+        /// The rule broken.
+        rule: &'static str,
+    },
+    /// `ferrosmart.branding.smart_style_url` is no https URL.
+    #[error("`ferrosmart.branding.smart_style_url` is no https URL")]
+    StyleUrl,
+    /// A role table breaks a rule.
+    #[error("`ferrosmart.role`: {rule}")]
+    Role {
+        /// The rule broken.
+        rule: &'static str,
+    },
     /// A lifetime that must be positive is zero.
     #[error("`{key}` must be greater than zero")]
     Zero {

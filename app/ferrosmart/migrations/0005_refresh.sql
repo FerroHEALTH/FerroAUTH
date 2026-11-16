@@ -58,3 +58,8 @@ CREATE INDEX refresh_token_expires_at ON refresh_token (expires_at);
 ALTER TABLE access_token
     ADD COLUMN grant_id text REFERENCES authorization_grant (id) ON DELETE CASCADE;
 CREATE INDEX access_token_grant ON access_token (grant_id);
+
+-- The upstream session an authorization request logged in under, carried to
+-- its code so the grant the code opens names it.
+ALTER TABLE pending_authorization ADD COLUMN upstream_session text;
+ALTER TABLE authorization_code ADD COLUMN upstream_session text;

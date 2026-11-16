@@ -14,13 +14,15 @@
 //! `online_access` one with the person's upstream login
 //! (`docs/architecture.md` §13.6 item 7).
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
-use crate::clients::GrantType;
-use crate::introspect::sha256;
+use crate::authorize::{random, sha256};
+use crate::clients::{Client, GrantType};
+use crate::form::Params;
 use crate::server::AppState;
-use crate::store::grant::{IdleUntil, Rotation};
-use crate::token::{Form, Issued, Refusal, identify, mint, server_error};
+use crate::store::Code;
+use crate::store::grant::{Access, IdleUntil, NewGrant, Rotation};
+use crate::token::{Grant, Issued, Refusal, identify, mint, server_error};
 
 /// The `invalid_grant` refusal: "The provided authorization grant ... or
 /// refresh token is invalid, expired, revoked, ... or was issued to another
@@ -33,7 +35,7 @@ const fn invalid(description: &'static str) -> Refusal {
 }
 
 /// Answers a refresh token request.
-pub(crate) async fn refresh(state: &AppState, form: &Form) -> Result<Issued, Refusal> {
+pub(crate) async fn refresh(state: &AppState, form: &Params) -> Result<Issued, Refusal> {
     let client = identify(state, form).await?;
     if !client.grant_types.contains(&GrantType::RefreshToken) {
         return Err(Refusal {
@@ -60,7 +62,7 @@ pub(crate) async fn refresh(state: &AppState, form: &Form) -> Result<Issued, Ref
         (None, _) => String::new(),
     };
     let successor =
-        random_secret().map_err(|error| server_error("no refresh token could be drawn", &error))?;
+        random().map_err(|error| server_error("no refresh token could be drawn", &error))?;
     let settings = state.settings();
     let now = jiff::Timestamp::now().as_second();
     let idle = IdleUntil {
@@ -88,13 +90,28 @@ pub(crate) async fn refresh(state: &AppState, form: &Form) -> Result<Issued, Ref
             return Err(invalid("the refresh token is not valid"));
         }
     };
+    let context = match &grant.context {
+        Value::Object(members) => members.clone(),
+        _ => Map::new(),
+    };
+    let fhir_user = grant
+        .fhir_user
+        .as_deref()
+        .filter(|_| holds(&scope, "fhirUser"));
     let mut issued = mint(
         state,
         &client,
-        &grant.subject,
-        &grant.audience,
-        &scope,
-        Some(&grant.id),
+        Grant {
+            subject: &grant.subject,
+            audience: &grant.audience,
+            scope: &scope,
+            fhir_user,
+            code_hash: None,
+            token_type: "bearer",
+            identity: None,
+            under: Some(&grant.id),
+            context: &context,
+        },
     )
     .await?;
     tracing::info!(
@@ -104,13 +121,118 @@ pub(crate) async fn refresh(state: &AppState, form: &Form) -> Result<Issued, Ref
         grant = %grant.id,
         "a refresh token was rotated"
     );
-    issued.response.refresh_token = Some(successor);
     // NOTE: SMART App Launch 2.2.0, Refresh access token, Response: the launch
     // context MAY be included, and is, as the original response carried it.
-    if let Value::Object(context) = grant.context {
-        issued.response.context = context;
-    }
+    issued.response.refresh_token = Some(successor);
     Ok(issued)
+}
+
+/// What redeeming a code opens: the grant every token of the launch is
+/// issued under, the launch context the responses carry, and the first
+/// refresh token when the grant has one.
+#[derive(Debug)]
+pub(crate) struct Opened {
+    /// The grant's id.
+    pub(crate) grant_id: String,
+    /// The launch context parameters.
+    pub(crate) context: Map<String, Value>,
+    /// The first refresh token.
+    pub(crate) refresh_token: Option<String>,
+}
+
+/// Records the grant the code `code` opens for `client`, with its first
+/// refresh token when the person granted `offline_access` or
+/// `online_access` and the client registered the `refresh_token` grant.
+///
+/// `offline_access` wins over `online_access` when both are granted; an
+/// `online_access` grant needs the upstream session the person logged in
+/// under, and gets no refresh token without one (`docs/architecture.md`
+/// §13.6 item 7).
+pub(crate) async fn open(
+    state: &AppState,
+    client: &Client,
+    code: &Code,
+) -> Result<Opened, Refusal> {
+    let settings = state.settings();
+    let mut context = Map::new();
+    if !settings.branding.smart_style_url.is_empty() {
+        context.insert(
+            String::from("smart_style_url"),
+            Value::String(settings.branding.smart_style_url.clone()),
+        );
+    }
+    let refreshes = client.grant_types.contains(&GrantType::RefreshToken);
+    let access = if !refreshes {
+        None
+    } else if holds(&code.scope, "offline_access") {
+        Some(Access::Offline)
+    } else if holds(&code.scope, "online_access") && code.upstream_session.is_some() {
+        Some(Access::Online)
+    } else {
+        None
+    };
+    let grant_id = random().map_err(|error| server_error("no grant id could be drawn", &error))?;
+    let context_value = Value::Object(context.clone());
+    state
+        .store()
+        .create_grant(&NewGrant {
+            id: &grant_id,
+            client_id: &client.client_id,
+            subject: &code.subject,
+            fhir_user: code
+                .fhir_user
+                .as_deref()
+                .filter(|_| holds(&code.scope, "fhirUser")),
+            audience: &code.audience,
+            scope: &code.scope,
+            context: &context_value,
+            auth_time: Some(code.auth_time),
+            access,
+            upstream_session: code
+                .upstream_session
+                .as_deref()
+                .filter(|_| access == Some(Access::Online)),
+        })
+        .await
+        .map_err(|error| server_error("the grant could not be recorded", &error))?;
+    let refresh_token = match access {
+        Some(access) => {
+            let value = random()
+                .map_err(|error| server_error("no refresh token could be drawn", &error))?;
+            let idle = match access {
+                Access::Offline => settings.refresh_idle,
+                Access::Online => settings.online_idle,
+            };
+            let expires = jiff::Timestamp::now()
+                .as_second()
+                .saturating_add_unsigned(idle.as_secs());
+            state
+                .store()
+                .issue_refresh(&sha256(&value), &grant_id, expires)
+                .await
+                .map_err(|error| server_error("the refresh token could not be recorded", &error))?;
+            Some(value)
+        }
+        None => None,
+    };
+    tracing::info!(
+        target: "ferrosmart::audit",
+        event = "grant.opened",
+        client_id = %client.client_id,
+        grant = %grant_id,
+        access = access.map_or("none", Access::as_str),
+        "a grant was opened"
+    );
+    Ok(Opened {
+        grant_id,
+        context,
+        refresh_token,
+    })
+}
+
+/// Returns whether the space-separated `scope` holds `wanted`.
+fn holds(scope: &str, wanted: &str) -> bool {
+    scope.split(' ').any(|held| held == wanted)
 }
 
 /// Returns the scopes of `requested` the grant's `granted` scope holds, in
@@ -132,18 +254,4 @@ fn narrowed(granted: &str, requested: &str) -> Result<String, Refusal> {
         .filter(|scope| requested.contains(scope))
         .collect::<Vec<_>>()
         .join(" "))
-}
-
-/// Returns the value of a new refresh token: 256 random bits, base64url.
-///
-/// RFC 6749 §10.10 has the chance of guessing it at most 2^(-128) and
-/// "SHOULD be less than or equal to 2^(-160)".
-///
-/// # Errors
-/// Returns the random source's error when it draws nothing.
-pub fn random_secret() -> Result<String, aws_lc_rs::error::Unspecified> {
-    use base64::Engine as _;
-    let mut bytes = [0_u8; 32];
-    aws_lc_rs::rand::fill(&mut bytes)?;
-    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
 }

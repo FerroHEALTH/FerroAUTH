@@ -11,7 +11,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use ferrohealth_smart::client::assertion::AssertionKey;
-use ferrosmart::introspect::sha256;
+use ferrosmart::authorize::sha256;
 use ferrosmart::server::{AppState, router};
 use ferrosmart::store::grant::{Access, NewGrant};
 use ferrosmart::store::{IssuedToken, Store};
@@ -252,6 +252,7 @@ impl Server {
                 scope,
                 issued_at: now,
                 expires_at: now + lifetime,
+                code_hash: None,
                 grant_id,
             })
             .await

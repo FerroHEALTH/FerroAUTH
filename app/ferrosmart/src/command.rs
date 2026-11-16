@@ -127,7 +127,23 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
         .await
         .map_err(|error| Failure::not_up(error).with_context("cannot register the clients"))?;
     let sweeper = tokio::spawn(sweep(store.clone()));
-    let state = Arc::new(AppState::new(settings, store));
+    let callback = settings.endpoint(crate::authorize::CALLBACK_ROUTE);
+    let party = match &settings.upstream {
+        Some(upstream) => {
+            let callback = url::Url::parse(&callback).map_err(|error| {
+                Failure::from(error).with_context("the issuer gives no callback URL")
+            })?;
+            Some(upstream.relying_party(callback).await.map_err(|error| {
+                Failure::not_up(error).with_context("cannot reach the upstream provider")
+            })?)
+        }
+        None => None,
+    };
+    let state = AppState::new(settings, store);
+    let state = Arc::new(match party {
+        Some(party) => state.with_login(party),
+        None => state,
+    });
     let listener = tokio::net::TcpListener::bind(listen)
         .await
         .map_err(|error| Failure::from(error).with_context("cannot bind the listen address"))?;

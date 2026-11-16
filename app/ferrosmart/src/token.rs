@@ -11,7 +11,6 @@
 //! of RFC 6749 §5.1, or the error of §5.2, never cached. The token is an RFC
 //! 9068 JWT.
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use axum::Json;
@@ -25,6 +24,7 @@ use serde_json::{Map, Value, json};
 
 use crate::clients::{Client, ClientKeys, ClientKind, GrantType};
 use crate::discovery::TOKEN_ROUTE;
+use crate::form::Params;
 use crate::server::AppState;
 use crate::store::IssuedToken;
 
@@ -133,18 +133,25 @@ pub(crate) fn no_store(mut response: Response) -> Response {
 pub struct TokenResponse {
     /// The access token.
     pub access_token: String,
-    /// `bearer` (SMART App Launch 2.2.0, Backend Services: "Fixed value:
-    /// bearer").
+    /// `Bearer` for an app, `bearer` for a backend service: the fixed value
+    /// each of SMART App Launch 2.2.0's grants names (compared without case,
+    /// RFC 6749 §5.1).
     pub token_type: &'static str,
     /// The lifetime in seconds.
     pub expires_in: u64,
     /// The scope granted.
     pub scope: String,
-    /// The refresh token, when the grant carries one.
+    /// The ID Token, when `openid` is granted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_token: Option<String>,
+    /// The refresh token, when the grant carries `offline_access` or
+    /// `online_access` (SMART App Launch 2.2.0, Obtain access token).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refresh_token: Option<String>,
-    /// The launch context parameters (SMART App Launch 2.2.0, Scopes and
-    /// Launch Context), each a member of the response.
+    /// The launch context parameters of an app's grant, each a member of the
+    /// response (SMART App Launch 2.2.0, Scopes and Launch Context, Launch
+    /// context arrives with your `access_token`): `smart_style_url` when
+    /// `[ferrosmart.branding]` names one.
     #[serde(flatten)]
     pub context: Map<String, Value>,
 }
@@ -167,6 +174,7 @@ async fn issue(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Iss
     let form = read_form(headers, body)?;
     match form.get("grant_type") {
         Some("client_credentials") => client_credentials(state, &form).await,
+        Some("authorization_code") => authorization_code(state, &form).await,
         Some("refresh_token") => crate::refresh::refresh(state, &form).await,
         Some(_) => Err(Refusal {
             error: "unsupported_grant_type",
@@ -179,7 +187,7 @@ async fn issue(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Iss
 /// Reads the form `body`, refused unless `headers` name it form-encoded,
 /// as the token (RFC 6749 §3.2), introspection (RFC 7662 §2.1) and
 /// revocation (RFC 7009 §2.1) requests all are.
-pub(crate) fn read_form(headers: &HeaderMap, body: &[u8]) -> Result<Form, Refusal> {
+pub(crate) fn read_form(headers: &HeaderMap, body: &[u8]) -> Result<Params, Refusal> {
     let form_type = headers
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
@@ -192,37 +200,12 @@ pub(crate) fn read_form(headers: &HeaderMap, body: &[u8]) -> Result<Form, Refusa
     if !form_type {
         return Err(Refusal::request("the request is not form-encoded"));
     }
-    Form::parse(body)
-}
-
-/// The parameters of a form, each named once.
-#[derive(Debug)]
-pub(crate) struct Form(Vec<(String, String)>);
-
-impl Form {
-    /// Reads `body`, refusing a parameter named twice ("Request and response
-    /// parameters MUST NOT be included more than once", RFC 6749 §3.1, §3.2).
-    fn parse(body: &[u8]) -> Result<Self, Refusal> {
-        let pairs: Vec<(String, String)> = url::form_urlencoded::parse(body).into_owned().collect();
-        let mut names = BTreeSet::new();
-        if pairs.iter().any(|(name, _)| !names.insert(name.as_str())) {
-            return Err(Refusal::request("a parameter is repeated"));
-        }
-        Ok(Self(pairs))
-    }
-
-    /// Returns the value of `name`, an empty value as absent (RFC 6749 §3.1).
-    pub(crate) fn get(&self, name: &str) -> Option<&str> {
-        self.0
-            .iter()
-            .find(|(key, value)| key == name && !value.is_empty())
-            .map(|(_, value)| value.as_str())
-    }
+    Params::parse(body, &[]).map_err(|_repeated| Refusal::request("a parameter is repeated"))
 }
 
 /// The client credentials grant (RFC 6749 §4.4; SMART App Launch 2.2.0,
 /// Backend Services).
-async fn client_credentials(state: &AppState, form: &Form) -> Result<Issued, Refusal> {
+async fn client_credentials(state: &AppState, form: &Params) -> Result<Issued, Refusal> {
     let client = authenticate(state, form).await?;
     if !client.grant_types.contains(&GrantType::ClientCredentials) {
         return Err(Refusal {
@@ -232,14 +215,118 @@ async fn client_credentials(state: &AppState, form: &Form) -> Result<Issued, Ref
     }
     let scope = granted_scope(&client, form.get("scope"))?;
     let audience = audience(state, form.get("resource"))?;
-    mint(state, &client, &client.client_id, &audience, &scope, None).await
+    mint(
+        state,
+        &client,
+        Grant {
+            subject: &client.client_id,
+            audience: &audience,
+            scope: &scope,
+            fhir_user: None,
+            code_hash: None,
+            token_type: "bearer",
+            identity: None,
+            under: None,
+            context: &Map::new(),
+        },
+    )
+    .await
+}
+
+/// The authorization code grant (RFC 6749 §4.1.3; SMART App Launch 2.2.0,
+/// Obtain access token): the client authenticated by its assertion, or a
+/// public client named by `client_id`; the code its own, unexpired and
+/// unused, for the same redirect URI, its PKCE verifier matching (RFC 7636
+/// §4.6). A second use of a code is refused and revokes the tokens the
+/// first issued, once the rest of the request holds (OAuth 2.1 draft
+/// §4.1.3, §7.5.3).
+async fn authorization_code(state: &AppState, form: &Params) -> Result<Issued, Refusal> {
+    let client = identify(state, form).await?;
+    if !client.grant_types.contains(&GrantType::AuthorizationCode) {
+        return Err(Refusal {
+            error: "unauthorized_client",
+            description: "the client may not use this grant",
+        });
+    }
+    let invalid = |description| Refusal {
+        error: "invalid_grant",
+        description,
+    };
+    let code = form
+        .get("code")
+        .ok_or(Refusal::request("the request carries no code"))?;
+    let verifier = form
+        .get("code_verifier")
+        .ok_or(Refusal::request("the request carries no code_verifier"))?;
+    let hash = crate::authorize::sha256(code);
+    let (grant, redeemed) = state
+        .store()
+        .code(&hash)
+        .await
+        .map_err(|error| server_error("the code cannot be read", &error))?
+        .ok_or(invalid("the code is unknown or expired"))?;
+    if grant.client_id != client.client_id {
+        return Err(invalid("the code was issued to another client"));
+    }
+    // NOTE: RFC 6749 §4.1.3, the redirect URI is the one the request carried.
+    if form.get("redirect_uri") != Some(grant.redirect_uri.as_str()) {
+        return Err(invalid("the redirect_uri is not the request's"));
+    }
+    // NOTE: RFC 7636 §4.1 and §4.6, a verifier of 43 to 128 unreserved characters
+    // whose S256 is the challenge.
+    let well_formed = (43..=128).contains(&verifier.len())
+        && verifier
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-._~".contains(&byte));
+    if !well_formed || ferrohealth_smart::oidc::challenge(verifier) != grant.code_challenge {
+        return Err(invalid("the code_verifier does not match"));
+    }
+    let first = !redeemed
+        && state
+            .store()
+            .redeem(&hash)
+            .await
+            .map_err(|error| server_error("the code cannot be redeemed", &error))?;
+    if !first {
+        let revoked = state
+            .store()
+            .revoke_code(&hash)
+            .await
+            .map_err(|error| server_error("the code's tokens cannot be revoked", &error))?;
+        tracing::warn!(target: "ferrosmart::audit", event = "code.reused", client_id = %client.client_id, revoked, "an authorization code was used twice");
+        return Err(invalid("the code was used before"));
+    }
+    let openid = grant.scope.split(' ').any(|scope| scope == "openid");
+    let fhir_user = grant
+        .fhir_user
+        .as_deref()
+        .filter(|_| grant.scope.split(' ').any(|scope| scope == "fhirUser"));
+    let launch = crate::refresh::open(state, &client, &grant).await?;
+    let mut issued = mint(
+        state,
+        &client,
+        Grant {
+            subject: &grant.subject,
+            audience: &grant.audience,
+            scope: &grant.scope,
+            fhir_user,
+            code_hash: Some(&hash),
+            token_type: "Bearer",
+            identity: openid.then_some((grant.nonce.as_deref(), grant.auth_time)),
+            under: Some(&launch.grant_id),
+            context: &launch.context,
+        },
+    )
+    .await?;
+    issued.response.refresh_token = launch.refresh_token;
+    Ok(issued)
 }
 
 /// Returns the client of `form`: authenticated by its assertion, or a
 /// registered public client named by `client_id`, which cannot
-/// authenticate (SMART App Launch 2.2.0, Refresh access token, Request;
-/// RFC 6749 §2.3, §3.2.1).
-pub(crate) async fn identify(state: &AppState, form: &Form) -> Result<Client, Refusal> {
+/// authenticate (RFC 6749 §2.1, §3.2.1; SMART App Launch 2.2.0, Refresh
+/// access token, Request).
+pub(crate) async fn identify(state: &AppState, form: &Params) -> Result<Client, Refusal> {
     if form.get("client_assertion").is_some() || form.get("client_assertion_type").is_some() {
         return authenticate(state, form).await;
     }
@@ -305,7 +392,7 @@ fn audience(state: &AppState, resource: Option<&str>) -> Result<String, Refusal>
 }
 
 /// Authenticates the client of `form` by its JWT assertion.
-pub(crate) async fn authenticate(state: &AppState, form: &Form) -> Result<Client, Refusal> {
+pub(crate) async fn authenticate(state: &AppState, form: &Params) -> Result<Client, Refusal> {
     if form.get("client_assertion_type") != Some(JWT_BEARER) {
         return Err(Refusal::client(
             "the client_assertion_type is not jwt-bearer",
@@ -493,24 +580,47 @@ struct AccessClaims<'a> {
     client_id: &'a str,
     /// The scope granted.
     scope: &'a str,
+    /// The person as a FHIR resource, when the grant names one.
+    #[serde(rename = "fhirUser", skip_serializing_if = "Option::is_none")]
+    fhir_user: Option<&'a str>,
 }
 
-/// Signs, records and answers an access token for `client` about `subject`,
-/// issued under the grant `grant_id` when it continues one.
+/// What an access token grants, and what else the token response carries.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Grant<'a> {
+    /// The token's `sub`.
+    pub(crate) subject: &'a str,
+    /// The resource server.
+    pub(crate) audience: &'a str,
+    /// The scope granted.
+    pub(crate) scope: &'a str,
+    /// The person's `fhirUser`, written into the token and the ID Token.
+    pub(crate) fhir_user: Option<&'a str>,
+    /// The SHA-256 of the authorization code the token answers.
+    pub(crate) code_hash: Option<&'a str>,
+    /// The `token_type` the grant's profile fixes.
+    pub(crate) token_type: &'static str,
+    /// The ID Token's `nonce` and `auth_time`, when `openid` is granted.
+    pub(crate) identity: Option<(Option<&'a str>, i64)>,
+    /// The grant the token is issued under, when a person gave one.
+    pub(crate) under: Option<&'a str>,
+    /// The launch context parameters the response carries.
+    pub(crate) context: &'a Map<String, Value>,
+}
+
+/// Signs, records and answers an access token for `client` under `grant`.
 ///
-/// Its `sub` for the client credentials grant is the client id: "the value
-/// of 'sub' SHOULD correspond to an identifier the authorization server
-/// uses to indicate the client application" (RFC 9068 §2.2). The registry
-/// fixes every `client_id` by configuration, so a client cannot choose a
-/// person's `sub` (RFC 9068 §5); a person's `sub` is pairwise per upstream
-/// issuer (13.6 item 9).
+/// The client credentials grant's `sub` is the client id: "the value of
+/// 'sub' SHOULD correspond to an identifier the authorization server uses
+/// to indicate the client application" (RFC 9068 §2.2). The registry fixes
+/// every `client_id` by configuration, so a client cannot choose a person's
+/// `sub` (RFC 9068 §5); a person's `sub` is pairwise per upstream issuer
+/// (13.6 item 9). The person's `fhirUser` rides in the access token beside
+/// the RFC 9068 set (13.6 item 2).
 pub(crate) async fn mint(
     state: &AppState,
     client: &Client,
-    subject: &str,
-    audience: &str,
-    scope: &str,
-    grant_id: Option<&str>,
+    grant: Grant<'_>,
 ) -> Result<Issued, Refusal> {
     let settings = state.settings();
     let lifetime = settings.access_token_lifetime.as_secs();
@@ -519,13 +629,14 @@ pub(crate) async fn mint(
     let jti = random_id().map_err(|error| server_error("no token id could be drawn", &error))?;
     let claims = AccessClaims {
         iss: &settings.issuer,
-        sub: subject,
-        aud: audience,
+        sub: grant.subject,
+        aud: grant.audience,
         exp: expires_at,
         iat: issued_at,
         jti: &jti,
         client_id: &client.client_id,
-        scope,
+        scope: grant.scope,
+        fhir_user: grant.fhir_user,
     };
     // NOTE: RFC 9068 §2.1, typ at+jwt.
     let access_token = settings
@@ -533,33 +644,83 @@ pub(crate) async fn mint(
         .current()
         .sign("at+jwt", &claims)
         .map_err(|error| server_error("the access token could not be signed", &error))?;
+    let id_token = match grant.identity {
+        Some((nonce, auth_time)) => {
+            let claims = IdClaims {
+                iss: &settings.issuer,
+                sub: grant.subject,
+                aud: &client.client_id,
+                exp: expires_at,
+                iat: issued_at,
+                auth_time,
+                nonce,
+                fhir_user: grant.fhir_user,
+            };
+            // NOTE: SMART App Launch 2.2.0, Scopes for requesting identity data, "The
+            // EHR SHALL support Signing ID Tokens with RSA SHA-256"; typ JWT.
+            Some(
+                settings
+                    .keys
+                    .current()
+                    .sign("JWT", &claims)
+                    .map_err(|error| server_error("the ID token could not be signed", &error))?,
+            )
+        }
+        None => None,
+    };
     state
         .store()
         .record_token(&IssuedToken {
             jti: &jti,
             client_id: &client.client_id,
-            subject,
-            audience,
-            scope,
+            subject: grant.subject,
+            audience: grant.audience,
+            scope: grant.scope,
             issued_at,
             expires_at,
-            grant_id,
+            code_hash: grant.code_hash,
+            grant_id: grant.under,
         })
         .await
         .map_err(|error| server_error("the access token could not be recorded", &error))?;
     Ok(Issued {
         response: TokenResponse {
             access_token,
-            token_type: "bearer",
+            token_type: grant.token_type,
             expires_in: lifetime,
-            scope: scope.to_owned(),
+            scope: grant.scope.to_owned(),
+            id_token,
             refresh_token: None,
-            context: Map::new(),
+            context: grant.context.clone(),
         },
         client_id: client.client_id.clone(),
         jti,
-        audience: audience.to_owned(),
+        audience: grant.audience.to_owned(),
     })
+}
+
+/// The claims of an ID Token (OpenID Connect Core 1.0 §2).
+#[derive(Debug, Serialize)]
+struct IdClaims<'a> {
+    /// The issuer.
+    iss: &'a str,
+    /// The person.
+    sub: &'a str,
+    /// The client.
+    aud: &'a str,
+    /// The expiry.
+    exp: i64,
+    /// The issue time.
+    iat: i64,
+    /// When the person logged in.
+    auth_time: i64,
+    /// The client's `nonce`, when it sent one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    nonce: Option<&'a str>,
+    /// The person as a FHIR resource (SMART App Launch 2.2.0, Scopes for
+    /// requesting identity data).
+    #[serde(rename = "fhirUser", skip_serializing_if = "Option::is_none")]
+    fhir_user: Option<&'a str>,
 }
 
 /// Returns 128 random bits, base64url without padding.

@@ -137,6 +137,51 @@ pub struct FerroSmartSection {
     /// `[[ferrosmart.resource]]`: the FHIR and openEHR servers a token may
     /// be for, each its own audience.
     pub resource: Vec<ResourceSection>,
+    /// `[ferrosmart.upstream]`: the OpenID Connect provider people log in
+    /// at; without it the server answers Backend Services alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream: Option<crate::upstream::UpstreamSection>,
+    /// `[[ferrosmart.role]]`: the scopes each upstream role may be granted,
+    /// the policy as content (`docs/architecture.md` §13.6 item 5).
+    pub role: Vec<RoleSection>,
+    /// `[ferrosmart.branding]`: the deployment's name and words on the
+    /// pages, content and never code (13.15).
+    pub branding: BrandingSection,
+}
+
+/// `[ferrosmart.branding]`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BrandingSection {
+    /// The name the pages carry, such as the hospital's.
+    pub name: String,
+    /// The deployment's own words on the consent page, such as what it does
+    /// with the access a person gives; empty for none.
+    pub consent_text: String,
+    /// The `smart_style_url` an app's token response carries: an https URL
+    /// of the deployment's SMART style document; empty for none.
+    pub smart_style_url: String,
+}
+
+impl Default for BrandingSection {
+    fn default() -> Self {
+        Self {
+            name: String::from("FerroSMART"),
+            consent_text: String::new(),
+            smart_style_url: String::new(),
+        }
+    }
+}
+
+/// One `[[ferrosmart.role]]` table.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct RoleSection {
+    /// The role, as the upstream role claims carry it.
+    pub name: String,
+    /// The `user/` and `patient/` scopes a person holding it may be
+    /// granted.
+    pub scopes: Vec<String>,
 }
 
 /// One `[[ferrosmart.resource]]` table: a server whose base URL is the
@@ -173,6 +218,9 @@ impl Default for FerroSmartSection {
             database: DatabaseSection::default(),
             client: Vec::new(),
             resource: Vec::new(),
+            upstream: None,
+            role: Vec::new(),
+            branding: BrandingSection::default(),
         }
     }
 }
