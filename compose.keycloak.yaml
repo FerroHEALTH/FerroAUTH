@@ -1,0 +1,106 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# Keycloak as the quickstart's login, an override of compose.yaml in the same
+# project (#522). Keycloak authenticates the person and FerroSMART issues the
+# SMART tokens. Run it from a checkout, beside compose.yaml:
+#
+#   docker compose -f compose.yaml -f compose.keycloak.yaml up
+#
+# SECRETS. Two more files under ./secrets, made the way compose.yaml's are:
+#
+#   openssl rand -hex 32 | tr -d '\n' > secrets/keycloak_client_secret
+#   openssl rand -hex 16 | tr -d '\n' > secrets/keycloak_user_password
+#   chmod 0644 secrets/keycloak_client_secret secrets/keycloak_user_password
+#
+# The realm is app/ferrosmart/examples/keycloak/ferrosmart-realm.json, with
+# fixed ids; its placeholders take the two secrets and the user's `fhirUser`
+# at import (docs/architecture.md §13.16). Sign in as `clinician` with the
+# password in secrets/keycloak_user_password.
+#
+# NETWORK. FerroSMART shares Keycloak's network namespace, so both reach each
+# other on `localhost`, exactly as the browser does through the published
+# ports: http://localhost:8080 is FerroSMART and http://localhost:8180 is
+# Keycloak, and each issuer is one URL for every party. `ferrohealth-smart`
+# accepts a plain `http` issuer on a loopback host only, so this is a local
+# example: a deployment serves both over TLS on their own names.
+#
+# Keycloak runs in development mode (`start-dev`, Keycloak's server guide,
+# Running Keycloak in a container), with its data in the container.
+
+name: ferrosmart
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2@sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b
+    container_name: ferrosmart-keycloak
+    restart: unless-stopped
+    # The realm's placeholders read the environment at import (Keycloak's
+    # server guide, Importing and exporting realms), so the secret files are
+    # read into it here and never written to the compose file.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        export FERROSMART_KEYCLOAK_CLIENT_SECRET="$$(cat /run/secrets/keycloak_client_secret)"
+        export FERROSMART_KEYCLOAK_USER_PASSWORD="$$(cat /run/secrets/keycloak_user_password)"
+        exec /opt/keycloak/bin/kc.sh start-dev --import-realm
+    environment:
+      KC_HTTP_PORT: "8180"
+      FERROSMART_KEYCLOAK_REDIRECT_URI: ${FERROSMART_ISSUER:-http://localhost:8080}/callback
+      FERROSMART_KEYCLOAK_FHIR_USER: ${FERROSMART_KEYCLOAK_FHIR_USER:-http://localhost:8090/fhir/Practitioner/example}
+    secrets:
+      - keycloak_client_secret
+      - keycloak_user_password
+    volumes:
+      - type: bind
+        source: ./app/ferrosmart/examples/keycloak/ferrosmart-realm.json
+        target: /opt/keycloak/data/import/ferrosmart-realm.json
+        read_only: true
+    # FerroSMART's port is published here, since it shares this namespace.
+    ports:
+      - "${FERROSMART_BIND_HOST:-127.0.0.1}:${FERROSMART_PORT:-8080}:8080"
+      - "${FERROSMART_BIND_HOST:-127.0.0.1}:8180:8180"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  ferrosmart:
+    network_mode: service:keycloak
+    ports: !reset []
+    depends_on:
+      keycloak:
+        condition: service_started
+    environment:
+      # The upstream login and its claims (ferrosmart.toml of the example).
+      FERROSMART__FERROSMART__UPSTREAM__ISSUER: http://localhost:8180/realms/ferrosmart
+      FERROSMART__FERROSMART__UPSTREAM__CLIENT_ID: ferrosmart
+      FERROSMART__FERROSMART__UPSTREAM__CLIENT_SECRET_FILE: /run/secrets/keycloak_client_secret
+      FERROSMART__FERROSMART__UPSTREAM__SCOPES__0: openid
+      FERROSMART__FERROSMART__UPSTREAM__FHIR_USER_CLAIM: fhir_user
+      FERROSMART__FERROSMART__UPSTREAM__ROLE_CLAIMS__0: roles
+      # The realm role `clinician` may be granted these user/ scopes.
+      FERROSMART__FERROSMART__ROLE__0__NAME: clinician
+      FERROSMART__FERROSMART__ROLE__0__SCOPES__0: user/Patient.rs
+      FERROSMART__FERROSMART__ROLE__0__SCOPES__1: user/Observation.rs
+      # An example public SMART app, PKCE alone.
+      FERROSMART__FERROSMART__CLIENT__0__CLIENT_ID: example-app
+      FERROSMART__FERROSMART__CLIENT__0__NAME: Example SMART app
+      FERROSMART__FERROSMART__CLIENT__0__KIND: public
+      FERROSMART__FERROSMART__CLIENT__0__REDIRECT_URIS__0: http://localhost:9000/callback
+      FERROSMART__FERROSMART__CLIENT__0__SCOPES__0: openid
+      FERROSMART__FERROSMART__CLIENT__0__SCOPES__1: fhirUser
+      FERROSMART__FERROSMART__CLIENT__0__SCOPES__2: user/Patient.rs
+      FERROSMART__FERROSMART__CLIENT__0__SCOPES__3: user/Observation.rs
+      FERROSMART__FERROSMART__CLIENT__0__GRANT_TYPES__0: authorization_code
+    secrets:
+      - database_url
+      - signing_key
+      - keycloak_client_secret
+
+secrets:
+  keycloak_client_secret:
+    file: ./secrets/keycloak_client_secret
+  keycloak_user_password:
+    file: ./secrets/keycloak_user_password

@@ -104,6 +104,9 @@ jobs:
       - name: The FerroSMART quickstart is a valid compose file
         if: ${{ !cancelled() }}
         run: docker compose -f compose.yaml config --quiet
+      - name: The Keycloak overlay of the quickstart is a valid compose file
+        if: ${{ !cancelled() }}
+        run: docker compose -f compose.yaml -f compose.keycloak.yaml config --quiet
       - name: The changelog Security check passes and refuses what it claims to
         if: ${{ !cancelled() }}
         run: bash scripts/checks/changelog-security.sh --self-test
