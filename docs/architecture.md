@@ -2526,7 +2526,10 @@ discovery and token shapes for the two SaaS providers.
 FerroSMART lives in this repository permanently: the owner chose fewer
 repositories over a new one. It ships as its own OCI image and the family's
 release artefacts (signed, with SLSA provenance and an SBOM), on its own
-version line beside the library crates. It is licensed BUSL-1.1, like the
+version line beside the library crates: the tag `ferrosmart-vX.Y.Z`, the
+image `ghcr.io/ferrohealth/ferrosmart` on distroless static, and the
+`compose.yaml` quickstart beside PostgreSQL (`docs/release.md`, The
+FerroSMART release). It is licensed BUSL-1.1, like the
 rest of the family's hand-written code. "FerroSMART" was this repository's
 name until the owner renamed it FerroAUTH on 2026-10-25; the product name is
 reused for the server.

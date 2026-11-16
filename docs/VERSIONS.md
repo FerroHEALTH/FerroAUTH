@@ -169,6 +169,7 @@ the Federation Tier Annex B is under CC0 1.0.
 | zizmor | 1.31.1 | `.github/workflows/ci.yml` |
 | actionlint | 1.7.12, image digest `sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` | `.github/workflows/ci.yml` |
 | shellcheck | 0.11.0 | `.github/workflows/ci.yml` |
+| hadolint | 2.15.1, image digest `sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d` | `.github/workflows/ci.yml` |
 | cargo-semver-checks | 0.51.0, installed through `taiki-e/install-action`, which verifies the archive against its manifest checksum | read from this row by `scripts/checks/semver.sh --pin` for `.github/workflows/ci.yml` and `.github/workflows/release.yml` |
 | `jscpd` | `5.4.2` (release v5.4.2 of github.com/kucherenko/jscpd, 2026-10-20) | `scripts/checks/duplication.sh` |
 | `jscpd image` | `ghcr.io/kucherenko/jscpd:5.4.2@sha256:112bc771493f25ec412ebf61bef738dc1fbe80d3793090e6a5eeac827ef0ee79` | `scripts/checks/duplication.sh` (docker, podman) |
@@ -178,8 +179,13 @@ the Federation Tier Annex B is under CC0 1.0.
 | `jscpd linux-arm64` | `3635d652ae08ae10bfbc6821bfa8ac14080101f317fb5f45f4b590d5d32b9339` (`jscpd-linux-arm64-musl.tar.gz`) | `scripts/checks/duplication.sh --install` |
 | cargo-nextest, cargo-deny | the newest release `taiki-e/install-action` resolves at run time | `.github/workflows/ci.yml` |
 | Keycloak test image | `quay.io/keycloak/keycloak:26.8.2`, index digest `sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b`, the release the Keycloak documentation pin names, run only by the live case behind `FERROHEALTH_KEYCLOAK_E2E=1`, which CI's `nextest (core and axum)` job sets | `crates/ferrohealth-smart/tests/it/keycloak_live.rs` |
-| PostgreSQL test image | `postgres:18.6`, index digest `sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42`, the release FerroHEALTH/FerroEHR builds its database image on, the service of CI's `nextest (core and axum)` job that FerroSMART's store cases reach through `FERROSMART_TEST_PG_URL` | `.github/workflows/ci.yml` |
+| PostgreSQL test image | `postgres:18.6`, index digest `sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42`, the release FerroHEALTH/FerroEHR builds its database image on, the service of CI's `nextest (core and axum)` job that FerroSMART's store cases reach through `FERROSMART_TEST_PG_URL`, and the database of the FerroSMART quickstart | `.github/workflows/ci.yml`, `compose.yaml` |
 | Redis test image | `redis:8.2.3-alpine@sha256:08ad0b1d280850169a790dba1393ff7a90aef951fc19632cf4d3ce4f78e679ba`, the queue of the Inferno test kit's web and worker processes in the Inferno lane (#520) | read from this row by `scripts/inferno/lane.sh` |
 | FerroEHR resource server image | `ghcr.io/ferrohealth/ferroehr:5.7.0@sha256:44c9268cb8a154df118a10ffe84329633f22923ea2cc54261ff0cea57a2ee7e7`, the FerroHEALTH/FerroEHR release whose SMART document describes FerroSMART and whose REST root is the `url` the Inferno lane gives the kit (#520) | read from this row by `scripts/inferno/lane.sh`, `app/ferrosmart/inferno/ferroehr.toml` |
 | Inferno runtime | `ruby:3.3.6-bookworm@sha256:347edd0c70ee08d87de9f01b99de2f14a64cedb5d1bfb38457dfe8cd0bf113c5`, the Ruby of the kit's own `.ruby-version` at the commit the test kit row pins, running the gems its `Gemfile.lock` locks (`inferno_core` 1.4.3, `tls_test_kit` 1.0.2) | read from this row by `scripts/inferno/lane.sh` |
+| FerroSMART image base | `gcr.io/distroless/static-debian13:nonroot`, index digest `sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88`, bumped by Dependabot | `docker/ferrosmart/Dockerfile` |
+| Trivy | 0.73.0 (the Linux x86_64 release tarball, checked by the sha256 `scripts/release/install-trivy.sh` pins) | `.github/workflows/release-ferrosmart.yml`, `.github/workflows/release-ferrosmart-scan.yml`, `.github/workflows/image-scan.yml`, `scripts/release/install-trivy.sh` |
+| syft | 1.51.1, installed through `taiki-e/install-action` | `.github/workflows/release-ferrosmart-build.yml`, `.github/workflows/release-ferrosmart-image.yml` |
+| cargo-auditable | 0.7.5, installed through `taiki-e/install-action` | `.github/workflows/release-ferrosmart-build.yml` |
+| cargo-cyclonedx | 0.5.9, installed through `taiki-e/install-action` | `.github/workflows/release-ferrosmart-build.yml` |
 | GitHub Actions | every `uses:` pinned to a full commit SHA with its version in a trailing comment, bumped by Dependabot | `.github/workflows/*.yml`, `.github/actions/setup-rust/action.yml` |
