@@ -9,16 +9,16 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 - Source: <https://github.com/keycloak/keycloak>, rendered as the Keycloak 26.8.2
   guides at <https://www.keycloak.org/documentation>
 - Pin: tag `26.8.2`, which resolves to commit `e514445f9dcdabc5bdcf67cab56c1e49655de067` (2026-11-05T15:27:24Z)
-- Fetched: 2026-11-08, each file from raw.githubusercontent.com at the commit
+- Fetched: 2026-11-16, each file from raw.githubusercontent.com at the commit
   and checked against the git blob id the commit records
 - Upstream licence: the repository's `LICENSE.txt`, the Apache License,
   Version 2.0, January 2004, vendored beside this file. Its §4 permits
   reproducing and distributing copies of the work in any medium, with a
   copy of the licence given to every recipient. The files are unmodified.
 - Layout: the upstream paths, unchanged
-- Files: 46
+- Files: 55
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `0b9007a9ec9adc2173dd464a27174b98ac9ab06de61629d65173d0bc6c258eca`
+  `PROVENANCE.md` excluded): `6003aa350f3955083d47fe29dd6e2269b3e01000412d96d128e7f33c09f0d924`
 - Read by: the `keycloak` issuer profile of #215, the token exchange
   grant of #217 and the live Keycloak case of #239, vendored by #222 and #239
 
@@ -63,6 +63,23 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   the default configuration it names, in which `email`, `firstName` and
   `lastName` are required for the `user` role.
 
+- `services/src/main/java/org/keycloak/protocol/oidc/mappers/UserAttributeMapper.java`, `services/src/main/java/org/keycloak/protocol/oidc/mappers/UserRealmRoleMappingMapper.java` and
+  `services/src/main/java/org/keycloak/protocol/ProtocolMapperUtils.java`: the
+  provider ids of the user attribute and realm role mappers
+  (`oidc-usermodel-attribute-mapper`, `oidc-usermodel-realm-role-mapper`)
+  and their `user.attribute` and `multivalued` keys, which FerroSMART's
+  Keycloak example (#522) configures.
+- `docs/documentation/server_admin/topics/clients/oidc/proc-creating-oidc-client.adoc`,
+  `con-basic-settings.adoc`, `con-advanced-settings.adoc` and
+  `con-confidential-client-credentials.adoc`, and
+  `docs/documentation/server_admin/topics/roles-groups/proc-creating-realm-roles.adoc`: the OIDC client
+  settings (client authentication, the standard flow, valid redirect URIs,
+  the PKCE method) and realm roles of the example's realm.
+- `docs/guides/server/importExport.adoc`: "Importing and exporting
+  realms", whose section "Using Environment Variables within the Realm
+  Configuration Files" the example's realm placeholders rely on, and
+  `--import-realm`.
+
 The guides' images, and the other chapters the `include::` lines of an
 index name, are not taken.
 
@@ -72,7 +89,11 @@ index name, are not taken.
 | `docs/documentation/release_notes/topics/26_8_0.adoc` | `651b61584ac2e9d92aca48211af99c8b4040a4d7b03d803d774a3bd731665051` | `6e83e13fe994c92507b29a5daf953903fee2ac7b` |
 | `docs/documentation/server_admin/topics/admin-cli.adoc` | `2443b1a18cf8ac9ff81062ba875fb854a69c0cc0cea6351d057d15fb16afa483` | `a698a8246357d1cbc48c4d7138dcdd1c6e78b8a6` |
 | `docs/documentation/server_admin/topics/clients/con-protocol-mappers.adoc` | `edb5a5ca0dcc2ff44a386a46420733a7f103f586efdc71bba46e8ea4a6dddcc2` | `ec681ceb05970357fed5af538209dbdad851f7a1` |
+| `docs/documentation/server_admin/topics/clients/oidc/con-advanced-settings.adoc` | `0b00dbb7deec30f535d35328bddc91e35978a18af72e046cef2707b01ddb49f1` | `7e98d7133751f464c207853e6bff11e108becddd` |
 | `docs/documentation/server_admin/topics/clients/oidc/con-audience.adoc` | `ff9f6c0adf79a2b16f94daac4596f1ed0aa67bae1bf4da6e55703df818882225` | `dfdb6995fc93b73d42ea899e5ab8d77b1a7140d2` |
+| `docs/documentation/server_admin/topics/clients/oidc/con-basic-settings.adoc` | `a91981cb0c150b7f9c4bc0995830edbf1d0869f05e931c918275828f8d9b9e5b` | `5f05e28daf943382422c91147cb57fc4fa041332` |
+| `docs/documentation/server_admin/topics/clients/oidc/con-confidential-client-credentials.adoc` | `a90fc7a654ba96667d53c9f205910fb8dfb19d4057322c7f98b34ca012d05fae` | `7ca4c3a8d1736d33e7c98c6d0aae604d97750357` |
+| `docs/documentation/server_admin/topics/clients/oidc/proc-creating-oidc-client.adoc` | `a4876706d7b4da015b05aa0e4aee53b8916ddb4313ee0915fa334e7aef2acc5a` | `9732686aef4156563fefb3ebefc0d9899a2f27e1` |
 | `docs/documentation/server_admin/topics/clients/oidc/proc-using-a-service-account.adoc` | `0ab4e3d6fc78b640abdfd8086af1e791d4ed89750a84211bd06ee8e7b24709ed` | `6852d9fb3efd0bafc0234c0718b4d65d07db2157` |
 | `docs/documentation/server_admin/topics/clients/proc-creating-mappers.adoc` | `dea2fd0deb49fc2d350eff27676f03d0fed8954b592c52ab907bfc64ef99f216` | `81766dbe777bc25e2b042e6a92b7986349d78544` |
 | `docs/documentation/server_admin/topics/identity-broker.adoc` | `f2596b2638ff35ae8987d3ede01b9b51742c62d640a8f820c2c3a1163c2f9b0f` | `45c0b18049d5920d4327614b5534d2ee34fce30c` |
@@ -105,12 +126,17 @@ index name, are not taken.
 | `docs/documentation/server_admin/topics/identity-broker/spiffe.adoc` | `8891801ec1a324697c7d73068b6ebc509b48d8613d542445e18f1b688a4516fb` | `cb89eb8f59507d4778ebad4e5cb3d7da113fe674` |
 | `docs/documentation/server_admin/topics/identity-broker/suggested.adoc` | `430a657dd585dd18df658d812805004068257626e379bd4beb976c8299783113` | `74bf35226645a23f7d5d19b9b13b1aa9cc2bc92c` |
 | `docs/documentation/server_admin/topics/identity-broker/tokens.adoc` | `2ece6b41b216450282d991d6322bb7aee6a5e29347649dc8ab2da5b8af562b74` | `99be93b8fb8be5907ee3fa42bb2695817ddcdd78` |
+| `docs/documentation/server_admin/topics/roles-groups/proc-creating-realm-roles.adoc` | `3b1a1cfe313200ba0c99cc50b791a22c260ce2fe39991aea9b6d5bedd183dd22` | `9a73621e6b0cc11ae2e0ae5d6478e7644e177bb4` |
 | `docs/documentation/server_admin/topics/users/user-profile.adoc` | `b843b85be43466a960a1096d2fb7b81ddf473791f94a1c551b93d5b9ac502ed2` | `baed489702ad183b64b5a913ec59cf97e8275421` |
 | `docs/guides/securing-apps/token-exchange.adoc` | `99d6d660675f2d4d35cbdc0825ffab7f5aeeb39d970c580340b1d472a72d7afa` | `8b6b4f866dbfe084d062723687eadd2ec71e5abe` |
 | `docs/guides/server/containers.adoc` | `2c9fa7ff5e2017b5ea316248bdf3bacee792178ab463de7fc0feee1aa81a9699` | `daccd5b809cf9c1826e3172cbe6bf52ef33e3825` |
+| `docs/guides/server/importExport.adoc` | `364701687d1a4c2513411a0cf18eab25add298e3ea73c372ddc491eb36ff156e` | `01066a0a0322aac1cafbe15cfd06e10c62b3b163` |
 | `docs/guides/templates/features.adoc` | `46d92510c4e2cafc8780518f1932784d29359a1c8088a8b643bc63c044d0dc03` | `9a6a96620d13ee8a9ba715240f3607e02e1e1576` |
+| `services/src/main/java/org/keycloak/protocol/ProtocolMapperUtils.java` | `ea453344147e812ce8888487d9021770402f2eeff23f7ae57ceb402265f4d1d5` | `c6fa105dbf46a5c418b9bfd625af176d09e49243` |
 | `services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java` | `092a018ccfdc54d078dcb953d32e8c244dad854fa67aee3c1e16fd879eea6479` | `140e99c4c0c902c1902bcc8675a9ab2f7f605274` |
 | `services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java` | `ee8cc0bbb4e40acdb4eb401661542d8df9afffbee0efc2364a6e8284e35b929d` | `f7c8e3244b583272df6d16018fa23e9efea4bfe8` |
 | `services/src/main/java/org/keycloak/protocol/oidc/mappers/AudienceProtocolMapper.java` | `706653e426b063601795c1047e6b0f61cf04f378da24569fbb6ab6ff2c25341a` | `64d67834343c5726a630c708d6594664b0a776fd` |
 | `services/src/main/java/org/keycloak/protocol/oidc/mappers/OIDCAttributeMapperHelper.java` | `bd4be995ef4a84026472aa33dea151eba444cd9af68011a5a2165e07805c9b52` | `06af33df0a1a31b4727761d53e8b1fbae6da4f88` |
+| `services/src/main/java/org/keycloak/protocol/oidc/mappers/UserAttributeMapper.java` | `b76d17296bcdea473ce4477bf39b5dfd0624d20035eff9d8f92143ca6ae33960` | `52c42c4c54adf84149edfd152ec5b3b866c79d03` |
+| `services/src/main/java/org/keycloak/protocol/oidc/mappers/UserRealmRoleMappingMapper.java` | `f713d2695e24ae7c2932bf8994f90957ba20a7ffe82d2c0d69e7f6f06c9ac8c8` | `d85145ca9fcc71b7866e5a16165c53cc054f3927` |
 | `services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json` | `9273aa73df4809754d5f1c1887492cdaa1616a3625d7ed01446c7c167e9b0cb0` | `ae5f62c5c5ebc07748665806bfff93faf1285e7e` |

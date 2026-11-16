@@ -12,6 +12,10 @@ use ferrohealth_secret::file::require_secret;
 use ferrohealth_server::section::ServerSection;
 use ferrohealth_smart::client::assertion::AssertionKey;
 use ferrohealth_smart::client::keys::KeyRing;
+use ferrohealth_smart::client::outbound::OutboundClient;
+use ferrohealth_smart::config::ServerTls;
+use ihe_atna::atna::feed::FeedRepository;
+use ihe_atna::balp::{NetworkAddress, Observer, SOURCE_SECURITY_SERVER};
 use jsonwebtoken::Algorithm;
 use secrecy::SecretString;
 use url::Url;
@@ -20,7 +24,7 @@ use crate::clients::Client;
 use crate::upstream::{Upstream, UpstreamSection};
 
 use crate::config::error::Error;
-use crate::config::{BrandingSection, Config, KeysSection};
+use crate::config::{AuditSection, BrandingSection, Config, KeysSection};
 
 /// The settings the server runs on.
 #[derive(Debug, Clone)]
@@ -55,6 +59,18 @@ pub struct Settings {
     pub roles: BTreeMap<String, Vec<String>>,
     /// The deployment's name and words on the pages.
     pub branding: BrandingSection,
+    /// Where every login and token is recorded.
+    pub audit: AuditSettings,
+}
+
+/// The audit lane, resolved from `[ferrosmart.audit]`.
+#[derive(Debug, Clone)]
+pub struct AuditSettings {
+    /// The Audit Record Repository's FHIR Feed, when the records are
+    /// forwarded.
+    pub feed: Option<FeedRepository>,
+    /// FerroSMART as the recording system.
+    pub observer: Observer,
 }
 
 impl Settings {
@@ -64,6 +80,15 @@ impl Settings {
     #[must_use]
     pub fn endpoint(&self, route: &str) -> String {
         format!("{}{route}", self.issuer.trim_end_matches('/'))
+    }
+
+    /// Returns [`Settings::endpoint`] as a URL.
+    #[must_use]
+    pub fn endpoint_url(&self, route: &str) -> Url {
+        let mut url = self.issuer_url.clone();
+        let path = format!("{}{route}", self.issuer_url.path().trim_end_matches('/'));
+        url.set_path(&path);
+        url
     }
 
     /// Returns the path of the RFC 8414 §3 metadata: the well-known suffix
@@ -129,7 +154,7 @@ impl Config {
         Ok(Settings {
             server: self.server.clone(),
             issuer: section.issuer.clone(),
-            issuer_url: issuer,
+            issuer_url: issuer.clone(),
             access_token_lifetime: section.access_token_lifetime.get(),
             refresh_idle: section.refresh_idle.get(),
             online_idle: section.online_idle.get(),
@@ -141,8 +166,39 @@ impl Config {
             upstream: section.upstream.as_ref().map(upstream).transpose()?,
             roles: roles(&section.role)?,
             branding: branding(&section.branding)?,
+            audit: audit(&section.audit, &issuer)?,
         })
     }
+}
+
+/// Returns the audit lane `section` describes for the server at `issuer`.
+fn audit(section: &AuditSection, issuer: &Url) -> Result<AuditSettings, Error> {
+    let feed = section
+        .feed
+        .as_ref()
+        .map(|endpoint| {
+            let client = OutboundClient::build(endpoint, "ferrosmart.audit.feed", &ServerTls)
+                .map_err(|source| Error::AuditFeed { source })?;
+            FeedRepository::new(client).map_err(|source| Error::AuditBase { source })
+        })
+        .transpose()?;
+    let host = issuer.host_str().unwrap_or_default().to_owned();
+    let source_id = if section.source_id.is_empty() {
+        host.clone()
+    } else {
+        section.source_id.clone()
+    };
+    Ok(AuditSettings {
+        feed,
+        // NOTE: FHIR R4 security-source-type, 6 "Security Server": the system
+        // that authenticates people and issues tokens.
+        observer: Observer {
+            source_id,
+            site: section.site.clone(),
+            host: NetworkAddress::host(&host),
+            source_types: vec![SOURCE_SECURITY_SERVER],
+        },
+    })
 }
 
 /// Returns `section` once its style URL holds: empty, or an https URL.

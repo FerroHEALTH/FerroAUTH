@@ -55,4 +55,9 @@ impl Params {
             .map(|(_, value)| value.as_str())
             .collect()
     }
+
+    /// Returns every parameter name, in order.
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.0.iter().map(|(name, _)| name.as_str())
+    }
 }

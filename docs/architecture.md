@@ -2517,8 +2517,31 @@ discovery and token shapes for the two SaaS providers.
 - **Stateless replicas.** Authorization codes, refresh tokens, launch
   contexts and consents live in PostgreSQL, so any replica answers any
   request; signing keys rotate, with a KMS or HSM as an option.
-- **Its own audit.** Every login and every issued token is an audit record
-  in the family's BALP and EHDS forms.
+- **Its own audit.** Every login and every token request is an audit
+  record, a FHIR R4 `AuditEvent` written through `ihe-atna` into
+  FerroSMART's own PostgreSQL store (#534). A token request is the ITI-71
+  audit event in the form of BALP 1.1.4's profile `IHE.IUA.71`: type
+  `110114`, subtype `ITI-71`, the client (`110150`) and the authorization
+  server (`AuthzOauthService`) as agents, the person as `agent:user` when
+  one logged in, and the one `token-request` entity holding the HTTP
+  request with the values of `code_verifier`, `code`, `refresh_token`,
+  `client_secret` and `client_assertion` left out. A login at the upstream
+  provider is a DICOM User Authentication event of type `110122` Login
+  (DICOM PS3.15 A.5.3.12), whose `AuditEvent` form is our own design. An
+  issued token and its record commit in one transaction; a refusal or a
+  login commits its record alone, and a request whose record cannot be
+  committed fails: the token endpoint answers `503` with no token. With
+  `[ferrosmart.audit.feed]` the store is the outbox the `ihe-atna`
+  forwarder delivers from to an Audit Record Repository over the ITI-20
+  ATX: FHIR Feed; a record the repository refuses is kept and stamped for
+  an operator. `GET {issuer}/audit` reads the records by `subject`,
+  `since` and `until` as a FHIR `searchset` Bundle, with a bearer token
+  FerroSMART issued for its own issuer with `system/AuditEvent.rs`
+  (Regulation (EU) 2025/327 Art 9 has the logs accessible; the parameters
+  are our own design). Neither event is an access to personal electronic
+  health data, so neither is an access record of Annex II 3.2; the patient
+  picker (#516), which reads Patient resources, writes that record through
+  `ehds-logging`.
 - **The family stack.** It is built on `ferrohealth-server`,
   `ferrohealth-telemetry`, `ferrohealth-config` and `ferrohealth-health`,
   and reuses `ferrohealth-smart` (the scope grammar, token and assertion
@@ -2532,7 +2555,10 @@ discovery and token shapes for the two SaaS providers.
 FerroSMART lives in this repository permanently: the owner chose fewer
 repositories over a new one. It ships as its own OCI image and the family's
 release artefacts (signed, with SLSA provenance and an SBOM), on its own
-version line beside the library crates. It is licensed BUSL-1.1, like the
+version line beside the library crates: the tag `ferrosmart-vX.Y.Z`, the
+image `ghcr.io/ferrohealth/ferrosmart` on distroless static, and the
+`compose.yaml` quickstart beside PostgreSQL (`docs/release.md`, The
+FerroSMART release). It is licensed BUSL-1.1, like the
 rest of the family's hand-written code. "FerroSMART" was this repository's
 name until the owner renamed it FerroAUTH on 2026-10-25; the product name is
 reused for the server.
@@ -3012,6 +3038,14 @@ grant_types = ["client_credentials"]
 name = "Example Hospital"                     # the name the pages carry
 smart_style_url = "https://ehr.example.org/smart-style.json"  # an app's token response carries it
 consent_text = "We log every access in your record's audit trail."  # the deployment's own words
+
+[ferrosmart.audit]                             # every login and token request (13.2), kept in the store
+source_id = "smart.example.org"               # AuditEvent.source.observer; empty: the issuer's host
+site = "Example Hospital"
+
+[ferrosmart.audit.feed]                        # optional: forward to an Audit Record Repository, ITI-20 ATX: FHIR Feed
+url = "https://audit.example.org/fhir"         # https only: a record names people
+credentials = { user = "ferrosmart", password_file = "/run/secrets/audit-password" }   # or [ferrosmart.audit.feed.credentials.oauth]
 ```
 
 Every secret is a `_file` key read through `ferrohealth-secret`; the
@@ -3108,7 +3142,10 @@ the git tag of the pin, the way FerroBRIDGE's console does. The pages work
 without script wherever FerroUI allows it: every action is a form post the
 server answers with the next page. The CSP is `default-src 'none';
 script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self';
-form-action 'self'; frame-ancestors 'none'` (`rfc9700 §4.16`).
+form-action 'self'; frame-ancestors 'none'; base-uri 'none'` (`rfc9700
+§4.16`), and the consent page adds to `form-action` the origin of that
+request's registered redirect URI alone, since CSP Level 3 §6.4.2 applies
+`form-action` to the redirect that follows the post.
 
 A component, pattern or locale the screens need and FerroUI lacks is
 added in FerroUI as a general component, through FerroUI's own tracker and
@@ -3119,3 +3156,35 @@ picker, search, a refusal and an error page; it has no design under
 #515 adds to FerroUI. Branding is content: the deployment's name, logo,
 locales and consent wording come from `[ferrosmart.branding]`, never a code
 edit.
+
+### 13.16 Upstream providers: Keycloak
+
+Keycloak 26.8.2 (the release the Keycloak documentation pin names) runs
+upstream of FerroSMART for login only (#522). The realm is
+`app/ferrosmart/examples/keycloak/ferrosmart-realm.json`, FerroSMART's side
+is `ferrosmart.toml` beside it, and `scripts/idp/keycloak-launch.sh` runs both
+in CI: a SMART standalone launch through Keycloak's login form and
+FerroSMART's consent page, to a token response whose ID Token and access
+token carry the person's mapped `fhirUser`. The realm's ids are fixed in the
+file, so an import is reproducible; its secrets are placeholders the
+environment fills at import, so none is in the tree. Citations are to
+`docs/specs/keycloak-docs/`, server administration guide `topics/` unless
+named otherwise.
+
+| Setting | Value | Ground |
+|---|---|---|
+| Realm import | `--import-realm`, with `${...}` placeholders for the client secret, the redirect URI, the user's password and `fhirUser` | server guide `importExport.adoc`, Importing a Realm during Startup, Using Environment Variables within the Realm Configuration Files |
+| Client `ferrosmart` | `publicClient: false`, `clientAuthenticatorType: client-secret`: a confidential client whose secret FerroSMART sends as HTTP Basic | `clients/oidc/con-basic-settings.adoc`, Client authentication; `clients/oidc/con-confidential-client-credentials.adoc`, Client ID and Secret; `oidc core §9` |
+| Flows | `standardFlowEnabled: true`, implicit and direct access grants off | `con-basic-settings.adoc`, Standard Flow, Direct Access Grants; `rfc9700 §2.4` |
+| PKCE | `pkce.code.challenge.method: S256` | `con-basic-settings.adoc`, Proof Key for Code Exchange Code Challenge Method; `rfc7636 §4.2` |
+| Redirect URI | FerroSMART's `{issuer}/callback`, one exact URI | `con-basic-settings.adoc`, Valid Redirect URIs; `rfc9700 §2.1` |
+| `fhir_user` claim | a user attribute mapper (`oidc-usermodel-attribute-mapper`, `user.attribute` `fhir_user`) into the ID Token only | `clients/con-protocol-mappers.adoc`; `UserAttributeMapper.java`, `ProtocolMapperUtils.java`, `OIDCAttributeMapperHelper.java` (`claim.name`, `id.token.claim`) |
+| `roles` claim | a realm role mapper (`oidc-usermodel-realm-role-mapper`, `multivalued`) into the ID Token only | `clients/con-protocol-mappers.adoc`; `UserRealmRoleMappingMapper.java` |
+| Realm role | `clinician`, which `[[ferrosmart.role]]` maps to `user/` scopes | `roles-groups/proc-creating-realm-roles.adoc`; 13.6 item 5 |
+
+On FerroSMART's side, `[ferrosmart.upstream]` names the realm's issuer and
+the client, `fhir_user_claim = "fhir_user"` and `role_claims = ["roles"]`
+(the generic dotted claim reader of `ferrohealth_smart::roles`). No code
+knows Keycloak. The example serves every party on the loopback interface
+over plain `http`, which `ferrohealth_smart::metadata::issuer_url` admits
+there. A deployment serves both over TLS.

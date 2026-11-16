@@ -13,6 +13,13 @@ and this project adheres to
 
 ### Added
 
+- A Keycloak example as the upstream login: a realm with fixed ids whose
+  confidential client `ferrosmart` takes the authorization code flow with
+  PKCE S256, and whose mappers write the user's `fhir_user` attribute and
+  realm roles into the ID Token, and the `[ferrosmart.upstream]` and
+  `[[ferrosmart.role]]` configuration that reads them, with no Keycloak code.
+  CI drives a SMART standalone launch through it to a token with the mapped
+  `fhirUser` (#522).
 - The `ferrosmart` server: `serve`, `config check` and `healthcheck` on the
   family's stack, the `[ferrosmart]` configuration with its issuer and
   `RS256` signing key ring (current, previous and next key), the RFC 8414
@@ -91,3 +98,27 @@ and this project adheres to
   of each access token, so revocation reaches every replica at once. The
   RFC 8414 metadata names both endpoints and their client authentication
   methods (#518).
+- The release lane: a `ferrosmart-vX.Y.Z` tag builds `x86_64` and `aarch64`
+  tarballs for GNU and musl libc, each with its checksum, a CycloneDX and an
+  SPDX SBOM and SLSA Build Level 3 provenance signed through Sigstore, and
+  the image `ghcr.io/ferrohealth/ferrosmart` for `linux/amd64` and
+  `linux/arm64` on distroless static, pushed by digest with its provenance
+  and SBOMs as OCI referrers. Every finding of a full scan of the image and
+  the tarballs needs an OpenVEX judgement before the release publishes, and
+  the image is tagged only once it carries no fixable HIGH or CRITICAL
+  finding, and a weekly scan of the published image files an issue for a
+  new fixable one. `compose.yaml` is the quickstart beside PostgreSQL,
+  attached to every release (#519).
+- The audit records, kept in FerroSMART's own store (migration 0007): every
+  token request, issued or refused, is the ITI-71 audit event in the form
+  of BALP 1.1.4's `IHE.IUA.71`, and every login at the upstream provider a
+  DICOM User Authentication event of type Login, each a FHIR R4
+  `AuditEvent` written through `ihe-atna`. An issued token and its record
+  commit in one transaction; a token request whose record cannot be
+  committed is answered `503` with no token, and a login whose record
+  cannot be committed goes no further. A record names the client, the
+  person's pairwise subject and the token's `jti`, never a token, an
+  assertion, a verifier or a secret. The optional `[ferrosmart.audit.feed]`
+  forwards the records to an Audit Record Repository over the ITI-20 ATX:
+  FHIR Feed, and `GET /audit` reads them by subject and time with a token
+  carrying `system/AuditEvent.rs` (#534).

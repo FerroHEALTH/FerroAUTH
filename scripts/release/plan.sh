@@ -15,7 +15,12 @@
 # ferrohealth-authz and ferrohealth-session (each its own [package] version and
 # crates/<crate>/CHANGELOG.md). The `vX.Y.Z` tags of
 # ferrohealth-smart 0.1.0 to 0.6.0 stay as they were and count as its earlier
-# releases.
+# releases. Beside them `ferrosmart-vX.Y.Z` releases the FerroSMART server
+# (the [package] version of app/ferrosmart/Cargo.toml,
+# app/ferrosmart/CHANGELOG.md) as an image and release artefacts
+# (.github/workflows/release-ferrosmart.yml): it has no Rust API and no
+# crates.io page, so its plan pins the quickstart's image in place of the
+# semver check and the install lines.
 #
 #   plan.sh checks <tag> [--notes <file>]
 #       Runs every check below at the working tree, in order, and writes the
@@ -28,7 +33,7 @@
 #       order, read from `git ls-remote` of origin: a pushed tag counts
 #       whether or not its release published, and ancestry plays no part.
 #   plan.sh crate <tag>
-#       Prints the crate <tag> releases.
+#       Prints the crate or the server <tag> releases.
 #   plan.sh changelog <tag>
 #       Prints the changelog file of the crate <tag> releases.
 #   plan.sh notes <tag> <file>
@@ -44,7 +49,7 @@
 # logged-in gh locally). Exit 2 on a usage error.
 set -euo pipefail
 
-readonly TAG_RE='^ferrohealth-(smart|authz|session)-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
+readonly TAG_RE='^(ferrohealth-(smart|authz|session)|ferrosmart)-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 # The support period in years from the release date: the minimum of
 # Regulation (EU) 2024/2847 Art 13(8), as SECURITY.md states it.
 readonly SUPPORT_YEARS=5
@@ -58,7 +63,7 @@ usage() {
 valid_tag() {
   local tag="$1"
   [[ "$tag" =~ $TAG_RE ]] || {
-    echo "::error::plan: '$tag' is not a ferrohealth-smart-vX.Y.Z, ferrohealth-authz-vX.Y.Z or ferrohealth-session-vX.Y.Z tag" >&2
+    echo "::error::plan: '$tag' is not a ferrohealth-smart-vX.Y.Z, ferrohealth-authz-vX.Y.Z, ferrohealth-session-vX.Y.Z or ferrosmart-vX.Y.Z tag" >&2
     exit 2
   }
 }
@@ -69,6 +74,7 @@ tag_prefix() {
   ferrohealth-authz-v*) echo "ferrohealth-authz-" ;;
   ferrohealth-session-v*) echo "ferrohealth-session-" ;;
   ferrohealth-smart-v*) echo "ferrohealth-smart-" ;;
+  ferrosmart-v*) echo "ferrosmart-" ;;
   *) echo "" ;;
   esac
 }
@@ -77,6 +83,7 @@ crate_of() {
   case "$1" in
   ferrohealth-authz-v*) echo "ferrohealth-authz" ;;
   ferrohealth-session-v*) echo "ferrohealth-session" ;;
+  ferrosmart-v*) echo "ferrosmart" ;;
   *) echo "ferrohealth-smart" ;;
   esac
 }
@@ -85,6 +92,7 @@ changelog_of() {
   case "$1" in
   ferrohealth-authz-v*) echo "crates/ferrohealth-authz/CHANGELOG.md" ;;
   ferrohealth-session-v*) echo "crates/ferrohealth-session/CHANGELOG.md" ;;
+  ferrosmart-v*) echo "app/ferrosmart/CHANGELOG.md" ;;
   *) echo "crates/ferrohealth-smart/CHANGELOG.md" ;;
   esac
 }
@@ -202,12 +210,17 @@ check_milestone() { bash scripts/release/milestone.sh check "$TAG"; }
 
 # The tag names the version of the crate it releases: ferrohealth-smart's is
 # the [workspace.package] version of the root Cargo.toml, ferrohealth-authz's
-# and ferrohealth-session's the [package] version of their own manifests.
+# and ferrohealth-session's the [package] version of their own manifests, and
+# FerroSMART's the [package] version of app/ferrosmart/Cargo.toml.
 check_version() {
   local manifest table file
   case "$CRATE" in
   ferrohealth-authz | ferrohealth-session)
     file="crates/$CRATE/Cargo.toml"
+    table="[package]"
+    ;;
+  ferrosmart)
+    file="app/ferrosmart/Cargo.toml"
     table="[package]"
     ;;
   *)
@@ -234,8 +247,14 @@ check_changelog_structure() { bash scripts/checks/changelog-structure.sh "$CHANG
 # version on crates.io: a break needs a minor bump
 # (https://doc.rust-lang.org/cargo/reference/semver.html), which keeps a
 # caret requirement on this crate safe. A crate with no release yet is named
-# and passes.
-check_semver() { bash scripts/checks/semver.sh "$CRATE"; }
+# and passes. The server is no library and is never on crates.io.
+check_semver() {
+  if [[ "$CRATE" == ferrosmart ]]; then
+    echo "ferrosmart is a server with no Rust API, so no semver check applies"
+    return 0
+  fi
+  bash scripts/checks/semver.sh "$CRATE"
+}
 
 # The cut refreshes the link references: [Unreleased] compares from the tag
 # being cut and the cut version has a link of its own (Keep a Changelog 1.1.0
@@ -285,6 +304,10 @@ readme_pins() {
 # version being released. A pre-release keeps the lines of the release before it.
 check_readme_pin() {
   local readme="crates/$CRATE/README.md" pins stale failed=0 file
+  if [[ "$CRATE" == ferrosmart ]]; then
+    echo "ferrosmart installs as an image, which the quickstart pins"
+    return 0
+  fi
   if [[ "$VERSION" == *-* ]]; then
     echo "a pre-release moves no install line"
     return 0
@@ -307,6 +330,39 @@ check_readme_pin() {
     fi
   done
   [[ "$failed" -eq 0 ]] && echo "OK: the install lines of $CRATE pin $VERSION"
+}
+
+# compose_pin: reads a compose file on stdin and prints the default tag of
+# every FerroSMART image it names, one per line.
+compose_pin() {
+  # shellcheck disable=SC2016 # the compose interpolation is matched as text
+  sed -n 's#^[[:space:]]*image:[[:space:]]*ghcr\.io/ferrohealth/ferrosmart:\${FERROSMART_VERSION:-\([^}]*\)}[[:space:]]*$#\1#p'
+}
+
+# The quickstart rides along as a release asset and pulls the image this tag
+# publishes, so its default tag is the version being released. A pre-release
+# keeps the tag of the release before it; a crate ships no image.
+check_compose_pin() {
+  local pins stale
+  if [[ "$CRATE" != ferrosmart ]]; then
+    echo "$CRATE ships no image"
+    return 0
+  fi
+  if [[ "$VERSION" == *-* ]]; then
+    echo "a pre-release moves no quickstart pin"
+    return 0
+  fi
+  pins="$(compose_pin <compose.yaml)"
+  if [[ -z "$pins" ]]; then
+    echo "::error::compose.yaml names no 'image: ghcr.io/ferrohealth/ferrosmart:\${FERROSMART_VERSION:-$VERSION}'." >&2
+    return 1
+  fi
+  stale="$(grep -vxF "$VERSION" <<<"$pins" || true)"
+  if [[ -n "$stale" ]]; then
+    echo "::error::compose.yaml pins the ferrosmart image at $(paste -sd, - <<<"$stale"); the release is $VERSION." >&2
+    return 1
+  fi
+  echo "OK: compose.yaml pins the ferrosmart image at $VERSION"
 }
 
 check_notes() {
@@ -334,6 +390,7 @@ check_changelog_structure Changelog structure (no duplicate subsections, Keep a 
 check_changelog_links The changelog links compare from the tag being cut
 check_changelog_security The Security section of the cut names its advisories and its reason
 check_readme_pin The install lines of the crate pin the version being released
+check_compose_pin The quickstart pins the image being released
 check_notes The changelog section for this tag becomes the release notes
 check_notes_content The release notes carry the support period
 EOF
@@ -430,6 +487,19 @@ self_test() {
   expect "a cargo add line" "$got" "0.8.0"
   got="$(printf '%s\n' 'ferrohealth-smart = "=0.8.0"' 'ferrohealth-authz = "=0.2.0"' | readme_pins ferrohealth-authz)"
   expect "another crate's line is not this crate's" "$got" "0.2.0"
+  got="$(printf '%s\n' ferrosmart-v0.1.0 ferrosmart-v0.1.10 ferrosmart-v0.1.9 v0.6.0 ferrohealth-smart-v0.9.0 | order_prev ferrosmart-v0.1.10)"
+  expect "the server's tags order apart from the crates'" "$got" "ferrosmart-v0.1.9"
+  got="$(printf '%s\n' v0.6.0 ferrohealth-smart-v0.9.0 | order_prev ferrosmart-v0.1.0)"
+  expect "the legacy v tags are not the server's" "$got" ""
+  expect "the crate of a server tag" "$(crate_of ferrosmart-v0.1.0)" "ferrosmart"
+  expect "the version of a server tag" "$(version_of ferrosmart-v0.1.0-rc.1)" "0.1.0-rc.1"
+  expect "the changelog of a server tag" "$(changelog_of ferrosmart-v0.1.0)" "app/ferrosmart/CHANGELOG.md"
+  # shellcheck disable=SC2016 # the compose interpolation is the input text
+  got="$(printf '%s\n' '    image: ghcr.io/ferrohealth/ferrosmart:${FERROSMART_VERSION:-0.1.0}' '    image: postgres:18.6@sha256:00' | compose_pin)"
+  expect "the quickstart's image pin" "$got" "0.1.0"
+  # shellcheck disable=SC2016 # the compose interpolation is the input text
+  got="$(printf '%s\n' '    image: ghcr.io/ferrohealth/ferrosmart:0.1.0' '# image: ghcr.io/ferrohealth/ferrosmart:${FERROSMART_VERSION:-9.9.9}' | compose_pin)"
+  expect "a fixed tag and a comment are no quickstart pin" "$got" ""
   got="$(printf '%s\n' 'Pin ferrohealth-smart = "=9.9.9" in prose.' 'ferrohealth-smart = "0.8"' 'cargo add ferrohealth-smart' | readme_pins ferrohealth-smart)"
   expect "prose and an inexact requirement are no install line" "$got" ""
   if [[ "$fails" -gt 0 ]]; then

@@ -1114,9 +1114,9 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-config"
-version = "0.4.4"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15671f92c6a7aaaf4c59378525bd7ae0501ce35e22e171acc35edb6cc8607269"
+checksum = "092791dbc52e7cfb355ee7250e9fcc44a25d6c8be78cfbd6b290705e5de33a29"
 dependencies = [
  "ferrohealth-secret",
  "percent-encoding",
@@ -1292,6 +1292,7 @@ dependencies = [
 name = "ferrosmart"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "aws-lc-rs",
  "axum",
  "base64 0.23.1",
@@ -1306,6 +1307,7 @@ dependencies = [
  "fluent-templates",
  "http",
  "http-body-util",
+ "ihe-atna",
  "jiff",
  "jsonwebtoken",
  "reqwest",
@@ -1320,6 +1322,18 @@ dependencies = [
  "tracing",
  "url",
  "wiremock",
+]
+
+[[package]]
+name = "fhir-types"
+version = "0.1.131"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "295ec4729d0e3595a79b426afc54831a5386648c41b376fe0b7c38af19041d4a"
+dependencies = [
+ "quick-xml",
+ "regex",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -1940,6 +1954,28 @@ checksum = "cb68373c0d6620ef8105e855e7745e18b0d00d3bdb07fb532e434244cdb9a714"
 dependencies = [
  "icu_normalizer",
  "icu_properties",
+]
+
+[[package]]
+name = "ihe-atna"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af706af015bf2d6963a79d1ec07bbd83b7cdc6e9dfa0ba8362cf8c8538138548"
+dependencies = [
+ "async-trait",
+ "base64 0.23.1",
+ "ferrohealth-secret",
+ "ferrohealth-smart",
+ "fhir-types",
+ "http",
+ "jiff",
+ "reqwest",
+ "secrecy",
+ "serde_json",
+ "thiserror",
+ "tokio",
+ "tracing",
+ "url",
 ]
 
 [[package]]
@@ -2755,6 +2791,15 @@ checksum = "4dcd034599e63b970727f70d79e02d62390a4a84f7c6b827c27c46d5ac3fa622"
 dependencies = [
  "ar_archive_writer",
  "cc",
+]
+
+[[package]]
+name = "quick-xml"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "41b1177fdf999d2321d3fb46ff47159d9c1fb9ad66a4879f8c50a0b504615e9b"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
