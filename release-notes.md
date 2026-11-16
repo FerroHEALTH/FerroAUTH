@@ -20,9 +20,9 @@
 
 ### Removed
 
-- The `assertion_audience` key of `[<lane>.credentials.oauth]`. This
-  release refuses it with `ConfigError::Removed`, naming what replaced it;
-  the next release deletes the refusal (#529).
+- The `assertion_audience` key of `[<lane>.credentials.oauth]`. The table
+  denies unknown fields, so a configuration that still sets it fails to
+  load as an unknown key (#529).
 
 
 ### Support period

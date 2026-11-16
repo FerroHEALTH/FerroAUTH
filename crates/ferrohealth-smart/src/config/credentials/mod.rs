@@ -66,10 +66,6 @@ pub struct CredentialsSection {
     pub onward: Option<onward::OnwardSection>,
 }
 
-/// What replaced `assertion_audience`, removed in 0.28.0; deleted with its
-/// refusal in the next release.
-pub(crate) const REMOVED_ASSERTION_AUDIENCE: &str = "the assertion's aud follows security_profile: the token endpoint (SMART App Launch 2.2.0, Client Authentication: Asymmetric), or the issuer under fapi2 (FAPI 2.0 Security Profile §5.3.3.1); delete the key";
-
 /// The `[<lane>.credentials.oauth]` table.
 ///
 /// Its rendering, serialized or `Debug`, shows `issuer` and
@@ -122,13 +118,6 @@ pub struct OauthSection {
     pub refresh_margin: Duration,
     /// How long one call to the authorization server may take.
     pub timeout: Duration,
-    /// Removed in 0.28.0: the `aud` of a `private_key_jwt` assertion follows
-    /// `security_profile`, the token endpoint (SMART App Launch 2.2.0) or
-    /// under `fapi2` the issuer (FAPI 2.0 §5.3.3.1). Set, it is refused
-    /// naming that; the refusal is deleted in the next release.
-    #[serde(skip_serializing)]
-    #[cfg_attr(feature = "schema", schemars(skip))]
-    pub assertion_audience: Option<String>,
     /// The TLS of the token endpoint connection: trust roots beside the
     /// platform's, the client identity presented over mutual TLS (RFC 8705
     /// §2) and the minimum version. The crate reads none of it: a table that
@@ -282,8 +271,7 @@ impl OauthSection {
     /// Returns [`ConfigError`] as [`CredentialsSection::resolve`] does, and
     /// for a client certificate file without its key file or the reverse,
     /// a mutual-TLS `client_auth` without a client certificate, TLS
-    /// material that is no PEM (with the `fetch` feature), and
-    /// [`ConfigError::Removed`] for `assertion_audience`, removed in 0.28.0.
+    /// and material that is no PEM (with the `fetch` feature).
     pub fn resolve(&self) -> Result<ClientCredentials, ConfigError> {
         if self.tls.names_material() {
             return Err(ConfigError::TlsNotBuilt {
@@ -347,12 +335,6 @@ impl OauthSection {
         &self,
         presented: Option<PresentedTls>,
     ) -> Result<ClientCredentials, ConfigError> {
-        if self.assertion_audience.is_some() {
-            return Err(ConfigError::Removed {
-                key: "credentials.oauth.assertion_audience",
-                replacement: REMOVED_ASSERTION_AUDIENCE,
-            });
-        }
         let endpoint = match (self.issuer.is_empty(), self.token_endpoint.is_empty()) {
             (false, false) => {
                 return Err(ConfigError::Exclusive {
@@ -602,7 +584,6 @@ impl Default for OauthSection {
             audience: String::new(),
             refresh_margin: Duration::from_secs(30),
             timeout: Duration::from_secs(10),
-            assertion_audience: None,
             tls: TlsClientSection::default(),
             dpop_key_file: None,
             certificate_bound: false,
@@ -682,7 +663,6 @@ impl PartialEq for OauthSection {
             audience,
             refresh_margin,
             timeout,
-            assertion_audience,
             tls,
             dpop_key_file,
             certificate_bound,
@@ -707,7 +687,6 @@ impl PartialEq for OauthSection {
             && *audience == other.audience
             && *refresh_margin == other.refresh_margin
             && *timeout == other.timeout
-            && *assertion_audience == other.assertion_audience
             && *tls == other.tls
             && *dpop_key_file == other.dpop_key_file
             && *certificate_bound == other.certificate_bound

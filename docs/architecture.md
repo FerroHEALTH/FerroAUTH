@@ -532,8 +532,8 @@ ways, configured, never guessed from the server's metadata:
   10070 §4 has every client use the issuer; SMART 2.2 governs a SMART
   client and requires the token URL, so the plain grant deviates from RFC
   10070 there, the conflict FerroHEALTH/FerroAUTH#528 reports (#529; the
-  `assertion_audience` key of #59 is removed in 0.28.0 and refused for one
-  release). The private key comes from
+  `assertion_audience` key of #59 is removed in 0.28.0 and refused as
+  an unknown key). The private key comes from
   `private_key_file`; the product serves the matching public JWK Set at a
   route of its own, which the library renders (`rfc7517 §5`, bare `n`/`e` or
   `crv`/`x`/`y` as the SMART profile requires), holding the current and the
@@ -2042,7 +2042,7 @@ fragment component"), so a bad grant refuses the start rather than the
 first token request. The TLS files are read and parsed at load too: a
 certificate file without its key file or the reverse, a mutual-TLS method
 without a certificate, and roots that hold no certificate each refuse the
-start, and so does the removed `assertion_audience` key (one release).
+start.
 
 ## 5. How a product integrates
 
