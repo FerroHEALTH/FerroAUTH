@@ -37,3 +37,7 @@ picker-results = Patients found
 picker-none = No patient you may see matches the search.
 picker-choose = Choose this patient
 picker-born = born { $date }
+picker-ehr-intro = The app works with one patient's health record. Enter the patient's identifier; you find only the records you may see.
+picker-ehr-results = Health record found
+picker-ehr-none = No health record you may see belongs to this identifier.
+picker-ehr-created = record created { $date }

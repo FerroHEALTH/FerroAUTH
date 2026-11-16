@@ -290,9 +290,22 @@ pub fn picker(
             ))
         }
     };
+    picker_card(state, &locale, &words("picker-intro"), search, results)
+}
+
+/// Returns the picker page of `locale` with the words `intro`, the form
+/// `search` and the `results` below it.
+fn picker_card(
+    state: &AppState,
+    locale: &Locale,
+    intro: &str,
+    search: Html,
+    results: Html,
+) -> Response {
+    let words = |id: &str| locale.lookup(&*CATALOG, id);
     let deployment = &state.settings().branding;
     let body = Html::join([
-        Html::raw(format!("<p>{}</p>", Html::text(words("picker-intro")))),
+        Html::raw(format!("<p>{}</p>", Html::text(intro))),
         search,
         results,
     ]);
@@ -303,7 +316,71 @@ pub fn picker(
     );
     let title = words("picker-title");
     let page = page_card(Some(lockup), title.clone(), body);
-    respond(state, StatusCode::OK, &locale, title, page, &[])
+    respond(state, StatusCode::OK, locale, title, page, &[])
+}
+
+/// Returns the picker page of `pending` at an openEHR resource server.
+///
+/// The form asks for the patient's identifier; `looked_up` is the
+/// identifier a lookup ran for and the EHR it found, `None` when the server
+/// holds none the person may see.
+#[must_use]
+pub fn ehr_picker(
+    state: &AppState,
+    headers: &HeaderMap,
+    pending: &Pending,
+    looked_up: Option<(&str, Option<&crate::picker::openehr::FoundEhr>)>,
+) -> Response {
+    let asked = looked_up.map(|(asked, _)| asked);
+    let locale = negotiated(headers);
+    let words = |id: &str| locale.lookup(&*CATALOG, id);
+    let action = state.settings().endpoint(crate::picker::PICKER_ROUTE);
+    let input = Html::raw(format!(
+        "<input type=\"search\" id=\"subject_id\" name=\"subject_id\" value=\"{}\" class=\"fui-input\" required>",
+        Html::text(asked.unwrap_or_default())
+    ));
+    let search = Html::raw(format!(
+        "<form method=\"get\" action=\"{action}\" role=\"search\" class=\"fui-stack\">{subject}\
+         <div class=\"fui-cluster\"><button type=\"submit\" class=\"{primary}\">{label}</button></div></form>",
+        action = Html::text(&action),
+        subject = field("subject_id", words("picker-identifier"), None, input),
+        primary = Variant::Primary.class(),
+        label = label(Some(Glyph::SEARCH), words("picker-search")),
+    ));
+    let results = match looked_up {
+        None => Html::empty(),
+        Some((_, None)) => Html::raw(format!("<p>{}</p>", Html::text(words("picker-ehr-none")))),
+        Some((_, Some(ehr))) => {
+            let radio = Html::raw(format!(
+                "<input type=\"radio\" id=\"ehr-0\" name=\"ehr_id\" value=\"{}\" required checked>",
+                Html::text(&ehr.ehr_id)
+            ));
+            let mut words_of = vec![ehr.subject_id.clone()];
+            if let Some(created) = &ehr.time_created {
+                words_of.push(locale.lookup_with(
+                    &*CATALOG,
+                    "picker-ehr-created",
+                    &[("date", Arg::from(created.as_str()))],
+                ));
+            }
+            Html::raw(format!(
+                "<form method=\"post\" action=\"{action}\" class=\"fui-stack\">\
+                 <input type=\"hidden\" name=\"form_token\" value=\"{token}\">\
+                 <input type=\"hidden\" name=\"subject_id\" value=\"{subject}\">{fields}\
+                 <div class=\"fui-cluster\"><button type=\"submit\" class=\"{primary}\">{choose}</button></div></form>",
+                action = Html::text(&action),
+                token = Html::text(&pending.form_token),
+                subject = Html::text(&ehr.subject_id),
+                fields = fieldset(
+                    words("picker-ehr-results"),
+                    check("ehr-0", words_of.join(", "), radio)
+                ),
+                primary = Variant::Primary.class(),
+                choose = label(Some(Glyph::CHECK), words("picker-choose")),
+            ))
+        }
+    };
+    picker_card(state, &locale, &words("picker-ehr-intro"), search, results)
 }
 
 /// A consent the person remembered, as the management page lists it.

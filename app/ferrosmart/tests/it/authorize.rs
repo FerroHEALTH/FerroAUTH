@@ -179,6 +179,12 @@ impl Smart {
         let resource = fhir.map_or_else(String::new, |base| {
             format!("[[ferrosmart.resource]]\nbase = {base:?}\n")
         });
+        Self::start_over(grants, ceiling, role, &resource).await
+    }
+
+    /// Starts the server of [`Smart::start_with`] over the
+    /// `[[ferrosmart.resource]]` tables `resource`.
+    async fn start_over(grants: &str, ceiling: &str, role: &str, resource: &str) -> Self {
         let provider = Provider::start().await;
         let keys = Keys::new();
         let database = Database::create().await;
@@ -1310,13 +1316,26 @@ async fn picker_launch() -> (Smart, MockServer, Arc<std::sync::Mutex<Vec<Value>>
 /// Runs the standalone launch to the picker as the person `subject` with
 /// `fhir_user`, and returns the cookie.
 async fn to_picker(smart: &Smart, base: &str, subject: &str, fhir_user: &str) -> String {
-    let path = authorize_path(&[
-        ("aud", base),
-        (
-            "scope",
-            "openid fhirUser launch/patient patient/Observation.rs",
-        ),
-    ]);
+    to_picker_asking(
+        smart,
+        base,
+        "openid fhirUser launch/patient patient/Observation.rs",
+        subject,
+        fhir_user,
+    )
+    .await
+}
+
+/// Runs the standalone launch asking for `scope` at `base` to the picker as
+/// the person `subject` with `fhir_user`, and returns the cookie.
+async fn to_picker_asking(
+    smart: &Smart,
+    base: &str,
+    scope: &str,
+    subject: &str,
+    fhir_user: &str,
+) -> String {
+    let path = authorize_path(&[("aud", base), ("scope", scope)]);
     let (_, headers, _) = smart.get(&path, None).await;
     let upstream = location(&headers);
     let cookie = set_cookie(&headers);
@@ -1592,3 +1611,5 @@ async fn a_token_response_is_readable_from_the_app_s_origin_alone() {
     assert_eq!(None, allowed(&headers));
     smart.stop().await;
 }
+
+mod ehr_picker;

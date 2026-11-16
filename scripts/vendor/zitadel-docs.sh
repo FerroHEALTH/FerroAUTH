@@ -19,8 +19,8 @@
 # Redistribution: the repository's LICENSE is the AGPL-3.0, and its
 # LICENSING.md, vendored beside it, licenses `apps/docs/` and `proto/` under
 # the Apache License 2.0. The pages and the definitions are taken under that
-# grant; `cmd/setup/steps.yaml` and `deploy/compose/docker-compose.yml` are
-# AGPL-3.0 files copied verbatim for citation and never built, linked or
+# grant; `cmd/setup/steps.yaml`, `cmd/defaults.yaml`, `pkg/actions/signing.go`
+# and `deploy/compose/docker-compose.yml` are AGPL-3.0 files copied verbatim for citation and never built, linked or
 # modified. The script fails if LICENSING.md stops granting Apache 2.0 for
 # `apps/docs/` and `proto/`.
 #
@@ -53,6 +53,9 @@ paths=(
   "$docs/guides/integrate/login-ui/oidc-standard.mdx"
   "$docs/guides/integrate/login-ui/username-password.mdx"
   "$docs/guides/integrate/login-ui/login-app.mdx"
+  "$docs/guides/integrate/actions/usage.mdx"
+  "$docs/guides/integrate/actions/testing-request-signature.mdx"
+  "$docs/concepts/features/actions_v2.mdx"
   "$docs/self-hosting/deploy/compose.mdx"
   "$docs/self-hosting/manage/configure/configure.mdx"
   "$docs/self-hosting/manage/configure/example-zitadel-init-steps.yaml"
@@ -70,6 +73,11 @@ paths=(
   proto/zitadel/authorization/v2/authorization_service.proto
   proto/zitadel/session/v2/session_service.proto
   proto/zitadel/oidc/v2/oidc_service.proto
+  proto/zitadel/action/v2/action_service.proto
+  proto/zitadel/action/v2/target.proto
+  proto/zitadel/action/v2/execution.proto
+  pkg/actions/signing.go
+  cmd/defaults.yaml
 )
 
 pin="$(corpus_pin_cell "ZITADEL documentation")"
@@ -124,8 +132,9 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 - Upstream licence: the repository is AGPL-3.0-only (\`LICENSE\`, vendored).
   Its \`LICENSING.md\`, vendored beside it, licenses \`apps/docs/\` and
   \`proto/\` under the Apache License 2.0, so the pages and the definitions
-  are Apache-2.0. \`cmd/setup/steps.yaml\` and
-  \`deploy/compose/docker-compose.yml\` are AGPL-3.0-only, copied verbatim
+  are Apache-2.0. \`cmd/setup/steps.yaml\`, \`cmd/defaults.yaml\`,
+  \`pkg/actions/signing.go\` and \`deploy/compose/docker-compose.yml\` are
+  AGPL-3.0-only, copied verbatim
   for citation and never built, linked or modified. The files are
   unmodified.
 - Images run, never vendored: \`ghcr.io/zitadel/zitadel\` (AGPL-3.0-only)
@@ -155,6 +164,12 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 - \`proto/zitadel/*/v2/\`: the organization, project, application, OIDC
   application settings, user, authorization, session and OIDC services the
   bootstrap calls.
+- \`$docs/guides/integrate/actions/\`, \`$docs/concepts/features/actions_v2.mdx\`,
+  \`proto/zitadel/action/v2/\` and \`pkg/actions/signing.go\`: Actions v2,
+  the \`preuserinfo\` function whose target writes the \`fhirUser\` claim, and
+  the \`ZITADEL-Signature\` that target checks.
+- \`cmd/defaults.yaml\`: the defaults the example's environment overrides,
+  the first instance and the HTTP client's deny list among them.
 
 | File | sha256 | git blob id |
 |---|---|---|$rows

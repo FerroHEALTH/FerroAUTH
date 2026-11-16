@@ -12,8 +12,11 @@
 #
 #   scripts/idp/authorize.sh LOGIN <authorization_url> [--follow]
 #
-# LOGIN names how the provider's login form is answered: `keycloak` posts the
-# username and password to the form `kc-form-login` names. The person is
+# LOGIN names how the provider's login is answered: `keycloak` posts the
+# username and password to the form `kc-form-login` names; `zitadel` takes
+# ZITADEL's custom login flow, a session with a password check and the
+# callback of the auth request it finishes, with the login client's token
+# in ZITADEL_LOGIN_PAT_FILE at ZITADEL_API. The person is
 # read from LAUNCH_USER and LAUNCH_PASSWORD. FerroSMART's issuer is the
 # authorization URL up to `/authorize`. It needs bash, curl, grep and sed;
 # CURL_CA_BUNDLE names a private root.
@@ -53,12 +56,31 @@ attribute() {
 # 1. FerroSMART sends the browser to the provider, whose login form the
 #    person fills.
 location=$(redirect "$url")
-page=$(curl -sS -c "$jar" -b "$jar" "$location")
 case "$login" in
   keycloak)
+    page=$(curl -sS -c "$jar" -b "$jar" "$location")
     action=$(attribute "$page" '<form[^>]*id="kc-form-login"[^>]*>' action)
     [ -n "$action" ] || fail "the provider's page has no login form"
     location=$(redirect --data-urlencode "username=$LAUNCH_USER" --data-urlencode "password=$LAUNCH_PASSWORD" "$action")
+    ;;
+  zitadel)
+    # NOTE: ZITADEL's login-ui/oidc-standard.mdx, the custom login flow: a session
+    # with a password check, then the callback of the auth request it finishes.
+    : "${ZITADEL_API:?the API base of ZITADEL}" "${ZITADEL_LOGIN_PAT_FILE:?the token of the login client}"
+    location=$(redirect "$location")
+    request=$(sed -nE 's/.*[?&]authRequest=([^&]+).*/\1/p' <<< "$location")
+    [ -n "$request" ] || fail "ZITADEL named no auth request: $location"
+    zitadel() {
+      curl -fsS -X POST -H "Authorization: Bearer $(cat "$ZITADEL_LOGIN_PAT_FILE")" \
+        -H 'Content-Type: application/json' "$ZITADEL_API/$1" -d "$2"
+    }
+    session=$(zitadel zitadel.session.v2.SessionService/CreateSession \
+      "{\"checks\":{\"user\":{\"loginName\":\"$LAUNCH_USER\"},\"password\":{\"password\":\"$LAUNCH_PASSWORD\"}}}")
+    session_id=$(sed -nE 's/.*"sessionId" *: *"([^"]+)".*/\1/p' <<< "$session")
+    session_token=$(sed -nE 's/.*"sessionToken" *: *"([^"]+)".*/\1/p' <<< "$session")
+    callback=$(zitadel zitadel.oidc.v2.OIDCService/CreateCallback \
+      "{\"authRequestId\":\"$request\",\"session\":{\"sessionId\":\"$session_id\",\"sessionToken\":\"$session_token\"}}")
+    location=$(sed -nE 's/.*"callbackUrl" *: *"([^"]+)".*/\1/p' <<< "$callback" | sed 's/\\u0026/\&/g')
     ;;
   *) fail "unknown login '$login'" ;;
 esac

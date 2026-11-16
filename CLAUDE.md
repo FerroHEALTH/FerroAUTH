@@ -143,6 +143,10 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   (#512 carries the steps); `docs/architecture.md` §13 fixes its
   requirements, crate layout, storage, endpoints, configuration, keys and
   threat model.
+- `tools/zitadel-fhir-user`: the Actions v2 target of FerroSMART's ZITADEL
+  example (`compose.zitadel.yaml`, #523), which writes a user's `fhirUser`
+  claim from its metadata; deployment content of the example, never
+  published.
 - `docs/`: `architecture.md`, `VERSIONS.md`, `release.md`, `specs/` (the
   vendored SMART App Launch, RFC, OAuth 2.1 draft, Inferno SMART App
   Launch test kit, OpenID Connect Discovery, Core,

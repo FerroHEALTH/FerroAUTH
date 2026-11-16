@@ -387,6 +387,7 @@ pub struct RelyingParty {
     post_logout_redirect_uri: Option<Url>,
     algorithms: Vec<Algorithm>,
     clock_skew: Duration,
+    trusted_audiences: Vec<String>,
 }
 
 impl fmt::Debug for RelyingParty {
@@ -435,6 +436,7 @@ impl RelyingParty {
                 Algorithm::EdDSA,
             ],
             clock_skew: Duration::from_secs(60),
+            trusted_audiences: Vec::new(),
         }
     }
 
@@ -515,6 +517,23 @@ impl RelyingParty {
     #[must_use]
     pub const fn with_clock_skew(mut self, skew: Duration) -> Self {
         self.clock_skew = skew;
+        self
+    }
+
+    /// Trusts `audiences` beside this client in the `aud` of an ID Token or
+    /// a logout token: "The ID Token MUST be rejected if ... it contains
+    /// additional audiences not trusted by the Client" (OpenID Connect Core
+    /// 1.0 §3.1.3.7 item 3), so a provider that names more than the client,
+    /// such as the project an application belongs to, is accepted for
+    /// exactly these. A token with several audiences then carries an `azp`
+    /// naming this client (item 4).
+    #[must_use]
+    pub fn with_trusted_audiences<I, S>(mut self, audiences: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.trusted_audiences = audiences.into_iter().map(Into::into).collect();
         self
     }
 
@@ -823,16 +842,19 @@ impl RelyingParty {
             .map_err(|source| OidcError::IdToken { source })?
             .claims;
         // NOTE: OpenID Connect Core 1.0 §3.1.3.7 item 3: an audience the client
-        // does not trust refuses the token, and this client trusts none beside itself.
-        if !claims.audience.is_only(&self.client_id) {
+        // does not trust refuses the token; it trusts itself and its trusted audiences.
+        if !claims
+            .audience
+            .is_trusted(&self.client_id, &self.trusted_audiences)
+        {
             return Err(OidcError::Audience);
         }
-        // NOTE: OpenID Connect Core 1.0 §3.1.3.7 item 5: an `azp` present names
-        // the client the token was issued to, which must be this one.
+        // NOTE: OpenID Connect Core 1.0 §3.1.3.7 items 4 and 5: several audiences
+        // need an `azp`, and an `azp` names the client the token was issued to.
         if claims
             .authorized_party
             .as_deref()
-            .is_some_and(|azp| azp != self.client_id)
+            .map_or(claims.audience.is_several(), |azp| azp != self.client_id)
         {
             return Err(OidcError::AuthorizedParty);
         }
@@ -1182,12 +1204,23 @@ enum Audience {
 }
 
 impl Audience {
-    /// Whether the audience is `client_id` and nothing else.
-    fn is_only(&self, client_id: &str) -> bool {
+    /// Whether the audience names `client_id` and nothing beside it but
+    /// `trusted`.
+    fn is_trusted(&self, client_id: &str, trusted: &[String]) -> bool {
         match self {
             Self::One(audience) => audience == client_id,
-            Self::Several(audiences) => matches!(audiences.as_slice(), [only] if only == client_id),
+            Self::Several(audiences) => {
+                audiences.iter().any(|audience| audience == client_id)
+                    && audiences
+                        .iter()
+                        .all(|audience| audience == client_id || trusted.contains(audience))
+            }
         }
+    }
+
+    /// Whether the audience names more than one value.
+    fn is_several(&self) -> bool {
+        matches!(self, Self::Several(audiences) if audiences.len() > 1)
     }
 }
 
@@ -1240,9 +1273,28 @@ mod tests {
 
     #[test]
     fn an_audience_beyond_the_client_is_refused() {
-        assert!(Audience::One("console".into()).is_only("console"));
-        assert!(Audience::Several(vec!["console".into()]).is_only("console"));
-        assert!(!Audience::Several(vec!["console".into(), "other".into()]).is_only("console"));
-        assert!(!Audience::One("other".into()).is_only("console"));
+        assert!(Audience::One("console".into()).is_trusted("console", &[]));
+        assert!(Audience::Several(vec!["console".into()]).is_trusted("console", &[]));
+        let wide = Audience::Several(vec!["console".into(), "other".into()]);
+        assert!(!wide.is_trusted("console", &[]));
+        assert!(wide.is_several());
+        assert!(!Audience::One("other".into()).is_trusted("console", &[]));
+    }
+
+    #[test]
+    fn a_trusted_audience_beside_the_client_is_accepted() {
+        let trusted = [String::from("project")];
+        let wide = Audience::Several(vec!["console".into(), "project".into()]);
+        assert!(wide.is_trusted("console", &trusted));
+        let stranger = Audience::Several(vec!["console".into(), "project".into(), "other".into()]);
+        assert!(
+            !stranger.is_trusted("console", &trusted),
+            "an untrusted third"
+        );
+        let without = Audience::Several(vec!["project".into()]);
+        assert!(
+            !without.is_trusted("console", &trusted),
+            "the client is missing"
+        );
     }
 }

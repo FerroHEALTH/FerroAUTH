@@ -13,6 +13,13 @@ and this project adheres to
 
 ### Added
 
+- `oidc::RelyingParty::with_trusted_audiences` trusts named audiences beside
+  the client in an ID Token's or a logout token's `aud`: OpenID Connect Core
+  1.0 §3.1.3.7 item 3 refuses only "additional audiences not trusted by the
+  Client", and ZITADEL names the project beside the client in every ID
+  Token. A token with several audiences must then carry an `azp` naming the
+  client (item 4). Without the call nothing changes: an audience beyond the
+  client is refused as before (#523).
 - `oidc::RelyingParty::with_private_key_jwt` authenticates the relying party
   with a JWT its `AssertionKey` signs (`private_key_jwt`, OpenID Connect
   Core 1.0 §9): a fresh assertion per token or revocation request, `aud`
