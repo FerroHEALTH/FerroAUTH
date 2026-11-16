@@ -16,9 +16,9 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   reproducing and distributing copies of the work in any medium, with a
   copy of the licence given to every recipient. The files are unmodified.
 - Layout: the upstream paths, unchanged
-- Files: 55
+- Files: 59
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `6003aa350f3955083d47fe29dd6e2269b3e01000412d96d128e7f33c09f0d924`
+  `PROVENANCE.md` excluded): `94452693144a3e8473e9a84fd0f2e1da14394893bb6cd31d9cb6e7a7b6309dfd`
 - Read by: the `keycloak` issuer profile of #215, the token exchange
   grant of #217 and the live Keycloak case of #239, vendored by #222 and #239
 
@@ -79,6 +79,16 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   realms", whose section "Using Environment Variables within the Realm
   Configuration Files" the example's realm placeholders rely on, and
   `--import-realm`.
+- `server-spi-private/src/main/java/org/keycloak/protocol/oidc/OIDCConfigAttributes.java`,
+  and `JWTClientAuthenticator.java`, `AbstractJWTClientValidator.java`
+  and `JWTClientValidator.java` under
+  `services/src/main/java/org/keycloak/authentication/authenticators/client/`:
+  the client attribute keys `use.jwks.url`, `jwks.url` and
+  `token.endpoint.auth.signing.alg`, the authenticator id
+  `client-jwt`, and the checks of a client assertion (`sub` and
+  `iss` the client, the audiences it accepts: the realm issuer, the token,
+  introspection, PAR and backchannel URLs), by which FerroSMART's Keycloak
+  example authenticates with `private_key_jwt` (#569).
 
 The guides' images, and the other chapters the `include::` lines of an
 index name, are not taken.
@@ -132,6 +142,10 @@ index name, are not taken.
 | `docs/guides/server/containers.adoc` | `2c9fa7ff5e2017b5ea316248bdf3bacee792178ab463de7fc0feee1aa81a9699` | `daccd5b809cf9c1826e3172cbe6bf52ef33e3825` |
 | `docs/guides/server/importExport.adoc` | `364701687d1a4c2513411a0cf18eab25add298e3ea73c372ddc491eb36ff156e` | `01066a0a0322aac1cafbe15cfd06e10c62b3b163` |
 | `docs/guides/templates/features.adoc` | `46d92510c4e2cafc8780518f1932784d29359a1c8088a8b643bc63c044d0dc03` | `9a6a96620d13ee8a9ba715240f3607e02e1e1576` |
+| `server-spi-private/src/main/java/org/keycloak/protocol/oidc/OIDCConfigAttributes.java` | `e4d79405134e159f835233d2b9d8e07e7c84759334b74e2eb8a9d66784ce5081` | `3bdb799cb27d1fbc21c50e10467f414766279299` |
+| `services/src/main/java/org/keycloak/authentication/authenticators/client/AbstractJWTClientValidator.java` | `ebef05efdc6234a45143b079c62a1536e020d8f6f13818c577dd6215e08c058e` | `2fc289a3d86a78321f1b0875d0683e54b399ce40` |
+| `services/src/main/java/org/keycloak/authentication/authenticators/client/JWTClientAuthenticator.java` | `bb5379cd4fa51c2fb615da8868d4f041251d92ae117592eb1ffd96e29bbef197` | `ef1c5a118f23e3693bf86f585b14dae320a5da86` |
+| `services/src/main/java/org/keycloak/authentication/authenticators/client/JWTClientValidator.java` | `76b5144ae7c4c8cfc819ddcf511eddfb14cdc17aa7f6406b8c5aa54ad26c7c04` | `7ec21712d9cc1788cb5258ef0062bd4b14825d10` |
 | `services/src/main/java/org/keycloak/protocol/ProtocolMapperUtils.java` | `ea453344147e812ce8888487d9021770402f2eeff23f7ae57ceb402265f4d1d5` | `c6fa105dbf46a5c418b9bfd625af176d09e49243` |
 | `services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java` | `092a018ccfdc54d078dcb953d32e8c244dad854fa67aee3c1e16fd879eea6479` | `140e99c4c0c902c1902bcc8675a9ab2f7f605274` |
 | `services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java` | `ee8cc0bbb4e40acdb4eb401661542d8df9afffbee0efc2364a6e8284e35b929d` | `f7c8e3244b583272df6d16018fa23e9efea4bfe8` |

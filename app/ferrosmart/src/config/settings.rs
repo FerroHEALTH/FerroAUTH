@@ -21,7 +21,7 @@ use secrecy::SecretString;
 use url::Url;
 
 use crate::clients::Client;
-use crate::upstream::{Upstream, UpstreamSection};
+use crate::upstream::{Authentication, PrivateKeyJwtSection, Upstream, UpstreamSection};
 
 use crate::config::error::Error;
 use crate::config::{AuditSection, BrandingSection, Config, KeysSection};
@@ -153,6 +153,7 @@ impl Config {
                 .map(ferrohealth_secret::secret::Secret::to_secret_string),
             section.database.url_file.as_deref(),
         )?;
+        let keys = Arc::new(key_ring(&section.keys)?);
         Ok(Settings {
             server: self.server.clone(),
             issuer: section.issuer.clone(),
@@ -160,7 +161,7 @@ impl Config {
             access_token_lifetime: section.access_token_lifetime.get(),
             refresh_idle: section.refresh_idle.get(),
             online_idle: section.online_idle.get(),
-            keys: Arc::new(key_ring(&section.keys)?),
+            keys: Arc::clone(&keys),
             database_url,
             max_connections: section.database.max_connections,
             clients: crate::clients::resolve(&section.client)?,
@@ -171,7 +172,11 @@ impl Config {
                 .filter(|resource| resource.kind == crate::config::ResourceKind::Openehr)
                 .map(|resource| resource.base.clone())
                 .collect(),
-            upstream: section.upstream.as_ref().map(upstream).transpose()?,
+            upstream: section
+                .upstream
+                .as_ref()
+                .map(|upstream_section| upstream(upstream_section, &keys))
+                .transpose()?,
             roles: roles(&section.role)?,
             branding: branding(&section.branding)?,
             audit: audit(&section.audit, &issuer)?,
@@ -282,8 +287,9 @@ fn resources(sections: &[crate::config::ResourceSection]) -> Result<Vec<String>,
     Ok(bases)
 }
 
-/// Returns the upstream provider `section` names.
-fn upstream(section: &UpstreamSection) -> Result<Upstream, Error> {
+/// Returns the upstream provider `section` names, authenticating with
+/// `keys`' current key under `private_key_jwt`.
+fn upstream(section: &UpstreamSection, keys: &KeyRing) -> Result<Upstream, Error> {
     if section.issuer.is_empty() || section.client_id.is_empty() {
         return Err(Error::Upstream {
             rule: "`issuer` and `client_id` are set",
@@ -297,11 +303,21 @@ fn upstream(section: &UpstreamSection) -> Result<Upstream, Error> {
             .map(ferrohealth_secret::secret::Secret::to_secret_string),
         section.client_secret_file.as_deref(),
     )?;
+    let authentication = match (client_secret, &section.private_key_jwt) {
+        (Some(_), Some(_)) => {
+            return Err(Error::Upstream {
+                rule: "a client secret and `private_key_jwt` are not both set",
+            });
+        }
+        (Some(secret), None) => Authentication::Secret(secret),
+        (None, Some(jwt)) => Authentication::PrivateKeyJwt(Box::new(assertion_key(jwt, keys)?)),
+        (None, None) => Authentication::Public,
+    };
     let named = |claim: &String| !claim.is_empty();
     Ok(Upstream {
         issuer: section.issuer.clone(),
         client_id: section.client_id.clone(),
-        client_secret,
+        authentication,
         scopes: section.scopes.clone(),
         fhir_user_claim: Some(section.fhir_user_claim.clone()).filter(named),
         role_claims: section
@@ -311,6 +327,34 @@ fn upstream(section: &UpstreamSection) -> Result<Upstream, Error> {
             .cloned()
             .collect(),
     })
+}
+
+/// Returns `keys`' current key signing as `section` names: the algorithm of
+/// the provider's registration, and the certificate it knows the key by.
+fn assertion_key(section: &PrivateKeyJwtSection, keys: &KeyRing) -> Result<AssertionKey, Error> {
+    const KEY: &str = "ferrosmart.upstream.private_key_jwt";
+    let algorithm = section
+        .algorithm
+        .parse::<Algorithm>()
+        .map_err(|_unknown| Error::Upstream {
+            rule: "`private_key_jwt.algorithm` names a JWS algorithm (RFC 7518 §3.1)",
+        })?;
+    let mut key = keys
+        .current()
+        .clone()
+        .with_algorithm(algorithm)
+        .map_err(|source| Error::Key { key: KEY, source })?;
+    if let Some(path) = section.certificate_file.as_deref() {
+        let pem = std::fs::read(path).map_err(|source| Error::KeyFile {
+            key: "ferrosmart.upstream.private_key_jwt.certificate_file",
+            path: path.to_owned(),
+            source,
+        })?;
+        key = key
+            .with_certificate(&pem)
+            .map_err(|source| Error::Key { key: KEY, source })?;
+    }
+    Ok(key)
 }
 
 /// Returns the scopes of each role `sections` name: a role named once,

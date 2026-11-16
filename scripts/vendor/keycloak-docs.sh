@@ -71,6 +71,10 @@ paths=(
   services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java
   services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java
   services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json
+  server-spi-private/src/main/java/org/keycloak/protocol/oidc/OIDCConfigAttributes.java
+  services/src/main/java/org/keycloak/authentication/authenticators/client/JWTClientAuthenticator.java
+  services/src/main/java/org/keycloak/authentication/authenticators/client/AbstractJWTClientValidator.java
+  services/src/main/java/org/keycloak/authentication/authenticators/client/JWTClientValidator.java
 )
 
 pin="$(corpus_pin_cell "Keycloak documentation")"
@@ -188,6 +192,16 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   realms", whose section "Using Environment Variables within the Realm
   Configuration Files" the example's realm placeholders rely on, and
   \`--import-realm\`.
+- \`server-spi-private/src/main/java/org/keycloak/protocol/oidc/OIDCConfigAttributes.java\`,
+  and \`JWTClientAuthenticator.java\`, \`AbstractJWTClientValidator.java\`
+  and \`JWTClientValidator.java\` under
+  \`services/src/main/java/org/keycloak/authentication/authenticators/client/\`:
+  the client attribute keys \`use.jwks.url\`, \`jwks.url\` and
+  \`token.endpoint.auth.signing.alg\`, the authenticator id
+  \`client-jwt\`, and the checks of a client assertion (\`sub\` and
+  \`iss\` the client, the audiences it accepts: the realm issuer, the token,
+  introspection, PAR and backchannel URLs), by which FerroSMART's Keycloak
+  example authenticates with \`private_key_jwt\` (#569).
 
 The guides' images, and the other chapters the \`include::\` lines of an
 index name, are not taken.

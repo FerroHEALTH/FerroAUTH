@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use base64::Engine as _;
 use ferrohealth_secret::secret::Secret;
+use ferrohealth_smart::client::assertion::AssertionKey;
 use ferrohealth_smart::metadata::Http;
 use ferrohealth_smart::oidc::{OidcError, Provider, RelyingParty};
 use secrecy::SecretString;
@@ -48,6 +49,33 @@ pub struct UpstreamSection {
     pub fhir_user_claim: String,
     /// The dotted claims of the ID Token that hold the user's roles.
     pub role_claims: Vec<String>,
+    /// `[ferrosmart.upstream.private_key_jwt]`: FerroSMART authenticates
+    /// with a JWT its current `[ferrosmart.keys]` key signs, in place of a
+    /// client secret (OpenID Connect Core 1.0 §9).
+    pub private_key_jwt: Option<PrivateKeyJwtSection>,
+}
+
+/// `[ferrosmart.upstream.private_key_jwt]`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PrivateKeyJwtSection {
+    /// The algorithm the provider's registration of FerroSMART names, an
+    /// RSA one since `[ferrosmart.keys]` holds RSA keys (RFC 7518 §3.3,
+    /// §3.5).
+    pub algorithm: String,
+    /// The PEM X.509 certificate of the current key, for a provider that
+    /// knows the key by its certificate; each assertion then names it by
+    /// `x5t#S256` (RFC 7515 §4.1.8).
+    pub certificate_file: Option<PathBuf>,
+}
+
+impl Default for PrivateKeyJwtSection {
+    fn default() -> Self {
+        Self {
+            algorithm: String::from("RS256"),
+            certificate_file: None,
+        }
+    }
 }
 
 impl Default for UpstreamSection {
@@ -60,8 +88,21 @@ impl Default for UpstreamSection {
             scopes: vec![String::from(ferrohealth_smart::oidc::OPENID)],
             fhir_user_claim: String::new(),
             role_claims: ferrohealth_smart::roles::default_claims(),
+            private_key_jwt: None,
         }
     }
+}
+
+/// How FerroSMART authenticates at the provider's token and revocation
+/// endpoints.
+#[derive(Debug, Clone)]
+pub enum Authentication {
+    /// A public client, PKCE alone (RFC 6749 §2.1).
+    Public,
+    /// A client secret, sent as HTTP Basic (RFC 6749 §2.3.1).
+    Secret(SecretString),
+    /// A JWT the key signs (`private_key_jwt`, OpenID Connect Core 1.0 §9).
+    PrivateKeyJwt(Box<AssertionKey>),
 }
 
 /// The upstream provider, resolved.
@@ -71,8 +112,8 @@ pub struct Upstream {
     pub issuer: String,
     /// The client id at the provider.
     pub client_id: String,
-    /// The client secret, when FerroSMART is a confidential client there.
-    pub client_secret: Option<SecretString>,
+    /// How FerroSMART authenticates at the provider.
+    pub authentication: Authentication,
     /// The scopes asked for.
     pub scopes: Vec<String>,
     /// The claim of `fhirUser`, if any.
@@ -91,12 +132,13 @@ impl Upstream {
     pub async fn relying_party(&self, callback: Url) -> Result<RelyingParty, OidcError> {
         let http = Http::new(UPSTREAM_TIMEOUT)?;
         let provider = Provider::discover(&http, &self.issuer).await?;
-        let mut party = RelyingParty::new(http, provider, self.client_id.clone(), callback)
+        let party = RelyingParty::new(http, provider, self.client_id.clone(), callback)
             .with_scopes(self.scopes.iter().map(String::as_str));
-        if let Some(secret) = &self.client_secret {
-            party = party.with_client_secret(secret.clone());
-        }
-        Ok(party)
+        Ok(match &self.authentication {
+            Authentication::Public => party,
+            Authentication::Secret(secret) => party.with_client_secret(secret.clone()),
+            Authentication::PrivateKeyJwt(key) => party.with_private_key_jwt((**key).clone()),
+        })
     }
 }
 

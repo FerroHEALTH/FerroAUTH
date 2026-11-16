@@ -76,6 +76,8 @@ secrecy.workspace = true
 tower = { workspace = true, features = ["util"] }
 # The stub server of a client's JWK Set URL.
 wiremock.workspace = true
+# The certificate of the key a case authenticates upstream with.
+rcgen.workspace = true
 
 [lints]
 workspace = true

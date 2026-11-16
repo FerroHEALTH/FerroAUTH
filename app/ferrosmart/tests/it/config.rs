@@ -256,3 +256,64 @@ fn a_missing_database_url_is_refused() {
         Err(Error::Secret(_))
     ));
 }
+
+/// The upstream table with `extra` under it, and the issuer of every case.
+fn upstream(extra: &str) -> String {
+    format!(
+        "[ferrosmart]\nissuer = \"https://smart.example.org\"\n\
+         [ferrosmart.upstream]\nissuer = \"https://idp.example.org\"\nclient_id = \"ferrosmart\"\n{extra}"
+    )
+}
+
+// NOTE: OpenID Connect Core 1.0 §9: a client authenticates by one method.
+#[test]
+fn private_key_jwt_and_a_client_secret_together_are_refused() {
+    let keys = Keys::new();
+    let text = upstream("client_secret = \"synthetic\"\n[ferrosmart.upstream.private_key_jwt]\n");
+    assert!(matches!(
+        config(&text, &keys).resolve(),
+        Err(Error::Upstream { .. })
+    ));
+}
+
+// NOTE: RFC 7518 §3.1: the ring holds RSA keys, which sign RS* and PS* alone.
+#[test]
+fn a_private_key_jwt_algorithm_the_key_cannot_sign_is_refused() {
+    let keys = Keys::new();
+    for (algorithm, refused) in [
+        ("PS256", false),
+        ("RS512", false),
+        ("ES256", true),
+        ("none", true),
+    ] {
+        let text = upstream(&format!(
+            "[ferrosmart.upstream.private_key_jwt]\nalgorithm = \"{algorithm}\"\n"
+        ));
+        assert_eq!(
+            refused,
+            config(&text, &keys).resolve().is_err(),
+            "{algorithm}"
+        );
+    }
+}
+
+// NOTE: RFC 7515 §4.1.8: the certificate named by x5t#S256 is the signing key's.
+#[test]
+fn a_certificate_of_another_key_is_refused() {
+    let keys = Keys::new();
+    let other = rcgen::KeyPair::generate().expect("a key");
+    let certificate = rcgen::CertificateParams::new(vec![String::from("other.example.org")])
+        .expect("parameters")
+        .self_signed(&other)
+        .expect("a certificate");
+    let path = keys.dir.path().join("other.crt");
+    std::fs::write(&path, certificate.pem()).expect("written");
+    let text = upstream(&format!(
+        "[ferrosmart.upstream.private_key_jwt]\ncertificate_file = {:?}\n",
+        path.display().to_string()
+    ));
+    assert!(matches!(
+        config(&text, &keys).resolve(),
+        Err(Error::Key { .. })
+    ));
+}

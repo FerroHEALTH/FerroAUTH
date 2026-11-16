@@ -4,8 +4,8 @@
 # FerroSMART with Keycloak as its upstream OpenID Connect provider, for login
 # only (#522, docs/architecture.md §13.2): Keycloak authenticates the person,
 # FerroSMART issues the SMART tokens. Every name here matches
-# ferrosmart-realm.json beside this file. The secrets are files the operator
-# creates (scripts/idp/keycloak-launch.sh makes them for its run).
+# ferrosmart-realm.json beside this file. The signing key is a file the
+# operator creates (scripts/idp/keycloak-launch.sh makes it for its run).
 
 [ferrosmart]
 # The issuer a browser and the provider's redirect reach FerroSMART by:
@@ -18,8 +18,10 @@ kind = "fhir"
 
 # The provider. Its discovery document is
 # {issuer}/.well-known/openid-configuration (OpenID Connect Discovery 1.0
-# §4), and FerroSMART is its confidential client `ferrosmart`, sending the
-# secret as HTTP Basic (OpenID Connect Core 1.0 §9, client_secret_basic).
+# §4), and FerroSMART is its confidential client `ferrosmart`, which
+# authenticates with a JWT its current [ferrosmart.keys] key signs, read by
+# Keycloak from FerroSMART's {issuer}/jwks (OpenID Connect Core 1.0 §9,
+# private_key_jwt; the realm's client-jwt authenticator with a JWKS URL).
 [ferrosmart.upstream]
 issuer = "http://localhost:8180/realms/ferrosmart"
 client_id = "ferrosmart"
@@ -29,6 +31,9 @@ scopes = ["openid"]
 # realm roles as the `roles` array (ferrosmart-realm.json).
 fhir_user_claim = "fhir_user"
 role_claims = ["roles"]
+
+# RS256, the algorithm the realm's client enforces.
+[ferrosmart.upstream.private_key_jwt]
 
 # The policy as content (docs/architecture.md §13.6 item 5): a person with the
 # realm role `clinician` may be granted these user/ scopes.

@@ -23,9 +23,9 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   Microsoft's. The README also states that the licences grant no right to
   Microsoft's names, logos or trademarks.
 - Layout: the upstream paths, unchanged
-- Files: 21
+- Files: 22
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `74dea9f1e6f6bdcdaf99d3ddd4938ff46b03398f96f8e839c1f404bffd6a5bd4`
+  `PROVENANCE.md` excluded): `5153e4dce94ce5193948037aaf9989bc4d094fad85427be21c3c9f24052e4501`
 - Read by: the `entra` issuer profile of #215, the person key of #216, the
   on-behalf-of grant of #217 and the `idp-entra` groups overage adapter of
   #221, vendored by #222; FerroSMART's Entra ID login (#524,
@@ -46,7 +46,8 @@ on the Microsoft identity platform", the discovery document and the
 `{tenant}` values), `docs/identity-platform/v2-oauth2-auth-code-flow.md` (the code
 redemption and its client authentication), `docs/identity-platform/quickstart-register-app.md`,
 `docs/identity-platform/how-to-add-redirect-uri.md`, `docs/identity-platform/reply-url.md`,
-`docs/identity-platform/how-to-add-credentials.md` (with its include file), `docs/identity-platform/howto-add-app-roles-in-apps.md`,
+`docs/identity-platform/how-to-add-credentials.md` (with its include file),
+`docs/identity-platform/certificate-credentials.md` (the client assertion's format), `docs/identity-platform/howto-add-app-roles-in-apps.md`,
 `docs/identity-platform/optional-claims.md` (the `extn.` claim format),
 `docs/identity-platform/schema-extensions.md` and
 `docs/identity-platform/howto-convert-app-to-be-multi-tenant.md` (the `/common` and
@@ -60,6 +61,7 @@ repository are not taken.
 | `LICENSE-CODE` | `91f7258203fd43ba6d6f7f72b644eaedee9e3430f035c053beb6f34052f045e2` | `b17b032a43088ac7f3d2f3e34a2431c778a95e6f` |
 | `README.md` | `32355274e726eb8981b4478aef7917313395ff7ca7be1904488c4adf8b818584` | `79e2f6397e79e79fb4a7593bfc5e50f34d94d06d` |
 | `docs/identity-platform/access-token-claims-reference.md` | `e07447d46ab82957979f12b3caccaf9d07179c6556c7ffbde150d1f754f1e232` | `57501e33d517c90c2585fbae861a398a86239b6a` |
+| `docs/identity-platform/certificate-credentials.md` | `050f75c44f7c603fe7a995591373d74da004b0833c696ba3c72906c4f2aaf5a3` | `26f0de37e4ec5196736125990207c61a0bc9ce1f` |
 | `docs/identity-platform/how-to-add-credentials.md` | `26ca4a6590d65ef7cd3b4ea6092ce1c61cda5361ef9fc63496e2b283af8bee0a` | `bce5742d4b133dee27615466d06819a8e0860128` |
 | `docs/identity-platform/how-to-add-redirect-uri.md` | `0060c6843c6406a57ac92c30575e56fc67415e418d02a53c08da2629d2811ec9` | `fe44958c5d443c2b2e39f48c5486a51288693442` |
 | `docs/identity-platform/howto-add-app-roles-in-apps.md` | `b0692d1c4d210398b0f09ed834c69c509c18e2bc4be1536e17d7bd86116c5ce3` | `acf112e8a18a9e3f9b974e789b7fb144539c2281` |

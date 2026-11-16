@@ -74,6 +74,12 @@ pub enum AssertionError {
         #[source]
         source: jsonwebtoken::errors::Error,
     },
+    /// The certificate is no X.509 certificate in PEM form.
+    #[error("the certificate is not an X.509 certificate in PEM form")]
+    Certificate,
+    /// The certificate carries another public key than the signing key's.
+    #[error("the certificate carries another public key than the signing key")]
+    CertificateKey,
     /// The EC key is on neither P-256 nor P-384, the curves ES256 and ES384
     /// sign with (RFC 7518 §3.4), and no algorithm was configured.
     #[error("the EC key is on neither P-256 (ES256) nor P-384 (ES384)")]
@@ -96,6 +102,9 @@ pub struct AssertionKey {
     kid: String,
     /// The public half.
     public: Jwk,
+    /// The `x5t#S256` of the key's certificate, for a party that knows the
+    /// key by its certificate (RFC 7515 §4.1.8).
+    certificate_thumbprint: Option<String>,
 }
 
 impl std::fmt::Debug for AssertionKey {
@@ -150,7 +159,78 @@ impl AssertionKey {
             algorithm,
             kid,
             public,
+            certificate_thumbprint: None,
         })
+    }
+
+    /// Returns this key signing with `algorithm`, another algorithm of an
+    /// RSA key's family (RS256 to PS512, RFC 7518 §3.3 and §3.5), as the
+    /// party it authenticates to names it. An EC or Ed25519 key signs with
+    /// the one algorithm of its curve.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AssertionError::Algorithm`] for an algorithm of another key
+    /// type, or any other one for an EC or Ed25519 key.
+    pub fn with_algorithm(mut self, algorithm: Algorithm) -> Result<Self, AssertionError> {
+        if algorithm != self.algorithm && !(is_rsa(algorithm) && is_rsa(self.algorithm)) {
+            return Err(AssertionError::Algorithm { algorithm });
+        }
+        self.algorithm = algorithm;
+        Ok(self)
+    }
+
+    /// Returns this key naming its X.509 certificate `pem` by its SHA-256
+    /// thumbprint in the header of every JWT it signs (`x5t#S256`, RFC 7515
+    /// §4.1.8), for a party that knows the key by its certificate.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AssertionError::Certificate`] for a text that is no PEM
+    /// X.509 certificate, and [`AssertionError::CertificateKey`] for a
+    /// certificate of another key.
+    #[cfg(feature = "oidc")]
+    pub fn with_certificate(mut self, pem: &[u8]) -> Result<Self, AssertionError> {
+        use x509_parser::prelude::FromDer as _;
+        let (_, pem) =
+            x509_parser::pem::parse_x509_pem(pem).map_err(|_unread| AssertionError::Certificate)?;
+        let (_, certificate) = x509_parser::certificate::X509Certificate::from_der(&pem.contents)
+            .map_err(|_unread| AssertionError::Certificate)?;
+        let key = certificate
+            .public_key()
+            .parsed()
+            .map_err(|_unread| AssertionError::Certificate)?;
+        if !self.holds(&key) {
+            return Err(AssertionError::CertificateKey);
+        }
+        let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, &pem.contents);
+        self.certificate_thumbprint =
+            Some(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest.as_ref()));
+        Ok(self)
+    }
+
+    /// Whether `key`, a certificate's public key, is this key's public half.
+    #[cfg(feature = "oidc")]
+    fn holds(&self, key: &x509_parser::public_key::PublicKey<'_>) -> bool {
+        use x509_parser::public_key::PublicKey;
+        let decoded = |text: &str| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(text)
+                .unwrap_or_default()
+        };
+        match (key, &self.public.algorithm) {
+            (PublicKey::RSA(rsa), AlgorithmParameters::RSA(own)) => {
+                significant(rsa.modulus) == significant(&decoded(&own.n))
+                    && significant(rsa.exponent) == significant(&decoded(&own.e))
+            }
+            (PublicKey::EC(point), AlgorithmParameters::EllipticCurve(own)) => {
+                let mut uncompressed = vec![0x04];
+                uncompressed.extend(decoded(&own.x));
+                uncompressed.extend(decoded(&own.y));
+                point.data() == uncompressed.as_slice()
+            }
+            _ => false,
+        }
     }
 
     /// Returns the algorithm the assertion is signed with.
@@ -194,6 +274,7 @@ impl AssertionKey {
         let mut header = Header::new(self.algorithm);
         header.kid = Some(self.kid.clone());
         header.typ = Some(typ.to_owned());
+        header.x5t_s256.clone_from(&self.certificate_thumbprint);
         jsonwebtoken::encode(&header, claims, &self.encoding)
             .map_err(|source| AssertionError::Sign { source })
     }
@@ -226,6 +307,30 @@ impl AssertionKey {
         };
         self.sign(typ, &claims)
     }
+}
+
+/// Whether `algorithm` signs with an RSA key (RFC 7518 §3.3, §3.5).
+const fn is_rsa(algorithm: Algorithm) -> bool {
+    matches!(
+        algorithm,
+        Algorithm::RS256
+            | Algorithm::RS384
+            | Algorithm::RS512
+            | Algorithm::PS256
+            | Algorithm::PS384
+            | Algorithm::PS512
+    )
+}
+
+/// Returns a big-endian integer without its leading zero octets, as a DER
+/// integer and a JWK member each write it differently (RFC 7518 §6.3.1).
+#[cfg(feature = "oidc")]
+fn significant(octets: &[u8]) -> &[u8] {
+    let start = octets
+        .iter()
+        .position(|octet| *octet != 0)
+        .unwrap_or(octets.len());
+    octets.get(start..).unwrap_or_default()
 }
 
 /// Returns the key `pem` holds with the algorithm its type names, and its

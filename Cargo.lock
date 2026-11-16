@@ -1310,6 +1310,7 @@ dependencies = [
  "ihe-atna",
  "jiff",
  "jsonwebtoken",
+ "rcgen",
  "reqwest",
  "secrecy",
  "serde",

@@ -17,13 +17,10 @@ kind = "fhir"
 # The provider: the tenant-specific v2.0 authority, whose discovery document
 # is {issuer}/.well-known/openid-configuration (OpenID Connect Discovery 1.0
 # §4; v2-protocols-oidc.md, Find your app's OpenID configuration document
-# URI). FerroSMART is the registration's confidential web client and sends
-# its secret as HTTP Basic (v2-oauth2-auth-code-flow.md, Request an access
-# token with a client_secret).
+# URI). FerroSMART is the registration's confidential web client.
 [ferrosmart.upstream]
 issuer = "https://login.microsoftonline.com/aaaabbbb-0000-cccc-1111-dddd2222eeee/v2.0"
 client_id = "00001111-aaaa-2222-bbbb-3333cccc4444"
-client_secret_file = "/run/secrets/entra_client_secret"
 # `profile` brings `name` and `preferred_username` (id-token-claims-reference.md).
 scopes = ["openid", "profile"]
 # The directory extension attribute `fhirUser`, configured as an ID Token
@@ -32,6 +29,14 @@ scopes = ["openid", "profile"]
 fhir_user_claim = "extn.fhirUser"
 # The app roles assigned to the person (howto-add-app-roles-in-apps.md).
 role_claims = ["roles"]
+
+# The certificate credential (how-to-add-credentials.md, Add a certificate):
+# FerroSMART signs a client assertion with its current [ferrosmart.keys] key,
+# PS256, naming the certificate uploaded to the registration by `x5t#S256`
+# (certificate-credentials.md, Assertion format; OpenID Connect Core 1.0 §9).
+[ferrosmart.upstream.private_key_jwt]
+algorithm = "PS256"
+certificate_file = "/run/secrets/ferrosmart-rs256.crt"
 
 # The policy as content (docs/architecture.md §13.6 item 5): a person holding
 # the app role `clinician` may be granted these user/ scopes.
