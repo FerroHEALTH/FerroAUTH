@@ -1,19 +1,28 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! What the cases share: generated keys written to PEM files, and a
-//! configuration over them.
+//! What the cases share: generated keys written to PEM files, a
+//! configuration over them, the audit lane and the records it stored.
 
 use std::collections::BTreeMap;
+use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
 use aws_lc_rs::encoding::AsDer as _;
 use aws_lc_rs::rsa::KeySize;
 use aws_lc_rs::signature::{ECDSA_P384_SHA384_FIXED_SIGNING, EcdsaKeyPair, RsaKeyPair};
 use base64::Engine as _;
+
+use axum::body::Body;
+use axum::extract::ConnectInfo;
+use ferrosmart::audit::Audit;
 use ferrosmart::config::Config;
+use ferrosmart::config::settings::Settings;
 use ferrosmart::store::Store;
+use ferrosmart::store::audit::AuditQuery;
+use http::Request;
 use secrecy::SecretString;
+use serde_json::Value;
 use sqlx::Connection as _;
 use tempfile::TempDir;
 
@@ -70,6 +79,9 @@ impl Keys {
 /// The resource server a case configures unless it names its own.
 pub(crate) const RESOURCE: &str = "https://ehr.example.org/fhir";
 
+/// The address every case's requests come from (RFC 5737).
+pub(crate) const CLIENT_ADDRESS: &str = "192.0.2.10";
+
 /// The database URL a case that never reaches the database configures.
 pub(crate) const UNREACHED_DATABASE: &str = "postgres://ferrosmart@127.0.0.1:1/unreached";
 
@@ -97,6 +109,34 @@ pub(crate) fn config(text: &str, keys: &Keys) -> Config {
         );
     }
     Config::from_sources(Some(text), &environment).expect("the configuration reads")
+}
+
+/// Returns the audit lane `settings` describe.
+pub(crate) fn audit(settings: &Settings) -> Audit {
+    Audit::new(settings.audit.observer.clone())
+}
+
+/// Returns every `AuditEvent` `store` keeps, oldest first.
+pub(crate) async fn records(store: &Store) -> Vec<Value> {
+    let mut records = store
+        .audit_records(&AuditQuery {
+            limit: 1000,
+            ..AuditQuery::default()
+        })
+        .await
+        .expect("the records read");
+    records.reverse();
+    records
+}
+
+/// Returns `request` as if it came over a connection from
+/// [`CLIENT_ADDRESS`], which the stack names the client by.
+pub(crate) fn from_client(mut request: Request<Body>) -> Request<Body> {
+    let peer: SocketAddr = format!("{CLIENT_ADDRESS}:49152")
+        .parse()
+        .expect("an address");
+    request.extensions_mut().insert(ConnectInfo(peer));
+    request
 }
 
 /// The variable naming the test server.
@@ -158,3 +198,109 @@ impl Database {
         .expect("the database is dropped");
     }
 }
+
+/// Checks `record` against BALP 1.1.4's profile `IHE.IUA.71`, the FHIR
+/// form of the ITI-71 audit event, element by element of its differential.
+///
+/// # Errors
+///
+/// Returns the first constraint the record breaks.
+pub(crate) fn iua_71(record: &Value) -> Result<(), String> {
+    let at = |pointer: &str| record.pointer(pointer);
+    let coded = |value: Option<&Value>, system: &str, code: &str| {
+        value.is_some_and(|coding| {
+            coding.get("system") == Some(&Value::from(system))
+                && coding.get("code") == Some(&Value::from(code))
+        })
+    };
+    let concept = |value: Option<&Value>, system: &str, code: &str| {
+        value
+            .and_then(|concept| concept.get("coding"))
+            .and_then(Value::as_array)
+            .is_some_and(|codings| {
+                codings
+                    .iter()
+                    .any(|coding| coded(Some(coding), system, code))
+            })
+    };
+    let profiled = at("/meta/profile")
+        .and_then(Value::as_array)
+        .is_some_and(|profiles| profiles.iter().any(|profile| profile == IUA_71));
+    if !profiled {
+        return Err(String::from("meta.profile names no IHE.IUA.71"));
+    }
+    if !coded(at("/type"), DCM, "110114") {
+        return Err(String::from("type is no 110114"));
+    }
+    let subtypes = at("/subtype").and_then(Value::as_array).map_or(0, Vec::len);
+    if subtypes != 1 || !coded(at("/subtype/0"), "urn:ihe:event-type-code", "ITI-71") {
+        return Err(String::from("subtype is not ITI-71 alone"));
+    }
+    if at("/outcome").is_none() {
+        return Err(String::from("no outcome"));
+    }
+    let agents = at("/agent")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    if !(2..=3).contains(&agents.len()) {
+        return Err(format!("{} agents", agents.len()));
+    }
+    let (mut clients, mut servers, mut users) = (0, 0, 0);
+    for agent in &agents {
+        let kind = agent.get("type");
+        let has = |member: &str| agent.get(member).is_some();
+        if concept(kind, DCM, "110150") {
+            clients += 1;
+            if !has("who") || !has("network") || has("media") {
+                return Err(String::from("agent:client needs who and network"));
+            }
+        } else if concept(kind, USER_AGENT_TYPES, "AuthzOauthService") {
+            servers += 1;
+            if !has("who") || !has("network") || has("media") {
+                return Err(String::from("agent:auth-server needs who and network"));
+            }
+        } else if concept(kind, PARTICIPATION_TYPE, "IRCP") {
+            users += 1;
+            if !has("who") || has("network") || has("altId") || has("media") {
+                return Err(String::from("agent:user needs who and no network or altId"));
+            }
+        } else {
+            return Err(String::from(
+                "an agent fills no slice of the closed slicing",
+            ));
+        }
+    }
+    if clients != 1 || servers != 1 || users > 1 {
+        return Err(format!(
+            "{clients} clients, {servers} servers, {users} users"
+        ));
+    }
+    let entities = at("/entity").and_then(Value::as_array).map_or(0, Vec::len);
+    if entities != 1 {
+        return Err(format!("{entities} entities"));
+    }
+    let request = at("/entity/0");
+    let entity = |member: &str| request.and_then(|entity| entity.get(member));
+    if !coded(entity("type"), AUDIT_ENTITY_TYPE, "2")
+        || !coded(entity("role"), OBJECT_ROLE, "24")
+        || entity("what").is_some()
+        || entity("query").is_none()
+    {
+        return Err(String::from("the entity is no token-request"));
+    }
+    Ok(())
+}
+
+/// The canonical URL of BALP 1.1.4's `IHE.IUA.71`.
+const IUA_71: &str = "https://profiles.ihe.net/ITI/BALP/StructureDefinition/IHE.IUA.71";
+/// The DICOM code system.
+const DCM: &str = "http://dicom.nema.org/resources/ontology/DCM";
+/// BALP's agent types.
+const USER_AGENT_TYPES: &str = "https://profiles.ihe.net/ITI/BALP/CodeSystem/UserAgentTypes";
+/// HL7 v3 `ParticipationType`.
+const PARTICIPATION_TYPE: &str = "http://terminology.hl7.org/CodeSystem/v3-ParticipationType";
+/// FHIR R4 `audit-entity-type`.
+const AUDIT_ENTITY_TYPE: &str = "http://terminology.hl7.org/CodeSystem/audit-entity-type";
+/// FHIR R4 `object-role`.
+const OBJECT_ROLE: &str = "http://terminology.hl7.org/CodeSystem/object-role";

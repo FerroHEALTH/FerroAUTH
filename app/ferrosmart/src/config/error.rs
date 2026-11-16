@@ -90,6 +90,20 @@ pub enum Error {
     /// A client table breaks a rule of the registry.
     #[error(transparent)]
     Client(#[from] crate::clients::ClientError),
+    /// `[ferrosmart.audit.feed]` describes no client that can be built.
+    #[error("`ferrosmart.audit.feed` describes no usable endpoint")]
+    AuditFeed {
+        /// Why.
+        #[source]
+        source: ferrohealth_smart::client::outbound::OutboundError,
+    },
+    /// `[ferrosmart.audit.feed]` names no `https` FHIR base.
+    #[error("`ferrosmart.audit.feed` is no https FHIR base")]
+    AuditBase {
+        /// Why.
+        #[source]
+        source: ihe_atna::atna::feed::FeedConfigError,
+    },
     /// The keys of the ring repeat one another.
     #[error("`ferrosmart.keys` names one key twice")]
     KeyRing {
