@@ -2868,6 +2868,18 @@ specification governs.
      "SHALL establish a patient in context" (same section). The SMART
      configuration lists `launch-ehr`, `context-ehr-patient`,
      `context-ehr-encounter`, `context-banner` and `permission-patient`.
+   - **Records.** A registration commits with its `launch` row and a
+     redemption with its `used_at` (or the launch JWT's `seen_jti` row) in
+     one audited transaction, as `launch-registered` and `launch-redeemed`
+     records; a refused registration or redemption is a `launch-refused`
+     record of its own, with a minor-failure outcome. A write whose record
+     cannot be kept is not kept, and the request fails. Each record names
+     the EHR, the app, the base and the form (`registered` or `signed`), or
+     the OAuth error and the rule broken, never the launch value, the
+     assertion or a context value. No IHE profile names an EHR-launch
+     event (ITI-71 covers the token request), so the codes, in
+     FerroSMART's own `urn:ferrosmart:audit-event` system, are our own
+     design.
 4. **The patient picker.** SMART places the choice inside the
    authorization server's own flow: for `launch/patient` "The EHR's
    'authorize' endpoint will take care of acquiring the context it needs

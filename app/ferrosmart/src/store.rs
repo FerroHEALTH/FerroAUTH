@@ -148,16 +148,7 @@ impl Store {
         jti: &str,
         expires_at: i64,
     ) -> Result<bool, StoreError> {
-        let inserted = sqlx::query(
-            "INSERT INTO seen_jti (issuer, jti, expires_at) VALUES ($1, $2, to_timestamp($3)) \
-             ON CONFLICT (issuer, jti) DO NOTHING",
-        )
-        .bind(issuer)
-        .bind(jti)
-        .bind(expires_at)
-        .execute(&self.pool)
-        .await?;
-        Ok(inserted.rows_affected() == 1)
+        insert_jti(&self.pool, issuer, jti, expires_at).await
     }
 
     /// Records the authorization request `pending`.
@@ -730,6 +721,26 @@ pub(crate) async fn insert_token<'e, E: sqlx::PgExecutor<'e>>(
     .execute(executor)
     .await?;
     Ok(())
+}
+
+/// Records the `jti` of `issuer` through `executor`, kept until `expires_at`
+/// (seconds since the epoch), and returns whether it was unseen.
+pub(crate) async fn insert_jti<'e, E: sqlx::PgExecutor<'e>>(
+    executor: E,
+    issuer: &str,
+    jti: &str,
+    expires_at: i64,
+) -> Result<bool, StoreError> {
+    let inserted = sqlx::query(
+        "INSERT INTO seen_jti (issuer, jti, expires_at) VALUES ($1, $2, to_timestamp($3)) \
+         ON CONFLICT (issuer, jti) DO NOTHING",
+    )
+    .bind(issuer)
+    .bind(jti)
+    .bind(expires_at)
+    .execute(executor)
+    .await?;
+    Ok(inserted.rows_affected() == 1)
 }
 
 /// One transaction of the store: an audited write and its audit record,

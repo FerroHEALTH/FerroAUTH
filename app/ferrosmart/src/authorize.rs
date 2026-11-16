@@ -78,9 +78,10 @@ impl Denial {
 /// `GET {issuer}/authorize`, the request in the query.
 pub async fn authorize_get(
     State(state): State<Arc<AppState>>,
+    Connected(from): Connected,
     RawQuery(query): RawQuery,
 ) -> Response {
-    authorize(&state, query.unwrap_or_default().as_bytes()).await
+    authorize(&state, query.unwrap_or_default().as_bytes(), from).await
 }
 
 /// `POST {issuer}/authorize`, the request as a form.
@@ -88,13 +89,17 @@ pub async fn authorize_get(
 /// "Authorization Servers SHALL support the use of the HTTP GET and POST methods at the
 /// Authorization Endpoint", SMART App Launch 2.2.0, Obtain authorization
 /// code).
-pub async fn authorize_post(State(state): State<Arc<AppState>>, body: Bytes) -> Response {
-    authorize(&state, &body).await
+pub async fn authorize_post(
+    State(state): State<Arc<AppState>>,
+    Connected(from): Connected,
+    body: Bytes,
+) -> Response {
+    authorize(&state, &body, from).await
 }
 
 /// Checks the authorization request `encoded` and sends the browser to the
 /// upstream provider.
-async fn authorize(state: &AppState, encoded: &[u8]) -> Response {
+async fn authorize(state: &AppState, encoded: &[u8], from: IpAddr) -> Response {
     let Ok(params) = Params::parse(encoded, &[]) else {
         return pages::fault(state, Fault::BadRequest);
     };
@@ -124,7 +129,7 @@ async fn authorize(state: &AppState, encoded: &[u8]) -> Response {
         state: params.get("state").map(str::to_owned),
         issuer: state.settings().issuer.clone(),
     };
-    match begin(state, &client, &params, redirect_uri).await {
+    match begin(state, &client, &params, redirect_uri, from).await {
         Ok(response) => response,
         Err(Stop::Deny(denial)) => back.deny(denial),
         Err(Stop::Fail(error)) => {
@@ -157,6 +162,7 @@ async fn begin(
     client: &Client,
     params: &Params,
     redirect_uri: &str,
+    from: IpAddr,
 ) -> Result<Response, Stop> {
     if params.get("response_type") != Some("code") {
         return Err(Stop::Deny(Denial {
@@ -190,7 +196,9 @@ async fn begin(
     }))?;
     let launch_context = match params.get("launch") {
         Some(launch) => {
-            match crate::launch::redeem(state, &client.client_id, launch, audience, scope).await {
+            match crate::launch::redeem(state, &client.client_id, launch, audience, scope, from)
+                .await
+            {
                 Ok(context) => Some(context),
                 Err(Unresolved::NoLaunchScope) => {
                     return Err(Stop::Deny(Denial {
@@ -200,6 +208,7 @@ async fn begin(
                 }
                 Err(Unresolved::Refused(rule)) => return Err(Stop::Deny(Denial::request(rule))),
                 Err(Unresolved::Store(error)) => return Err(fail(error)),
+                Err(Unresolved::Record(error)) => return Err(fail(error)),
             }
         }
         None => None,

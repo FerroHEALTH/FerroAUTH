@@ -1,15 +1,17 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The launches EHRs registered (`docs/architecture.md` §13.6 item 3), each
-//! kept as the SHA-256 of its opaque value and redeemed once. No
-//! specification governs the storage: our own design.
+//! The launches EHRs registered (`docs/architecture.md` §13.6 item 3).
+//!
+//! Each is kept as the SHA-256 of its opaque value and redeemed once, each write in
+//! a [`Transaction`] with its audit record. No specification governs the
+//! storage: our own design.
 
 use sqlx::Row as _;
 use sqlx::types::Json;
 
 use crate::launch::context::Context;
-use crate::store::{Store, StoreError};
+use crate::store::{StoreError, Transaction, insert_jti};
 
 /// A launch to record.
 #[derive(Debug, Clone, Copy)]
@@ -37,12 +39,12 @@ pub struct Redeemed {
     pub context: Context,
 }
 
-impl Store {
+impl Transaction {
     /// Records `launch`.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when the statement fails.
-    pub async fn record_launch(&self, launch: &NewLaunch<'_>) -> Result<(), StoreError> {
+    pub async fn record_launch(&mut self, launch: &NewLaunch<'_>) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO launch (launch_hash, ehr_client_id, client_id, audience, context, expires_at) \
              VALUES ($1, $2, $3, $4, $5, to_timestamp($6))",
@@ -53,7 +55,7 @@ impl Store {
         .bind(launch.audience)
         .bind(Json(launch.context))
         .bind(launch.expires_at)
-        .execute(&self.pool)
+        .execute(&mut *self.tx)
         .await?;
         Ok(())
     }
@@ -67,7 +69,7 @@ impl Store {
     /// Returns [`StoreError::Database`] when the statement fails or the
     /// stored context cannot be read.
     pub async fn redeem_launch(
-        &self,
+        &mut self,
         launch_hash: &str,
         client_id: &str,
         audience: &str,
@@ -81,7 +83,7 @@ impl Store {
         .bind(launch_hash)
         .bind(client_id)
         .bind(audience)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *self.tx)
         .await?;
         row.map(|row| {
             Ok(Redeemed {
@@ -90,5 +92,20 @@ impl Store {
             })
         })
         .transpose()
+    }
+
+    /// Records the `jti` of a launch JWT the EHR `issuer` signed, kept until
+    /// `expires_at`, and returns whether it was unseen: a `false` is a
+    /// replay.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn first_launch_use(
+        &mut self,
+        issuer: &str,
+        jti: &str,
+        expires_at: i64,
+    ) -> Result<bool, StoreError> {
+        insert_jti(&mut *self.tx, issuer, jti, expires_at).await
     }
 }
