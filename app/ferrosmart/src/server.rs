@@ -22,14 +22,18 @@ use ferrohealth_health::lifecycle::Lifecycle;
 use ferrohealth_health::registry::{Check, HealthIndicator, Outcome, Registry};
 use ferrohealth_server::health::Health;
 use ferrohealth_server::stack::{Stack, StackPolicy};
-use ferrohealth_smart::metadata::ServerMetadata;
-use http::{HeaderValue, header};
+use http::{HeaderValue, StatusCode, header};
 use serde_json::Value;
 
+use crate::authorize::{self, AUTHORIZE_ROUTE, CALLBACK_ROUTE, CONSENT_ROUTE, MANAGE_ROUTE};
 use crate::client_keys::ClientKeySets;
 use crate::config::settings::Settings;
-use crate::discovery::{self, JWKS_ROUTE, SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE};
+use crate::discovery::{
+    self, INTROSPECT_ROUTE, JWKS_ROUTE, OPENID_CONFIGURATION_ROUTE, REVOKE_ROUTE,
+    SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE,
+};
 use crate::store::Store;
+use ferrohealth_smart::oidc::RelyingParty;
 
 /// The `Cache-Control` of the JWK Set: an hour, and a next key is published
 /// at least that long before it signs (`docs/architecture.md` §13.11). No
@@ -41,32 +45,56 @@ pub const JWKS_CACHE_CONTROL: &str = "public, max-age=3600";
 pub struct AppState {
     /// The settings the server runs on.
     settings: Settings,
-    /// The RFC 8414 metadata, built once.
-    metadata: ServerMetadata,
+    /// The RFC 8414 metadata document, built once.
+    metadata: Value,
     /// The SMART configuration, built once.
     smart: Value,
+    /// The OpenID Connect discovery document, once people log in.
+    openid: Option<Value>,
     /// The process's phase, which the drain moves.
     lifecycle: Lifecycle,
     /// The store.
     store: Store,
     /// The clients' JWK Sets.
     client_keys: ClientKeySets,
+    /// The relying party of the upstream login, when people log in.
+    relying_party: Option<RelyingParty>,
 }
 
 impl AppState {
     /// Returns the state of the server `settings` describe over `store`.
     #[must_use]
     pub fn new(settings: Settings, store: Store) -> Self {
-        let metadata = discovery::metadata(&settings);
-        let smart = discovery::smart_configuration(&metadata);
+        let metadata = discovery::metadata(&settings, false);
+        let smart = discovery::smart_configuration(&metadata, false);
         Self {
+            metadata: discovery::metadata_document(&metadata),
             settings,
-            metadata,
             smart,
+            openid: None,
             lifecycle: Lifecycle::default(),
             store,
             client_keys: ClientKeySets::new(reqwest::Client::new()),
+            relying_party: None,
         }
+    }
+
+    /// Returns this state logging people in through `party`, and serving
+    /// the authorization code flow.
+    #[must_use]
+    pub fn with_login(mut self, party: RelyingParty) -> Self {
+        let metadata = discovery::metadata(&self.settings, true);
+        self.smart = discovery::smart_configuration(&metadata, true);
+        self.openid = Some(discovery::openid_configuration(&metadata));
+        self.metadata = discovery::metadata_document(&metadata);
+        self.relying_party = Some(party);
+        self
+    }
+
+    /// Returns the relying party of the upstream login, when people log in.
+    #[must_use]
+    pub const fn relying_party(&self) -> Option<&RelyingParty> {
+        self.relying_party.as_ref()
     }
 
     /// Returns the clients' JWK Sets.
@@ -103,10 +131,32 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(SMART_CONFIGURATION_ROUTE, get(smart_configuration))
         .route(JWKS_ROUTE, get(jwks))
         .route(TOKEN_ROUTE, post(crate::token::token))
+        .route(INTROSPECT_ROUTE, post(crate::introspect::introspect))
+        .route(REVOKE_ROUTE, post(crate::revoke::revoke))
+        .route(OPENID_CONFIGURATION_ROUTE, get(openid_configuration))
+        .route(
+            AUTHORIZE_ROUTE,
+            get(authorize::authorize_get).post(authorize::authorize_post),
+        )
+        .route(CALLBACK_ROUTE, get(authorize::callback))
+        .route(
+            CONSENT_ROUTE,
+            get(authorize::consent_get).post(authorize::consent_post),
+        )
+        .route(
+            MANAGE_ROUTE,
+            get(authorize::manage_get).post(authorize::manage_post),
+        )
         .with_state(Arc::clone(&state));
+    // NOTE: FerroUI docs/consoles.md, "How a console builds": the asset router at
+    // its prefix, from the root, the path the shell's tags name.
     let beside = Router::new()
         .route(&state.settings.metadata_path(), get(metadata))
-        .with_state(state);
+        .with_state(state)
+        .nest_service(
+            ferrohealth_ui::serve::PREFIX,
+            ferrohealth_ui::serve::axum_router::router::<()>(),
+        );
     Stack::new(issuer, health, &section, StackPolicy::default())
         .beside(beside)
         .into_router()
@@ -122,6 +172,16 @@ async fn metadata(State(state): State<Arc<AppState>>) -> Response {
 /// Conformance, Using well-known).
 async fn smart_configuration(State(state): State<Arc<AppState>>) -> Response {
     public(Json(&state.smart).into_response())
+}
+
+/// `GET {issuer}/.well-known/openid-configuration` (OpenID Connect
+/// Discovery 1.0 §4), served once people log in, since the document
+/// describes an OpenID Provider.
+async fn openid_configuration(State(state): State<Arc<AppState>>) -> Response {
+    match &state.openid {
+        Some(document) => public(Json(document).into_response()),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 /// `GET {issuer}/jwks`, the JWK Set (RFC 7517 §5), cacheable as

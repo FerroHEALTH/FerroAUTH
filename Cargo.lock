@@ -143,9 +143,9 @@ dependencies = [
 
 [[package]]
 name = "arc-swap"
-version = "1.9.3"
+version = "1.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "380962b3d93b99642e50b9febf72c071e97e8b32d86eae9cf4ef582bb960ae6e"
+checksum = "84a22b5d51209f6de83d37a0b33d320acb8da88823e42a94c075140708f032a5"
 dependencies = [
  "rustversion",
 ]
@@ -371,6 +371,7 @@ dependencies = [
  "tower",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -389,6 +390,7 @@ dependencies = [
  "sync_wrapper",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -1272,13 +1274,15 @@ dependencies = [
 
 [[package]]
 name = "ferrohealth-ui"
-version = "0.6.9"
+version = "0.6.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e8ceb285b787e15cf540a37db0202f7f3443b5063d2a609aabd1aad3bba2d387"
+checksum = "fc75ea549c2645895f5dbffcb1105d2da2fef594189d8f8cb2913b925afdf3e0"
 dependencies = [
  "askama",
+ "axum",
  "fluent-templates",
  "form_urlencoded",
+ "http",
  "intl-memoizer",
  "serde",
  "serde_json",
@@ -1298,6 +1302,8 @@ dependencies = [
  "ferrohealth-server",
  "ferrohealth-smart",
  "ferrohealth-telemetry",
+ "ferrohealth-ui",
+ "fluent-templates",
  "http",
  "http-body-util",
  "jiff",
@@ -4057,6 +4063,7 @@ dependencies = [
  "tokio",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]

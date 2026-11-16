@@ -9,9 +9,12 @@
     reason = "a test support function fails the case the way a test body does"
 )]
 
+mod authorize;
 mod clients;
 mod config;
 mod discovery;
+mod introspection;
+mod revocation;
 mod store;
 mod support;
 mod token;

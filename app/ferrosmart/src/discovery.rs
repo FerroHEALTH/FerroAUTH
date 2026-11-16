@@ -11,8 +11,10 @@
 //! the two never disagree.
 
 use ferrohealth_smart::metadata::ServerMetadata;
-use ferrohealth_smart::resource::configuration::{self, Purpose, SmartOptions};
-use serde_json::Value;
+use ferrohealth_smart::resource::configuration::{
+    self, OpenIdConnect, PermissionCapability, Purpose, SmartOptions,
+};
+use serde_json::{Value, json};
 
 use crate::config::settings::Settings;
 
@@ -23,47 +25,182 @@ pub const JWKS_ROUTE: &str = "/jwks";
 /// The SMART configuration's route under the issuer (SMART App Launch
 /// 2.2.0, Conformance, Using well-known).
 pub const SMART_CONFIGURATION_ROUTE: &str = "/.well-known/smart-configuration";
+/// The introspection endpoint's route under the issuer (RFC 7662 §2).
+pub const INTROSPECT_ROUTE: &str = "/introspect";
+/// The revocation endpoint's route under the issuer (RFC 7009 §2).
+pub const REVOKE_ROUTE: &str = "/revoke";
 
-/// The client authentication methods of the token endpoint.
-const AUTH_METHODS: [&str; 1] = ["private_key_jwt"];
+/// The OpenID Connect discovery document's route under the issuer
+/// (OpenID Connect Discovery 1.0 §4).
+pub const OPENID_CONFIGURATION_ROUTE: &str = "/.well-known/openid-configuration";
+
 /// The algorithms a client assertion may be signed with: the two of which
 /// "The FHIR authorization server SHALL be capable of validating signatures
 /// with at least one" (SMART App Launch 2.2.0, Client Authentication:
 /// Asymmetric, Registering a client).
 const ASSERTION_ALGORITHMS: [&str; 2] = ["RS384", "ES384"];
-/// The grants of the token endpoint.
-const GRANT_TYPES: [&str; 1] = ["client_credentials"];
 
-/// Returns the RFC 8414 §2 metadata of the server `settings` describe.
+/// Returns the RFC 8414 §2 metadata of the server `settings` describe;
+/// with `login`, the authorization code flow and its endpoint too.
 ///
 /// `response_types_supported` is REQUIRED and lists the response types the
-/// server supports; with no authorization endpoint yet the list is empty,
-/// and the authorization code flow adds `code` (#515).
+/// server supports: none without the authorization endpoint, `code` with
+/// it. The token endpoint takes `private_key_jwt`, and with `login` also
+/// `none`, a public client's (RFC 7591 §2).
 #[must_use]
-pub fn metadata(settings: &Settings) -> ServerMetadata {
+pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
     let strings = |values: &[&str]| Some(values.iter().map(|&value| value.to_owned()).collect());
-    ServerMetadata {
+    let mut metadata = ServerMetadata {
         issuer: settings.issuer.clone(),
         jwks_uri: Some(settings.endpoint(JWKS_ROUTE)),
         token_endpoint: Some(settings.endpoint(TOKEN_ROUTE)),
-        token_endpoint_auth_methods_supported: strings(&AUTH_METHODS),
+        token_endpoint_auth_methods_supported: strings(&["private_key_jwt"]),
         token_endpoint_auth_signing_alg_values_supported: strings(&ASSERTION_ALGORITHMS),
-        grant_types_supported: strings(&GRANT_TYPES),
+        grant_types_supported: strings(&["client_credentials"]),
         response_types_supported: Some(Vec::new()),
+        introspection_endpoint: Some(settings.endpoint(INTROSPECT_ROUTE)),
+        revocation_endpoint: Some(settings.endpoint(REVOKE_ROUTE)),
         ..ServerMetadata::default()
+    };
+    if login {
+        metadata.authorization_endpoint =
+            Some(settings.endpoint(crate::authorize::AUTHORIZE_ROUTE));
+        metadata.grant_types_supported = strings(&["authorization_code", "client_credentials"]);
+        metadata.token_endpoint_auth_methods_supported = strings(&["private_key_jwt", "none"]);
+        metadata.response_types_supported = strings(&["code"]);
+        metadata.code_challenge_methods_supported = strings(&["S256"]);
+        metadata.scopes_supported = strings(&["openid", "fhirUser"]);
     }
+    metadata
+}
+
+/// Returns the RFC 8414 document of `metadata`: its members with how the
+/// introspection and revocation endpoints authenticate a client, which
+/// RFC 8414 §2 has default to `client_secret_basic` when absent.
+///
+/// The introspection endpoint takes a client's `private_key_jwt` assertion
+/// (or a bearer token, which is no client authentication method); the
+/// revocation endpoint takes it too, and `none` with the `client_id` of a
+/// public client (RFC 7009 §2.1, RFC 6749 §2.3).
+///
+/// # Panics
+///
+/// Never: the metadata is plain strings and lists, which `serde_json`
+/// always serializes.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "ServerMetadata is plain strings and lists, which serde_json always serializes"
+)]
+pub fn metadata_document(metadata: &ServerMetadata) -> Value {
+    let mut document =
+        serde_json::to_value(metadata).expect("the metadata should serialize as JSON");
+    if let Some(members) = document.as_object_mut() {
+        members.insert(
+            String::from("introspection_endpoint_auth_methods_supported"),
+            json!(["private_key_jwt"]),
+        );
+        members.insert(
+            String::from("introspection_endpoint_auth_signing_alg_values_supported"),
+            json!(ASSERTION_ALGORITHMS),
+        );
+        members.insert(
+            String::from("revocation_endpoint_auth_methods_supported"),
+            json!(["private_key_jwt", "none"]),
+        );
+        members.insert(
+            String::from("revocation_endpoint_auth_signing_alg_values_supported"),
+            json!(ASSERTION_ALGORITHMS),
+        );
+    }
+    document
 }
 
 /// Returns the SMART configuration of `metadata`.
 ///
-/// It is the Backend Services document while the client credentials grant
-/// is the one grant (SMART App Launch 2.2.0, Backend Services, Retrieve
-/// `.well-known/smart-configuration`).
+/// Without `login` it is the Backend Services document (SMART App Launch
+/// 2.2.0, Backend Services, Retrieve `.well-known/smart-configuration`);
+/// with it, the App Launch document, whose capabilities the builder derives
+/// from the metadata (`client-public`, `client-confidential-asymmetric`,
+/// `launch-standalone`), with `sso-openid-connect` and the user-level v2
+/// scopes FerroSMART grants (`permission-user`, `permission-v2`).
 #[must_use]
-pub fn smart_configuration(metadata: &ServerMetadata) -> Value {
-    let options = SmartOptions {
-        purpose: Purpose::BackendServices,
-        ..SmartOptions::default()
+pub fn smart_configuration(metadata: &ServerMetadata, login: bool) -> Value {
+    let mut document = smart_document(metadata, login);
+    // NOTE: SMART App Launch 2.2.0, Conformance, Metadata, management_endpoint
+    // (RECOMMENDED): where the person sees and withdraws what they remembered.
+    if login && let Some(members) = document.as_object_mut() {
+        let manage = format!(
+            "{}{}",
+            metadata.issuer.trim_end_matches('/'),
+            crate::authorize::MANAGE_ROUTE
+        );
+        members.insert(String::from("management_endpoint"), Value::String(manage));
+    }
+    document
+}
+
+/// Returns the SMART document the builder writes from `metadata`.
+fn smart_document(metadata: &ServerMetadata, login: bool) -> Value {
+    let options = if login {
+        SmartOptions {
+            purpose: Purpose::AppLaunch,
+            openid_connect: OpenIdConnect::Advertised,
+            permissions: [PermissionCapability::User, PermissionCapability::V2]
+                .into_iter()
+                .collect(),
+            ..SmartOptions::default()
+        }
+    } else {
+        SmartOptions {
+            purpose: Purpose::BackendServices,
+            ..SmartOptions::default()
+        }
     };
     configuration::document(metadata, &options)
+}
+
+/// Returns the OpenID Connect discovery document of `metadata`.
+///
+/// It is the RFC 8414 members with the three OpenID Connect Discovery 1.0
+/// §3 requires beside them, `subject_types_supported` (`pairwise`, 13.6
+/// item 9), `id_token_signing_alg_values_supported` (`RS256`, which "MUST
+/// be included") and the claims an ID Token carries.
+///
+/// # Panics
+///
+/// Never: the metadata is plain strings and lists, which `serde_json`
+/// always serializes.
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "ServerMetadata is plain strings and lists, which serde_json always serializes"
+)]
+pub fn openid_configuration(metadata: &ServerMetadata) -> Value {
+    let mut document =
+        serde_json::to_value(metadata).expect("the metadata should serialize as JSON");
+    if let Some(members) = document.as_object_mut() {
+        members.insert(
+            String::from("subject_types_supported"),
+            serde_json::json!(["pairwise"]),
+        );
+        members.insert(
+            String::from("id_token_signing_alg_values_supported"),
+            serde_json::json!(["RS256"]),
+        );
+        members.insert(
+            String::from("claims_supported"),
+            serde_json::json!([
+                "iss",
+                "sub",
+                "aud",
+                "exp",
+                "iat",
+                "auth_time",
+                "nonce",
+                "fhirUser"
+            ]),
+        );
+    }
+    document
 }
