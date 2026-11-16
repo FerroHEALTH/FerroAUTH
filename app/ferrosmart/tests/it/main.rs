@@ -22,3 +22,4 @@ mod revocation;
 mod store;
 mod support;
 mod token;
+mod upstream_vendors;
