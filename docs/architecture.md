@@ -99,6 +99,7 @@ with the matrix.
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; the authorization code flow (§3.1) and the ID Token check (§3.1.3.7) of the `oidc` relying party. |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the end-session request (§2) and the `end_session_endpoint` metadata (§2.1) of the `oidc` relying party. |
+| OpenID Connect Back-Channel Logout 1.0 | incorporating errata set 1 (2023-12-15) | The edition the unversioned URL serves; the Logout Token check (§2.6) of the `oidc` relying party, which ends FerroSMART's `online_access` grants at upstream logout (13.6 item 7). |
 | OAuth 2.1 Authorization Framework | draft-ietf-oauth-v2-1-17 (2026-10-31) | The current revision of the Working Group draft that consolidates RFC 6749, 6750 and the security best current practice. FerroSMART cites it beside those RFCs (13.5) and never in their place, because an Internet-Draft is a work in progress. |
 | Inferno SMART App Launch test kit | 1.0.3 (`inferno-framework/smart-app-launch-test-kit` tag `v1.0.3`) | The latest release on 2026-11-16 and the conformance lane FerroSMART runs (13.13). Its requirement extraction for SMART App Launch 2.2.0 is a cross-check of the checklist, never a citation. |
 | FAPI 2.0 Security Profile | Final Specification (2025-02-22) | The profile a client grant can be held to (3.5): the authorization servers of the Dutch BgZ and eOverdracht track FerroFED reaches follow it. §5.3.3.1 sets the client's sender constraint, client authentication, assertion `aud` and metadata use, and §5.4.1 the admitted algorithms. |
@@ -2416,6 +2417,11 @@ party itself is `ferrohealth_smart::oidc` (#131), which keeps no state
 between calls; `ferrohealth-session` keeps that state, in one crate in place
 of the five copies the consoles of FerroBRIDGE, FerroFED, FerroPIX and
 FerroTERM and the FerroEHR viewer carried (owner decision 2026-11-03, #177).
+The relying party also checks a Logout Token a provider posts
+(`RelyingParty::logout_token`, Back-Channel Logout 1.0 §2.6), which
+FerroSMART uses to end the `online_access` grants of an upstream login
+(13.6 item 7); the optional `jti` and session checks of §2.6 are the
+caller's, which holds the sessions.
 
 - **The flow.** `GET /login` mints the `state`, the `nonce` and the PKCE
   verifier through the relying party and keeps them as a pending sign-in
@@ -2840,6 +2846,27 @@ specification governs.
     two kinds apart by the value: an access token is an RFC 9068 JWT one
     of FerroSMART's keys verifies, anything else is looked up by its
     SHA-256 as a refresh token.
+11. **Refresh rotation for every client.** `rfc9700 §4.14.2` requires
+    rotation or sender-constraining for public clients; FerroSMART rotates
+    every client's refresh token, one fixed behaviour, so reuse detection
+    covers confidential clients too (`oauth21 §4.3.2`, MAY issue a new
+    refresh token). A rotated token presented again, including by two
+    requests racing with one token, revokes the grant with every token
+    under it (`oauth21 §4.3.1`). The new token keeps the grant's whole
+    scope (`oauth21 §4.3.3`) and lapses after `refresh_idle`
+    (`offline_access`) or `online_idle` (`online_access`) unused. A
+    refresh request's `scope` may equal the grant's: SMART's "strict
+    sub-set" is read with `oauth21 §4.3.1`, which forbids only a scope
+    "not originally granted", since an absent `scope` already means the
+    same set. Our own reading. A client receives a refresh token when its
+    ceiling lists `offline_access` or `online_access` and it registers the
+    `refresh_token` grant; only then does the consent page offer either
+    (`smart app-launch`, Refresh access token: "A server can decide which
+    client types ... are eligible"). With both granted, `offline_access`
+    decides. Redeeming a code opens the grant every token of the launch is
+    issued under, with the launch context and the upstream session the
+    person logged in under; withdrawing a remembered consent revokes the
+    grants it covered with every token under them.
 
 ### 13.7 The crate layout
 
@@ -3116,3 +3143,35 @@ picker, search, a refusal and an error page; it has no design under
 #515 adds to FerroUI. Branding is content: the deployment's name, logo,
 locales and consent wording come from `[ferrosmart.branding]`, never a code
 edit.
+
+### 13.16 Upstream providers: Keycloak
+
+Keycloak 26.8.2 (the release the Keycloak documentation pin names) runs
+upstream of FerroSMART for login only (#522). The realm is
+`app/ferrosmart/examples/keycloak/ferrosmart-realm.json`, FerroSMART's side
+is `ferrosmart.toml` beside it, and `scripts/idp/keycloak-launch.sh` runs both
+in CI: a SMART standalone launch through Keycloak's login form and
+FerroSMART's consent page, to a token response whose ID Token and access
+token carry the person's mapped `fhirUser`. The realm's ids are fixed in the
+file, so an import is reproducible; its secrets are placeholders the
+environment fills at import, so none is in the tree. Citations are to
+`docs/specs/keycloak-docs/`, server administration guide `topics/` unless
+named otherwise.
+
+| Setting | Value | Ground |
+|---|---|---|
+| Realm import | `--import-realm`, with `${...}` placeholders for the client secret, the redirect URI, the user's password and `fhirUser` | server guide `importExport.adoc`, Importing a Realm during Startup, Using Environment Variables within the Realm Configuration Files |
+| Client `ferrosmart` | `publicClient: false`, `clientAuthenticatorType: client-secret`: a confidential client whose secret FerroSMART sends as HTTP Basic | `clients/oidc/con-basic-settings.adoc`, Client authentication; `clients/oidc/con-confidential-client-credentials.adoc`, Client ID and Secret; `oidc core §9` |
+| Flows | `standardFlowEnabled: true`, implicit and direct access grants off | `con-basic-settings.adoc`, Standard Flow, Direct Access Grants; `rfc9700 §2.4` |
+| PKCE | `pkce.code.challenge.method: S256` | `con-basic-settings.adoc`, Proof Key for Code Exchange Code Challenge Method; `rfc7636 §4.2` |
+| Redirect URI | FerroSMART's `{issuer}/callback`, one exact URI | `con-basic-settings.adoc`, Valid Redirect URIs; `rfc9700 §2.1` |
+| `fhir_user` claim | a user attribute mapper (`oidc-usermodel-attribute-mapper`, `user.attribute` `fhir_user`) into the ID Token only | `clients/con-protocol-mappers.adoc`; `UserAttributeMapper.java`, `ProtocolMapperUtils.java`, `OIDCAttributeMapperHelper.java` (`claim.name`, `id.token.claim`) |
+| `roles` claim | a realm role mapper (`oidc-usermodel-realm-role-mapper`, `multivalued`) into the ID Token only | `clients/con-protocol-mappers.adoc`; `UserRealmRoleMappingMapper.java` |
+| Realm role | `clinician`, which `[[ferrosmart.role]]` maps to `user/` scopes | `roles-groups/proc-creating-realm-roles.adoc`; 13.6 item 5 |
+
+On FerroSMART's side, `[ferrosmart.upstream]` names the realm's issuer and
+the client, `fhir_user_claim = "fhir_user"` and `role_claims = ["roles"]`
+(the generic dotted claim reader of `ferrohealth_smart::roles`). No code
+knows Keycloak. The example serves every party on the loopback interface
+over plain `http`, which `ferrohealth_smart::metadata::issuer_url` admits
+there. A deployment serves both over TLS.
