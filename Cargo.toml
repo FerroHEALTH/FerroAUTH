@@ -72,6 +72,8 @@ aws-lc-rs = { version = "1.18.2", default-features = false, features = ["aws-lc-
 ferrohealth-telemetry = { version = "0.5.0", default-features = false }
 ferrohealth-health = { version = "0.1.1", default-features = false }
 clap = { version = "4.6.7", features = ["derive"] }
+# FerroSMART's own words, beside the library's (FerroUI `docs/consoles.md`).
+fluent-templates = { version = "0.15.1", default-features = false, features = ["macros", "walkdir"] }
 # FerroSMART's state in PostgreSQL (docs/architecture.md §13.9): the driver
 # and the embedded migrations, on the line FerroEHR resolves. Verified
 # against crates.io on 2026-11-16.
