@@ -16,7 +16,7 @@
 # multi-platform build; Dependabot (the docker ecosystem over
 # /docker/ferrosmart) proposes the bumps.
 # https://github.com/GoogleContainerTools/distroless
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:aafe993665bf6200db38a02c11a9351e782a84b6a45e7f33b6695638c88e3931
 
 # The platform of the manifest being built, set by buildx per platform.
 # https://docs.docker.com/reference/dockerfile/#automatic-platform-args-in-the-global-scope

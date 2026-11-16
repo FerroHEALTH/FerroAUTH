@@ -588,7 +588,7 @@ pub(crate) async fn authenticate(state: &AppState, form: &Params) -> Result<Clie
 /// `kty` fits `algorithm` (SMART App Launch 2.2.0, Client Authentication:
 /// Asymmetric, Signature Verification, step 3), reading the set again once
 /// when the cached set holds none.
-async fn key_of(
+pub(crate) async fn key_of(
     state: &AppState,
     client: &Client,
     kid: &str,
@@ -695,6 +695,15 @@ struct AccessClaims<'a> {
     /// The person as a FHIR resource, when the grant names one.
     #[serde(rename = "fhirUser", skip_serializing_if = "Option::is_none")]
     fhir_user: Option<&'a str>,
+    /// The patient of an EHR launch's context (13.6 item 2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    patient: Option<&'a str>,
+    /// The encounter of an EHR launch's context.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    encounter: Option<&'a str>,
+    /// The openEHR EHR of an EHR launch's context.
+    #[serde(rename = "ehrId", skip_serializing_if = "Option::is_none")]
+    ehr_id: Option<&'a str>,
 }
 
 /// What an access token grants, and what else the token response carries.
@@ -745,6 +754,9 @@ pub(crate) fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Resul
         client_id: &client.client_id,
         scope: grant.scope,
         fhir_user: grant.fhir_user,
+        patient: grant.context.get("patient").and_then(Value::as_str),
+        encounter: grant.context.get("encounter").and_then(Value::as_str),
+        ehr_id: grant.context.get("ehrId").and_then(Value::as_str),
     };
     // NOTE: RFC 9068 §2.1, typ at+jwt.
     let access_token = settings

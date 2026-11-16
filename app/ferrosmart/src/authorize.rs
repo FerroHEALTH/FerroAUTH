@@ -26,6 +26,8 @@ use url::Url;
 use crate::audit::{self, Connected};
 use crate::clients::{Client, GrantType};
 use crate::form::Params;
+use crate::launch::Unresolved;
+use crate::launch::context::Context;
 use crate::pages::{self, Fault};
 use crate::server::AppState;
 use crate::store::{Code, Login, Pending, Purpose, StoreError};
@@ -182,15 +184,26 @@ async fn begin(
         .ok_or(Stop::Deny(Denial::request(
             "the aud is not a server this issuer serves",
         )))?;
-    if params.get("launch").is_some() {
-        return Err(Stop::Deny(Denial::request(
-            "an EHR launch is not supported",
-        )));
-    }
     let scope = params.get("scope").ok_or(Stop::Deny(Denial {
         error: "invalid_scope",
         description: "the request names no scope",
     }))?;
+    let launch_context = match params.get("launch") {
+        Some(launch) => {
+            match crate::launch::redeem(state, &client.client_id, launch, audience, scope).await {
+                Ok(context) => Some(context),
+                Err(Unresolved::NoLaunchScope) => {
+                    return Err(Stop::Deny(Denial {
+                        error: "invalid_scope",
+                        description: "a launch needs the launch scope",
+                    }));
+                }
+                Err(Unresolved::Refused(rule)) => return Err(Stop::Deny(Denial::request(rule))),
+                Err(Unresolved::Store(error)) => return Err(fail(error)),
+            }
+        }
+        None => None,
+    };
     let party = state
         .relying_party()
         .ok_or(Stop::Deny(Denial::request("no login is configured")))?;
@@ -216,6 +229,7 @@ async fn begin(
         auth_time: None,
         expires_at: now().saturating_add(REQUEST_SECONDS),
         purpose: Purpose::Authorize,
+        launch_context,
         upstream_session: None,
     };
     state
@@ -356,6 +370,7 @@ async fn proceed(
         &held,
         &state.settings().roles,
         login.fhir_user.is_some(),
+        pending.launch_context.as_ref(),
     );
     if offered.is_empty() {
         forget(state, pending).await;
@@ -446,10 +461,14 @@ fn read_callback(query: &str) -> Result<Callback, crate::form::Repeated> {
 /// provider carries the person's `fhirUser`, without which "it cannot
 /// support the `fhirUser` scope", SMART App Launch 2.2.0, Scopes for
 /// requesting identity data), and each `user/` scope the client may ask
-/// for and one of the person's roles grants (13.6 item 5). Scopes that need
-/// a patient in context, a refresh token or an EHR launch join with the
-/// steps that bring them (#516, #517, #518). Matching a scope as written
-/// is our own design.
+/// for and one of the person's roles grants (13.6 item 5). An EHR launch's
+/// `context` adds `launch`, the `launch/patient` and `launch/encounter`
+/// hints its context answers, and the `patient/` scopes the ceiling and a
+/// role allow once the launch put a patient in context (SMART App Launch
+/// 2.2.0, Scopes and Launch Context, Apps that launch from the EHR). Scopes
+/// that need a standalone patient or a refresh token join with the steps
+/// that bring them (#516, #518). Matching a scope as written is our own
+/// design.
 #[must_use]
 pub fn offer(
     requested: &str,
@@ -457,7 +476,10 @@ pub fn offer(
     held: &[String],
     roles: &std::collections::BTreeMap<String, Vec<String>>,
     has_fhir_user: bool,
+    context: Option<&Context>,
 ) -> Vec<String> {
+    let patient = context.is_some_and(|context| context.patient.is_some());
+    let encounter = context.is_some_and(|context| context.encounter.is_some());
     let ceiling = |scope: &str| client.scopes.iter().any(|allowed| allowed == scope);
     let granted_by_role = |scope: &str| {
         held.iter()
@@ -470,6 +492,12 @@ pub fn offer(
             "openid" => ceiling(scope),
             "fhirUser" => ceiling(scope) && has_fhir_user,
             user if user.starts_with("user/") => ceiling(user) && granted_by_role(user),
+            "launch" => ceiling(scope) && context.is_some(),
+            "launch/patient" => ceiling(scope) && patient,
+            "launch/encounter" => ceiling(scope) && encounter,
+            single if single.starts_with("patient/") => {
+                patient && ceiling(single) && granted_by_role(single)
+            }
             // NOTE: SMART App Launch 2.2.0, Refresh access token, the server decides
             // which clients get a refresh token: those whose ceiling and grants name it.
             "offline_access" | "online_access" => {
@@ -563,6 +591,15 @@ async fn approve(
     if !granted.contains(&"openid") {
         granted.retain(|scope| *scope != "fhirUser");
     }
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, the context comes
+    // under `launch`, and a granted `patient/` scope needs its patient.
+    let launch_context = pending
+        .launch_context
+        .as_ref()
+        .filter(|_| granted.contains(&"launch"));
+    if launch_context.is_none() {
+        granted.retain(|scope| !scope.starts_with("patient/") && !scope.starts_with("launch/"));
+    }
     if granted.is_empty() {
         return back.deny(Denial {
             error: "access_denied",
@@ -592,6 +629,7 @@ async fn approve(
         nonce: pending.nonce.clone(),
         auth_time,
         expires_at: now().saturating_add(CODE_SECONDS),
+        launch_context: launch_context.cloned(),
         upstream_session: pending.upstream_session.clone(),
     };
     if let Err(error) = issue_code(state, &hash, &grant, remember, from).await {
@@ -895,6 +933,7 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
         auth_time: None,
         expires_at: now().saturating_add(REQUEST_SECONDS),
         purpose: Purpose::Manage,
+        launch_context: None,
         upstream_session: None,
     };
     if let Err(error) = state.store().begin_authorization(&pending).await {
