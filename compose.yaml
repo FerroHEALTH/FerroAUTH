@@ -26,16 +26,26 @@
 #   chmod 0644 secrets/database_url secrets/signing_key.pem
 #
 # The signing key signs every access token under RS256 and is published,
-# public half only, at /.well-known/jwks.json. Rotation adds a next and a
+# public half only, at the `jwks_uri` of the SMART configuration. Rotation adds a next and a
 # previous key ([ferrosmart.keys] in the configuration below).
 #
-# CONFIGURATION. The configuration file is the `ferrosmart_toml` config at the
-# foot of this file. The issuer is the URL FerroSMART's clients and resource
-# servers reach it by: an https URL, or http on localhost, as here. A
-# resource server it issues tokens for is a [[ferrosmart.resource]] table, and
-# a client is a [[ferrosmart.client]] table: a Backend Services client with
-# its JWK Set URL looks like
+# CONFIGURATION. The environment below sets what the quickstart needs, and
+# every key of the configuration tree is reachable the same way, as
+# FERROSMART__<SECTION>__<KEY>, with an index naming an element of an array
+# of tables. Set these in your shell or in a .env file beside this one:
 #
+#   FERROSMART_ISSUER     the URL clients and resource servers reach
+#                         FerroSMART by: https, or http on localhost
+#                         (default http://localhost:8080)
+#   FERROSMART_RESOURCE   the base URL of the FHIR server the tokens are for,
+#                         their `aud` (default http://localhost:8090/fhir)
+#
+# Clients, more resource servers and the rest of the policy go in a
+# configuration file in the ./config directory beside this one, which
+# FERROSMART_CONFIG names. A Backend Services client with its JWK Set URL:
+#
+#   mkdir -p config
+#   cat > config/ferrosmart.toml <<'TOML'
 #   [[ferrosmart.client]]
 #   client_id = "bulk-export"
 #   name = "Bulk export"
@@ -43,10 +53,11 @@
 #   jwks_uri = "https://export.example.org/jwks.json"
 #   scopes = ["system/Patient.rs", "system/Observation.rs"]
 #   grant_types = ["client_credentials"]
+#   TOML
+#   FERROSMART_CONFIG=/etc/ferrosmart/ferrosmart.toml
 #
-# Every key is reachable as FERROSMART__<SECTION>__<KEY> too, and
-# `docker compose run --rm ferrosmart config check` prints the resolved
-# configuration with every secret masked.
+# The environment wins over the file. `docker compose run --rm ferrosmart
+# config check` prints the resolved configuration with every secret masked.
 #
 # PORTS. The published port binds the loopback interface by default. A
 # published port is DNAT'd ahead of the host firewall's own chains, so a port
@@ -74,13 +85,17 @@ services:
     ports:
       - "${FERROSMART_BIND_HOST:-127.0.0.1}:${FERROSMART_PORT:-8080}:8080"
     environment:
-      FERROSMART_CONFIG: /etc/ferrosmart/ferrosmart.toml
+      # A key with no value passes the variable through only when your shell
+      # or .env sets it, so no file is read until you write one.
+      FERROSMART_CONFIG:
+      FERROSMART__FERROSMART__ISSUER: ${FERROSMART_ISSUER:-http://localhost:8080}
+      FERROSMART__FERROSMART__KEYS__PRIVATE_KEY_FILE: /run/secrets/signing_key
+      FERROSMART__FERROSMART__DATABASE__URL_FILE: /run/secrets/database_url
+      FERROSMART__FERROSMART__RESOURCE__0__BASE: ${FERROSMART_RESOURCE:-http://localhost:8090/fhir}
+      FERROSMART__FERROSMART__RESOURCE__0__KIND: fhir
       # `auto` renders pretty output on a terminal and JSON otherwise.
       FERROSMART__TELEMETRY__FORMAT: ${FERROSMART_LOG_FORMAT:-auto}
       FERROSMART__TELEMETRY__FILTER: ${FERROSMART_LOG_FILTER:-info}
-    configs:
-      - source: ferrosmart_toml
-        target: /etc/ferrosmart/ferrosmart.toml
     secrets:
       - database_url
       - signing_key
@@ -88,6 +103,13 @@ services:
     # at boot, so the root filesystem is read-only and nothing is mounted
     # writable.
     read_only: true
+    volumes:
+      - type: bind
+        source: ${FERROSMART_CONFIG_DIR:-./config}
+        target: /etc/ferrosmart
+        read_only: true
+        bind:
+          create_host_path: true
     cap_drop:
       - ALL
     security_opt:
@@ -126,24 +148,6 @@ services:
     security_opt:
       - no-new-privileges:true
     # No published port: only FerroSMART reaches the database.
-
-configs:
-  ferrosmart_toml:
-    content: |
-      [ferrosmart]
-      issuer = "${FERROSMART_ISSUER:-http://localhost:8080}"
-
-      [ferrosmart.keys]
-      private_key_file = "/run/secrets/signing_key"
-
-      [ferrosmart.database]
-      url_file = "/run/secrets/database_url"
-
-      # The FHIR or openEHR server the tokens are for; its base URL is their
-      # `aud`. Add one table per server.
-      [[ferrosmart.resource]]
-      base = "${FERROSMART_RESOURCE:-http://localhost:8090/fhir}"
-      kind = "fhir"
 
 secrets:
   postgres_password:
