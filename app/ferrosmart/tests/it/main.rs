@@ -16,6 +16,7 @@ mod discovery;
 mod ehr_launch;
 mod introspection;
 mod launch;
+mod refresh;
 mod revocation;
 mod store;
 mod support;

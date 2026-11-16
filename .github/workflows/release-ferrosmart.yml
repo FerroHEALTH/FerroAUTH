@@ -1,0 +1,398 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# The FerroSMART release lane, dormant until a `ferrosmart-v*` tag is pushed.
+# The library crates release through release.yml on their own tags; this lane
+# releases the server as signed tarballs and an OCI image, never to crates.io.
+# Every ordering is a `needs` edge:
+#
+#   plan ── github-release (draft) ── build-binaries ── build-image ── vulnerability-record ─┬─ finalize-release ── milestone
+#                                                                                             └─ scan-and-tag ──────┘
+#
+# plan runs every release fact of scripts/release/plan.sh at the tagged
+# commit: the milestone titled exactly as the tag is empty, the version in
+# app/ferrosmart/Cargo.toml is the tag's, the changelog section keeps its
+# structure and Security rules, and compose.yaml pulls the image being
+# released. milestone closes the milestone once every leg succeeded.
+#
+# The release is created as a DRAFT, the tarballs, their SBOMs and their
+# Sigstore bundles are attached, and it is PUBLISHED only once the asset set
+# is complete; a published release is immutable.
+#
+# build-binaries, build-image and scan-and-tag are `uses:` calls AND NOTHING
+# ELSE: SLSA v1.2 Build Level 3 requires the signing material out of reach of
+# the user-defined build steps, and a reusable workflow's job cannot carry
+# steps from its caller
+# (https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-and-reusable-workflows-to-achieve-slsa-v1-build-level-3).
+#
+# The image is pushed by digest with no tag. vulnerability-record scans it and
+# the four server tarballs with no severity floor and refuses the release
+# while a finding lacks an OpenVEX judgement under security/vex/;
+# finalize-release and scan-and-tag both wait on it, so a refused release is
+# neither published nor tagged. scan-and-tag runs the HIGH and CRITICAL gate
+# on the digest and only then applies the tags. No specification governs the
+# lane: our own design, the family's (docs/release.md).
+name: Release FerroSMART
+
+on:
+  push:
+    tags: ["ferrosmart-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing ferrosmart-vX.Y.Z tag to (re)publish. Dispatch this workflow AT that tag."
+        required: true
+        type: string
+
+# A release is never cancelled part-way through publishing: a second run
+# queues behind the first.
+concurrency:
+  group: release-ferrosmart-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read # the milestone titled as the tag
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+      version: ${{ steps.tag.outputs.version }}
+      is-prerelease: ${{ steps.tag.outputs.is_prerelease }}
+      targets: ${{ steps.targets.outputs.targets }}
+    steps:
+      - id: tag
+        name: Resolve and validate the release tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            tag="$INPUT_TAG"
+            # A dispatch runs at the ref it was started from, so the ref and
+            # the tag it names must agree.
+            if [ "${GITHUB_REF}" != "refs/tags/${tag}" ]; then
+              echo "::error::dispatched at '${GITHUB_REF}', not at refs/tags/${tag}. Run: gh workflow run 'Release FerroSMART' --ref ${tag} -f tag=${tag}" >&2
+              exit 1
+            fi
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          if ! printf '%s\n' "$tag" | grep -qE '^ferrosmart-v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$tag' is not a ferrosmart-vX.Y.Z tag" >&2
+            exit 1
+          fi
+          version="${tag#ferrosmart-v}"
+          case "$version" in
+            *-*) is_prerelease=true ;;
+            *) is_prerelease=false ;;
+          esac
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "is_prerelease=$is_prerelease"
+          } >> "$GITHUB_OUTPUT"
+          echo "releasing ${tag} (pre-release: ${is_prerelease})"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      # The same list scripts/release/preflight.sh runs before the tag is
+      # pushed. A missing or empty changelog section fails the release rather
+      # than falling back to notes generated from the commit range.
+      - name: Every release fact holds at the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: bash scripts/release/plan.sh checks "$TAG" --notes release-notes.md
+
+      # Emitted once, read by the build matrix and by the finalize asset
+      # check, so the two cannot drift. Linux only, one native runner per
+      # architecture: no cross-compilation and no emulation. No
+      # specification governs this: our own design.
+      - id: targets
+        name: Name the binary targets
+        run: |
+          set -euo pipefail
+          targets='{"include":[
+            {"runner":"ubuntu-24.04","target":"x86_64-unknown-linux-gnu"},
+            {"runner":"ubuntu-24.04","target":"x86_64-unknown-linux-musl"},
+            {"runner":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-gnu"},
+            {"runner":"ubuntu-24.04-arm","target":"aarch64-unknown-linux-musl"}
+          ]}'
+          echo "targets=$(printf '%s' "$targets" | tr -d '\n ')" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+
+  github-release:
+    name: github release (draft)
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # create the GitHub release
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-notes
+      - name: Create the release as a draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          IS_PRERELEASE: ${{ needs.plan.outputs.is-prerelease }}
+        run: |
+          set -euo pipefail
+          title="FerroSMART $VERSION"
+          args=(--repo "$GITHUB_REPOSITORY" --draft --verify-tag --title "$title" --notes-file release-notes.md)
+          if [ "$IS_PRERELEASE" = "true" ]; then args+=(--prerelease); fi
+          state="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null || echo missing)"
+          case "$state" in
+            missing) gh release create "$TAG" "${args[@]}" ;;
+            true) gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --title "$title" --notes-file release-notes.md ;;
+            *)
+              echo "::error::$TAG is already published. A bad cut ships forward as a new patch version; it is never retagged." >&2
+              exit 1
+              ;;
+          esac
+      # The quickstart rides along: it pulls the image this tag publishes, so
+      # a downloader never clones the repository.
+      - name: Attach the quickstart compose file
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber compose.yaml
+
+  build-binaries:
+    name: binaries (${{ matrix.target }})
+    needs: [plan, github-release]
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.targets) }}
+    # Declared on both sides: a called workflow receives the caller's token
+    # permissions, and GitHub's Build L3 guide asks for the same set in both.
+    permissions:
+      contents: write # attach the per-target assets to the draft release
+      id-token: write # Sigstore, for the provenance and SBOM attestations
+      attestations: write # store them against this repository
+    uses: ./.github/workflows/release-ferrosmart-build.yml
+    with:
+      tag: ${{ needs.plan.outputs.tag }}
+      version: ${{ needs.plan.outputs.version }}
+      target: ${{ matrix.target }}
+      runner: ${{ matrix.runner }}
+
+  build-image:
+    name: image (linux/amd64, linux/arm64)
+    needs: [plan, build-binaries]
+    permissions:
+      contents: read # the attestations API, to verify the inputs
+      packages: write # push the image and its attestations to GHCR
+      id-token: write # Sigstore, for the provenance and SBOM attestations
+      attestations: write # store them against this repository
+    uses: ./.github/workflows/release-ferrosmart-image.yml
+    with:
+      version: ${{ needs.plan.outputs.version }}
+
+  # CRA Annex I Part I(2)(a) (Regulation (EU) 2024/2847): products are made
+  # available without known exploitable vulnerabilities. The scan-and-tag
+  # gate blocks HIGH and CRITICAL findings that have a fix; this job scans the
+  # same digest and the four tarballs with no severity floor and no
+  # `ignore-unfixed`, and scripts/checks/vex-coverage.sh refuses the release
+  # while any finding lacks an OpenVEX statement that judges it.
+  vulnerability-record:
+    name: vulnerability record
+    needs: [plan, github-release, build-binaries, build-image]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write # read the draft's tarballs, attach the record to it
+      packages: read # pull the digest the image job pushed
+    env:
+      # The one Trivy version of the release lane, pinned in docs/VERSIONS.md.
+      TRIVY_VERSION: "0.73.0"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: The coverage check refuses what it claims to refuse
+        run: bash scripts/checks/vex-coverage.sh --self-test
+      - name: Install Trivy from its GitHub release, checked by sha256
+        run: bash scripts/release/install-trivy.sh "$TRIVY_VERSION" "$RUNNER_TEMP/trivy-bin"
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Scan the image and every tarball, every severity, fixed or not
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          TARGETS: ${{ needs.plan.outputs.targets }}
+          DIGEST: ${{ needs.build-image.outputs.digest }}
+        run: |
+          set -euo pipefail
+          # An explicit empty config and ignore file: trivy reads ./trivy.yaml
+          # and its ignore file by default, which would put the gate's floor
+          # and its exceptions back into the record.
+          : > "$RUNNER_TEMP/empty.yaml"
+          : > "$RUNNER_TEMP/empty.ignore"
+          scan=(--config "$RUNNER_TEMP/empty.yaml" --ignorefile "$RUNNER_TEMP/empty.ignore"
+            --scanners vuln --severity "UNKNOWN,LOW,MEDIUM,HIGH,CRITICAL"
+            --ignore-unfixed=false --format json --quiet)
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::no pushed digest for ferrosmart" >&2; exit 1 ;;
+          esac
+          mkdir -p reports binaries
+          targets=()
+          for platform in linux/amd64 linux/arm64; do
+            report="reports/ferrosmart-image-${platform##*/}.json"
+            trivy image "${scan[@]}" --platform "$platform" --output "$report" \
+              "ghcr.io/ferrohealth/ferrosmart@${DIGEST}"
+            targets+=("pkg:oci/ferrosmart=${report}")
+          done
+          while IFS= read -r target; do
+            tarball="ferrosmart-${VERSION}-${target}.tar.gz"
+            gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "$tarball" --dir binaries
+            mkdir -p "binaries/${target}"
+            tar -C "binaries/${target}" -xzf "binaries/${tarball}"
+            report="reports/ferrosmart-${target}.json"
+            trivy rootfs "${scan[@]}" --output "$report" "binaries/${target}"
+            targets+=("pkg:cargo/ferrosmart=${report}")
+          done < <(printf '%s' "$TARGETS" | jq -r '.include[].target')
+          printf '%s\n' "${targets[@]}" > targets.txt
+      - name: Every finding carries an exploitability judgement
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          set -euo pipefail
+          mapfile -t targets < targets.txt
+          bash scripts/checks/vex-coverage.sh \
+            --record "ferrosmart-${VERSION}-vulnerability-record.json" "${targets[@]}"
+          tar -czf "ferrosmart-${VERSION}-trivy-reports.tar.gz" reports
+      # Kept for a refused run too, so the findings to judge are one download
+      # away.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: vulnerability-record
+          path: |
+            reports/
+            ferrosmart-*-vulnerability-record.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Attach the record to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          VERSION: ${{ needs.plan.outputs.version }}
+        run: |
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "ferrosmart-${VERSION}-vulnerability-record.json" \
+            "ferrosmart-${VERSION}-trivy-reports.tar.gz"
+
+  scan-and-tag:
+    name: scan + tag
+    needs: [build-image, vulnerability-record]
+    permissions:
+      contents: read # check out trivy.yaml, verify the attestations
+      packages: write # pull the pushed digest, then tag it
+    uses: ./.github/workflows/release-ferrosmart-scan.yml
+    with:
+      digest: ${{ needs.build-image.outputs.digest }}
+      tags: ${{ needs.build-image.outputs.tags }}
+
+  finalize-release:
+    name: github release (publish)
+    needs: [plan, github-release, build-binaries, build-image, vulnerability-record]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # publish the release
+    steps:
+      - name: The draft carries every asset this version promises
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          VERSION: ${{ needs.plan.outputs.version }}
+          TARGETS: ${{ needs.plan.outputs.targets }}
+        run: |
+          set -euo pipefail
+          assets="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')"
+          echo "attached assets:"
+          printf '%s\n' "$assets"
+          missing=""
+          # Every suffix release-ferrosmart-build.yml uploads, per target,
+          # each matched whole-line.
+          while IFS= read -r target; do
+            for suffix in \
+              ".tar.gz" \
+              ".tar.gz.sha256sum" \
+              ".tar.gz.sigstore.json" \
+              ".tar.gz.sbom.sigstore.json" \
+              ".tar.gz.build-sbom.sigstore.json" \
+              ".tar.gz.intoto.jsonl" \
+              ".cdx.json" \
+              ".spdx.json"; do
+              printf '%s\n' "$assets" | grep -Fxq "ferrosmart-${VERSION}-${target}${suffix}" \
+                || missing="$missing ferrosmart-${VERSION}-${target}${suffix}"
+            done
+          done < <(printf '%s' "$TARGETS" | jq -r '.include[].target')
+          for asset in compose.yaml "ferrosmart-${VERSION}-vulnerability-record.json" "ferrosmart-${VERSION}-trivy-reports.tar.gz"; do
+            printf '%s\n' "$assets" | grep -Fxq "$asset" || missing="$missing $asset"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::the draft is missing assets, so it will not be published:$missing" >&2
+            exit 1
+          fi
+          echo "every expected asset is attached."
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # NOTE: no specification governs it: the repository's latest release stays ferrohealth-smart's, as release.yml keeps it.
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
+
+  # Closes the release's milestone after every leg. `always()` keeps the job
+  # in the graph when a leg fails, so its log names that leg and the
+  # milestone stays open; a re-run of the failed jobs closes it.
+  milestone:
+    name: close the milestone
+    needs: [plan, github-release, build-binaries, build-image, vulnerability-record, scan-and-tag, finalize-release]
+    if: ${{ always() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read # check out the script
+      issues: write # close the milestone
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+      - name: Close the milestone titled as the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.plan.outputs.tag }}
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: bash scripts/release/milestone.sh close "$TAG"

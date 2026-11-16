@@ -145,8 +145,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   threat model.
 - `docs/`: `architecture.md`, `VERSIONS.md`, `release.md`, `specs/` (the
   vendored SMART App Launch, RFC, OAuth 2.1 draft, Inferno SMART App
-  Launch test kit, OpenID Connect Discovery, Core and
-  RP-Initiated Logout, FAPI 2.0 Security Profile, NIST SP 800-162 and Cedar language corpora, the
+  Launch test kit, OpenID Connect Discovery, Core,
+  RP-Initiated Logout and Back-Channel Logout, FAPI 2.0 Security Profile, NIST SP 800-162 and Cedar language corpora, the
   IHE IUA supplement, the IHE BALP content page, Nuts RFC021, and the
   Microsoft Entra, SCIM workload identity and Keycloak documents the issuer
   profiles cite, the ZITADEL documentation and API definitions
@@ -160,11 +160,18 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   `.vendor-cache/`, and the MyHealth@EU Requirements Catalogue is recorded
   by sha256 and never copied).
 - `scripts/`: `vendor/` (the corpus fetchers), `checks/` (the committed
-  guards), `release/` (the crate publish), `gh/` (the tracker helpers).
+  guards), `release/` (the release plan, the crate publish and the Trivy
+  install), `gh/` (the tracker helpers).
 - `.github/`: CI with a single required `conclusion` job, the vendored
   specification guard, CodeQL, Scorecard, Dependabot, the release lane with
   crates.io Trusted Publishing (`release.yml`, `release-crate.yml`,
-  `publish-crates.yml`).
+  `publish-crates.yml`), and FerroSMART's release lane of attested tarballs
+  and a GHCR image scanned before it is tagged (`release-ferrosmart.yml` with
+  its `-build`, `-image` and `-scan` reusable workflows), and the weekly scan
+  of the published image (`image-scan.yml`).
+- `docker/ferrosmart/Dockerfile`, `compose.yaml`, `trivy.yaml`,
+  `security/vex/`: FerroSMART's distroless image, its quickstart beside
+  PostgreSQL, the image gate and the OpenVEX judgements its release reads.
 - `.claude/`: the working discipline (rules, agents, skills, hooks, memory).
 
 ## IMPORTANT hard rules
@@ -182,8 +189,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   SMART on openEHR draft (DEVELOPMENT, pinned by commit and read weekly
   upstream), RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725,
   9068, 9700, 8707, 7638, 8705, 9449, 9470, 8259, 6454, 7636, 7009, 7521,
-  7522, 8693 and 3986, OpenID Connect Discovery 1.0, Core 1.0 and RP-Initiated
-  Logout 1.0, and for FerroSMART also RFC 6819, 7518, 7591, 8252, 9126,
+  7522, 8693 and 3986, OpenID Connect Discovery 1.0, Core 1.0, RP-Initiated
+  Logout 1.0 and Back-Channel Logout 1.0, and for FerroSMART also RFC 6819, 7518, 7591, 8252, 9126,
   9207, 9864 and 10070 and the OAuth 2.1 draft (cited beside the RFCs it
   consolidates), the FAPI 2.0 Security Profile for a client grant held to it,
   and IHE IUA and Nuts RFC021 for federation tokens, as

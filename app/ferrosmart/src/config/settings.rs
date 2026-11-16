@@ -35,6 +35,10 @@ pub struct Settings {
     pub issuer_url: Url,
     /// How long an access token lives.
     pub access_token_lifetime: Duration,
+    /// How long an `offline_access` refresh token lasts unused.
+    pub refresh_idle: Duration,
+    /// How long an `online_access` refresh token lasts unused.
+    pub online_idle: Duration,
     /// The keys that sign every token.
     pub keys: Arc<KeyRing>,
     /// The connection URL of the database.
@@ -100,6 +104,16 @@ impl Config {
                 key: "ferrosmart.access_token_lifetime",
             });
         }
+        if section.refresh_idle.is_zero() {
+            return Err(Error::Zero {
+                key: "ferrosmart.refresh_idle",
+            });
+        }
+        if section.online_idle.is_zero() {
+            return Err(Error::Zero {
+                key: "ferrosmart.online_idle",
+            });
+        }
         if section.database.max_connections == 0 {
             return Err(Error::Zero {
                 key: "ferrosmart.database.max_connections",
@@ -119,6 +133,8 @@ impl Config {
             issuer: section.issuer.clone(),
             issuer_url: issuer,
             access_token_lifetime: section.access_token_lifetime.get(),
+            refresh_idle: section.refresh_idle.get(),
+            online_idle: section.online_idle.get(),
             keys: Arc::new(key_ring(&section.keys)?),
             database_url,
             max_connections: section.database.max_connections,

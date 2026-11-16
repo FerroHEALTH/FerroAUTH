@@ -24,6 +24,7 @@ records why the value is what it is.
 | FAPI 2.0 Security Profile | Final Specification (2025-02-22) | `docs/architecture.md` §2, `docs/specs/fapi-security-profile/PROVENANCE.md` |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | `docs/architecture.md` §2, `docs/specs/openid-connect-core/PROVENANCE.md` |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | `docs/architecture.md` §2, `docs/specs/openid-connect-rpinitiated/PROVENANCE.md` |
+| OpenID Connect Back-Channel Logout 1.0 | incorporating errata set 1 (2023-12-15) | `docs/architecture.md` §2, `docs/specs/openid-connect-backchannel/PROVENANCE.md` |
 | OAuth 2.1 Authorization Framework | draft-ietf-oauth-v2-1-17 (2026-10-31, an Internet-Draft, cited beside RFC 6749, 6750 and 9700 and never in their place) | `docs/architecture.md` §2 and §13, `docs/specs/oauth-v2-1/PROVENANCE.md` |
 | SMART on openEHR | DEVELOPMENT (the ITS-REST draft at its amendment record 1.1.0, 2025-05-20, pinned by commit below; never a release) | `docs/architecture.md` §2 and §3.9, `docs/specs/smart-on-openehr/PROVENANCE.md` |
 
@@ -44,6 +45,7 @@ hashes the vendored bytes again, failing when either disagrees with its row.
 | FAPI 2.0 Security Profile document | `fapi-security-profile-2_0-final.html` sha256 `26a49ad19b1f2b19ecc1cd9b825b4d5012f5e03a5dc8cb0dbd26462d39da465c` | `scripts/vendor/fapi-security-profile.sh`, `docs/specs/fapi-security-profile/PROVENANCE.md` |
 | OpenID Connect Core 1.0 document | `openid-connect-core-1_0-errata2.html` sha256 `4d016752a645e8a3c259baa4173b5a90cb6c82898ce868fc8444adde262a5aed` (the edition `openid-connect-core-1_0.html` serves) | `scripts/vendor/openid-connect-core.sh`, `docs/specs/openid-connect-core/PROVENANCE.md` |
 | OpenID Connect RP-Initiated Logout 1.0 document | `openid-connect-rpinitiated-1_0-final.html` sha256 `246432dafaa5556d896fa9b9ae4284b213ff6921b33478ed3b46bd6bd4aab804` (the edition `openid-connect-rpinitiated-1_0.html` serves) | `scripts/vendor/openid-connect-rpinitiated.sh`, `docs/specs/openid-connect-rpinitiated/PROVENANCE.md` |
+| OpenID Connect Back-Channel Logout 1.0 document | `openid-connect-backchannel-1_0-errata1.html` sha256 `3b5c933d5269047b39a65166d5c4d8ff6852b06451f54ed2531b8f97299fdc50` (the edition `openid-connect-backchannel-1_0.html` serves) | `scripts/vendor/openid-connect-backchannel.sh`, `docs/specs/openid-connect-backchannel/PROVENANCE.md` |
 | NIST SP 800-162 document | `NIST.SP.800-162.pdf` sha256 `ea90ee967a7011c8de5cfaffe0820d157167edefdea5fc2a84af730af4295cd7` (January 2014, with the updates of 2019-08-02) | `scripts/vendor/nist-sp-800-162.sh`, `docs/specs/nist-sp-800-162/PROVENANCE.md` |
 | Cedar language documentation | `cedar-policy/cedar-docs` commit `5d8a02fda9ddf629b9989b0e0e2fb16215d394e4` (the default branch head on 2026-10-25) paths `docs/collections/_policies`, `_auth` and `_schema` | `scripts/vendor/cedar-docs.sh`, `docs/specs/cedar-docs/PROVENANCE.md` |
 | IHE IUA supplement | `IHE/ITI.IUA` tag `2.5` commit `a8e20c92928b7560ee07a410922187757248c8b9`, the Revision 2.5 Trial Implementation supplement text (ITI-71, ITI-72, ITI-102, ITI-103) and its figures, the edition FerroHEALTH/FerroFED vendors (CC-BY-4.0) | `scripts/vendor/ihe-iua.sh`, `docs/specs/ihe-iua/PROVENANCE.md` |
@@ -169,6 +171,7 @@ the Federation Tier Annex B is under CC0 1.0.
 | zizmor | 1.31.1 | `.github/workflows/ci.yml` |
 | actionlint | 1.7.12, image digest `sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` | `.github/workflows/ci.yml` |
 | shellcheck | 0.11.0 | `.github/workflows/ci.yml` |
+| hadolint | 2.15.1, image digest `sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d` | `.github/workflows/ci.yml` |
 | cargo-semver-checks | 0.51.0, installed through `taiki-e/install-action`, which verifies the archive against its manifest checksum | read from this row by `scripts/checks/semver.sh --pin` for `.github/workflows/ci.yml` and `.github/workflows/release.yml` |
 | `jscpd` | `5.4.2` (release v5.4.2 of github.com/kucherenko/jscpd, 2026-10-20) | `scripts/checks/duplication.sh` |
 | `jscpd image` | `ghcr.io/kucherenko/jscpd:5.4.2@sha256:112bc771493f25ec412ebf61bef738dc1fbe80d3793090e6a5eeac827ef0ee79` | `scripts/checks/duplication.sh` (docker, podman) |
@@ -178,5 +181,10 @@ the Federation Tier Annex B is under CC0 1.0.
 | `jscpd linux-arm64` | `3635d652ae08ae10bfbc6821bfa8ac14080101f317fb5f45f4b590d5d32b9339` (`jscpd-linux-arm64-musl.tar.gz`) | `scripts/checks/duplication.sh --install` |
 | cargo-nextest, cargo-deny | the newest release `taiki-e/install-action` resolves at run time | `.github/workflows/ci.yml` |
 | Keycloak test image | `quay.io/keycloak/keycloak:26.8.2`, index digest `sha256:3879c623248408de29a5303178b5816c77e8dfef3890c361f8c0bbeaa979ba3b`, the release the Keycloak documentation pin names, run only by the live case behind `FERROHEALTH_KEYCLOAK_E2E=1`, which CI's `nextest (core and axum)` job sets | `crates/ferrohealth-smart/tests/it/keycloak_live.rs` |
-| PostgreSQL test image | `postgres:18.6`, index digest `sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42`, the release FerroHEALTH/FerroEHR builds its database image on, the service of CI's `nextest (core and axum)` job that FerroSMART's store cases reach through `FERROSMART_TEST_PG_URL` | `.github/workflows/ci.yml` |
+| PostgreSQL test image | `postgres:18.6`, index digest `sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42`, the release FerroHEALTH/FerroEHR builds its database image on, the service of CI's `nextest (core and axum)` job that FerroSMART's store cases reach through `FERROSMART_TEST_PG_URL`, and the database of the FerroSMART quickstart | `.github/workflows/ci.yml`, `compose.yaml` |
+| FerroSMART image base | `gcr.io/distroless/static-debian13:nonroot`, index digest `sha256:d62067879de890a1def9da0e7766b7d20810a5e5555cef8506b752437d7a3e88`, bumped by Dependabot | `docker/ferrosmart/Dockerfile` |
+| Trivy | 0.73.0 (the Linux x86_64 release tarball, checked by the sha256 `scripts/release/install-trivy.sh` pins) | `.github/workflows/release-ferrosmart.yml`, `.github/workflows/release-ferrosmart-scan.yml`, `.github/workflows/image-scan.yml`, `scripts/release/install-trivy.sh` |
+| syft | 1.51.1, installed through `taiki-e/install-action` | `.github/workflows/release-ferrosmart-build.yml`, `.github/workflows/release-ferrosmart-image.yml` |
+| cargo-auditable | 0.7.5, installed through `taiki-e/install-action` | `.github/workflows/release-ferrosmart-build.yml` |
+| cargo-cyclonedx | 0.5.9, installed through `taiki-e/install-action` | `.github/workflows/release-ferrosmart-build.yml` |
 | GitHub Actions | every `uses:` pinned to a full commit SHA with its version in a trailing comment, bumped by Dependabot | `.github/workflows/*.yml`, `.github/actions/setup-rust/action.yml` |

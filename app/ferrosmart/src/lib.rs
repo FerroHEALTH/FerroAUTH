@@ -20,6 +20,7 @@ pub mod form;
 pub mod introspect;
 pub mod launch;
 pub mod pages;
+pub mod refresh;
 pub mod revoke;
 pub mod server;
 pub mod store;

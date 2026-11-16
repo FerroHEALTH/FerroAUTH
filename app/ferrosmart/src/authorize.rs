@@ -228,6 +228,7 @@ async fn begin(
         expires_at: now().saturating_add(REQUEST_SECONDS),
         purpose: Purpose::Authorize,
         launch_context,
+        upstream_session: None,
     };
     state
         .store()
@@ -319,12 +320,20 @@ async fn proceed(
         .map(str::to_owned);
     let held = ferrohealth_smart::roles::from_claims(&claims.other, &upstream.role_claims);
     let subject = crate::upstream::pairwise(&claims.issuer, &claims.subject);
+    let upstream_session = match pending.purpose {
+        Purpose::Authorize => match begin_session(state, claims).await {
+            Ok(session) => Some(session),
+            Err(response) => return *response,
+        },
+        Purpose::Manage => None,
+    };
     let mut login = Login {
         subject,
         fhir_user,
         display_name: claims.display_name().map(str::to_owned),
         offered_scope: String::new(),
         auth_time: now(),
+        upstream_session,
     };
     tracing::info!(
         target: "ferrosmart::audit",
@@ -389,6 +398,24 @@ async fn proceed(
         return response;
     }
     see_other(&state.settings().endpoint(CONSENT_ROUTE))
+}
+
+/// Records the upstream login `claims` describe as a session, with the
+/// provider's `sid` when its ID Token carries one, and returns its id: the
+/// session an `online_access` grant lives in (`docs/architecture.md` §13.6
+/// item 7), which the provider's back-channel logout ends.
+async fn begin_session(
+    state: &AppState,
+    claims: &ferrohealth_smart::oidc::IdTokenClaims,
+) -> Result<String, Box<Response>> {
+    let session = random().map_err(|error| Box::new(pages::server_error(state, &error)))?;
+    let sid = claims.other.get("sid").and_then(serde_json::Value::as_str);
+    state
+        .store()
+        .begin_session(&session, &claims.issuer, &claims.subject, sid)
+        .await
+        .map_err(|error| Box::new(pages::server_error(state, &error)))?;
+    Ok(session)
 }
 
 /// Returns the client of `pending`, or the page that says it is gone.
@@ -459,6 +486,11 @@ pub fn offer(
             "launch/encounter" => ceiling(scope) && encounter,
             single if single.starts_with("patient/") => {
                 patient && ceiling(single) && granted_by_role(single)
+            }
+            // NOTE: SMART App Launch 2.2.0, Refresh access token, the server decides
+            // which clients get a refresh token: those whose ceiling and grants name it.
+            "offline_access" | "online_access" => {
+                ceiling(scope) && client.grant_types.contains(&GrantType::RefreshToken)
             }
             _ => false,
         };
@@ -585,6 +617,7 @@ async fn approve(
         auth_time,
         expires_at: now().saturating_add(CODE_SECONDS),
         launch_context: launch_context.cloned(),
+        upstream_session: pending.upstream_session.clone(),
     };
     if let Err(error) = state.store().issue_code(&hash, &grant).await {
         tracing::error!(error = %ferrohealth_server::run::chain(&error), "the code could not be stored");
@@ -750,7 +783,8 @@ fn constant_eq(a: &[u8], b: &[u8]) -> bool {
     a.len() == b.len() && a.iter().zip(b).fold(0_u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// Returns 256 random bits, base64url.
+/// Returns 256 random bits, base64url: a code, a request id, a grant id or
+/// a refresh token, each beyond guessing (RFC 6749 §10.10).
 pub(crate) fn random() -> Result<String, aws_lc_rs::error::Unspecified> {
     let mut bytes = [0_u8; 32];
     aws_lc_rs::rand::fill(&mut bytes)?;
@@ -816,6 +850,7 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
         expires_at: now().saturating_add(REQUEST_SECONDS),
         purpose: Purpose::Manage,
         launch_context: None,
+        upstream_session: None,
     };
     if let Err(error) = state.store().begin_authorization(&pending).await {
         return pages::server_error(&state, &error);
