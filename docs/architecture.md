@@ -3213,40 +3213,66 @@ The suite drives a browser through the authorization page, so the lane
 runs the test provider with a scripted login.
 
 The lane is steps of CI's `nextest (core and axum)` job, so its result is
-part of the `conclusion` check; `scripts/inferno/lane.sh` runs it. It puts
-FerroSMART, FerroEHR (the release `docs/VERSIONS.md` pins) as the resource
-server and the kit (its pinned commit, on the Ruby and gems that commit
-locks) on the runner's host network, with a development CA made for the run
-that signs `smart.localhost` and `ehr.localhost`, so every exchange is TLS.
-FerroEHR's REST root is the `url` the kit is given: it serves the SMART
-document there (SMART on openEHR master04, Service Discovery), built from
-FerroSMART's metadata. `inferno execute_script` runs
-`app/ferrosmart/inferno/smart_stu2_2.yaml` and fails unless every result
-matches `smart_stu2_2_expected.json`. The lane's own files hold the rest,
-and the lane refuses a change that lets one drift:
+part of the `conclusion` check; `scripts/inferno/lane.sh` runs it. Every
+party is the family's own, at the release `docs/VERSIONS.md` pins, on the
+runner's host network, with a development CA made for the run that signs
+`smart.localhost` and `bridge.localhost`, so every exchange the kit makes
+is TLS:
+
+- FerroSMART, with Keycloak as its upstream login (the realm of 13.16).
+- FerroBRIDGE's FHIR R4 facade as the FHIR server, the kit's `url`. Its
+  SMART document describes FerroSMART as a `persons` issuer, it checks
+  FerroSMART's tokens through `ferrohealth-smart`, and it serves the
+  person's `fhirUser` as a `Practitioner`, mapped onto a `PERSON` by the
+  party context its own release ships (vendored under
+  `docs/specs/ferrobridge-practitioner/`). The lane stores that `PERSON` in
+  FerroEHR before Keycloak starts, so the realm's `fhirUser` names a
+  resource the facade really serves.
+- FerroEHR as FerroBRIDGE's CDR, answering it alone on the loopback
+  interface.
+- The kit at its pinned commit, on the Ruby and gems that commit locks.
+  Where the kit waits for a browser, the execution script runs
+  `scripts/idp/authorize.sh`, which logs in at Keycloak and approves every
+  scope on FerroSMART's consent page, as a person would.
+
+`inferno execute_script` runs `app/ferrosmart/inferno/smart_stu2_2.yaml`
+and fails unless every result matches `smart_stu2_2_expected.json`, with
+the values each run makes anew (the `state`, the PKCE challenge)
+normalized. The lane's own files hold the rest, and the lane refuses a
+change that lets one drift:
 
 - `groups.tsv` marks each group `run` or `pending` with the issues it waits
   on. Every run lists the pending groups in the log and the job summary,
-  and warns once their issues are closed. Group 3 runs; groups 1, 2 and 4
-  wait on #515 with #516, #517 and #518 respectively.
+  and warns once their issues are closed. Groups 2, 3 and 4 run; group 1
+  waits on the patient picker (#516) for `launch/patient`. Group 2's EHR
+  is the lane itself: `scripts/inferno/ehr-launch.sh` registers each launch
+  at `POST /launch` as the lane's client (13.6 item 3) and opens the kit's
+  launch URI with `iss` and `launch`.
 - `exceptions.tsv` lists each test of a run group that the expected results
   do not hold to `pass`, with its reason; any other test expected to be
-  anything but `pass` fails the run. Two rows stand. The kit's
-  `well_known_capabilities_stu2` requires `authorization_endpoint` and the
-  `authorization_code` grant in every discovery document, which FerroSMART
-  advertises once #515 lands; SMART itself requires `authorization_endpoint`
-  only with a launch capability (`smart conformance`, Metadata).
-  `smart_cors_metadata_request` reads `GET [base]/metadata`, the FHIR
-  server's CapabilityStatement, which FerroEHR, an openEHR CDR, does not
-  serve.
+  anything but `pass` fails the run. Seven rows stand, all FerroBRIDGE's
+  missing CORS headers (`smart app-launch`, Considerations for CORS
+  support): `smart_cors_well_known_endpoint` and
+  `smart_cors_metadata_request` in the discovery of groups 2, 3 and 4 (its
+  SMART document and its CapabilityStatement, item 1), and
+  `smart_cors_openid_fhir_user_claim` in group 2 (the `Practitioner` read
+  from the app's origin, item 2).
 - Each result is recorded in the job summary against the SMART App Launch
   2.2.0 requirements the kit's coverage map ties its test to.
 
-Group 3 at the first run: every test of SMART Backend Services
-Authorization passes (TLS 1.2 or newer, `smart backend-services`; the
-invalid grant type, the invalid client assertion and the invalid JWT
-refused; the success response and its body), and of Discovery the
-well-known endpoint and its CORS answer pass beside the two exceptions.
+Group 4 introspects with a bearer token of the lane's own client, which
+holds `system/introspect` (13.6 item 8) and asks for FerroSMART's issuer as
+its audience. Every test of groups 2, 3 and 4 outside those seven passes:
+SMART Backend Services Authorization (TLS 1.2 or newer, the invalid grant
+type, the invalid client assertion and the invalid JWT refused, the success
+response and its body); the standalone launch of group 4 (TLS on the
+authorization and token endpoints, the redirect, the code, the token
+exchange with its response body and headers, CORS on the token endpoint
+(13.6 item 12)); the introspection of an active and an invalid token with
+both responses; and group 2's EHR launch with the same exchange, OpenID
+Connect (the ID Token, the configuration, the key set and the `fhirUser`
+claim, whose `Practitioner` FerroBRIDGE serves) and the refresh with and
+without `scope`.
 
 ### 13.14 The build order
 

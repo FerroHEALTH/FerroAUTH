@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+# A person's part of FerroSMART's authorization code flow, as a browser
+# without script would take it: from the authorization request an app sent
+# the browser to, through the upstream provider's login form and
+# FerroSMART's consent page, approving every scope offered, to the redirect
+# back to the app (SMART App Launch 2.2.0, Obtain authorization code). It
+# prints that redirect and, with --follow, also requests it, which is how
+# the Inferno lane hands the code to the kit. No specification governs the
+# driver: our own design.
+#
+#   scripts/idp/authorize.sh LOGIN <authorization_url> [--follow]
+#
+# LOGIN names how the provider's login form is answered: `keycloak` posts the
+# username and password to the form `kc-form-login` names. The person is
+# read from LAUNCH_USER and LAUNCH_PASSWORD. FerroSMART's issuer is the
+# authorization URL up to `/authorize`. It needs bash, curl, grep and sed;
+# CURL_CA_BUNDLE names a private root.
+set -euo pipefail
+
+[ "$#" -ge 2 ] || {
+  echo "usage: scripts/idp/authorize.sh LOGIN <authorization_url> [--follow]" >&2
+  exit 2
+}
+login=$1 url=$2 follow=${3:-}
+: "${LAUNCH_USER:?the person to log in as}" "${LAUNCH_PASSWORD:?their password}"
+issuer=${url%%/authorize*}
+
+jar="$(mktemp)"
+trap 'rm -f "$jar"' EXIT
+
+fail() {
+  echo "authorize: $*" >&2
+  exit 1
+}
+
+# The location a request answers with, refusing anything but a redirect.
+redirect() {
+  local location
+  location=$(curl -sS -c "$jar" -b "$jar" -o /dev/null -w '%{redirect_url}' "$@")
+  [ -n "$location" ] || fail "expected a redirect from $*"
+  printf '%s\n' "$location"
+}
+
+# The value of the attribute `$3` in the first tag of `$1` that `$2` matches,
+# with the HTML entities of a URL decoded.
+attribute() {
+  grep -oE "$2" <<< "$1" | head -1 | grep -oE "$3=\"[^\"]*\"" | head -1 |
+    sed -E "s/^$3=\"//; s/\"$//; s/&amp;/\\&/g; s/&#x2F;/\\//g; s/&#47;/\\//g; s/&#61;/=/g"
+}
+
+# 1. FerroSMART sends the browser to the provider, whose login form the
+#    person fills.
+location=$(redirect "$url")
+page=$(curl -sS -c "$jar" -b "$jar" "$location")
+case "$login" in
+  keycloak)
+    action=$(attribute "$page" '<form[^>]*id="kc-form-login"[^>]*>' action)
+    [ -n "$action" ] || fail "the provider's page has no login form"
+    location=$(redirect --data-urlencode "username=$LAUNCH_USER" --data-urlencode "password=$LAUNCH_PASSWORD" "$action")
+    ;;
+  *) fail "unknown login '$login'" ;;
+esac
+
+# 2. The provider sends it back to FerroSMART's callback, which shows the
+#    consent page; the person approves every scope offered.
+case "$location" in "$issuer"/callback*) ;; *) fail "the login did not return to FerroSMART: $location" ;; esac
+location=$(redirect "$location")
+case "$location" in "$issuer"/consent*) ;; *) fail "FerroSMART did not ask for consent: $location" ;; esac
+page=$(curl -sS -c "$jar" -b "$jar" "$location")
+form_token=$(attribute "$page" '<input[^>]*name="form_token"[^>]*>' value)
+[ -n "$form_token" ] || fail "the consent page has no form token"
+approve=(--data-urlencode "form_token=$form_token" --data-urlencode "decision=approve")
+while IFS= read -r offered; do
+  approve+=(--data-urlencode "scope=$offered")
+done < <(grep -oE '<input[^>]*name="scope"[^>]*>' <<< "$page" | grep -oE 'value="[^"]*"' | sed -E 's/^value="//; s/"$//')
+location=$(redirect "${approve[@]}" "$issuer/consent")
+printf '%s\n' "$location"
+
+# 3. The browser follows the redirect to the app.
+if [ "$follow" = --follow ]; then
+  curl -fsS -o /dev/null "$location" || fail "the app did not take its redirect: $location"
+fi

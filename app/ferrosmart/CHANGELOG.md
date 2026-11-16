@@ -13,6 +13,12 @@ and this project adheres to
 
 ### Added
 
+- The Inferno lane runs its FHIR server on the family's own stack: FerroBRIDGE's
+  facade, with FerroEHR as its CDR, serves the person's `fhirUser` as a
+  Practitioner, and Keycloak is the upstream login. Group 4, Token
+  Introspection, and group 2, EHR Launch, with the lane as the EHR, run beside
+  group 3, and the discovery exception that waited on the authorization
+  endpoint is gone (#520).
 - `compose.keycloak.yaml`, an override of the quickstart that runs Keycloak
   with the example realm as the login of `compose.yaml`'s FerroSMART, in the
   same compose project (#522).
