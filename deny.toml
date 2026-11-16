@@ -43,6 +43,8 @@ exceptions = [
   { allow = ["BUSL-1.1"], crate = "ferrohealth-smart" },
   { allow = ["BUSL-1.1"], crate = "ferrohealth-authz" },
   { allow = ["BUSL-1.1"], crate = "ferrohealth-session" },
+  # FerroSMART, the authorization server under app/ferrosmart.
+  { allow = ["BUSL-1.1"], crate = "ferrosmart" },
   # The family's shared mask crate.
   { allow = ["BUSL-1.1"], crate = "ferrohealth-secret" },
   # The family's configuration types (Duration, ByteSize, the outbound TLS
