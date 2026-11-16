@@ -33,9 +33,9 @@ const JWT_BEARER: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer
 /// The answer of one request: the status, the headers and the JSON body.
 pub(crate) type Answer = (StatusCode, http::HeaderMap, Value);
 
-/// A running server over a fresh database with three clients: `export`, a
+/// A running server over a fresh database with four clients: `export`, a
 /// Backend Services client; `rs`, a resource server that may introspect;
-/// and `app`, a public client.
+/// `portal`, a confidential app; and `app`, a public one.
 pub(crate) struct Server {
     /// The application.
     app: Router,
@@ -73,6 +73,9 @@ impl Server {
              scopes = [\"system/Patient.rs\", \"system/Observation.rs\"]\ngrant_types = [\"client_credentials\"]\n\
              [[ferrosmart.client]]\nclient_id = \"rs\"\nkind = \"confidential_asymmetric\"\njwks_file = {set:?}\n\
              scopes = [\"system/introspect\"]\ngrant_types = [\"client_credentials\"]\n\
+             [[ferrosmart.client]]\nclient_id = \"portal\"\nkind = \"confidential_asymmetric\"\njwks_file = {set:?}\n\
+             redirect_uris = [\"https://portal.example.org/callback\"]\n\
+             grant_types = [\"authorization_code\", \"refresh_token\"]\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\
              redirect_uris = [\"https://app.example.org/callback\"]\n\
              grant_types = [\"authorization_code\", \"refresh_token\"]",

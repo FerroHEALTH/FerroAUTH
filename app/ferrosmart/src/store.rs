@@ -224,7 +224,7 @@ impl Store {
     pub async fn logged_in(&self, id: &str, login: &Login) -> Result<(), StoreError> {
         sqlx::query(
             "UPDATE pending_authorization SET subject = $2, fhir_user = $3, display_name = $4, \
-             offered_scope = $5, auth_time = $6 WHERE id = $1",
+             offered_scope = $5, auth_time = $6, upstream_session = $7 WHERE id = $1",
         )
         .bind(id)
         .bind(&login.subject)
@@ -232,6 +232,7 @@ impl Store {
         .bind(&login.display_name)
         .bind(&login.offered_scope)
         .bind(login.auth_time)
+        .bind(&login.upstream_session)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -247,7 +248,8 @@ impl Store {
             "DELETE FROM pending_authorization WHERE id = $1 AND expires_at > now() \
              RETURNING id, client_id, redirect_uri, scope, state, nonce, code_challenge, audience, \
              upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
-             display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose",
+             display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
+             upstream_session",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -263,8 +265,8 @@ impl Store {
     pub async fn issue_code(&self, hash: &str, code: &Code) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO authorization_code (code_hash, client_id, redirect_uri, code_challenge, \
-             audience, subject, fhir_user, scope, nonce, auth_time, expires_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11))",
+             audience, subject, fhir_user, scope, nonce, auth_time, expires_at, upstream_session) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11), $12)",
         )
         .bind(hash)
         .bind(&code.client_id)
@@ -277,6 +279,7 @@ impl Store {
         .bind(&code.nonce)
         .bind(code.auth_time)
         .bind(code.expires_at)
+        .bind(&code.upstream_session)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -290,7 +293,7 @@ impl Store {
     pub async fn code(&self, hash: &str) -> Result<Option<(Code, bool)>, StoreError> {
         let row = sqlx::query(
             "SELECT client_id, redirect_uri, code_challenge, audience, subject, fhir_user, scope, \
-             nonce, auth_time, extract(epoch FROM expires_at)::bigint AS expires, \
+             nonce, auth_time, extract(epoch FROM expires_at)::bigint AS expires, upstream_session, \
              redeemed_at IS NOT NULL AS redeemed FROM authorization_code \
              WHERE code_hash = $1 AND expires_at > now()",
         )
@@ -310,6 +313,7 @@ impl Store {
                     nonce: row.try_get("nonce")?,
                     auth_time: row.try_get("auth_time")?,
                     expires_at: row.try_get("expires")?,
+                    upstream_session: row.try_get("upstream_session")?,
                 },
                 row.try_get("redeemed")?,
             ))
@@ -406,9 +410,11 @@ impl Store {
             .collect()
     }
 
-    /// Forgets the consent `subject` gave `client_id` and revokes the access
-    /// tokens issued to the client about them, and returns whether there
-    /// was one.
+    /// Forgets the consent `subject` gave `client_id` and revokes the
+    /// grants, refresh tokens and access tokens issued to the client about
+    /// them ("revoking it revokes the grants it covered",
+    /// `docs/architecture.md` §13.6 item 6), and returns whether there was
+    /// one.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when a statement fails; nothing is
@@ -422,6 +428,22 @@ impl Store {
             .await?;
         sqlx::query(
             "UPDATE access_token SET revoked_at = now() \
+             WHERE subject = $1 AND client_id = $2 AND revoked_at IS NULL",
+        )
+        .bind(subject)
+        .bind(client_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE refresh_token SET revoked_at = now() WHERE revoked_at IS NULL AND grant_id IN \
+             (SELECT id FROM authorization_grant WHERE subject = $1 AND client_id = $2)",
+        )
+        .bind(subject)
+        .bind(client_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE authorization_grant SET revoked_at = now() \
              WHERE subject = $1 AND client_id = $2 AND revoked_at IS NULL",
         )
         .bind(subject)
@@ -598,8 +620,8 @@ pub struct IssuedToken<'a> {
 /// The columns of a pending authorization, as [`read_pending`] reads them.
 const PENDING: &str = "SELECT id, client_id, redirect_uri, scope, state, nonce, code_challenge, \
     audience, upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
-    display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose \
-    FROM pending_authorization";
+    display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
+    upstream_session FROM pending_authorization";
 
 /// An authorization request between the authorization endpoint and the
 /// code.
@@ -643,6 +665,8 @@ pub struct Pending {
     pub expires_at: i64,
     /// What the login is for.
     pub purpose: Purpose,
+    /// The upstream session the person logged in under.
+    pub upstream_session: Option<String>,
 }
 
 /// What a login is for.
@@ -686,6 +710,8 @@ pub struct Login {
     pub offered_scope: String,
     /// When they logged in.
     pub auth_time: i64,
+    /// The upstream session they logged in under.
+    pub upstream_session: Option<String>,
 }
 
 /// An authorization code's grant.
@@ -715,6 +741,9 @@ pub struct Code {
     pub auth_time: i64,
     /// When the code lapses.
     pub expires_at: i64,
+    /// The upstream session the person logged in under, which an
+    /// `online_access` grant ends with.
+    pub upstream_session: Option<String>,
 }
 
 /// Reads a pending authorization row.
@@ -745,6 +774,7 @@ fn read_pending(row: &sqlx::postgres::PgRow) -> Result<Pending, StoreError> {
         auth_time: row.try_get("auth_time")?,
         expires_at: row.try_get("expires")?,
         purpose,
+        upstream_session: row.try_get("upstream_session")?,
     })
 }
 

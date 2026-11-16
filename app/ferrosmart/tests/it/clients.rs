@@ -172,3 +172,28 @@ fn the_registry_refuses_a_repeated_or_missing_id_a_bad_scope_and_no_grant() {
     };
     assert!(matches!(resolve(&[idle]), Err(ClientError::Rule { .. })));
 }
+
+#[test]
+fn a_refresh_token_continues_an_authorization_code_grant_only() {
+    // NOTE: SMART App Launch 2.2.0, Backend Services: refresh tokens SHOULD NOT be issued.
+    let backend_refresh = ClientSection {
+        grant_types: vec![GrantType::ClientCredentials, GrantType::RefreshToken],
+        ..backend("export")
+    };
+    assert!(matches!(
+        resolve(&[backend_refresh]),
+        Err(ClientError::Rule { .. })
+    ));
+    let app = ClientSection {
+        client_id: String::from("app"),
+        kind: ClientKind::Public,
+        redirect_uris: vec![String::from("https://app.example.org/callback")],
+        grant_types: vec![GrantType::RefreshToken, GrantType::AuthorizationCode],
+        ..ClientSection::default()
+    };
+    let admitted = resolve(&[app]).expect("admitted");
+    assert_eq!(
+        vec![GrantType::AuthorizationCode, GrantType::RefreshToken],
+        admitted[0].grant_types
+    );
+}

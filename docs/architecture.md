@@ -2549,7 +2549,10 @@ discovery and token shapes for the two SaaS providers.
 FerroSMART lives in this repository permanently: the owner chose fewer
 repositories over a new one. It ships as its own OCI image and the family's
 release artefacts (signed, with SLSA provenance and an SBOM), on its own
-version line beside the library crates. It is licensed BUSL-1.1, like the
+version line beside the library crates: the tag `ferrosmart-vX.Y.Z`, the
+image `ghcr.io/ferrohealth/ferrosmart` on distroless static, and the
+`compose.yaml` quickstart beside PostgreSQL (`docs/release.md`, The
+FerroSMART release). It is licensed BUSL-1.1, like the
 rest of the family's hand-written code. "FerroSMART" was this repository's
 name until the owner renamed it FerroAUTH on 2026-10-25; the product name is
 reused for the server.
@@ -2860,6 +2863,27 @@ specification governs.
     two kinds apart by the value: an access token is an RFC 9068 JWT one
     of FerroSMART's keys verifies, anything else is looked up by its
     SHA-256 as a refresh token.
+11. **Refresh rotation for every client.** `rfc9700 §4.14.2` requires
+    rotation or sender-constraining for public clients; FerroSMART rotates
+    every client's refresh token, one fixed behaviour, so reuse detection
+    covers confidential clients too (`oauth21 §4.3.2`, MAY issue a new
+    refresh token). A rotated token presented again, including by two
+    requests racing with one token, revokes the grant with every token
+    under it (`oauth21 §4.3.1`). The new token keeps the grant's whole
+    scope (`oauth21 §4.3.3`) and lapses after `refresh_idle`
+    (`offline_access`) or `online_idle` (`online_access`) unused. A
+    refresh request's `scope` may equal the grant's: SMART's "strict
+    sub-set" is read with `oauth21 §4.3.1`, which forbids only a scope
+    "not originally granted", since an absent `scope` already means the
+    same set. Our own reading. A client receives a refresh token when its
+    ceiling lists `offline_access` or `online_access` and it registers the
+    `refresh_token` grant; only then does the consent page offer either
+    (`smart app-launch`, Refresh access token: "A server can decide which
+    client types ... are eligible"). With both granted, `offline_access`
+    decides. Redeeming a code opens the grant every token of the launch is
+    issued under, with the launch context and the upstream session the
+    person logged in under; withdrawing a remembered consent revokes the
+    grants it covered with every token under them.
 
 ### 13.7 The crate layout
 

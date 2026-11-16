@@ -21,6 +21,7 @@ pub mod discovery;
 pub mod form;
 pub mod introspect;
 pub mod pages;
+pub mod refresh;
 pub mod revoke;
 pub mod server;
 pub mod store;

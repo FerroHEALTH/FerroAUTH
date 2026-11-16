@@ -19,6 +19,8 @@
 //! [ferrosmart]
 //! issuer = "https://smart.example.org"
 //! access_token_lifetime = "5m"
+//! refresh_idle = "30d"
+//! online_idle = "8h"
 //!
 //! [ferrosmart.keys]
 //! private_key_file = "/run/secrets/ferrosmart-rs256.pem"
@@ -120,6 +122,15 @@ pub struct FerroSmartSection {
     /// Backend Services recommends and keeps every grant within SMART App
     /// Launch's one hour.
     pub access_token_lifetime: Span,
+    /// How long an `offline_access` refresh token lasts unused: thirty days
+    /// by default. Each refresh rotates it and starts the time again, so an
+    /// idle grant lapses (OAuth 2.1 draft §4.3.3, "Refresh tokens SHOULD
+    /// expire if the client has been inactive for some time").
+    pub refresh_idle: Span,
+    /// How long an `online_access` refresh token lasts unused: eight hours
+    /// by default, and never past the end of the person's upstream login
+    /// (`docs/architecture.md` §13.6 item 7).
+    pub online_idle: Span,
     /// `[ferrosmart.keys]`: the key ring that signs every token.
     pub keys: KeysSection,
     /// `[ferrosmart.database]`: the PostgreSQL database of the state.
@@ -226,6 +237,8 @@ impl Default for FerroSmartSection {
         Self {
             issuer: String::new(),
             access_token_lifetime: Span::from_mins(5),
+            refresh_idle: Span::from_days(30),
+            online_idle: Span::from_hours(8),
             keys: KeysSection::default(),
             database: DatabaseSection::default(),
             client: Vec::new(),

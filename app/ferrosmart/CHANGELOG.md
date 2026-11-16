@@ -63,11 +63,39 @@ and this project adheres to
   by its assertion, a public client by `client_id`, each only for its own
   tokens. Revoking a refresh token revokes its grant with every token under
   it; an unknown token answers `200` (#518).
+- The refresh token grant at the token endpoint (SMART App Launch 2.2.0,
+  Refresh access token): a public client by `client_id`, a confidential
+  one by its assertion, each only with its own token. Every refresh
+  rotates the token; a rotated token presented again revokes its grant
+  with every token under it (RFC 9700 §4.14.2). A `scope` may narrow the
+  grant and never widen it, the rotated token keeps the grant's scope, and
+  the answer carries the launch context. `[ferrosmart] refresh_idle`
+  (thirty days) and `online_idle` (eight hours) set how long an
+  `offline_access` and an `online_access` refresh token last unused, and
+  an `online_access` one ends with its upstream session. A client
+  registers `refresh_token` only beside `authorization_code`. The code
+  exchange opens the grant and answers its first refresh token when the
+  person granted `offline_access` or `online_access`, which the consent page
+  offers only to a client whose ceiling lists it and that registers
+  `refresh_token`; each login at the upstream provider is recorded as the
+  session an `online_access` grant ends with, and withdrawing a remembered
+  consent revokes its grants (#518).
 - Migration 0005: the grants, the refresh tokens stored as their SHA-256,
   the upstream sessions an `online_access` grant ends with, and the grant
   of each access token, so revocation reaches every replica at once. The
   RFC 8414 metadata names both endpoints and their client authentication
   methods (#518).
+- The release lane: a `ferrosmart-vX.Y.Z` tag builds `x86_64` and `aarch64`
+  tarballs for GNU and musl libc, each with its checksum, a CycloneDX and an
+  SPDX SBOM and SLSA Build Level 3 provenance signed through Sigstore, and
+  the image `ghcr.io/ferrohealth/ferrosmart` for `linux/amd64` and
+  `linux/arm64` on distroless static, pushed by digest with its provenance
+  and SBOMs as OCI referrers. Every finding of a full scan of the image and
+  the tarballs needs an OpenVEX judgement before the release publishes, and
+  the image is tagged only once it carries no fixable HIGH or CRITICAL
+  finding, and a weekly scan of the published image files an issue for a
+  new fixable one. `compose.yaml` is the quickstart beside PostgreSQL,
+  attached to every release (#519).
 - The audit records, kept in FerroSMART's own store (migration 0007): every
   token request, issued or refused, is the ITI-71 audit event in the form
   of BALP 1.1.4's `IHE.IUA.71`, and every login at the upstream provider a

@@ -60,9 +60,11 @@ pub const AUTHZ_OAUTH_SERVICE: Coded = Coded::fixed(
     "OAuth Authorization Server",
 );
 
-/// The token request parameters whose values a record leaves out: the PKCE
-/// verifier the profile names, and the credentials RFC 6749 has kept
-/// confidential (§10.3 to §10.5) with the client assertion of RFC 7521.
+/// The token request parameters whose values a record leaves out.
+///
+/// They are the PKCE verifier the profile names, and the credentials RFC
+/// 6749 has kept confidential (§10.3 to §10.5) with the client assertion of
+/// RFC 7521.
 pub const WITHHELD: [&str; 5] = [
     "code_verifier",
     "code",

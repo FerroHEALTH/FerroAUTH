@@ -22,7 +22,7 @@ use ferrohealth_server::client_address::ClientAddress;
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, jwk::Jwk};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::audit;
 use crate::clients::{Client, ClientKeys, ClientKind, GrantType};
@@ -203,18 +203,23 @@ pub struct TokenResponse {
     /// The ID Token, when `openid` is granted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id_token: Option<String>,
-    /// The deployment's style document, a launch context parameter of an
-    /// app's token response (SMART App Launch 2.2.0, App Launch, Launch
-    /// context), when `[ferrosmart.branding]` names one.
+    /// The refresh token, when the grant carries `offline_access` or
+    /// `online_access` (SMART App Launch 2.2.0, Obtain access token).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub smart_style_url: Option<String>,
+    pub refresh_token: Option<String>,
+    /// The launch context parameters of an app's grant, each a member of the
+    /// response (SMART App Launch 2.2.0, Scopes and Launch Context, Launch
+    /// context arrives with your `access_token`): `smart_style_url` when
+    /// `[ferrosmart.branding]` names one.
+    #[serde(flatten)]
+    pub context: Map<String, Value>,
 }
 
 /// An issued token with what the audit record names.
 #[derive(Debug)]
-struct Issued {
+pub(crate) struct Issued {
     /// The response.
-    response: TokenResponse,
+    pub(crate) response: TokenResponse,
     /// The client.
     client_id: String,
     /// The token's `jti`.
@@ -231,6 +236,8 @@ struct Issued {
     exp: i64,
     /// The SHA-256 of the code it answers, if any.
     code_hash: Option<String>,
+    /// The grant it was issued under; none for a client credentials token.
+    grant_id: Option<String>,
 }
 
 impl Issued {
@@ -245,7 +252,7 @@ impl Issued {
             issued_at: self.iat,
             expires_at: self.exp,
             code_hash: self.code_hash.as_deref(),
-            grant_id: None,
+            grant_id: self.grant_id.as_deref(),
         }
     }
 }
@@ -256,6 +263,7 @@ async fn issue(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Iss
     match form.get("grant_type") {
         Some("client_credentials") => client_credentials(state, &form).await,
         Some("authorization_code") => authorization_code(state, &form).await,
+        Some("refresh_token") => crate::refresh::refresh(state, &form).await,
         Some(_) => Err(Refusal {
             error: "unsupported_grant_type",
             description: "the grant type is not supported",
@@ -306,7 +314,8 @@ async fn client_credentials(state: &AppState, form: &Params) -> Result<Issued, R
             code_hash: None,
             token_type: "bearer",
             identity: None,
-            launch: false,
+            under: None,
+            context: &Map::new(),
         },
     )
 }
@@ -319,22 +328,7 @@ async fn client_credentials(state: &AppState, form: &Params) -> Result<Issued, R
 /// first issued, once the rest of the request holds (OAuth 2.1 draft
 /// §4.1.3, §7.5.3).
 async fn authorization_code(state: &AppState, form: &Params) -> Result<Issued, Refusal> {
-    let client = if form.get("client_assertion").is_some() {
-        authenticate(state, form).await?
-    } else {
-        let client_id = form
-            .get("client_id")
-            .ok_or(Refusal::client("the request names no client"))?;
-        match state.store().client(client_id).await {
-            Ok(Some(client)) if client.kind == ClientKind::Public => client,
-            Ok(_) => {
-                return Err(Refusal::client(
-                    "the client is not a registered public client",
-                ));
-            }
-            Err(error) => return Err(server_error("the client registry cannot be read", &error)),
-        }
-    };
+    let client = identify(state, form).await?;
     if !client.grant_types.contains(&GrantType::AuthorizationCode) {
         return Err(Refusal {
             error: "unauthorized_client",
@@ -394,7 +388,8 @@ async fn authorization_code(state: &AppState, form: &Params) -> Result<Issued, R
         .fhir_user
         .as_deref()
         .filter(|_| grant.scope.split(' ').any(|scope| scope == "fhirUser"));
-    mint(
+    let launch = crate::refresh::open(state, &client, &grant).await?;
+    let mut issued = mint(
         state,
         &client,
         Grant {
@@ -405,9 +400,32 @@ async fn authorization_code(state: &AppState, form: &Params) -> Result<Issued, R
             code_hash: Some(&hash),
             token_type: "Bearer",
             identity: openid.then_some((grant.nonce.as_deref(), grant.auth_time)),
-            launch: true,
+            under: Some(&launch.grant_id),
+            context: &launch.context,
         },
-    )
+    )?;
+    issued.response.refresh_token = launch.refresh_token;
+    Ok(issued)
+}
+
+/// Returns the client of `form`: authenticated by its assertion, or a
+/// registered public client named by `client_id`, which cannot
+/// authenticate (RFC 6749 §2.1, §3.2.1; SMART App Launch 2.2.0, Refresh
+/// access token, Request).
+pub(crate) async fn identify(state: &AppState, form: &Params) -> Result<Client, Refusal> {
+    if form.get("client_assertion").is_some() || form.get("client_assertion_type").is_some() {
+        return authenticate(state, form).await;
+    }
+    let client_id = form
+        .get("client_id")
+        .ok_or(Refusal::client("the request names no client"))?;
+    match state.store().client(client_id).await {
+        Ok(Some(client)) if client.kind == ClientKind::Public => Ok(client),
+        Ok(_) => Err(Refusal::client(
+            "the client is not a registered public client",
+        )),
+        Err(error) => Err(server_error("the client registry cannot be read", &error)),
+    }
 }
 
 /// Returns the scope the client is granted: each requested scope its
@@ -655,24 +673,25 @@ struct AccessClaims<'a> {
 
 /// What an access token grants, and what else the token response carries.
 #[derive(Debug, Clone, Copy)]
-struct Grant<'a> {
+pub(crate) struct Grant<'a> {
     /// The token's `sub`.
-    subject: &'a str,
+    pub(crate) subject: &'a str,
     /// The resource server.
-    audience: &'a str,
+    pub(crate) audience: &'a str,
     /// The scope granted.
-    scope: &'a str,
+    pub(crate) scope: &'a str,
     /// The person's `fhirUser`, written into the token and the ID Token.
-    fhir_user: Option<&'a str>,
+    pub(crate) fhir_user: Option<&'a str>,
     /// The SHA-256 of the authorization code the token answers.
-    code_hash: Option<&'a str>,
+    pub(crate) code_hash: Option<&'a str>,
     /// The `token_type` the grant's profile fixes.
-    token_type: &'static str,
+    pub(crate) token_type: &'static str,
     /// The ID Token's `nonce` and `auth_time`, when `openid` is granted.
-    identity: Option<(Option<&'a str>, i64)>,
-    /// Whether the grant ends an app launch, whose response carries the
-    /// launch context parameters.
-    launch: bool,
+    pub(crate) identity: Option<(Option<&'a str>, i64)>,
+    /// The grant the token is issued under, when a person gave one.
+    pub(crate) under: Option<&'a str>,
+    /// The launch context parameters the response carries.
+    pub(crate) context: &'a Map<String, Value>,
 }
 
 /// Signs, records and answers an access token for `client` under `grant`.
@@ -684,7 +703,7 @@ struct Grant<'a> {
 /// `sub` (RFC 9068 §5); a person's `sub` is pairwise per upstream issuer
 /// (13.6 item 9). The person's `fhirUser` rides in the access token beside
 /// the RFC 9068 set (13.6 item 2).
-fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Issued, Refusal> {
+pub(crate) fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Issued, Refusal> {
     let settings = state.settings();
     let lifetime = settings.access_token_lifetime.as_secs();
     let issued_at = jiff::Timestamp::now().as_second();
@@ -738,19 +757,18 @@ fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Issued, R
             expires_in: lifetime,
             scope: grant.scope.to_owned(),
             id_token,
-            smart_style_url: grant
-                .launch
-                .then(|| settings.branding.smart_style_url.clone())
-                .filter(|url| !url.is_empty()),
+            refresh_token: None,
+            context: grant.context.clone(),
         },
         client_id: client.client_id.clone(),
         jti,
         audience: grant.audience.to_owned(),
-        person: grant.launch.then(|| grant.subject.to_owned()),
+        person: grant.under.map(|_| grant.subject.to_owned()),
         subject: grant.subject.to_owned(),
         iat: issued_at,
         exp: expires_at,
         code_hash: grant.code_hash.map(str::to_owned),
+        grant_id: grant.under.map(str::to_owned),
     })
 }
 

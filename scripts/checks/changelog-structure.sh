@@ -18,7 +18,7 @@
 #      A released section is the record its release notes were cut from, and
 #      stays as it was cut.
 #
-#   scripts/checks/changelog-structure.sh             every crates/*/CHANGELOG.md
+#   scripts/checks/changelog-structure.sh             every crates/*/ and app/*/CHANGELOG.md
 #   scripts/checks/changelog-structure.sh <file>...   each file named
 #   scripts/checks/changelog-structure.sh --self-test
 #
@@ -111,11 +111,11 @@ check_files() {
   return "$status"
 }
 
-# Checks every crates/*/CHANGELOG.md under the workspace root $1.
+# Checks every crates/*/ and app/*/CHANGELOG.md under the workspace root $1.
 check_workspace() {
   local root="$1" files=()
   shopt -s nullglob
-  files=("$root"/crates/*/CHANGELOG.md)
+  files=("$root"/crates/*/CHANGELOG.md "$root"/app/*/CHANGELOG.md)
   shopt -u nullglob
   if [[ "${#files[@]}" -eq 0 ]]; then
     echo "changelog structure check FAILED: no crates/*/CHANGELOG.md under $root" >&2
