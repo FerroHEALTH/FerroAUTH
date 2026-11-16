@@ -11,6 +11,7 @@ use http::StatusCode;
 use serde_json::{Value, json};
 
 use crate::introspection::{Answer, Server, inactive, unique};
+use crate::support::{commit, events, records};
 
 /// The scope every grant of these cases holds.
 const GRANTED: &str = "openid fhirUser launch/patient patient/Observation.rs offline_access";
@@ -141,6 +142,14 @@ async fn a_rotated_refresh_token_presented_again_revokes_the_grant() {
     assert_eq!(inactive(), server.introspect(&earlier).await);
     let after = server.post("/token", &public(successor, None), None).await;
     assert_eq!(json!("invalid_grant"), refused(&after));
+    // NOTE: docs/architecture.md §13.2, the rotation and the reuse each commit
+    // with their record.
+    let happened = events(&records(&server.store).await);
+    assert!(
+        happened.contains(&String::from("refresh-rotated"))
+            && happened.contains(&String::from("refresh-reused")),
+        "{happened:?}"
+    );
     server.stop().await;
 }
 
@@ -241,7 +250,9 @@ async fn an_online_refresh_token_lasts_the_online_idle_time_and_the_upstream_log
         "{exp}"
     );
 
-    assert!(server.store.end_session(&session).await.expect("ended"));
+    let mut tx = server.store.begin().await.expect("begins");
+    assert!(tx.end_session(&session).await.expect("ended"));
+    commit(tx).await;
     // NOTE: docs/architecture.md §13.6 item 7, online_access ends at upstream logout.
     let answer = server.post("/token", &public(successor, None), None).await;
     assert_eq!(json!("invalid_grant"), refused(&answer));
@@ -277,13 +288,9 @@ async fn a_lapsed_revoked_or_unknown_refresh_token_is_refused() {
         .grant("app", Some(Access::Offline), None, &json!({}))
         .await;
     let revoked = server.refresh(&revoked_grant, 3600).await;
-    assert!(
-        server
-            .store
-            .revoke_grant(&revoked_grant)
-            .await
-            .expect("revoked")
-    );
+    let mut tx = server.store.begin().await.expect("begins");
+    assert!(tx.revoke_grant(&revoked_grant).await.expect("revoked"));
+    commit(tx).await;
     for token in [lapsed, revoked, unique()] {
         let answer = server.post("/token", &public(&token, None), None).await;
         assert_eq!(json!("invalid_grant"), refused(&answer));

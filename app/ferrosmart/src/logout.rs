@@ -14,6 +14,7 @@
 //! again is answered as the first was: the optional `jti` check of §2.6 is
 //! not made.
 
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use axum::Json;
@@ -23,6 +24,7 @@ use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 use serde_json::json;
 
+use crate::audit::{Connected, Event, Happening};
 use crate::server::AppState;
 use crate::token::{no_store, read_form};
 
@@ -32,10 +34,11 @@ pub const BACKCHANNEL_LOGOUT_ROUTE: &str = "/backchannel-logout";
 /// `POST {issuer}/backchannel-logout`.
 pub async fn backchannel_logout(
     State(state): State<Arc<AppState>>,
+    Connected(from): Connected,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    match logged_out(&state, &headers, &body).await {
+    match logged_out(&state, &headers, &body, from).await {
         Ok(()) => no_store(StatusCode::OK.into_response()),
         Err(refused) => {
             tracing::info!(
@@ -56,6 +59,7 @@ async fn logged_out(
     state: &AppState,
     headers: &HeaderMap,
     body: &[u8],
+    from: IpAddr,
 ) -> Result<(), &'static str> {
     let form = read_form(headers, body).map_err(|refusal| refusal.description)?;
     let token = form
@@ -68,24 +72,46 @@ async fn logged_out(
         tracing::info!(error = %ferrohealth_server::run::chain(&error), "a Logout Token was refused");
         "the logout_token does not verify"
     })?;
-    let ended = state
+    let unrecorded = |error: &dyn std::error::Error| {
+        tracing::error!(error = %ferrohealth_server::run::chain(error), "the logout could not be recorded");
+        "the logout could not be recorded"
+    };
+    let mut tx = state
         .store()
+        .begin()
+        .await
+        .map_err(|error| unrecorded(&error))?;
+    let ended = tx
         .log_out(
             &claims.issuer,
             claims.subject.as_deref(),
             claims.session.as_deref(),
         )
         .await
-        .map_err(|error| {
-            tracing::error!(error = %ferrohealth_server::run::chain(&error), "the logout could not be recorded");
-            "the logout could not be recorded"
-        })?;
-    tracing::info!(
-        target: "ferrosmart::audit",
-        event = "logout",
-        issuer = %claims.issuer,
-        sessions = ended,
-        "the upstream provider ended a login"
-    );
+        .map_err(|error| unrecorded(&error))?;
+    // NOTE: Back-Channel Logout 1.0 §2.7, a token that ends nothing changes
+    // nothing, so its transaction is dropped unwritten.
+    if ended.is_empty() {
+        return Ok(());
+    }
+    let subject = claims
+        .subject
+        .as_deref()
+        .map(|subject| crate::upstream::pairwise(&claims.issuer, subject));
+    let endpoint = state.settings().endpoint_url(BACKCHANNEL_LOGOUT_ROUTE);
+    let happening = Happening {
+        event: Event::SessionEnded,
+        issuer: &state.settings().issuer,
+        client_id: None,
+        subject: subject.as_deref(),
+        from,
+        endpoint: &endpoint,
+        details: vec![("sessions", ended.len().to_string())],
+    };
+    state
+        .audit()
+        .commit_happening(tx, &happening)
+        .await
+        .map_err(|error| unrecorded(&error))?;
     Ok(())
 }
