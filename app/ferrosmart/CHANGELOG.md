@@ -110,6 +110,12 @@ and this project adheres to
   `refresh_token`; each login at the upstream provider is recorded as the
   session an `online_access` grant ends with, and withdrawing a remembered
   consent revokes its grants (#518).
+- `POST /backchannel-logout`, the back-channel logout URI to register at
+  the upstream provider (OpenID Connect Back-Channel Logout 1.0): a Logout
+  Token that checks ends the upstream sessions it names and revokes their
+  `online_access` grants with every token under them, leaving
+  `offline_access` grants; a token that does not check answers `400` with an
+  OAuth 2.0 error body, every answer `no-store` (#518).
 - Migration 0005: the grants, the refresh tokens stored as their SHA-256,
   the upstream sessions an `online_access` grant ends with, and the grant
   of each access token, so revocation reaches every replica at once. The

@@ -345,6 +345,45 @@ async fn revoke_in(
 }
 
 impl Transaction {
+    /// Ends the live upstream sessions of the provider `issuer` that a
+    /// Logout Token names: the one whose `sid` is `sid`, or with no `sid`
+    /// every session of the person `subject` there (OpenID Connect
+    /// Back-Channel Logout 1.0 §2.4, §2.7). It revokes the `online_access`
+    /// grants in them with every token under them, and returns the ids of
+    /// the sessions that ended.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when a statement fails; nothing is
+    /// changed then.
+    pub async fn log_out(
+        &mut self,
+        issuer: &str,
+        subject: Option<&str>,
+        sid: Option<&str>,
+    ) -> Result<Vec<String>, StoreError> {
+        let ended: Vec<String> = sqlx::query_scalar(
+            "UPDATE upstream_session SET ended_at = now() WHERE issuer = $1 AND ended_at IS NULL \
+             AND (($3::text IS NOT NULL AND sid = $3) OR ($3::text IS NULL AND subject = $2)) \
+             RETURNING id",
+        )
+        .bind(issuer)
+        .bind(subject)
+        .bind(sid)
+        .fetch_all(&mut *self.tx)
+        .await?;
+        let grants: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM authorization_grant WHERE access = 'online' AND revoked_at IS NULL \
+             AND upstream_session = ANY($1)",
+        )
+        .bind(&ended)
+        .fetch_all(&mut *self.tx)
+        .await?;
+        for grant in &grants {
+            revoke_in(&mut self.tx, grant).await?;
+        }
+        Ok(ended)
+    }
+
     /// Redeems the refresh token whose SHA-256 is `hash` for `client_id`,
     /// in one transaction that holds the token's row: a live token is
     /// marked used and its successor `successor` (a SHA-256 too) recorded
