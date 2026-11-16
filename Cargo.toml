@@ -217,6 +217,8 @@ debug = "line-tables-only"
 
 # ihe-atna's FHIR Feed takes the published ferrohealth-smart's outbound client;
 # this points that dependency at the crate in this tree, so FerroSMART and its
-# audit forwarder share one copy and one `OutboundClient` type.
+# audit forwarder share one copy and one `OutboundClient` type. It holds only
+# while the in-tree version is the one ihe-atna requires.
+# TODO(#549): drop the patch once ihe-atna is released against the in-tree version.
 [patch.crates-io]
 ferrohealth-smart = { path = "crates/ferrohealth-smart" }
