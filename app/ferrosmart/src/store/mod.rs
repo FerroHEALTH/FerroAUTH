@@ -322,12 +322,6 @@ pub struct IssuedToken<'a> {
     pub code_hash: Option<&'a str>,
 }
 
-/// The columns of a pending authorization, as [`read_pending`] reads them.
-const PENDING: &str = "SELECT id, client_id, redirect_uri, scope, state, nonce, code_challenge, \
-    audience, upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
-    display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
-    upstream_session, launch_context FROM pending_authorization";
-
 /// An authorization request between the authorization endpoint and the
 /// code.
 #[derive(Clone, PartialEq, Eq)]
