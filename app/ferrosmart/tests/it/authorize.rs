@@ -88,15 +88,22 @@ impl Provider {
     /// Mounts the code exchange answering an ID Token with `nonce` for a
     /// person holding `roles`.
     async fn answer(&self, nonce: &str, roles: &[&str]) {
+        self.answer_as(nonce, roles, "synthetic-person", "Practitioner/synthetic-1")
+            .await;
+    }
+
+    /// Answers the next code exchange with an ID Token for the person
+    /// `subject` whose `fhir_user` is `fhir_user`.
+    async fn answer_as(&self, nonce: &str, roles: &[&str], subject: &str, fhir_user: &str) {
         let now = jiff::Timestamp::now().as_second();
         let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(String::from("op-1"));
         let id_token = jsonwebtoken::encode(
             &header,
             &json!({
-                "iss": self.server.uri(), "aud": UPSTREAM_CLIENT, "sub": "synthetic-person",
+                "iss": self.server.uri(), "aud": UPSTREAM_CLIENT, "sub": subject,
                 "nonce": nonce, "iat": now, "exp": now + 300, "name": "Synthetic Clinician",
-                "roles": roles, "fhir_user": "Practitioner/synthetic-1"
+                "roles": roles, "fhir_user": fhir_user
             }),
             &self.encoding,
         )
@@ -163,13 +170,22 @@ impl Smart {
     /// types `grants` and the ceiling `ceiling`, and the clinician role
     /// granting `role`, each a TOML array.
     async fn start_with(grants: &str, ceiling: &str, role: &str) -> Self {
+        Self::start_on(grants, ceiling, role, None).await
+    }
+
+    /// Starts the server of [`Smart::start_with`] whose one resource server
+    /// is the FHIR base `fhir`, when it names one.
+    async fn start_on(grants: &str, ceiling: &str, role: &str, fhir: Option<&str>) -> Self {
+        let resource = fhir.map_or_else(String::new, |base| {
+            format!("[[ferrosmart.resource]]\nbase = {base:?}\n")
+        });
         let provider = Provider::start().await;
         let keys = Keys::new();
         let database = Database::create().await;
         let text = format!(
             "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
              [ferrosmart.upstream]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\nfhir_user_claim = \"fhir_user\"\n\
-             [ferrosmart.branding]\nsmart_style_url = {STYLE:?}\n\
+             [ferrosmart.branding]\nsmart_style_url = {STYLE:?}\n{resource}\
              [[ferrosmart.role]]\nname = \"clinician\"\nscopes = {role}\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nname = \"Synthetic App\"\nkind = \"public\"\n\
              redirect_uris = [{REDIRECT:?}]\ngrant_types = {grants}\nscopes = {ceiling}",
@@ -808,11 +824,11 @@ fn the_consent_page_offers_what_the_ceiling_and_the_roles_allow() {
     let requested = "openid fhirUser user/Observation.rs user/Patient.rs system/Patient.rs offline_access user/Observation.rs";
     assert_eq!(
         vec!["openid", "fhirUser", "user/Observation.rs"],
-        offer(requested, &client, &held, &roles, true, None)
+        offer(requested, &client, &held, &roles, true, None, false)
     );
     assert_eq!(
         vec!["openid", "user/Observation.rs"],
-        offer(requested, &client, &held, &roles, false, None),
+        offer(requested, &client, &held, &roles, false, None, false),
         "no fhirUser to give"
     );
     assert_eq!(
@@ -823,12 +839,13 @@ fn the_consent_page_offers_what_the_ceiling_and_the_roles_allow() {
             &held,
             &roles,
             true,
-            None
+            None,
+            false
         ),
         "fhirUser rides on openid"
     );
     assert!(
-        offer(requested, &client, &[], &roles, true, None)
+        offer(requested, &client, &[], &roles, true, None, false)
             .iter()
             .all(|scope| !scope.starts_with("user/")),
         "no role, no user scope"
@@ -1113,6 +1130,7 @@ fn offline_and_online_access_are_offered_to_a_client_that_refreshes() {
             &roles,
             false,
             None,
+            false,
         )
     );
 }
@@ -1219,6 +1237,300 @@ async fn a_logout_token_that_does_not_check_is_a_400() {
     assert_eq!(StatusCode::BAD_REQUEST, status, "no logout_token");
     let (status, renewed) = refresh(&smart, token).await;
     assert_eq!(StatusCode::OK, status, "the login lives on: {renewed}");
+    smart.stop().await;
+}
+
+/// A FHIR server that holds the patient `p-1`, which only the person whose
+/// `fhirUser` is `Practitioner/synthetic-1` may see, and keeps the claims
+/// of every token it was shown.
+struct Fhir {
+    /// The claims of the tokens it was shown.
+    seen: Arc<std::sync::Mutex<Vec<Value>>>,
+}
+
+impl wiremock::Respond for Fhir {
+    fn respond(&self, request: &wiremock::Request) -> ResponseTemplate {
+        let token = request
+            .headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .unwrap_or_default();
+        let Ok(claims) = jsonwebtoken::dangerous::insecure_decode_claims::<Value>(token) else {
+            return ResponseTemplate::new(401);
+        };
+        let allowed = claims.get("scope") == Some(&json!("user/Patient.rs"))
+            && claims.get("fhirUser") == Some(&json!("Practitioner/synthetic-1"));
+        self.seen.lock().expect("held").push(claims);
+        let patient = json!({
+            "resourceType": "Patient", "id": "p-1",
+            "name": [{"given": ["Synthetic"], "family": "Patient"}],
+            "birthDate": "1970-01-01", "gender": "other",
+            "identifier": [{"system": "urn:example:mrn", "value": "MRN-1"}]
+        });
+        if request.url.path().ends_with("/Patient/p-1") {
+            return if allowed {
+                ResponseTemplate::new(200).set_body_json(patient)
+            } else {
+                ResponseTemplate::new(403)
+            };
+        }
+        let entry = if allowed {
+            vec![json!({ "resource": patient })]
+        } else {
+            Vec::new()
+        };
+        ResponseTemplate::new(200)
+            .set_body_json(json!({ "resourceType": "Bundle", "type": "searchset", "entry": entry }))
+    }
+}
+
+/// Starts FerroSMART over a FHIR server for a standalone launch with
+/// `launch/patient`, and returns them with the claims the server sees.
+async fn picker_launch() -> (Smart, MockServer, Arc<std::sync::Mutex<Vec<Value>>>) {
+    let fhir = MockServer::start().await;
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    Mock::given(matchers::method("GET"))
+        .respond_with(Fhir {
+            seen: Arc::clone(&seen),
+        })
+        .mount(&fhir)
+        .await;
+    let base = format!("{}/fhir", fhir.uri());
+    let smart = Smart::start_on(
+        "[\"authorization_code\"]",
+        "[\"openid\", \"fhirUser\", \"launch/patient\", \"patient/Observation.rs\"]",
+        "[\"patient/Observation.rs\"]",
+        Some(&base),
+    )
+    .await;
+    (smart, fhir, seen)
+}
+
+/// Runs the standalone launch to the picker as the person `subject` with
+/// `fhir_user`, and returns the cookie.
+async fn to_picker(smart: &Smart, base: &str, subject: &str, fhir_user: &str) -> String {
+    let path = authorize_path(&[
+        ("aud", base),
+        (
+            "scope",
+            "openid fhirUser launch/patient patient/Observation.rs",
+        ),
+    ]);
+    let (_, headers, _) = smart.get(&path, None).await;
+    let upstream = location(&headers);
+    let cookie = set_cookie(&headers);
+    smart
+        .provider
+        .answer_as(
+            &param(&upstream, "nonce").expect("a nonce"),
+            &["clinician"],
+            subject,
+            fhir_user,
+        )
+        .await;
+    let callback = format!(
+        "/callback?code=synthetic-upstream-code&state={}",
+        param(&upstream, "state").expect("a state")
+    );
+    let (status, headers, _) = smart.get(&callback, Some(&cookie)).await;
+    assert_eq!(
+        StatusCode::SEE_OTHER,
+        status,
+        "the callback sends the browser on"
+    );
+    // NOTE: SMART App Launch 2.2.0, Obtain authorization code, a standalone
+    // launch/patient is answered by the patient selection widget.
+    assert_eq!("/picker", location(&headers).path(), "to the picker");
+    cookie
+}
+
+/// Returns the form token of the page `page`.
+fn form_token(page: &str) -> String {
+    page.split("name=\"form_token\" value=\"")
+        .nth(1)
+        .and_then(|rest| rest.split('"').next())
+        .expect("a form token")
+        .to_owned()
+}
+
+#[tokio::test]
+async fn a_standalone_launch_picks_a_patient_the_person_may_see() {
+    let (smart, fhir, seen) = picker_launch().await;
+    let base = format!("{}/fhir", fhir.uri());
+    let cookie = to_picker(
+        &smart,
+        &base,
+        "synthetic-person",
+        "Practitioner/synthetic-1",
+    )
+    .await;
+    let (status, _, page) = smart.get("/picker", Some(&cookie)).await;
+    assert_eq!(StatusCode::OK, status, "{page}");
+    assert!(page.contains("<h1 class=\"fui-page-card-title\">Choose a patient</h1>"));
+    let (status, _, page) = smart.get("/picker?name=Synthetic", Some(&cookie)).await;
+    assert_eq!(StatusCode::OK, status, "{page}");
+    assert!(
+        page.contains("value=\"p-1\"") && page.contains("Synthetic Patient"),
+        "{page}"
+    );
+    let token = form_token(&page);
+    let (status, headers, _) = smart
+        .post(
+            "/picker",
+            &[("form_token", &token), ("patient", "p-1")],
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    assert_eq!("/consent", location(&headers).path());
+    let (_, _, page) = smart.get("/consent", Some(&cookie)).await;
+    let token = form_token(&page);
+    let (_, headers, _) = smart
+        .post(
+            "/consent",
+            &[
+                ("form_token", token.as_str()),
+                ("decision", "approve"),
+                ("scope", "openid"),
+                ("scope", "launch/patient"),
+                ("scope", "patient/Observation.rs"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    // NOTE: SMART App Launch 2.2.0, Launch context arrives with your access_token.
+    assert_eq!(json!("p-1"), body["patient"]);
+    let access: Value = jsonwebtoken::dangerous::insecure_decode_claims(
+        body["access_token"].as_str().expect("a token"),
+    )
+    .expect("claims");
+    assert_eq!(json!("p-1"), access["patient"], "the token carries it too");
+
+    // The picker searched and read as the person, with a token for this
+    // request alone, revoked once it was answered.
+    let shown = seen.lock().expect("held").clone();
+    assert_eq!(2, shown.len(), "the search and the read");
+    for claims in &shown {
+        assert_eq!(access["sub"], claims["sub"], "the person, never a system");
+        assert_eq!(json!("Practitioner/synthetic-1"), claims["fhirUser"]);
+        assert_eq!(json!(base), claims["aud"]);
+        let lifetime = claims["exp"].as_i64().expect("exp") - claims["iat"].as_i64().expect("iat");
+        assert!(lifetime <= 30, "a minimal lifetime: {lifetime}");
+        let jti = claims["jti"].as_str().expect("a jti");
+        assert!(
+            smart.store.revoked(jti).await.expect("read"),
+            "revoked after use"
+        );
+    }
+    let stored = records(&smart.store).await;
+    let happened = events(&stored);
+    assert!(
+        happened.contains(&String::from("picker-token")),
+        "{happened:?}"
+    );
+    // NOTE: Regulation (EU) 2025/327 Annex II 3.2, the search and the read are
+    // each an access record.
+    let accesses = stored
+        .iter()
+        .filter(|record| {
+            matches!(
+                record.pointer("/subtype/0/code").and_then(Value::as_str),
+                Some("search" | "read")
+            )
+        })
+        .count();
+    let subtypes: Vec<_> = stored
+        .iter()
+        .map(|record| record.pointer("/subtype"))
+        .collect();
+    assert_eq!(2, accesses, "{subtypes:?}");
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_person_never_sees_or_picks_a_patient_they_may_not_see() {
+    let (smart, fhir, _seen) = picker_launch().await;
+    let base = format!("{}/fhir", fhir.uri());
+    let cookie = to_picker(&smart, &base, "other-person", "Practitioner/synthetic-2").await;
+    let (status, _, page) = smart.get("/picker?name=Synthetic", Some(&cookie)).await;
+    assert_eq!(StatusCode::OK, status, "{page}");
+    assert!(
+        !page.contains("p-1"),
+        "the server shows them no such patient: {page}"
+    );
+    assert!(page.contains("No patient you may see matches the search."));
+    let token = smart
+        .store
+        .pending(&cookie)
+        .await
+        .expect("read")
+        .expect("pending")
+        .form_token;
+    let (status, _, _) = smart
+        .post(
+            "/picker",
+            &[("form_token", &token), ("patient", "p-1")],
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(
+        StatusCode::BAD_REQUEST,
+        status,
+        "a forged choice is refused"
+    );
+    let (_, headers, _) = smart.get("/consent", Some(&cookie)).await;
+    assert_eq!(
+        "/picker",
+        location(&headers).path(),
+        "no patient entered the context"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_failed_search_is_an_error_page_never_an_empty_context() {
+    let fhir = MockServer::start().await;
+    Mock::given(matchers::method("GET"))
+        .respond_with(ResponseTemplate::new(500))
+        .mount(&fhir)
+        .await;
+    let base = format!("{}/fhir", fhir.uri());
+    let smart = Smart::start_on(
+        "[\"authorization_code\"]",
+        "[\"openid\", \"fhirUser\", \"launch/patient\", \"patient/Observation.rs\"]",
+        "[\"patient/Observation.rs\"]",
+        Some(&base),
+    )
+    .await;
+    let cookie = to_picker(
+        &smart,
+        &base,
+        "synthetic-person",
+        "Practitioner/synthetic-1",
+    )
+    .await;
+    let (status, _, page) = smart.get("/picker?name=Synthetic", Some(&cookie)).await;
+    assert_eq!(StatusCode::INTERNAL_SERVER_ERROR, status, "{page}");
+    assert!(!page.contains("No patient"), "a failure is no empty result");
+    let pending = smart
+        .store
+        .pending(&cookie)
+        .await
+        .expect("read")
+        .expect("pending");
+    assert!(pending.launch_context.is_none(), "no context entered");
     smart.stop().await;
 }
 

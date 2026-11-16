@@ -1008,6 +1008,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "ehds-logging"
+version = "0.22.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c4f227d2589d5ad326e53cb691467ef94bb35e88524e18f1c3a6437fac01c4c3"
+dependencies = [
+ "async-trait",
+ "ihe-atna",
+ "jiff",
+ "secrecy",
+ "serde",
+ "thiserror",
+ "url",
+]
+
+[[package]]
 name = "either"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1297,6 +1312,7 @@ dependencies = [
  "axum",
  "base64 0.23.1",
  "clap",
+ "ehds-logging",
  "ferrohealth-config",
  "ferrohealth-health",
  "ferrohealth-secret",

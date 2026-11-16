@@ -196,6 +196,16 @@ and this project adheres to
   registration or redemption is a `launch-refused` record. A launch whose
   record cannot be kept is not kept. No record holds the launch value or a
   context value.
+- The patient picker of a standalone launch: a client that may ask for
+  `launch/patient` at a FHIR resource server is shown, after the login and
+  before the consent, a page that searches `Patient` by name or identifier
+  as the signed-in person, with a token of FerroSMART's own carrying their
+  pairwise `sub` and `fhirUser`, scope `user/Patient.rs`, living 30 seconds
+  and revoked after the request. The chosen patient is read again as them,
+  enters the launch context, and reaches the token response and the access
+  token as an EHR launch's does. Every search and read writes the access
+  record of Regulation (EU) 2025/327 Annex II 3.2 through `ehds-logging`,
+  and a failed search is an error page (#516).
 
 ### Fixed
 
