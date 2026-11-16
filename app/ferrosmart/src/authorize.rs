@@ -22,6 +22,7 @@ use ferrohealth_smart::oidc::{Callback, PendingSignIn};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use url::Url;
 
+use crate::audit;
 use crate::clients::{Client, GrantType};
 use crate::form::Params;
 use crate::pages::{self, Fault};
@@ -262,13 +263,20 @@ pub async fn callback(
     );
     let signed_in = match party.exchange(&sign_in, &answer).await {
         Ok(signed_in) => signed_in,
-        Err(error) if pending.purpose == Purpose::Manage => {
-            forget(&state, &pending).await;
-            tracing::warn!(error = %ferrohealth_server::run::chain(&error), "the upstream login failed");
-            return pages::fault(&state, Fault::Lapsed);
-        }
         Err(error) => {
             forget(&state, &pending).await;
+            tracing::warn!(error = %ferrohealth_server::run::chain(&error), "the upstream login failed");
+            let reason = if answer.error.is_some() {
+                "the person declined at the provider"
+            } else {
+                "the login could not be completed"
+            };
+            if let Err(response) = record_login(&state, Err(reason)).await {
+                return *response;
+            }
+            if pending.purpose == Purpose::Manage {
+                return pages::fault(&state, Fault::Lapsed);
+            }
             // NOTE: RFC 6749 §4.1.2.1, a person who declined at the provider is
             // access_denied; any other failure is the server's.
             if answer.error.is_some() {
@@ -277,7 +285,6 @@ pub async fn callback(
                     description: "the login was declined",
                 });
             }
-            tracing::warn!(error = %ferrohealth_server::run::chain(&error), "the upstream login failed");
             return back.deny(Denial {
                 error: "server_error",
                 description: "the login could not be completed",
@@ -321,14 +328,15 @@ async fn proceed(
         auth_time: now(),
         upstream_session,
     };
-    tracing::info!(
-        target: "ferrosmart::audit",
-        event = "login",
-        subject = %login.subject,
-        client_id = ?pending.client_id,
-        manage = pending.purpose == Purpose::Manage,
-        "a person logged in at the upstream provider"
-    );
+    let person = audit::Person {
+        issuer: &state.settings().issuer,
+        subject: &login.subject,
+        name: login.display_name.as_deref(),
+        client_id: pending.client_id.as_deref(),
+    };
+    if let Err(response) = record_login(state, Ok(person)).await {
+        return *response;
+    }
     if pending.purpose == Purpose::Manage {
         if let Err(error) = state.store().logged_in(&pending.id, &login).await {
             return pages::server_error(state, &error);
@@ -604,6 +612,37 @@ async fn approve(
         "an authorization code was issued"
     );
     back.grant(&code)
+}
+
+/// Records the login `answer` at the upstream provider, or returns the page
+/// of a login that could not be recorded: a login whose record is not
+/// stored does not go on (no specification governs this: our own design).
+async fn record_login(
+    state: &AppState,
+    answer: Result<audit::Person<'_>, &str>,
+) -> Result<(), Box<Response>> {
+    let Some(upstream) = &state.settings().upstream else {
+        return Err(Box::new(pages::fault(state, Fault::BadRequest)));
+    };
+    let provider = Url::parse(&upstream.issuer)
+        .map_err(|error| Box::new(pages::server_error(state, &error)))?;
+    let (subject, client_id) = answer.ok().map_or((None, None), |person| {
+        (Some(person.subject), person.client_id)
+    });
+    let recorded = state
+        .audit()
+        .row(
+            &audit::login(&provider, answer),
+            "login",
+            subject,
+            client_id,
+        )
+        .map_err(|error| Box::new(pages::server_error(state, &error)))?;
+    state
+        .audit()
+        .record(state.store(), &recorded)
+        .await
+        .map_err(|error| Box::new(pages::server_error(state, &error)))
 }
 
 /// Returns the request a store lookup `looked` found, or the page that says

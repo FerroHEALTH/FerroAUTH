@@ -40,6 +40,9 @@
 //! jwks_uri = "https://export.example.org/jwks.json"
 //! scopes = ["system/Patient.rs", "system/Observation.rs"]
 //! grant_types = ["client_credentials"]
+//!
+//! [ferrosmart.audit.feed]
+//! url = "https://audit.example.org/fhir"
 //! ```
 
 pub mod error;
@@ -147,6 +150,8 @@ pub struct FerroSmartSection {
     /// `[ferrosmart.branding]`: the deployment's name and words on the
     /// pages, content and never code (13.15).
     pub branding: BrandingSection,
+    /// `[ferrosmart.audit]`: where every login and token is recorded.
+    pub audit: AuditSection,
 }
 
 /// `[ferrosmart.branding]`.
@@ -171,6 +176,26 @@ impl Default for BrandingSection {
             smart_style_url: String::new(),
         }
     }
+}
+
+/// `[ferrosmart.audit]`: how FerroSMART names itself in its audit records,
+/// and the Audit Record Repository it forwards them to. No specification
+/// governs the section's shape: our own design.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuditSection {
+    /// How FerroSMART names itself as the recording system
+    /// (`AuditEvent.source.observer`); empty takes the issuer's host.
+    pub source_id: String,
+    /// The site FerroSMART runs at (`AuditEvent.source.site`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
+    /// `[ferrosmart.audit.feed]`: the repository's FHIR base, an `https`
+    /// URL the records are created under as `[base]/AuditEvent`, with its
+    /// timeouts, TLS and credentials; without it the records stay in
+    /// FerroSMART's own store alone.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feed: Option<ferrohealth_smart::config::endpoint::EndpointSection>,
 }
 
 /// One `[[ferrosmart.role]]` table.
@@ -221,6 +246,7 @@ impl Default for FerroSmartSection {
             upstream: None,
             role: Vec::new(),
             branding: BrandingSection::default(),
+            audit: AuditSection::default(),
         }
     }
 }

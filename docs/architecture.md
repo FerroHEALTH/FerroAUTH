@@ -2517,8 +2517,31 @@ discovery and token shapes for the two SaaS providers.
 - **Stateless replicas.** Authorization codes, refresh tokens, launch
   contexts and consents live in PostgreSQL, so any replica answers any
   request; signing keys rotate, with a KMS or HSM as an option.
-- **Its own audit.** Every login and every issued token is an audit record
-  in the family's BALP and EHDS forms.
+- **Its own audit.** Every login and every token request is an audit
+  record, a FHIR R4 `AuditEvent` written through `ihe-atna` into
+  FerroSMART's own PostgreSQL store (#534). A token request is the ITI-71
+  audit event in the form of BALP 1.1.4's profile `IHE.IUA.71`: type
+  `110114`, subtype `ITI-71`, the client (`110150`) and the authorization
+  server (`AuthzOauthService`) as agents, the person as `agent:user` when
+  one logged in, and the one `token-request` entity holding the HTTP
+  request with the values of `code_verifier`, `code`, `refresh_token`,
+  `client_secret` and `client_assertion` left out. A login at the upstream
+  provider is a DICOM User Authentication event of type `110122` Login
+  (DICOM PS3.15 A.5.3.12), whose `AuditEvent` form is our own design. An
+  issued token and its record commit in one transaction; a refusal or a
+  login commits its record alone, and a request whose record cannot be
+  committed fails: the token endpoint answers `503` with no token. With
+  `[ferrosmart.audit.feed]` the store is the outbox the `ihe-atna`
+  forwarder delivers from to an Audit Record Repository over the ITI-20
+  ATX: FHIR Feed; a record the repository refuses is kept and stamped for
+  an operator. `GET {issuer}/audit` reads the records by `subject`,
+  `since` and `until` as a FHIR `searchset` Bundle, with a bearer token
+  FerroSMART issued for its own issuer with `system/AuditEvent.rs`
+  (Regulation (EU) 2025/327 Art 9 has the logs accessible; the parameters
+  are our own design). Neither event is an access to personal electronic
+  health data, so neither is an access record of Annex II 3.2; the patient
+  picker (#516), which reads Patient resources, writes that record through
+  `ehds-logging`.
 - **The family stack.** It is built on `ferrohealth-server`,
   `ferrohealth-telemetry`, `ferrohealth-config` and `ferrohealth-health`,
   and reuses `ferrohealth-smart` (the scope grammar, token and assertion
@@ -3000,6 +3023,14 @@ grant_types = ["client_credentials"]
 name = "Example Hospital"                     # the name the pages carry
 smart_style_url = "https://ehr.example.org/smart-style.json"  # an app's token response carries it
 consent_text = "We log every access in your record's audit trail."  # the deployment's own words
+
+[ferrosmart.audit]                             # every login and token request (13.2), kept in the store
+source_id = "smart.example.org"               # AuditEvent.source.observer; empty: the issuer's host
+site = "Example Hospital"
+
+[ferrosmart.audit.feed]                        # optional: forward to an Audit Record Repository, ITI-20 ATX: FHIR Feed
+url = "https://audit.example.org/fhir"         # https only: a record names people
+credentials = { user = "ferrosmart", password_file = "/run/secrets/audit-password" }   # or [ferrosmart.audit.feed.credentials.oauth]
 ```
 
 Every secret is a `_file` key read through `ferrohealth-secret`; the
@@ -3132,7 +3163,10 @@ the git tag of the pin, the way FerroBRIDGE's console does. The pages work
 without script wherever FerroUI allows it: every action is a form post the
 server answers with the next page. The CSP is `default-src 'none';
 script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self';
-form-action 'self'; frame-ancestors 'none'` (`rfc9700 §4.16`).
+form-action 'self'; frame-ancestors 'none'; base-uri 'none'` (`rfc9700
+§4.16`), and the consent page adds to `form-action` the origin of that
+request's registered redirect URI alone, since CSP Level 3 §6.4.2 applies
+`form-action` to the redirect that follows the post.
 
 A component, pattern or locale the screens need and FerroUI lacks is
 added in FerroUI as a general component, through FerroUI's own tracker and
