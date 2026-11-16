@@ -3255,12 +3255,14 @@ runner's host network, with a development CA made for the run that signs
 is TLS:
 
 - FerroSMART, with Keycloak as its upstream login (the realm of 13.16).
+  It trusts the lane's CA beside the system roots (`SSL_CERT_FILE`) for the
+  picker's search at FerroBRIDGE.
 - FerroBRIDGE's FHIR R4 facade as the FHIR server, the kit's `url`. Its
   SMART document describes FerroSMART as a `persons` issuer, it checks
   FerroSMART's tokens through `ferrohealth-smart`, and it serves the
   person's `fhirUser` as a `Practitioner`, mapped onto a `PERSON` by the
   party context its own release ships (vendored under
-  `docs/specs/ferrobridge-practitioner/`). The lane stores that `PERSON` in
+  `docs/specs/ferrobridge-party/`). The lane stores that `PERSON` in
   FerroEHR before Keycloak starts, so the realm's `fhirUser` names a
   resource the facade really serves.
 - FerroEHR as FerroBRIDGE's CDR, answering it alone on the loopback
@@ -3278,33 +3280,39 @@ change that lets one drift:
 
 - `groups.tsv` marks each group `run` or `pending` with the issues it waits
   on. Every run lists the pending groups in the log and the job summary,
-  and warns once their issues are closed. Groups 2, 3 and 4 run; group 1
-  waits on the patient picker (#516) for `launch/patient`. Group 2's EHR
+  and warns once their issues are closed. All four groups run. In group 1
+  the person searches the lane's patient by name at FerroSMART's patient
+  picker (13.6 item 4, #516) and picks it, so the launch carries
+  `launch/patient`; FerroBRIDGE serves that `Patient` from FerroEHR as it
+  serves the `Practitioner`, and its party search finds it by name over the
+  CDR's AQL demographic extension. Group 2's EHR
   is the lane itself: `scripts/inferno/ehr-launch.sh` registers each launch
   at `POST /launch` as the lane's client (13.6 item 3) and opens the kit's
   launch URI with `iss` and `launch`.
 - `exceptions.tsv` lists each test of a run group that the expected results
   do not hold to `pass`, with its reason; any other test expected to be
-  anything but `pass` fails the run. Seven rows stand, all FerroBRIDGE's
+  anything but `pass` fails the run. Ten rows stand, all FerroBRIDGE's
   missing CORS headers (`smart app-launch`, Considerations for CORS
   support): `smart_cors_well_known_endpoint` and
-  `smart_cors_metadata_request` in the discovery of groups 2, 3 and 4 (its
-  SMART document and its CapabilityStatement, item 1), and
-  `smart_cors_openid_fhir_user_claim` in group 2 (the `Practitioner` read
-  from the app's origin, item 2).
+  `smart_cors_metadata_request` in the discovery of every group (its SMART
+  document and its CapabilityStatement, item 1), and
+  `smart_cors_openid_fhir_user_claim` in groups 1 and 2 (the `Practitioner`
+  read from the app's origin, item 2).
 - Each result is recorded in the job summary against the SMART App Launch
   2.2.0 requirements the kit's coverage map ties its test to.
 
 Group 4 introspects with a bearer token of the lane's own client, which
 holds `system/introspect` (13.6 item 8) and asks for FerroSMART's issuer as
-its audience. Every test of groups 2, 3 and 4 outside those seven passes:
+its audience. Every test of the suite outside those ten passes, and the
+suite with them:
 SMART Backend Services Authorization (TLS 1.2 or newer, the invalid grant
 type, the invalid client assertion and the invalid JWT refused, the success
 response and its body); the standalone launch of group 4 (TLS on the
 authorization and token endpoints, the redirect, the code, the token
 exchange with its response body and headers, CORS on the token endpoint
 (13.6 item 12)); the introspection of an active and an invalid token with
-both responses; and group 2's EHR launch with the same exchange, OpenID
+both responses; and the standalone launch of group 1 with its patient
+and the EHR launch of group 2, each with the same exchange, OpenID
 Connect (the ID Token, the configuration, the key set and the `fhirUser`
 claim, whose `Practitioner` FerroBRIDGE serves) and the refresh with and
 without `scope`.

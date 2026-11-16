@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-FileCopyrightText: Cadasto B.V.
 # SPDX-License-Identifier: BUSL-1.1
-# scripts/vendor/ferrobridge-practitioner.sh
+# scripts/vendor/ferrobridge-party.sh
 #
-# Vendors what the Inferno lane (#520) needs to serve a Practitioner through
-# FerroBRIDGE's FHIR facade into docs/specs/ferrobridge-practitioner/: the
-# ADL 1.4 PERSON template FerroBRIDGE's demographic suite runs on, and the
-# FHIRconnect party context and model mapping of a Practitioner onto it,
+# Vendors what the Inferno lane (#520) needs to serve a Practitioner and a
+# Patient through FerroBRIDGE's FHIR facade into docs/specs/ferrobridge-party/:
+# the ADL 1.4 PERSON template FerroBRIDGE's demographic suite runs on, and
+# the FHIRconnect party contexts and model mappings of both onto it,
 # from FerroHEALTH/FerroBRIDGE at the release tag the "FerroBRIDGE
 # Practitioner mapping" row of docs/VERSIONS.md pins: the release whose
 # image the lane runs. A tag is mutable, so the script resolves it to a
@@ -17,7 +17,7 @@
 # repository, and the files are copied verbatim with their SPDX headers.
 #
 # Usage:
-#   scripts/vendor/ferrobridge-practitioner.sh
+#   scripts/vendor/ferrobridge-party.sh
 #
 # Requires: curl, shasum, jq.
 
@@ -32,16 +32,18 @@ cd "$root"
 
 corpus_require curl shasum jq
 
-dest="docs/specs/ferrobridge-practitioner"
+dest="docs/specs/ferrobridge-party"
 fixtures="app/ferrobridge-server/tests/it/fixtures_demographic"
 paths=(
   LICENSE
   tools/ferrobridge-testkit/fixtures/opt/person.opt
   "$fixtures/ferrobridge_demographic_practitioner.context.yml"
   "$fixtures/ferrobridge_demographic_practitioner.yml"
+  "$fixtures/ferrobridge_demographic_patient.context.yml"
+  "$fixtures/ferrobridge_demographic_patient.yml"
 )
 
-pin="$(corpus_pin_cell "FerroBRIDGE Practitioner mapping")"
+pin="$(corpus_pin_cell "FerroBRIDGE party mappings")"
 repo="$(corpus_pin_repo "$pin")"
 tag="$(corpus_pin_tag "$pin")"
 commit="$(corpus_resolve_tag "$repo" "$tag")"
@@ -76,9 +78,9 @@ cat > "$dest/PROVENANCE.md" << PROV
 <!-- This file describes vendored material; the bytes beside it are copied
      verbatim and keep the licence their headers and LICENSE name. -->
 
-# Provenance: the FerroBRIDGE Practitioner mapping
+# Provenance: the FerroBRIDGE party mappings
 
-Vendored verbatim by \`scripts/vendor/ferrobridge-practitioner.sh\`. Never
+Vendored verbatim by \`scripts/vendor/ferrobridge-party.sh\`. Never
 edit a file here: change the pin in docs/VERSIONS.md and re-run the script.
 
 - Source: <https://github.com/$repo>
@@ -94,7 +96,8 @@ edit a file here: change the pin in docs/VERSIONS.md and re-run the script.
   \`PROVENANCE.md\` excluded): \`$digest\`
 - Read by: the Inferno lane (#520), which loads the template into FerroEHR
   and the two mappings into FerroBRIDGE so the facade serves the person's
-  \`fhirUser\` as a \`Practitioner\`
+  \`fhirUser\` as a \`Practitioner\` and the patient the picker finds as a
+  \`Patient\`
 
 ## What is taken
 
@@ -103,6 +106,8 @@ edit a file here: change the pin in docs/VERSIONS.md and re-run the script.
 - \`$fixtures/ferrobridge_demographic_practitioner.context.yml\` and
   \`ferrobridge_demographic_practitioner.yml\`: the FHIRconnect party
   context and model mapping of the base \`Practitioner\` onto it.
+- \`$fixtures/ferrobridge_demographic_patient.context.yml\` and
+  \`ferrobridge_demographic_patient.yml\`: the same of the base \`Patient\`.
 
 | File | sha256 | git blob id |
 |---|---|---|$rows

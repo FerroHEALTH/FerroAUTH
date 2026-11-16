@@ -20,6 +20,15 @@ base_url = "https://bridge.localhost:9443/fhir"
 composition_language = "en"
 composition_territory = "NL"
 
+# The picker searches Patient by name (FerroBRIDGE's `[facade.party_search]`,
+# over the CDR's AQL demographic extension), on the name the party mapping
+# writes.
+[facade.party_search]
+enabled = true
+
+[facade.party_search.types.Patient]
+name_query = "SELECT p/uid/value FROM PERSON p WHERE p/identities/details/items[at0005]/value/value LIKE $name OR p/identities/details/items[at0005]/value/value LIKE $name_lower OR p/identities/details/items[at0005]/value/value LIKE $name_capitalised ORDER BY p/uid/value ASC"
+
 [operations]
 enabled = false
 
@@ -38,4 +47,6 @@ capabilities = ["sso-openid-connect"]
 issuer = "https://smart.localhost:8443"
 kind = "persons"
 audience = ["https://bridge.localhost:9443/fhir"]
-first_party_clients = ["inferno-standalone"]
+# The kit's app, and FerroSMART itself, whose picker searches Patient with
+# the signed-in person's own token (docs/architecture.md §13.6 item 4).
+first_party_clients = ["inferno-standalone", "https://smart.localhost:8443"]

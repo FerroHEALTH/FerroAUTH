@@ -42,6 +42,11 @@ and this project adheres to
 - `[ferrosmart.upstream] trusted_audiences`: the audiences an upstream ID
   Token may name beside FerroSMART's client id (OpenID Connect Core 1.0
   §3.1.3.7 item 3) (#523).
+- The Inferno lane runs group 1, Standalone Launch: the person picks the
+  lane's patient at the patient picker, which searches FerroBRIDGE's
+  facade, so the launch carries `launch/patient`. All four groups of the
+  kit's STU 2.2 suite run, and the suite passes outside FerroBRIDGE's
+  missing CORS headers (#520).
 - The Inferno lane runs its FHIR server on the family's own stack: FerroBRIDGE's
   facade, with FerroEHR as its CDR, serves the person's `fhirUser` as a
   Practitioner, and Keycloak is the upstream login. Group 4, Token

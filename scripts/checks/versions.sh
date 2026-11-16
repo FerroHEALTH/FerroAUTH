@@ -239,7 +239,7 @@ for tree in "ihe-iua:IHE IUA supplement" "nuts-rfc:Nuts RFC021" \
   "scim-workload-identity:SCIM workload identity federation guide" \
   "keycloak-docs:Keycloak documentation" \
   "zitadel:ZITADEL documentation" \
-  "ferrobridge-practitioner:FerroBRIDGE Practitioner mapping" \
+  "ferrobridge-party:FerroBRIDGE party mappings" \
   "inferno-smart-test-kit:Inferno SMART App Launch test kit" \
   "openehr-rm/development:openEHR RM Common (development)" \
   "federation-spec:Federation Tier with AQL specification"; do
