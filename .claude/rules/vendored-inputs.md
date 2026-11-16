@@ -4,9 +4,10 @@
 # Vendored inputs: fetched by a committed script, verbatim, with provenance
 
 FerroAUTH vendors the specifications it implements under `docs/specs/`: the
-SMART App Launch package and page sources, the IETF RFCs, and
-the OpenID Connect Discovery, Core and RP-Initiated Logout documents, each
-tree with a `PROVENANCE.md`.
+SMART App Launch package and page sources, the IETF RFCs and the OAuth 2.1
+draft, the OpenID Connect Discovery, Core and RP-Initiated Logout
+documents, the Inferno SMART App Launch test kit and the other corpora
+`docs/VERSIONS.md` lists, each tree with a `PROVENANCE.md`.
 
 ## Rules
 

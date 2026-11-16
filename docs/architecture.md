@@ -95,10 +95,12 @@ with the matrix.
 | Item | Pin | Ground |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | The registry's `latest` on 2026-10-19 and the current 2.x publication; the 2.x line is where the `cruds` scope grammar, the `.well-known/smart-configuration` document and the asymmetric client profile live. Vendored as the package `hl7.fhir.uv.smart-app-launch` 2.2.0 and the page sources at the release tag. |
-| IETF RFCs | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693, 3986 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is the `authorization_details` a client grant sends and reads back (3.5); the resource server reads no `authorization_details` claim (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroAUTH#215, #217). RFC 3986 §6.2.2 and §6.2.3 are the normalizations RFC 9449 §4.3 has a server apply before it compares the `htu` (3.15), and §4.2 the network-path reference the session's return path refuses (FerroHEALTH/FerroAUTH#235). |
+| IETF RFCs | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693, 3986, 6819, 7518, 7591, 8252, 9126, 9207, 9864, 10070 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is the `authorization_details` a client grant sends and reads back (3.5); the resource server reads no `authorization_details` claim (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroAUTH#215, #217). RFC 3986 §6.2.2 and §6.2.3 are the normalizations RFC 9449 §4.3 has a server apply before it compares the `htu` (3.15), and §4.2 the network-path reference the session's return path refuses (FerroHEALTH/FerroAUTH#235). RFC 6819, 7518, 7591, 8252, 9126, 9207, 9864 and 10070 are what FerroSMART, the authorization server of section 13, cites beyond the resource server's set: the threat model, the algorithms and their fully-specified names, dynamic registration, native apps, pushed authorization requests, the `iss` authorization response parameter, and RFC 10070's audience rule for client assertions, which updates RFC 7521, 7522, 7523 and 9126 and conflicts with SMART 2.2 (13.6). |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; the authorization code flow (§3.1) and the ID Token check (§3.1.3.7) of the `oidc` relying party. |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the end-session request (§2) and the `end_session_endpoint` metadata (§2.1) of the `oidc` relying party. |
+| OAuth 2.1 Authorization Framework | draft-ietf-oauth-v2-1-17 (2026-10-31) | The current revision of the Working Group draft that consolidates RFC 6749, 6750 and the security best current practice. FerroSMART cites it beside those RFCs (13.5) and never in their place, because an Internet-Draft is a work in progress. |
+| Inferno SMART App Launch test kit | 1.0.3 (`inferno-framework/smart-app-launch-test-kit` tag `v1.0.3`) | The latest release on 2026-11-16 and the conformance lane FerroSMART runs (13.13). Its requirement extraction for SMART App Launch 2.2.0 is a cross-check of the checklist, never a citation. |
 | FAPI 2.0 Security Profile | Final Specification (2025-02-22) | The profile a client grant can be held to (3.5): the authorization servers of the Dutch BgZ and eOverdracht track FerroFED reaches follow it. §5.3.3.1 sets the client's sender constraint, client authentication, assertion `aud` and metadata use, and §5.4.1 the admitted algorithms. |
 | Party binding references | IHE IUA Revision 2.5 (`IHE/ITI.IUA` tag `2.5`), Nuts RFC021 (`nuts-foundation/nuts-specification` at `7c0de533…`), the Microsoft Entra documents (`MicrosoftDocs/entra-docs` at `219d8d57…`), the SCIM workload identity federation guide (`AzureAD/SCIMReferenceCode` at `21b92c8f…`), Keycloak 26.8.2, and the Okta OpenID Connect and OAuth 2.0 API reference (cache only) | The access token of a federation issuer (IUA ITI-71, Nuts RFC021) and the deviations of each vendor profile from RFC 9068 (Entra ID, Keycloak, Okta) that the caller classification reads (FerroHEALTH/FerroAUTH#215). IUA and RFC021 are the editions FerroHEALTH/FerroFED vendors. The vendor documents are evidence for a profile's values, never the oracle for a core rule. The Okta page states "All rights reserved", so only its pin and provenance are committed. |
 | Contact-point references | The eHDSI SAML Profile, Section II Security Services, Service Location and Capability Lookup Profile, NCPeH Components Specifications and Messaging Profile 10.0.0, the Cryptographic Algorithms 9.0.0, the X.509 Certificates Profile 7.0.0 and the Interoperability Specifications 8.0.1 (supplied by the owner); SOG-IS Agreed Cryptographic Mechanisms 1.3 (read, recorded by sha256, never copied); the MyHealth@EU Requirements Catalogue 10.0.0 (read, recorded by sha256, never copied); Implementing Regulation (EU) 2026/2099 and Regulation (EU) 2016/679 (the Official Journal XHTML); the Federation Tier with AQL specification 1.0.1 Annex B (`syntaric/openehr-federation-spec` at `b4242c29…`) | The contact-point issuer profile of the caller classification (FerroHEALTH/FerroAUTH#215): the IdA issuer, attributes, authentication classes, lifetimes and refusal names from the eHDSI documents, the fields of 2026/2099 Annex Tables 1 and 2, GDPR Art. 9(3) and Art. 29 for guests, and the Dutch `authorization_details` of Annex B §B.4a. The eHDSI files and Annex B are the ones FerroHEALTH/FerroFED vendors. The Requirements Catalogue states no reuse terms, so it is cited by section only. |
@@ -2517,9 +2519,448 @@ rest of the family's hand-written code. "FerroSMART" was this repository's
 name until the owner renamed it FerroAUTH on 2026-10-25; the product name is
 reused for the server.
 
-### 13.4 The design
+### 13.4 The sources
 
-The requirements checklist, the crate layout, the storage schema, the
-endpoints, the configuration, the key handling and the threat model are the
-output of the step-1 research on the FerroSMART tracker issue, and are
-recorded here when that research lands.
+The step-1 research (FerroHEALTH/FerroAUTH#513) read the vendored corpora
+and added what FerroSMART cites and the tree lacked: RFC 6819, 7518, 7591,
+8252, 9126, 9207, 9864 and 10070 beside the RFCs of section 2, the OAuth 2.1
+Authorization Framework draft (`docs/specs/oauth-v2-1/`, revision 17) and
+the Inferno SMART App Launch test kit at release 1.0.3
+(`docs/specs/inferno-smart-test-kit/`). Citation keys follow the document's
+convention, plus: `oauth21 §4.1.3` is section 4.1.3 of the draft, which is a
+work in progress and is cited beside RFC 6749, 6750 and 9700, never in
+their place; `oidc core §3.1.2.1` is OpenID Connect Core 1.0; `smart
+app-launch`, `smart scopes-and-launch-context`, `smart backend-services`,
+`smart client-confidential-asymmetric`, `smart token-introspection` and
+`smart conformance` are the page sources under
+`docs/specs/smart-app-launch/repository/input/pages/`, cited with the page's
+own heading.
+
+The Inferno kit carries its own extraction of SMART App Launch 2.2.0 into
+265 server-side requirement rows
+(`lib/smart_app_launch/requirements/smart_app_launch_test_kit_requirements.csv`),
+of which its STU 2.2 suite checks 53
+(`requirements/generated/smart_stu2_2_requirements_coverage.csv`). The
+checklist below was built from the specification pages and cross-checked
+against that extraction; every row cites the specification, never the
+kit. The 210 rows the kit does not check are FerroSMART's own tests.
+
+### 13.5 The requirements checklist
+
+Level is the specification's keyword. Step is the FerroSMART sub-issue
+that delivers the row: 2 core and Backend Services (#514), 3 the
+authorization code flow (#515), 4 the patient picker (#516), 5 the EHR
+launch API (#517), 6 refresh, introspection and revocation (#518). The
+User Access Brands rows (`smart brands`) are not listed: they bind a
+publisher of a Brand Bundle, which FerroSMART is not, and the
+`user_access_brand_*` metadata belongs in each FHIR server's own document
+(13.8).
+
+**Discovery and metadata**
+
+| Requirement | Level | Citation | Step |
+|---|---|---|---|
+| RFC 8414 metadata at `/.well-known/oauth-authorization-server` (inserted between host and path), with `issuer`, `authorization_endpoint`, `token_endpoint` and `response_types_supported`; `issuer` equals the issuer identifier | MUST | `rfc8414 §2`, `§3`, `§3.3` | 2 |
+| OpenID Connect discovery at `/.well-known/openid-configuration` with `jwks_uri`, `subject_types_supported` and `id_token_signing_alg_values_supported`, which includes `RS256` | REQUIRED | `discovery §3`, `§4` | 2 |
+| A SMART configuration document at FerroSMART's own `/.well-known/smart-configuration`, as `application/json` whatever the `Accept` header, every endpoint URL absolute | SHALL | `smart conformance`, Using well-known | 2 |
+| The document carries `token_endpoint`, `grant_types_supported`, `capabilities` and `code_challenge_methods_supported` with `S256` and never `plain`; `authorization_endpoint` with a launch capability; `issuer` and `jwks_uri` with `sso-openid-connect` | REQUIRED, CONDITIONAL | `smart conformance`, Metadata | 2 |
+| `introspection_endpoint`, `revocation_endpoint`, `scopes_supported`, `response_types_supported`, `management_endpoint` | RECOMMENDED | `smart conformance`, Metadata | 2, 6 |
+| Every scope in `scopes_supported` is supported | SHALL | `smart conformance`, Metadata | 3 |
+| With `client-confidential-asymmetric`: `token_endpoint`, `scopes_supported`, `token_endpoint_auth_methods_supported` with `private_key_jwt`, `token_endpoint_auth_signing_alg_values_supported` with `RS384` or `ES384` | SHALL | `smart client-confidential-asymmetric`, Advertising server support | 2 |
+| `authorization_response_iss_parameter_supported` is `true` and every authorization response carries `iss` | MUST (when advertised) | `rfc9207 §2`, `§3` | 3 |
+| Each listed capability is supported: `launch-ehr`, `launch-standalone`, `authorize-post`, `client-public`, `client-confidential-symmetric`, `client-confidential-asymmetric`, `sso-openid-connect`, `context-banner`, `context-style`, `context-ehr-patient`, `context-ehr-encounter`, `context-standalone-patient`, `context-standalone-encounter`, `permission-offline`, `permission-online`, `permission-patient`, `permission-user`, `permission-v1`, `permission-v2` | SHALL (per listed capability) | `smart conformance`, Capabilities | 2 to 6 |
+| The four capability sets (patient and clinician, standalone and EHR launch) | SHOULD support one or more | `smart conformance`, Capability Sets | 3, 5 |
+| CORS on the discovery documents for any origin, and on the token endpoint for a client's registered origins | SHALL (browser apps) | `smart app-launch`, Considerations for CORS support; `rfc7009 §2.3` | 2, 3 |
+
+**Client registration and authentication**
+
+| Requirement | Level | Citation | Step |
+|---|---|---|---|
+| Every app's complete redirect URIs are registered, and the server communicates a `client_id` | SHALL | `smart app-launch`, Register App with EHR | 2 |
+| Redirect URIs compared by exact string match, except the port of a native app's loopback URI | MUST | `rfc9700 §2.1`; `rfc8252 §7.3` | 3 |
+| Public clients (no authentication), confidential symmetric (`client_secret_basic`, `client_secret_post`) and confidential asymmetric (`private_key_jwt`) | SHALL (per capability) | `smart conformance`, Client Types; `smart client-confidential-symmetric`; `rfc6749 §2.3.1` | 2 |
+| Client JWK Sets registered both by URL (`jwks_uri`) and by value (`jwks`); a JWK Set held by value is protected from corruption | SHALL | `smart client-confidential-asymmetric`, Registering a client | 2 |
+| Each registered JWK carries `kty` and `kid` and bare key members (`n`, `e`; `crv`, `x`, `y`) | SHALL | same | 2 |
+| Signatures validated with at least one of `RS384` and `ES384` (FerroSMART takes both) | SHALL | same | 2 |
+| The client assertion is validated by `rfc7523 §3`: signature, `iss` = `sub` = a known `client_id`, `aud`, `exp` at most five minutes ahead, `jti` not seen for that `iss` within the assertion lifetime | SHALL | `smart client-confidential-asymmetric`, Signature Verification; `rfc7523 §3`, `§3.2` | 2 |
+| Key resolution: a `jku` header must equal the registered JWK Set URL, otherwise the registered keys; exactly one key matching `kid` and the `kty` of `alg` | SHALL | same | 2 |
+| A client's JWK Set is cached no longer than its `Cache-Control` allows | SHALL NOT exceed; SHOULD cache | same | 2 |
+| Any authentication failure answers `invalid_client` | SHALL | same; `rfc6749 §5.2` | 2 |
+| The assertion's `aud` (see 13.6, decision 1) | conflicting | `smart client-confidential-asymmetric`, Request; `rfc10070 §4` | 2 |
+| The symmetric profile is not used for Backend Services | SHALL NOT | `smart client-confidential-symmetric`, Profile audience and scope | 2 |
+| Dynamic client registration is encouraged, not required | MAY | `smart app-launch`, Register App with EHR; `rfc7591 §3` | after 9 |
+
+**The authorization endpoint**
+
+| Requirement | Level | Citation | Step |
+|---|---|---|---|
+| `GET` and `POST` (form) at the authorization endpoint | SHALL | `smart app-launch`, Obtain authorization code; `oidc core §3.1.2.1` | 3 |
+| `response_type=code` only; the implicit and password grants are absent | SHOULD NOT (implicit); MUST NOT (password) | `rfc9700 §2.1.2`, `§2.4`; `oauth21 §10` | 3 |
+| PKCE with `S256`; `plain` refused; a token request with `code_verifier` is accepted only if the request carried a `code_challenge` | SHALL, SHALL NOT, MUST | `smart app-launch`, Considerations for PKCE Support; `rfc7636 §4.6`; `rfc9700 §2.1.1`, `§4.8.2` | 3 |
+| `aud` supported and checked against the FHIR (or openEHR) bases FerroSMART serves; `resource` MAY be a synonym | SHALL; MAY | `smart app-launch`, Obtain authorization code | 3 |
+| An invalid `client_id` or `redirect_uri` is shown to the user and never redirected | MUST NOT redirect | `rfc6749 §4.1.2.1`; `rfc9700 §4.11` | 3 |
+| `state` returned exactly as received | REQUIRED | `smart app-launch`, Obtain authorization code, Response; `rfc6749 §4.1.2` | 3 |
+| The code expires shortly after issue (FerroSMART: 60 seconds), is single-use, and a second valid use is denied and revokes what it issued | SHOULD; MUST deny, SHOULD revoke | `smart app-launch`, Response; `rfc6749 §4.1.2`; `oauth21 §4.1.3`, `§7.5.3` | 3 |
+| The decision to grant or deny is the server's, by local policy and optionally the user's input; a denial is an `access_denied` error response | SHALL | `smart app-launch`, Response; `rfc6749 §4.1.2.1` | 3 |
+| The granted scope may differ from the request and is reported | MAY, SHALL report | `smart app-launch`, Obtain access token, Response; `rfc6749 §3.3` | 3 |
+| v1 scopes (`.read`, `.write`, `.*`) are processed as `.rs`, `.cud`, `.cruds`, and returned as v1 when granted as v1 | SHOULD | `smart scopes-and-launch-context`, Scopes for requesting FHIR Resources | 3 |
+| Undefined or out-of-order interactions may be ignored, replaced or refused | MAY | same | 3 |
+| The server's own policies and permissions hold even when a scope would grant more | SHALL | `smart scopes-and-launch-context`, SMART's scopes are used to delegate access | 3 |
+| Requested scopes are limited to the minimum, and tokens are audience-restricted | SHOULD | `rfc9700 §2.3` | 3 |
+| Clickjacking: the authorization and consent pages refuse framing | MUST (where framing matters) | `rfc9700 §4.16`; `rfc6749 §10.13` | 3 |
+
+**Launch context**
+
+| Requirement | Level | Citation | Step |
+|---|---|---|---|
+| EHR launch: the `launch` value the EHR passed binds the request to the EHR's context; `launch/` scopes are hints the server MAY ignore | must match; MAY | `smart app-launch`, Launch App: EHR Launch; `smart scopes-and-launch-context`, Apps that launch from the EHR | 5 |
+| A granted `patient/` scope establishes a patient in context; a request with `patient/` and no `launch` or `launch/patient` MAY be refused or MAY infer `launch/patient` | SHALL; MAY | same, and Standalone apps | 3, 4 |
+| A standalone app's `launch/patient` and `launch/encounter` are provided | SHOULD | `smart scopes-and-launch-context`, Standalone apps | 4 |
+| The context arrives as token response parameters: `patient`, `encounter`, `fhirContext` (each item with at least one of `reference`, `canonical`, `identifier`; a `role` never empty; non-SMART roles absolute URIs), `need_patient_banner`, `intent`, `smart_style_url`, `tenant` | SHALL (when in context) | `smart scopes-and-launch-context`, Launch context arrives with your access_token, `fhirContext` | 3, 5 |
+| An unsupported `?role=` returns any context for the type | SHOULD | `smart scopes-and-launch-context`, Scopes for requesting context data | 5 |
+| SMART on openEHR: `launch/patient` also yields `ehrId`; `launch/episode` yields `episodeId` (experimental) | may be included | `soe master07`, Context Selection; `soe master04`, Capabilities | 4, 5 |
+| `authorization_details` of type `smart_on_fhir` for a token valid at more than one base | MAY (experimental) | `smart app-launch`, Authorization Details for Multiple Servers; `rfc9396` | later |
+
+**The token endpoint and the token response**
+
+| Requirement | Level | Citation | Step |
+|---|---|---|---|
+| `application/x-www-form-urlencoded` POST; `code`, `redirect_uri` (equal to the request's), `code_verifier`; `client_id` for public clients | required | `smart app-launch`, Obtain access token, Request; `rfc6749 §4.1.3`; `rfc7636 §4.5`, `§4.6` | 3 |
+| The response carries `access_token`, `token_type` `Bearer`, `scope`, `expires_in` (recommended), optional `id_token` and `refresh_token`, and the context parameters, in the body of `rfc6749 §5.1` | SHALL | `smart app-launch`, Obtain access token, Response | 3 |
+| `Cache-Control: no-store` and `Pragma: no-cache` on every token response | SHALL | same; `rfc6749 §5.1` | 2 |
+| Access tokens live no longer than one hour (FerroSMART default 300 seconds for every grant) | SHOULD | `smart app-launch`, Obtain access token, Response | 2 |
+| Errors are the `rfc6749 §5.2` JSON body | SHALL | `smart backend-services`, Issue Access Token; `rfc6749 §5.2` | 2 |
+| Access tokens are RFC 9068 JWTs: signed, never `none`, `typ` `at+jwt`, with `iss`, `exp`, `aud`, `sub`, `client_id`, `iat` and `jti`, and `scope` when one was requested; `RS256` is supported | MUST, SHOULD | `rfc9068 §2.1`, `§2.2`, `§2.2.3` | 2 |
+| `sub` of a client credentials token identifies the client and cannot collide with a person's `sub` | SHOULD | `rfc9068 §2.2`, `§5` | 2 |
+| The `aud` of the access token is the base the request named, distinct per resource | MUST (distinct `aud`) | `rfc9068 §3`, `§5`; `rfc8707 §2` | 3 |
+
+**OpenID Connect**
+
+| Requirement | Level | Citation | Step |
+|---|---|---|---|
+| The authorization code flow with SMART's parameters | SHALL | `smart scopes-and-launch-context`, Scopes for requesting identity data | 3 |
+| Public keys published as bare JWKs | SHALL | same | 2 |
+| `fhirUser` in the `id_token` whenever `openid` and `fhirUser` are granted; a `Patient`, `Practitioner`, `PractitionerRole`, `RelatedPerson` or `Person` URL, absolute or relative to `aud` | SHALL | same | 3 |
+| ID Tokens signed with `RS256` | SHALL | same; `discovery §3` | 2 |
+| ID Token claims `iss`, `sub`, `aud`, `exp`, `iat`, `nonce` when sent, `auth_time` when `max_age` is requested | REQUIRED | `oidc core §2`, `§3.1.2.1` | 3 |
+| `claims`, request objects and UserInfo | MAY | `smart scopes-and-launch-context`, Scopes for requesting identity data | later |
+
+**Refresh tokens**
+
+| Requirement | Level | Citation | Step |
+|---|---|---|---|
+| `online_access` refresh lasts while the user remains online; `offline_access` without the user | SHALL (with the capability) | `smart app-launch`, Refresh access token; `smart scopes-and-launch-context`, Scopes for requesting a refresh token | 6 |
+| The server decides which client types get offline access | MAY | `smart app-launch`, Refresh access token | 6 |
+| A refresh token is bound to its `client_id` and carries the same or fewer grants | SHALL | same | 6 |
+| A refresh request's `scope` is a strict subset, or absent for the original scope; the response carries `access_token`, `token_type`, `expires_in`, `scope` (the original's) and the context | SHALL | `smart app-launch`, Refresh access token, Request and Response | 6 |
+| Public clients' refresh tokens are rotated or sender-constrained | MUST | `rfc9700 §2.2.2`, `§4.14` | 6 |
+| A rotated refresh token keeps the grant's scope; idle refresh tokens expire | MUST; SHOULD | `oauth21 §4.3.3` | 6 |
+| Backend Services issues no refresh token | SHOULD NOT | `smart backend-services`, Enforce Authorization | 2 |
+
+**Backend Services**
+
+| Requirement | Level | Citation | Step |
+|---|---|---|---|
+| `grant_type=client_credentials` with `private_key_jwt` | required | `smart backend-services`, Obtain access token | 2 |
+| The requested scope is mediated to stay within what the client is pre-authorized for | SHALL | `smart backend-services`, Evaluate Requested Access | 2 |
+| `expires_in` is required and SHOULD NOT exceed 300; tokens are short-lived | SHALL, SHOULD NOT | `smart backend-services`, Issue Access Token | 2 |
+| `scope` reports what was granted; each token covers only what was requested | SHALL; SHOULD | same | 2 |
+| An error carries `error_description` or `error_uri` | SHOULD | same | 2 |
+| TLS 1.2 or newer on every exchange | SHALL | `smart backend-services`, Obtain access token; `smart client-confidential-asymmetric`, Authenticating to the Token endpoint | 7 |
+
+**Introspection and revocation**
+
+| Requirement | Level | Citation | Step |
+|---|---|---|---|
+| An introspection endpoint by RFC 7662 | SHOULD | `smart token-introspection`; `rfc7662 §2` | 6 |
+| The response carries `active`, and for an active token `scope`, `client_id` and `exp` (consistent with `expires_in`), every launch context parameter of the original response, and `iss` and `sub` (`fhirUser` SHOULD) of an ID Token that was issued | SHALL, SHOULD | `smart token-introspection`, Required and Conditional fields | 6 |
+| The endpoint requires authorization; when it does, a SMART bearer token with the introspection scope is accepted and may introspect any client's token | MUST (`rfc7662`); SHALL (SMART, if access-controlled) | `rfc7662 §2.1`, `§4`; `smart token-introspection`, Authorization to perform Token Introspection | 6 |
+| An inactive, expired, revoked or unknown token answers `{"active": false}` only | MUST | `rfc7662 §2.2` | 6 |
+| A revocation endpoint by RFC 7009: confidential clients authenticate, the token must belong to the client, an unknown token answers `200`, revoking a refresh token revokes its grant's access tokens | MUST, SHOULD | `rfc7009 §2.1`, `§2.2` | 6 |
+
+### 13.6 Where the specifications conflict or are silent
+
+Each item names the decision. "Our own design" marks where no
+specification governs.
+
+1. **The client assertion's `aud`.** SMART 2.2 has the client put "the
+   FHIR authorization server's token URL" in `aud` (`smart
+   client-confidential-asymmetric`, Request), and the Inferno kit sends
+   that value. RFC 10070 (November 2026) updates RFC 7523 so that "the
+   'aud' (audience) claim value MUST use the issuer identifier ... as its
+   sole value ... the token endpoint URL ... MUST NOT be used", and "The
+   authorization server MUST reject any JWT that does not contain its issuer
+   identifier as its sole audience value" (`rfc10070 §4`), to close the
+   audience injection attack its §1 describes. The two cannot both hold.
+   Decision, for the owner to confirm: FerroSMART accepts an assertion whose
+   `aud` is a single value equal to its issuer identifier or to its token
+   endpoint URL, and refuses any other value and any `aud` array, so every
+   SMART 2.2 client and every RFC 10070 client authenticates; the
+   `client-authentication+jwt` `typ` is accepted and never required
+   (`rfc10070 §4`, NOT RECOMMENDED to reject). A deployment can set
+   `[clients] assertion_audience = "issuer"` to take RFC 10070 strictly. The
+   conflict is the `upstream-report` FerroHEALTH/FerroAUTH#528.
+   `ferrohealth-smart`'s own `private_key_jwt` client, whose default `aud`
+   is the token endpoint, moves to the issuer in FerroHEALTH/FerroAUTH#529.
+2. **The launch context in the access token.** SMART puts the context in
+   the token response and the introspection response only. A resource
+   server reading a JWT needs it in the token, and `ferrohealth-smart` reads
+   a `patient` claim when present (section 9). FerroSMART writes `patient`,
+   `encounter`, `fhirUser` and, for an openEHR `aud`, `ehrId` as access
+   token claims beside the RFC 9068 set, names `rfc9068 §2.2.2` ("arbitrary
+   attributes") as the ground, and keeps the claims to what the token
+   response carried. Our own design.
+3. **The EHR launch API.** SMART defines the `launch` parameter and no way
+   for an EHR to register the context with the authorization server. Our
+   own design (#517): `POST /launch` from an EHR client authenticated with
+   `private_key_jwt` and the scope `system/launch.c` (a full-URI scope is
+   the alternative SMART's Extensibility section admits), body
+   `{ "aud", "patient", "encounter", "fhirContext", "intent",
+   "need_patient_banner", "smart_style_url", "tenant", "ehrId" }`, answer
+   `{ "launch": "<opaque>", "expires_in": 300 }`. The opaque value is 256
+   random bits, stored hashed, single-use and bound to the EHR client and
+   the `aud`. Without a shared database, the EHR instead signs a launch JWT
+   (`typ` `launch+jwt`, `iss` its `client_id`, `aud` FerroSMART's issuer,
+   `exp` at most five minutes ahead, `jti`, and the context claims) with a
+   key of its registered JWK Set, and passes the compact JWT as `launch`;
+   FerroSMART checks it as it checks a client assertion (signature, `iss`,
+   sole `aud`, `exp`, `jti` replay) and takes the context from it.
+4. **The patient picker.** SMART leaves "a patient selection widget" to the
+   server (`smart app-launch`, Obtain authorization code). Our own design
+   (#516): the picker searches `Patient` at the configured FHIR base (`GET
+   [base]/Patient?name=…` and `identifier=…`) with a short-lived token
+   FerroSMART issues to itself for the signed-in user, `aud` the base and
+   scope `user/Patient.rs`, so the FHIR server's own access rules decide
+   which patients the user sees; for an openEHR `aud`, the EHR id comes from
+   `GET [base]/ehr?subject_id=…&subject_namespace=…` (ITS-REST) under the
+   same rule.
+5. **Scope narrowing.** The granted scope is the intersection of the
+   request, the client's registered ceiling, the user's roles mapped to
+   scopes by configuration, and the consent the user gave; SMART allows the
+   result to differ from the request (`smart app-launch`, Obtain access
+   token, Response) and requires the server's policy to win (`smart
+   scopes-and-launch-context`, SMART's scopes are used to delegate access).
+   The mapping is content, never code.
+6. **Consent.** SMART makes the user's input optional. FerroSMART asks for
+   consent the first time a user authorizes a client for a scope set, and
+   again when the set grows; a client registered as trusted by the
+   deployment skips the page. The consent record is a row with the scope
+   granted, revocable at the management endpoint. Our own design.
+7. **`online_access`.** "As long as the end-user remains online" has no
+   mechanism in SMART. FerroSMART ties an online refresh token to the
+   upstream login session: it ends at upstream logout (an OpenID Connect
+   back-channel or front-channel logout, or the upstream ID token's session
+   expiring) and after the configured idle time. Our own design.
+8. **Introspection access.** `smart token-introspection` lets the endpoint
+   take a SMART bearer token; FerroSMART takes a client authenticated as at
+   the token endpoint, or a bearer token FerroSMART issued carrying the
+   scope `system/introspect` (a deployment can rename it to a full URI).
+   Every resource server that introspects is a registered client.
+9. **Upstream identity.** The user's FerroSMART `sub` is a pairwise-stable
+   identifier derived from the upstream issuer and the upstream `sub`
+   (SHA-256 of both, base64url), so two IdPs never collide and the upstream
+   identifier never reaches a resource server; `fhirUser` comes from a
+   configured claim of the upstream ID token or a mapping table. Our own
+   design.
+
+### 13.7 The crate layout
+
+FerroSMART is one binary crate, `app/ferrosmart` (package `ferrosmart`,
+`publish = false`), beside the library crates under `crates/`, with the
+workspace's members widened to `app/*`. It depends on the published family
+crates and on `ferrohealth-smart` and `ferrohealth-session` by path, so it
+always builds against the libraries of the same commit. Its modules:
+
+| Module | Holds |
+|---|---|
+| `config` | the `[ferrosmart]` tree, read by `ferrohealth-config` with `deny_unknown_fields` |
+| `discovery` | the RFC 8414, OpenID Connect and SMART documents, and the JWKS |
+| `keys` | the signing key ring, the `Signer` trait with the file and KMS signers, rotation |
+| `clients` | the registry, client authentication (secret, `private_key_jwt`, the client JWK Set fetch and cache), the admin API |
+| `authorize` | the authorization endpoint, the pending request, the scope narrowing |
+| `upstream` | the login at the upstream OpenID Connect provider through `ferrohealth_smart::oidc` and the claim mapping |
+| `consent` | the consent page and the consent records |
+| `picker` | the patient picker over FHIR and ITS-REST |
+| `launch` | the EHR launch API and the signed launch JWT |
+| `token` | the token endpoint and its grants (`authorization_code`, `refresh_token`, `client_credentials`) |
+| `mint` | the RFC 9068 access token and the ID Token |
+| `introspect`, `revoke` | RFC 7662 and RFC 7009 |
+| `store` | the PostgreSQL store (`sqlx` 0.9, the family's driver) and its migrations |
+| `audit` | the BALP and EHDS records through `ihe-atna` and `ehds-logging` |
+| `pages` | the login, consent, picker and error pages, server-drawn with FerroUI |
+
+The server stack is `ferrohealth-server` (request id, timeout, body
+ceiling, TLS listener, drain), `ferrohealth-telemetry` and
+`ferrohealth-health` (the database and the upstream discovery as
+indicators). Scope parsing is `ferrohealth_smart::scope` and
+`ferrohealth_smart::openehr::smart_scopes`, the parsers the resource
+servers enforce with, so FerroSMART never grants a scope a product parses
+differently.
+
+### 13.8 The endpoints
+
+| Method and path | Purpose | Ground |
+|---|---|---|
+| `GET /.well-known/oauth-authorization-server` | RFC 8414 metadata | `rfc8414 §3` |
+| `GET /.well-known/openid-configuration` | OpenID Connect discovery | `discovery §4` |
+| `GET /.well-known/smart-configuration` | FerroSMART's SMART document, which each product's own document describes through the described-issuer rule (3.8) | `smart conformance` |
+| `GET /jwks` | the public signing keys, bare JWKs | `rfc7517 §5`; `smart scopes-and-launch-context` |
+| `GET`, `POST /authorize` | the authorization endpoint | `smart app-launch`; `rfc6749 §3.1` |
+| `GET /callback` | the upstream provider's redirect back | `oidc core §3.1.2.5` |
+| `GET`, `POST /consent`, `/picker` | the consent and picker pages | our own design |
+| `POST /token` | the token endpoint | `rfc6749 §3.2` |
+| `POST /introspect` | RFC 7662 | `rfc7662 §2` |
+| `POST /revoke` | RFC 7009 | `rfc7009 §2` |
+| `POST /launch` | the EHR launch API | our own design (13.6) |
+| `GET /manage` | the user's grants, with revoke (`management_endpoint`) | `smart conformance`, Metadata |
+| `/admin/clients`, `/admin/keys` | the registry and the key ring, behind a `ferrohealth-smart` guard | our own design |
+| `/healthz`, `/readyz` | `ferrohealth-health` | the family |
+
+`POST /register` (RFC 7591) and `POST /par` (RFC 9126) join after step 9;
+the metadata names them only once they exist.
+
+Each FHIR or openEHR server keeps serving its own
+`/.well-known/smart-configuration` at its base, as SMART requires of "FHIR
+endpoints requiring authorization", and names FerroSMART's endpoints in it.
+
+### 13.9 The storage schema
+
+PostgreSQL holds every piece of state, so any replica answers any request.
+A secret is never stored: codes, refresh tokens and launch values are
+stored as their SHA-256, client secrets as Argon2id hashes.
+
+| Table | Key | Holds |
+|---|---|---|
+| `client` | `client_id` | type (public, symmetric, asymmetric), secret hash, `jwks` or `jwks_uri`, redirect URIs, launch URI, registered origins, scope ceiling, grant types, trusted (skips consent), offline access allowed, name and logo, disabled time |
+| `signing_key` | `kid` | algorithm, public JWK, signer reference (file path or KMS key id), state (`next`, `active`, `retiring`), the times of each state |
+| `pending_authorization` | random id | the validated request (client, redirect URI, scope, `state`, `nonce`, PKCE challenge, `aud`, launch), the upstream `state`, `nonce` and PKCE verifier, expiry |
+| `authorization_code` | code hash | the grant it opens, the PKCE challenge, the redirect URI, expiry, redemption time |
+| `grant` | grant id | client, subject, `fhirUser`, scope, launch context, `auth_time`, upstream session, kind (`offline`, `online`, none), creation and revocation times |
+| `refresh_token` | token hash | grant, predecessor, expiry, last use, use time, revocation |
+| `access_token` | `jti` | grant or client, `aud`, scope, `exp`, revocation, so introspection and revocation answer for a JWT |
+| `launch` | launch hash | EHR client, `aud`, context, expiry, use time |
+| `consent` | subject, client | scope granted, times, revocation |
+| `upstream_session` | id | upstream issuer, upstream `sid` and `sub`, last seen, end |
+| `seen_jti` | issuer, `jti` | client assertions and launch JWTs, until their `exp` |
+
+Expired rows are deleted by a sweep on each replica under a PostgreSQL
+advisory lock. The migrations ship in the binary and run at start under
+the same lock.
+
+### 13.10 The configuration
+
+```toml
+[ferrosmart]
+issuer = "https://smart.example.org"          # the issuer identifier, https, no query or fragment
+access_token_lifetime = "5m"
+refresh_idle = "30d"
+online_idle = "8h"
+
+[ferrosmart.database]
+url_file = "/run/secrets/ferrosmart-db-url"
+
+[ferrosmart.keys]
+signer = "file"                               # or "kms"
+active = ["/run/secrets/rs256.pem"]           # RS256 is always one of them
+next = ["/run/secrets/rs256-next.pem"]        # published before it signs
+retired = []                                  # published, never signs
+
+[[ferrosmart.resource]]                       # each base an `aud` may name
+base = "https://ehr.example.org/fhir"
+kind = "fhir"                                 # or "openehr"
+picker = true
+
+[ferrosmart.upstream]                         # any OpenID Connect provider
+discovery = "https://idp.example.org/.well-known/openid-configuration"
+client_id = "ferrosmart"
+client_secret_file = "/run/secrets/upstream-secret"   # or private_key_file
+scopes = ["openid", "profile"]
+user_claim = "sub"
+fhir_user_claim = "fhir_user"                 # or a [ferrosmart.upstream.fhir_user] table
+roles_claim = "roles"
+
+[[ferrosmart.policy.role]]                    # policy as content
+role = "clinician"
+scopes = ["user/*.cruds", "patient/*.cruds", "launch", "launch/patient", "openid", "fhirUser", "offline_access"]
+
+[ferrosmart.clients]
+assertion_audience = "smart-or-issuer"       # 13.6 item 1; "issuer" for RFC 10070 alone
+seed_file = "/etc/ferrosmart/clients.toml"    # registry rows loaded at start; the admin API edits the rest
+
+[ferrosmart.branding]
+name = "Example Hospital"
+consent_text_file = "/etc/ferrosmart/consent.md"
+smart_style_url = "https://smart.example.org/style.json"
+```
+
+Every secret is a `_file` key read through `ferrohealth-secret`; the
+`FERROSMART__` environment and `--set` override as in every product.
+
+### 13.11 Key handling
+
+- **Algorithms.** `RS256` is always available, because RFC 9068 §2.1 and
+  OpenID Connect Discovery §3 require it and SMART signs ID Tokens with it;
+  `ES256`, `ES384` and `PS256` can sign beside it. Names follow RFC 9864's
+  fully-specified registrations; `none` and HMAC never sign.
+- **Rotation.** A key is published as `next` at least the JWKS cache
+  lifetime (`Cache-Control: max-age`, default one hour) before it becomes
+  `active`, and stays published as `retiring` for the longest lifetime of a
+  token it signed plus that cache lifetime, which the resource servers'
+  refetch on an unknown `kid` (3.2) relies on. The replicas agree on the state
+  through the `signing_key` table; the private material never enters the
+  database.
+- **Signers.** The `Signer` trait has a file signer (PEM from a mounted
+  secret, `ferrohealth-secret`) and a KMS signer that sends the digest to
+  a cloud KMS or a PKCS#11 HSM, so the private key can stay in hardware.
+- **Separation.** One key ring signs access tokens and ID Tokens; RFC 9068
+  §5 says resource servers cannot rely on separate keys, and the `typ`
+  values (`at+jwt` against `JWT`) are what keeps an ID Token from passing
+  as an access token (`rfc9068 §2.1`).
+
+### 13.12 The threat model
+
+| Threat | Mitigation | Ground |
+|---|---|---|
+| A stolen or injected authorization code | PKCE `S256` on every client, single use with revocation on a second valid use, 60-second lifetime, bound to client and redirect URI | `rfc9700 §4.5`; `oauth21 §7.5.3` |
+| Open redirection and code leakage | exact redirect URI match, no redirect on an invalid client or URI, `Referrer-Policy: no-referrer` on every page | `rfc9700 §4.1`, `§4.2`, `§4.11` |
+| Mix-up between authorization servers | `iss` in every authorization response | `rfc9207 §2`; `rfc9700 §4.4` |
+| CSRF and clickjacking on the login, consent and picker pages | a per-request form token bound to the pending authorization, `frame-ancestors 'none'`, a strict CSP | `rfc9700 §4.7`, `§4.16`; `rfc6749 §10.12`, `§10.13` |
+| Client assertion replay and audience injection | the `jti` store, a single `aud` value (13.6 item 1) | `rfc7523 §3`; `rfc10070 §1`, `§4` |
+| SSRF through a client's `jwks_uri` | `https` only, taken from the registry and never from a request; no private or loopback address; time and size bounds | `smart client-confidential-asymmetric`, Registering a client (TLS-protected URL); the address rule is our own design |
+| A stolen access token | 300-second lifetime, `aud` restricted to one base, DPoP when step DPoP lands | `rfc9700 §2.2.1`, `§2.3` |
+| A stolen refresh token | rotation for public clients with reuse detection that revokes the grant, binding to the client, idle expiry | `rfc9700 §2.2.2`, `§4.14` |
+| A signing key leak | keys in a KMS or HSM, rotation, a retiring key published only as long as needed | `rfc6819 §5.1.4` |
+| A database leak | codes, refresh tokens and launch values stored hashed; client secrets as Argon2id | `rfc6819 §5.1.4.1.3` |
+| Scope escalation | narrowing on every grant, refresh never widens, policy as content checked at load | `smart app-launch`, Refresh access token |
+| A forged EHR launch | a launch value bound to an authenticated EHR client and its `aud`, or a launch JWT checked like a client assertion | our own design (13.6 item 3) |
+| An upstream IdP that is compromised or misconfigured | one configured issuer per upstream, its ID Token checked by `oidc core §3.1.3.7`, claims mapped explicitly, nothing taken from unlisted claims | `oidc core §3.1.3.7` |
+| Patient data on the picker page | the search runs with the user's own delegated access at the FHIR server; the page shows only display fields | our own design |
+| Credential leakage in logs | no token, code, secret or assertion in a log line or `Debug`, as the library crates already hold | `CLAUDE.md` hard rule |
+| Request flooding | per-client and per-address rate limits on `/token` and `/authorize`, the body ceiling of `ferrohealth-server` | `rfc6819 §4.4.1.11` |
+
+### 13.13 The Inferno test groups
+
+The STU 2.2 server suite (`smart_stu2_2`, kit 1.0.3) runs four groups.
+The CI lane (#520) runs FerroSMART with a test OpenID Connect provider
+upstream and a FHIR server downstream, because the discovery tests read
+the FHIR base's `/.well-known/smart-configuration` and the `fhirUser`
+test reads the user's resource from it.
+
+| Group | Children | Step that makes it pass |
+|---|---|---|
+| 1 Standalone Launch (`smart_full_standalone_launch`) | SMART on FHIR Discovery (`smart_discovery_stu2_2`, with the CORS checks), SMART Standalone Launch (`smart_standalone_launch_stu2_2`: TLS, redirect, code, token exchange, response body and headers, CORS), OpenID Connect (`smart_openid_connect_stu2_2`: ID Token decode, configuration, JWKS, header, payload, `fhirUser`), Token Refresh without and with scopes (`smart_token_refresh_stu2`) | 2, 3, 4, 6 |
+| 2 EHR Launch (`smart_full_ehr_launch`) | Discovery, SMART EHR Launch (`smart_ehr_launch_stu2_2`: launch received, redirect, code, token exchange, response), OpenID Connect, Token Refresh without and with scopes | 5, 6 |
+| 3 Backend Services (`smart_backend_services`) | Discovery, SMART Backend Services Authorization (`backend_services_authorization`: TLS, invalid grant type, invalid client assertion, invalid JWT, success, response body) | 2 |
+| 4 Token Introspection (`smart_token_introspection_stu2_2`) | Request a new access token, issue introspection requests for an active and an invalid token, validate both responses | 6 |
+
+The suite drives a browser through the authorization page, so the lane
+runs the test provider with a scripted login.
+
+### 13.14 The build order
+
+Step 1 (#513) is this section. Steps 2 to 9 are the sub-issues of #512 in
+their blocked-by order: the core first (#514), then the authorization code
+flow (#515), which the picker (#516), the EHR launch API (#517), refresh
+and introspection (#518), the Inferno lane (#520) and the four upstream
+providers (#522 to #525) wait on; the image (#519) and the issuer preset
+with the family adoption (#521) follow the core.

@@ -7,10 +7,10 @@ Vendored verbatim by `scripts/vendor/rfcs.sh` from the RFC Editor
 (<https://www.rfc-editor.org/rfc/>), the text form of each, as published. Never edit a file here:
 change the pin in docs/VERSIONS.md and re-run the script.
 
-- Fetched: 2026-11-05
-- Files: 27
+- Fetched: 2026-11-16
+- Files: 35
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `54a1bb42007645a35e385c23a11f190cfd251de2dd8c02a9c15be00f1b056034`
+  `PROVENANCE.md` excluded): `060fa695a8b79ca4f50fff4df9d3f10207e626b0fad4c18bda07170e011b575c`
 - Upstream licence: each RFC but RFC 3986 is "Copyright (c) <year> IETF Trust and the
   persons identified as the document authors. All rights reserved." and is
   "subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF
@@ -47,7 +47,7 @@ change the pin in docs/VERSIONS.md and re-run the script.
 | RFC 7515 | JSON Web Signature (JWS) | May 2015 | PROPOSED STANDARD | none | `ecbf84674118e62526511c1237e1deaa86aada86d25b247623a2a7e04ae62e40` |
 | RFC 7517 | JSON Web Key (JWK) | May 2015 | PROPOSED STANDARD | none | `681c19b92a85068716b7e89c5815aa821bd3f11c755ff1c641b40ae9851bb33c` |
 | RFC 7519 | JSON Web Token (JWT) | May 2015 | PROPOSED STANDARD | RFC7797, RFC8725 | `fecd930e9ccf2276b95c0017c6c4ff5d09352e4bc3c7629946447894e0f97248` |
-| RFC 7523 | JSON Web Token (JWT) Profile for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | none | `ae24f77a8fc4338903c805c6ace38def1f23d40194aea87b123b13c5b3d2d915` |
+| RFC 7523 | JSON Web Token (JWT) Profile for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | RFC10070 | `ae24f77a8fc4338903c805c6ace38def1f23d40194aea87b123b13c5b3d2d915` |
 | RFC 7617 | The 'Basic' HTTP Authentication Scheme | September 2015 | PROPOSED STANDARD | none | `bc941321da9912fbb1bc92ad1820848ddfd3283dbfbc30f26ea2800bdaf541db` |
 | RFC 7662 | OAuth 2.0 Token Introspection | October 2015 | PROPOSED STANDARD | none | `2b7d688cb849f093e860557ac97e6cddac2556d69a4386561b22cdf97bf13657` |
 | RFC 8414 | OAuth 2.0 Authorization Server Metadata | June 2018 | PROPOSED STANDARD | none | `16c816e4e0fdbffb7e910ff3017867bf39debe9cb7f52f5cbc508a052ed660e8` |
@@ -65,10 +65,18 @@ change the pin in docs/VERSIONS.md and re-run the script.
 | RFC 9396 | OAuth 2.0 Rich Authorization Requests | May 2023 | PROPOSED STANDARD | none | `d6a8f032d8a585daae1c33a8c7b6e539d199f886ec8cc1c7898436f7f2eed29c` |
 | RFC 7636 | Proof Key for Code Exchange by OAuth Public Clients | September 2015 | PROPOSED STANDARD | none | `1972e5d81cbaba7066cfd46374207bc2b4546b085ed5dd9b034e79e023e0ca31` |
 | RFC 7009 | OAuth 2.0 Token Revocation | August 2013 | PROPOSED STANDARD | none | `b2f346d5a87ba9d7f09047901257a65f7ac0b26352095969c25821afab447829` |
-| RFC 7521 | Assertion Framework for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | none | `d5d97b3e691c9bbc495c277cc2cd79316b82486991468fc346a96ab59ba4b3c8` |
-| RFC 7522 | Security Assertion Markup Language (SAML) 2.0 Profile for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | none | `87656a015c74b2cce4ed74fdf785ea2cf824e8d13cc53860d40fac3e57569afd` |
+| RFC 7521 | Assertion Framework for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | RFC10070 | `d5d97b3e691c9bbc495c277cc2cd79316b82486991468fc346a96ab59ba4b3c8` |
+| RFC 7522 | Security Assertion Markup Language (SAML) 2.0 Profile for OAuth 2.0 Client Authentication and Authorization Grants | May 2015 | PROPOSED STANDARD | RFC10070 | `87656a015c74b2cce4ed74fdf785ea2cf824e8d13cc53860d40fac3e57569afd` |
 | RFC 8693 | OAuth 2.0 Token Exchange | January 2020 | PROPOSED STANDARD | none | `358d658014738bf4dc56c8aae2094ce716ede23b6d5a80488a7dc8e8d72da609` |
 | RFC 3986 | Uniform Resource Identifier (URI): Generic Syntax | January 2005 | INTERNET STANDARD | RFC7320, RFC8820 | `3102dae4b68cebe40337730312fcb612297b8928547267e8b3d1ee6002b2d683` |
+| RFC 6819 | OAuth 2.0 Threat Model and Security Considerations | January 2013 | INFORMATIONAL | RFC9700 | `7130b62c2861e8f8a7a28aa1af9d12b6dd49e9f1353f51a84314026fbcf9dd08` |
+| RFC 7518 | JSON Web Algorithms (JWA) | May 2015 | PROPOSED STANDARD | RFC9864 | `9a9ae524b09ea700ad3f189bac115df95ba69af84b26ffdbe3cdfb8d2152b1fc` |
+| RFC 7591 | OAuth 2.0 Dynamic Client Registration Protocol | July 2015 | PROPOSED STANDARD | none | `f9cd8b8eefdb2d1b1bd5734310f246926db0abb4ec1b2f933f358d58327964e3` |
+| RFC 8252 | OAuth 2.0 for Native Apps | October 2017 | BEST CURRENT PRACTICE | none | `4233c0650ec7e7918c20e0fde2dc565f85e2aa2d4c18123e3cd834295c2f68d0` |
+| RFC 9126 | OAuth 2.0 Pushed Authorization Requests | September 2021 | PROPOSED STANDARD | RFC10070 | `a79d0e30fcc24a22b79c8e18aa82362f6e63a7b8a5d58b480e746360e97388db` |
+| RFC 9207 | OAuth 2.0 Authorization Server Issuer Identification | March 2022 | PROPOSED STANDARD | none | `c9c17b9824315aca9bda5c0b5e3627cb24aa28d54324292f3761006209b705fd` |
+| RFC 9864 | Fully-Specified Algorithms for JSON Object Signing and Encryption (JOSE) and CBOR Object Signing and Encryption (COSE) | October 2025 | PROPOSED STANDARD | none | `0f9b6dd26b3285fd9fe7f7e0a82e684d06512dee642703d51c6f88a7b0edaa2b` |
+| RFC 10070 | Updates to OAuth 2.0 JSON Web Token (JWT) Client Authentication and Assertion-Based Authorization Grants | November 2026 | PROPOSED STANDARD | none | `bca193c44b10f864396706e29192a091256d9c15a66c1549b01e75866165e163` |
 
 An "Updated by" entry names an RFC that changes the document without
 replacing it; the design reads each update that bears on the resource

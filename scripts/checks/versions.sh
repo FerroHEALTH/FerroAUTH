@@ -25,15 +25,16 @@
 #                        tree still hashes to the digest it records.
 #   3d. the party        the IHE IUA, Nuts RFC021, Microsoft Entra, SCIM
 #       binding sources  workload identity, Keycloak and Federation Tier
-#                        Annex B trees: each PROVENANCE.md names its row's
+#       and the Inferno  Annex B trees and the Inferno SMART App Launch
+#       test kit         test kit: each PROVENANCE.md names its row's
 #                        commit and the tree still hashes to the digest it
 #                        records.
 #   3e. cache only       the Okta, Microsoft Graph and SOG-IS ACM PROVENANCE.md files
 #                        each record their row's pin-set digest and each
 #                        directory holds no other file; no
 #                        file under .vendor-cache/ is tracked.
-#   3f. pinned by sha256 the eHDSI specifications, the EU legal acts and the
-#                        IHE BALP content page:
+#   3f. pinned by sha256 the eHDSI specifications, the EU legal acts, the
+#                        IHE BALP content page and the OAuth 2.1 draft:
 #                        each PROVENANCE.md records its row's pin-set
 #                        digest, the tree hashes to the digest it records,
 #                        and the script's --check finds every committed file
@@ -235,6 +236,7 @@ for tree in "ihe-iua:IHE IUA supplement" "nuts-rfc:Nuts RFC021" \
   "entra-docs:Microsoft Entra documentation" \
   "scim-workload-identity:SCIM workload identity federation guide" \
   "keycloak-docs:Keycloak documentation" \
+  "inferno-smart-test-kit:Inferno SMART App Launch test kit" \
   "openehr-rm/development:openEHR RM Common (development)" \
   "federation-spec:Federation Tier with AQL specification"; do
   dir="docs/specs/${tree%%:*}"
@@ -279,7 +281,8 @@ tracked="$(git ls-files .vendor-cache | head -n1)"
 
 # ---- 3f. the corpora pinned file by file by sha256 --------------------------
 for tree in "ehdsi-specifications:eHDSI specifications" "eu-law:EU legal acts" \
-  "ihe-balp-pages:IHE BALP narrative pages"; do
+  "ihe-balp-pages:IHE BALP narrative pages" \
+  "oauth-v2-1:OAuth 2.1 Authorization Framework draft"; do
   dir="docs/specs/${tree%%:*}"
   item="${tree#*:}"
   if [ -f "$dir/PROVENANCE.md" ]; then
