@@ -2861,10 +2861,15 @@ specification governs.
     under it (`oauth21 §4.3.1`). The new token keeps the grant's whole
     scope (`oauth21 §4.3.3`) and lapses after `refresh_idle`
     (`offline_access`) or `online_idle` (`online_access`) unused. A
-    refresh request's `scope` may equal the grant's: SMART's "strict
-    sub-set" is read with `oauth21 §4.3.1`, which forbids only a scope
-    "not originally granted", since an absent `scope` already means the
-    same set. Our own reading. A client receives a refresh token when its
+    refresh request's `scope` may equal the grant's (owner, 2026-11-16).
+    `smart app-launch`, Refresh access token, Request, asks for "a strict
+    sub-set of the scopes granted in the original launch (no new
+    permissions can be obtained at refresh time)". `rfc6749 §6`, which
+    SMART profiles, has "The requested scope MUST NOT include any scope not
+    originally granted by the resource owner" (and `oauth21 §4.3.1` the
+    same). A request equal to the original adds no permission, which is the
+    intent SMART's parenthetical states. FerroHEALTH/FerroAUTH#550 is the
+    upstream report. A client receives a refresh token when its
     ceiling lists `offline_access` or `online_access` and it registers the
     `refresh_token` grant; only then does the consent page offer either
     (`smart app-launch`, Refresh access token: "A server can decide which
