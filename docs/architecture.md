@@ -1009,7 +1009,11 @@ three; a dotted path such as `realm_access.roles` reaches into a JSON object
 for an issuer that nests them), so a claim is read from that issuer's
 tokens alone, and a `federation` issuer contributes no role. A value is an array element that is a string, an element that is an
 object with a string `value` sub-attribute (a SCIM multi-valued attribute,
-`rfc7643 §2.4`), or each whitespace-separated word of a string. A role keeps
+`rfc7643 §2.4`), each member name of an object (an issuer that keys what it
+knows of each role by the role, as ZITADEL writes
+`urn:zitadel:iam:org:project:{projectId}:roles`,
+`docs/specs/zitadel/apps/docs/content/guides/integrate/retrieve-user-roles.mdx`), or each whitespace-separated word of a string.
+A role keeps
 the issuer's spelling, trimmed, and appears once. An introspection answer is
 read the same way (`rfc7662 §2.2` lets it carry further members). A Basic
 user's roles are the ones the product grants it (3.4), each one word.
