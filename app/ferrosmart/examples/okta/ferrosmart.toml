@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# FerroSMART with Okta as its upstream OpenID Connect provider, for login
+# only (#525, docs/architecture.md §13.19): Okta authenticates the person,
+# FerroSMART issues the SMART tokens. The Okta domain and client id are
+# placeholders for the org's and the app integration's values. The contract
+# tests of tests/it/upstream_vendors.rs run this file against a stub of Okta.
+
+[ferrosmart]
+issuer = "https://smart.example.org"
+
+[[ferrosmart.resource]]
+base = "https://ehr.example.org/fhir"
+kind = "fhir"
+
+# The provider: the org's `default` custom authorization server, the one kind
+# that takes the custom `fhir_user` claim (Okta, Customize tokens returned
+# from Okta, Add a custom claim to a token). Its RFC 8414 metadata is at
+# /.well-known/oauth-authorization-server/oauth2/default (Okta, Authorization
+# servers, Discovery endpoints). FerroSMART is the Web Application
+# integration's client and sends its secret as HTTP Basic, Okta's default
+# (Okta OpenID Connect & OAuth 2.0 API, Client authentication).
+[ferrosmart.upstream]
+issuer = "https://example.okta.com/oauth2/default"
+client_id = "0oaexampleferrosmart"
+client_secret_file = "/run/secrets/okta_client_secret"
+scopes = ["openid", "profile"]
+# The custom claim whose expression reads the person's `fhirUser` profile
+# attribute, and the groups claim filtered to FerroSMART's role groups, both
+# in the ID Token always.
+fhir_user_claim = "fhir_user"
+role_claims = ["groups"]
+
+# The policy as content (docs/architecture.md §13.6 item 5): a member of the
+# Okta group `clinician` may be granted these user/ scopes.
+[[ferrosmart.role]]
+name = "clinician"
+scopes = ["user/Patient.rs", "user/Observation.rs"]
+
+# The example's SMART app: a public client, PKCE alone (SMART App Launch
+# 2.2.0, Client Types, client-public).
+[[ferrosmart.client]]
+client_id = "example-app"
+name = "Example SMART app"
+kind = "public"
+redirect_uris = ["https://app.example.org/callback"]
+scopes = ["openid", "fhirUser", "user/Patient.rs", "user/Observation.rs"]
+grant_types = ["authorization_code"]
