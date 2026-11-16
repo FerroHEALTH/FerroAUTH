@@ -1,0 +1,50 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# FerroSMART with Microsoft Entra ID as its upstream OpenID Connect provider,
+# for login only (#524, docs/architecture.md §13.17): Entra ID authenticates
+# the person, FerroSMART issues the SMART tokens. The tenant and client ids
+# are placeholders for the app registration's values. The contract tests of
+# tests/it/upstream_vendors.rs run this file against a stub of Entra ID.
+
+[ferrosmart]
+issuer = "https://smart.example.org"
+
+[[ferrosmart.resource]]
+base = "https://ehr.example.org/fhir"
+kind = "fhir"
+
+# The provider: the tenant-specific v2.0 authority, whose discovery document
+# is {issuer}/.well-known/openid-configuration (OpenID Connect Discovery 1.0
+# §4; v2-protocols-oidc.md, Find your app's OpenID configuration document
+# URI). FerroSMART is the registration's confidential web client and sends
+# its secret as HTTP Basic (v2-oauth2-auth-code-flow.md, Request an access
+# token with a client_secret).
+[ferrosmart.upstream]
+issuer = "https://login.microsoftonline.com/aaaabbbb-0000-cccc-1111-dddd2222eeee/v2.0"
+client_id = "00001111-aaaa-2222-bbbb-3333cccc4444"
+client_secret_file = "/run/secrets/entra_client_secret"
+# `profile` brings `name` and `preferred_username` (id-token-claims-reference.md).
+scopes = ["openid", "profile"]
+# The directory extension attribute `fhirUser`, configured as an ID Token
+# optional claim, which Entra ID emits as `extn.fhirUser`
+# (optional-claims.md, Directory extension formatting).
+fhir_user_claim = "extn.fhirUser"
+# The app roles assigned to the person (howto-add-app-roles-in-apps.md).
+role_claims = ["roles"]
+
+# The policy as content (docs/architecture.md §13.6 item 5): a person holding
+# the app role `clinician` may be granted these user/ scopes.
+[[ferrosmart.role]]
+name = "clinician"
+scopes = ["user/Patient.rs", "user/Observation.rs"]
+
+# The example's SMART app: a public client, PKCE alone (SMART App Launch
+# 2.2.0, Client Types, client-public).
+[[ferrosmart.client]]
+client_id = "example-app"
+name = "Example SMART app"
+kind = "public"
+redirect_uris = ["https://app.example.org/callback"]
+scopes = ["openid", "fhirUser", "user/Patient.rs", "user/Observation.rs"]
+grant_types = ["authorization_code"]

@@ -9,7 +9,7 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
 - Source: <https://github.com/MicrosoftDocs/entra-docs>, rendered under
   <https://learn.microsoft.com/en-us/entra/identity-platform/>
 - Pin: commit `219d8d57b01779e72e6d5449dc9341334c1fb906` (2026-11-05T13:36:57Z)
-- Fetched: 2026-11-05, each file from raw.githubusercontent.com at the commit
+- Fetched: 2026-11-16, each file from raw.githubusercontent.com at the commit
   and checked against the git blob id the commit records
 - Upstream licence: the repository's `README.md` states, verbatim:
   "Microsoft and any contributors grant you a license to the Microsoft documentation and other content in this repository under the [Creative Commons Attribution 4.0 International Public License](https://creativecommons.org/licenses/by/4.0/legalcode), see the [LICENSE](LICENSE) file, and grant you a license to any code in the repository under the [MIT License](https://opensource.org/licenses/MIT), see the [LICENSE-CODE](LICENSE-CODE) file." The `LICENSE` file it names for the documentation holds the
@@ -23,12 +23,13 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   Microsoft's. The README also states that the licences grant no right to
   Microsoft's names, logos or trademarks.
 - Layout: the upstream paths, unchanged
-- Files: 9
+- Files: 21
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `7440e03b474d255dfbf21b3788c7bc76dd28e592cbfae1403ddf4b6a4f62e89e`
+  `PROVENANCE.md` excluded): `74dea9f1e6f6bdcdaf99d3ddd4938ff46b03398f96f8e839c1f404bffd6a5bd4`
 - Read by: the `entra` issuer profile of #215, the person key of #216, the
   on-behalf-of grant of #217 and the `idp-entra` groups overage adapter of
-  #221, vendored by #222
+  #221, vendored by #222; FerroSMART's Entra ID login (#524,
+  docs/architecture.md §13.17)
 
 ## What is taken
 
@@ -37,8 +38,21 @@ reference", with its "Groups overage claim" section),
 `docs/identity-platform/optional-claims-reference.md` ("Optional claims reference", the
 `idtyp` and `acct` claims) and `docs/identity-platform/v2-oauth2-on-behalf-of-flow.md`
 ("Microsoft identity platform and OAuth2.0 On-Behalf-Of flow"), with the
-two include files and the one figure the flow page links. The other pages
-and media of the repository are not taken.
+two include files and the one figure the flow page links.
+
+For FerroSMART's login (#524): `docs/identity-platform/id-token-claims-reference.md` ("ID
+token claims reference"), `docs/identity-platform/v2-protocols-oidc.md` ("OpenID Connect
+on the Microsoft identity platform", the discovery document and the
+`{tenant}` values), `docs/identity-platform/v2-oauth2-auth-code-flow.md` (the code
+redemption and its client authentication), `docs/identity-platform/quickstart-register-app.md`,
+`docs/identity-platform/how-to-add-redirect-uri.md`, `docs/identity-platform/reply-url.md`,
+`docs/identity-platform/how-to-add-credentials.md` (with its include file), `docs/identity-platform/howto-add-app-roles-in-apps.md`,
+`docs/identity-platform/optional-claims.md` (the `extn.` claim format),
+`docs/identity-platform/schema-extensions.md` and
+`docs/identity-platform/howto-convert-app-to-be-multi-tenant.md` (the `/common` and
+`/organizations` endpoints, which are no issuer). Their screenshots and diagrams are not
+taken; the text names every setting. The other pages and media of the
+repository are not taken.
 
 | File | sha256 | git blob id |
 |---|---|---|
@@ -46,8 +60,20 @@ and media of the repository are not taken.
 | `LICENSE-CODE` | `91f7258203fd43ba6d6f7f72b644eaedee9e3430f035c053beb6f34052f045e2` | `b17b032a43088ac7f3d2f3e34a2431c778a95e6f` |
 | `README.md` | `32355274e726eb8981b4478aef7917313395ff7ca7be1904488c4adf8b818584` | `79e2f6397e79e79fb4a7593bfc5e50f34d94d06d` |
 | `docs/identity-platform/access-token-claims-reference.md` | `e07447d46ab82957979f12b3caccaf9d07179c6556c7ffbde150d1f754f1e232` | `57501e33d517c90c2585fbae861a398a86239b6a` |
+| `docs/identity-platform/how-to-add-credentials.md` | `26ca4a6590d65ef7cd3b4ea6092ce1c61cda5361ef9fc63496e2b283af8bee0a` | `bce5742d4b133dee27615466d06819a8e0860128` |
+| `docs/identity-platform/how-to-add-redirect-uri.md` | `0060c6843c6406a57ac92c30575e56fc67415e418d02a53c08da2629d2811ec9` | `fe44958c5d443c2b2e39f48c5486a51288693442` |
+| `docs/identity-platform/howto-add-app-roles-in-apps.md` | `b0692d1c4d210398b0f09ed834c69c509c18e2bc4be1536e17d7bd86116c5ce3` | `acf112e8a18a9e3f9b974e789b7fb144539c2281` |
+| `docs/identity-platform/howto-convert-app-to-be-multi-tenant.md` | `bfcdd29db20e7bd59f596bb5c6fff97fdf0633214e22b74edca28e17e813a8e9` | `923663b70bc0d6f0079accbb2a51c702e2a08d3f` |
+| `docs/identity-platform/id-token-claims-reference.md` | `b4d2721de2a274025e8f9d27577c62b8a0f7953face05aaf790964d14e9aaaa2` | `4dbf62efd63309365dcf2a85e74ca4264580297b` |
+| `docs/identity-platform/includes/register-app/client-credential-advice.md` | `fcb35038a071d86de07f4df21368d6cab10721c0c8697bdab0cc1d7ffd96a099` | `ca02d049393f9a26b828b1eaad540f8a12acb195` |
 | `docs/identity-platform/includes/remind-not-to-relay-token-nonaud.md` | `892a33662da6c0b4d87ea486dee262072cf156812f9ce125fa52a2a13f454dd7` | `ffe0ae884ba91176669a3ebe6219b9bf806f8564` |
 | `docs/identity-platform/includes/remind-not-to-validate-access-tokens.md` | `89490cd32926bba88c91caafc9d7154890c0d2eb8115e74f0d3a084c70a82e3c` | `cd036dd059795ede809e433d762fb9b53f812c68` |
 | `docs/identity-platform/media/v2-oauth2-on-behalf-of-flow/protocols-oauth-on-behalf-of-flow.png` | `7fcfe78747e818500fba66fa9a49355e8092941cac76e0bcaca9ccb409043258` | `f0e4276f30b3a674385f66bc2d3b74f4d57ef37e` |
 | `docs/identity-platform/optional-claims-reference.md` | `3b714c57087ee02fbc3ad49ddcd2399a144b2da2bca327b7cd9f7f0a0da797dc` | `19793d155dd2ecb567ebd2c18aba4fc90d7db27c` |
+| `docs/identity-platform/optional-claims.md` | `329c7f90355b5f8c809a4033b9c9a7b74007aea0e541be26417524a42c92586a` | `81075776438f1d5866e41f89b46a6a174319d21b` |
+| `docs/identity-platform/quickstart-register-app.md` | `52f42cb0dbb6ad22e063b4ac66b8c4df12be717101f21d8aa1b6804ccd72ba07` | `51368ca65612b4dfa69f002a3941344fdff04e47` |
+| `docs/identity-platform/reply-url.md` | `9e63d903fb3767ab309dfca5b7ba7cc4c08fb9404317b576b4a02130fda8db7c` | `c4345c4440e05ca3f7ba737ceab5d088627e66d0` |
+| `docs/identity-platform/schema-extensions.md` | `362fda519486670af51386234961b11724207a0865af10dde2a59d50a5fa854d` | `af8a89a42921acd5b1f1b8ba7892c53d05e03614` |
+| `docs/identity-platform/v2-oauth2-auth-code-flow.md` | `d98b1a14a76e1ac8e32b504e29cfc44c43861b4aeb4f33a6c46b53e17f62a644` | `6cc580513195bdf488dff525224dda1d657c993c` |
 | `docs/identity-platform/v2-oauth2-on-behalf-of-flow.md` | `6c87ba39641729c561fb2e0785a1b460949397ddf8aafd0eaf95c55d8c9baddb` | `5e36d67c5b9631b81bdb8b29cf41e86e9aaccc92` |
+| `docs/identity-platform/v2-protocols-oidc.md` | `83d50c49236e3a86f8370af4b7ae92237edddb87b95bad61faa60d96ed90d761` | `fc772771ffb9737b08c263cd6bb1582ff266b124` |

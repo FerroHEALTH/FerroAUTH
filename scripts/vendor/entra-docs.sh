@@ -4,10 +4,14 @@
 # scripts/vendor/entra-docs.sh
 #
 # Vendors the Microsoft identity platform documents the `entra` issuer
-# profile and the `idp-entra` adapter cite (#215, #216, #217, #221) into
+# profile and the `idp-entra` adapter cite (#215, #216, #217, #221), and the
+# ones FerroSMART's Entra ID login setup cites (#524), into
 # docs/specs/entra-docs/: the access token claims reference (with its groups
 # overage section), the optional claims reference and the on-behalf-of flow,
-# with the two include files and the figure the flow page links, and the
+# with the two include files and the figure the flow page links; the ID token
+# claims reference, OpenID Connect on the identity platform, the
+# authorization code flow, the app registration, redirect URI, credential,
+# app role, optional claim, directory extension and multitenant pages; and the
 # repository's README, LICENSE and LICENSE-CODE, from MicrosoftDocs/
 # entra-docs at the commit the "Microsoft Entra documentation" row of
 # docs/VERSIONS.md pins. The repository is large, so each file is fetched on
@@ -44,6 +48,18 @@ paths=(
   "$base/access-token-claims-reference.md"
   "$base/optional-claims-reference.md"
   "$base/v2-oauth2-on-behalf-of-flow.md"
+  "$base/id-token-claims-reference.md"
+  "$base/v2-protocols-oidc.md"
+  "$base/v2-oauth2-auth-code-flow.md"
+  "$base/quickstart-register-app.md"
+  "$base/how-to-add-redirect-uri.md"
+  "$base/reply-url.md"
+  "$base/how-to-add-credentials.md"
+  "$base/includes/register-app/client-credential-advice.md"
+  "$base/howto-add-app-roles-in-apps.md"
+  "$base/optional-claims.md"
+  "$base/schema-extensions.md"
+  "$base/howto-convert-app-to-be-multi-tenant.md"
   "$base/includes/remind-not-to-relay-token-nonaud.md"
   "$base/includes/remind-not-to-validate-access-tokens.md"
   "$base/media/v2-oauth2-on-behalf-of-flow/protocols-oauth-on-behalf-of-flow.png"
@@ -67,6 +83,8 @@ grep -q '^ *MIT License' "$tmp/tree/LICENSE" || die "LICENSE no longer holds the
 grep -q '^The MIT License (MIT)' "$tmp/tree/LICENSE-CODE" || die "LICENSE-CODE no longer holds the MIT text"
 grep -q '^### Groups overage claim' "$tmp/tree/$base/access-token-claims-reference.md" ||
   die "the access token claims reference has no groups overage section"
+grep -qF 'emitted with the following name format:  `extn.<attributename>`' "$tmp/tree/$base/optional-claims.md" ||
+  die "the optional claims page no longer names the extn. claim format"
 
 rm -rf "$dest"
 mkdir -p "$dest"
@@ -114,7 +132,8 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   \`PROVENANCE.md\` excluded): \`$digest\`
 - Read by: the \`entra\` issuer profile of #215, the person key of #216, the
   on-behalf-of grant of #217 and the \`idp-entra\` groups overage adapter of
-  #221, vendored by #222
+  #221, vendored by #222; FerroSMART's Entra ID login (#524,
+  docs/architecture.md §13.17)
 
 ## What is taken
 
@@ -123,8 +142,21 @@ reference", with its "Groups overage claim" section),
 \`$base/optional-claims-reference.md\` ("Optional claims reference", the
 \`idtyp\` and \`acct\` claims) and \`$base/v2-oauth2-on-behalf-of-flow.md\`
 ("Microsoft identity platform and OAuth2.0 On-Behalf-Of flow"), with the
-two include files and the one figure the flow page links. The other pages
-and media of the repository are not taken.
+two include files and the one figure the flow page links.
+
+For FerroSMART's login (#524): \`$base/id-token-claims-reference.md\` ("ID
+token claims reference"), \`$base/v2-protocols-oidc.md\` ("OpenID Connect
+on the Microsoft identity platform", the discovery document and the
+\`{tenant}\` values), \`$base/v2-oauth2-auth-code-flow.md\` (the code
+redemption and its client authentication), \`$base/quickstart-register-app.md\`,
+\`$base/how-to-add-redirect-uri.md\`, \`$base/reply-url.md\`,
+\`$base/how-to-add-credentials.md\` (with its include file), \`$base/howto-add-app-roles-in-apps.md\`,
+\`$base/optional-claims.md\` (the \`extn.\` claim format),
+\`$base/schema-extensions.md\` and
+\`$base/howto-convert-app-to-be-multi-tenant.md\` (the \`/common\` and
+\`/organizations\` endpoints, which are no issuer). Their screenshots and diagrams are not
+taken; the text names every setting. The other pages and media of the
+repository are not taken.
 
 | File | sha256 | git blob id |
 |---|---|---|$rows
