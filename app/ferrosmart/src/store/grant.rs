@@ -78,6 +78,36 @@ pub struct GrantRecord {
     pub scope: String,
     /// The launch context parameters, one JSON object.
     pub context: Value,
+    /// The refresh access granted, if any.
+    pub access: Option<Access>,
+}
+
+/// The outcome of redeeming a refresh token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Rotation {
+    /// The token was live: it is used now, and its successor recorded.
+    Rotated(GrantRecord),
+    /// The token was rotated before: its grant is revoked now, with every
+    /// token under it (RFC 9700 §4.14.2).
+    Reused {
+        /// The grant revoked.
+        grant_id: String,
+    },
+    /// The token was issued to another client.
+    OtherClient,
+    /// The token is unknown, lapsed or revoked, or its grant or session
+    /// ended.
+    Invalid,
+}
+
+/// When a refresh token issued now lapses unused, by the access of its
+/// grant, in seconds since the epoch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IdleUntil {
+    /// For an `offline_access` grant.
+    pub offline: i64,
+    /// For an `online_access` grant.
+    pub online: i64,
 }
 
 /// A recorded access token.
@@ -115,7 +145,8 @@ pub struct RefreshRecord {
 
 /// The grant columns a joined query reads, prefixed `g_`.
 const GRANT_COLUMNS: &str = "g.id AS g_id, g.client_id AS g_client_id, g.subject AS g_subject, \
-    g.fhir_user AS g_fhir_user, g.audience AS g_audience, g.scope AS g_scope, g.context AS g_context";
+    g.fhir_user AS g_fhir_user, g.audience AS g_audience, g.scope AS g_scope, g.context AS g_context, \
+    g.access AS g_access";
 
 impl Store {
     /// Records the grant `grant`.
@@ -229,6 +260,71 @@ impl Store {
         .transpose()
     }
 
+    /// Redeems the refresh token whose SHA-256 is `hash` for `client_id`,
+    /// in one transaction that holds the token's row: a live token is
+    /// marked used and its successor `successor` (a SHA-256 too) recorded
+    /// under the same grant, lapsing as `idle` says; a token used before
+    /// revokes its grant (RFC 9700 §4.14.2; OAuth 2.1 draft §4.3.1).
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when a statement fails; nothing is
+    /// changed then, and [`StoreError::Corrupt`] for a row the server never
+    /// writes.
+    pub async fn rotate(
+        &self,
+        hash: &str,
+        client_id: &str,
+        successor: &str,
+        idle: IdleUntil,
+    ) -> Result<Rotation, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT r.used_at IS NOT NULL AS used, ({LIVE_REFRESH}) AS active, {GRANT_COLUMNS} \
+             FROM refresh_token r JOIN authorization_grant g ON g.id = r.grant_id \
+             LEFT JOIN upstream_session s ON s.id = g.upstream_session \
+             WHERE r.token_hash = $1 FOR UPDATE OF r"
+        )))
+        .bind(hash)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some(row) = row else {
+            return Ok(Rotation::Invalid);
+        };
+        let grant = read_grant(&row)?;
+        if grant.client_id != client_id {
+            return Ok(Rotation::OtherClient);
+        }
+        if row.try_get::<bool, _>("used")? {
+            revoke_in(&mut tx, &grant.id).await?;
+            tx.commit().await?;
+            return Ok(Rotation::Reused { grant_id: grant.id });
+        }
+        let expires_at = match grant.access {
+            Some(Access::Offline) => idle.offline,
+            Some(Access::Online) => idle.online,
+            None => return Ok(Rotation::Invalid),
+        };
+        if !row.try_get::<bool, _>("active")? {
+            return Ok(Rotation::Invalid);
+        }
+        sqlx::query("UPDATE refresh_token SET used_at = now() WHERE token_hash = $1")
+            .bind(hash)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO refresh_token (token_hash, grant_id, predecessor, expires_at) \
+             VALUES ($1, $2, $3, to_timestamp($4))",
+        )
+        .bind(successor)
+        .bind(&grant.id)
+        .bind(hash)
+        .bind(expires_at)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(Rotation::Rotated(grant))
+    }
+
     /// Revokes the grant `grant_id` with every refresh and access token
     /// issued under it, in one transaction, and returns whether the grant
     /// was live.
@@ -238,26 +334,9 @@ impl Store {
     /// changed then.
     pub async fn revoke_grant(&self, grant_id: &str) -> Result<bool, StoreError> {
         let mut tx = self.pool.begin().await?;
-        let revoked = sqlx::query(
-            "UPDATE authorization_grant SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
-        )
-        .bind(grant_id)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "UPDATE refresh_token SET revoked_at = now() WHERE grant_id = $1 AND revoked_at IS NULL",
-        )
-        .bind(grant_id)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "UPDATE access_token SET revoked_at = now() WHERE grant_id = $1 AND revoked_at IS NULL",
-        )
-        .bind(grant_id)
-        .execute(&mut *tx)
-        .await?;
+        let revoked = revoke_in(&mut tx, grant_id).await?;
         tx.commit().await?;
-        Ok(revoked.rows_affected() == 1)
+        Ok(revoked)
     }
 
     /// Records the upstream login `session` of the person `subject` at the
@@ -329,7 +408,14 @@ fn read_grant(row: &sqlx::postgres::PgRow) -> Result<GrantRecord, StoreError> {
     if !context.is_object() {
         return Err(StoreError::Corrupt { client_id: id });
     }
+    let access = match row.try_get::<Option<String>, _>("g_access")?.as_deref() {
+        Some("offline") => Some(Access::Offline),
+        Some("online") => Some(Access::Online),
+        None => None,
+        Some(_) => return Err(StoreError::Corrupt { client_id: id }),
+    };
     Ok(GrantRecord {
+        access,
         client_id: row.try_get("g_client_id")?,
         subject: row.try_get("g_subject")?,
         fhir_user: row.try_get("g_fhir_user")?,
@@ -338,4 +424,31 @@ fn read_grant(row: &sqlx::postgres::PgRow) -> Result<GrantRecord, StoreError> {
         context,
         id,
     })
+}
+
+/// Revokes the grant `grant_id` with every token under it inside `tx`, and
+/// returns whether the grant was live.
+async fn revoke_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    grant_id: &str,
+) -> Result<bool, StoreError> {
+    let revoked = sqlx::query(
+        "UPDATE authorization_grant SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL",
+    )
+    .bind(grant_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "UPDATE refresh_token SET revoked_at = now() WHERE grant_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(grant_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "UPDATE access_token SET revoked_at = now() WHERE grant_id = $1 AND revoked_at IS NULL",
+    )
+    .bind(grant_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(revoked.rows_affected() == 1)
 }

@@ -128,6 +128,18 @@ struct Smart {
 impl Smart {
     /// Starts FerroSMART with the public app `app` and the clinician role.
     async fn start() -> Self {
+        Self::start_with(
+            "[\"authorization_code\"]",
+            "[\"openid\", \"fhirUser\", \"user/Observation.rs\", \"user/Patient.rs\"]",
+            "[\"user/Observation.rs\"]",
+        )
+        .await
+    }
+
+    /// Starts FerroSMART with the public app `app` registering the grant
+    /// types `grants` and the ceiling `ceiling`, and the clinician role
+    /// granting `role`, each a TOML array.
+    async fn start_with(grants: &str, ceiling: &str, role: &str) -> Self {
         let provider = Provider::start().await;
         let keys = Keys::new();
         let database = Database::create().await;
@@ -135,10 +147,9 @@ impl Smart {
             "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
              [ferrosmart.upstream]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\nfhir_user_claim = \"fhir_user\"\n\
              [ferrosmart.branding]\nsmart_style_url = {STYLE:?}\n\
-             [[ferrosmart.role]]\nname = \"clinician\"\nscopes = [\"user/Observation.rs\"]\n\
+             [[ferrosmart.role]]\nname = \"clinician\"\nscopes = {role}\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nname = \"Synthetic App\"\nkind = \"public\"\n\
-             redirect_uris = [{REDIRECT:?}]\ngrant_types = [\"authorization_code\"]\n\
-             scopes = [\"openid\", \"fhirUser\", \"user/Observation.rs\", \"user/Patient.rs\"]",
+             redirect_uris = [{REDIRECT:?}]\ngrant_types = {grants}\nscopes = {ceiling}",
             secrecy::ExposeSecret::expose_secret(&database.url),
             provider.server.uri()
         );
@@ -288,7 +299,17 @@ fn set_cookie(headers: &http::HeaderMap) -> String {
 /// Runs the flow to the consent page and returns the cookie and the form
 /// token it drew.
 async fn to_consent(smart: &Smart, roles: &[&str]) -> (String, String) {
-    let (status, headers, _) = smart.get(&authorize_path(&[]), None).await;
+    to_consent_with(smart, roles, &[]).await
+}
+
+/// Runs the flow with the authorization request `overrides` to the consent
+/// page and returns the cookie and the form token it drew.
+async fn to_consent_with(
+    smart: &Smart,
+    roles: &[&str],
+    overrides: &[(&str, &str)],
+) -> (String, String) {
+    let (status, headers, _) = smart.get(&authorize_path(overrides), None).await;
     assert_eq!(
         StatusCode::SEE_OTHER,
         status,
@@ -419,6 +440,11 @@ async fn a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens() {
     .expect("claims");
     assert_eq!(json!(RESOURCE), access["aud"]);
     assert_eq!(claims["sub"], access["sub"]);
+    assert_eq!(
+        Value::Null,
+        body["refresh_token"],
+        "no offline_access or online_access, no refresh token"
+    );
 
     // NOTE: OAuth 2.1 draft §4.1.3, a second use is refused and revokes.
     let (status, _, body) = smart.post("/token", &exchange, None).await;
@@ -778,4 +804,172 @@ async fn a_remembered_consent_answers_again_until_it_is_withdrawn() {
     let (_, headers, _) = smart.get(&callback, Some(&cookie)).await;
     assert_eq!("/consent", location(&headers).path(), "asked again");
     smart.stop().await;
+}
+
+/// Starts FerroSMART whose app may refresh, and runs a launch asking for
+/// `access` (`offline_access` or `online_access`) to its token response.
+async fn launch_with(access: &str) -> (Smart, Value) {
+    let smart = Smart::start_with(
+        "[\"authorization_code\", \"refresh_token\"]",
+        "[\"openid\", \"fhirUser\", \"user/Observation.rs\", \"offline_access\", \"online_access\"]",
+        "[\"user/Observation.rs\"]",
+    )
+    .await;
+    let scope = format!("openid fhirUser user/Observation.rs {access}");
+    let (cookie, token) = to_consent_with(&smart, &["clinician"], &[("scope", &scope)]).await;
+    let (status, headers, _) = smart
+        .post(
+            "/consent",
+            &[
+                ("form_token", &token),
+                ("decision", "approve"),
+                ("scope", "openid"),
+                ("scope", "fhirUser"),
+                ("scope", "user/Observation.rs"),
+                ("scope", access),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(
+        StatusCode::SEE_OTHER,
+        status,
+        "the consent sends the browser back"
+    );
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    (smart, serde_json::from_str(&body).expect("JSON"))
+}
+
+/// Refreshes with `token` as the public app and returns the status and
+/// the JSON body.
+async fn refresh(smart: &Smart, token: &str) -> (StatusCode, Value) {
+    let form = [
+        ("grant_type", "refresh_token"),
+        ("refresh_token", token),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &form, None).await;
+    (status, serde_json::from_str(&body).unwrap_or(Value::Null))
+}
+
+#[tokio::test]
+async fn an_offline_access_launch_issues_a_refresh_token_that_rotates() {
+    let (smart, body) = launch_with("offline_access").await;
+    // NOTE: SMART App Launch 2.2.0, Obtain access token, Response: refresh_token.
+    let first = body["refresh_token"].as_str().expect("a refresh token");
+    assert_eq!(
+        json!("openid fhirUser user/Observation.rs offline_access"),
+        body["scope"]
+    );
+    let (status, renewed) = refresh(&smart, first).await;
+    assert_eq!(StatusCode::OK, status, "{renewed}");
+    assert_eq!(json!("bearer"), renewed["token_type"]);
+    assert_eq!(body["scope"], renewed["scope"]);
+    assert_eq!(
+        json!(STYLE),
+        renewed["smart_style_url"],
+        "the launch context"
+    );
+    assert!(renewed["id_token"].is_null());
+    let access: Value = jsonwebtoken::dangerous::insecure_decode_claims(
+        renewed["access_token"].as_str().expect("a token"),
+    )
+    .expect("claims");
+    // NOTE: docs/architecture.md §13.6 item 2, fhirUser rides in the access token.
+    assert_eq!(json!("Practitioner/synthetic-1"), access["fhirUser"]);
+    let second = renewed["refresh_token"].as_str().expect("rotated");
+    assert_ne!(first, second);
+    // NOTE: RFC 9700 §4.14.2, the rotated token presented again revokes the grant.
+    let (status, replay) = refresh(&smart, first).await;
+    assert_eq!(StatusCode::BAD_REQUEST, status);
+    assert_eq!(json!("invalid_grant"), replay["error"]);
+    let (status, _) = refresh(&smart, second).await;
+    assert_eq!(StatusCode::BAD_REQUEST, status, "the grant is revoked");
+    let jti = access["jti"].as_str().expect("a jti");
+    assert!(smart.store.revoked(jti).await.expect("read"));
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn an_online_access_launch_ends_with_its_upstream_login() {
+    let (smart, body) = launch_with("online_access").await;
+    let token = body["refresh_token"].as_str().expect("a refresh token");
+    let (status, renewed) = refresh(&smart, token).await;
+    assert_eq!(StatusCode::OK, status, "{renewed}");
+    let session: String = {
+        use sqlx::Connection as _;
+        let mut connection =
+            sqlx::PgConnection::connect(secrecy::ExposeSecret::expose_secret(&smart.database.url))
+                .await
+                .expect("connects");
+        sqlx::query_scalar("SELECT upstream_session FROM authorization_grant")
+            .fetch_one(&mut connection)
+            .await
+            .expect("the grant names its session")
+    };
+    assert!(smart.store.end_session(&session).await.expect("ended"));
+    // NOTE: docs/architecture.md §13.6 item 7, online_access ends with the upstream login.
+    let next = renewed["refresh_token"].as_str().expect("rotated");
+    let (status, refused) = refresh(&smart, next).await;
+    assert_eq!(StatusCode::BAD_REQUEST, status);
+    assert_eq!(json!("invalid_grant"), refused["error"]);
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn withdrawing_a_consent_revokes_the_grants_it_covered() {
+    let (smart, body) = launch_with("offline_access").await;
+    let token = body["refresh_token"].as_str().expect("a refresh token");
+    let access: Value = jsonwebtoken::dangerous::insecure_decode_claims(
+        body["access_token"].as_str().expect("a token"),
+    )
+    .expect("claims");
+    let subject = access["sub"].as_str().expect("a sub");
+    smart
+        .store
+        .revoke_consent(subject, "app")
+        .await
+        .expect("withdrawn");
+    // NOTE: docs/architecture.md §13.6 item 6, revoking a consent revokes its grants.
+    let (status, refused) = refresh(&smart, token).await;
+    assert_eq!(StatusCode::BAD_REQUEST, status);
+    assert_eq!(json!("invalid_grant"), refused["error"]);
+    smart.stop().await;
+}
+
+#[test]
+fn offline_and_online_access_are_offered_to_a_client_that_refreshes() {
+    let client = resolve(&[ClientSection {
+        client_id: String::from("app"),
+        kind: ClientKind::Public,
+        redirect_uris: vec![String::from(REDIRECT)],
+        grant_types: vec![GrantType::AuthorizationCode, GrantType::RefreshToken],
+        scopes: ["openid", "offline_access", "online_access"]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        ..ClientSection::default()
+    }])
+    .expect("admitted")
+    .remove(0);
+    let roles = std::collections::BTreeMap::new();
+    assert_eq!(
+        vec!["openid", "offline_access", "online_access"],
+        offer(
+            "openid offline_access online_access",
+            &client,
+            &[],
+            &roles,
+            false
+        )
+    );
 }

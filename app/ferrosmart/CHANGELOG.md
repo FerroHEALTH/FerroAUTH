@@ -63,6 +63,23 @@ and this project adheres to
   by its assertion, a public client by `client_id`, each only for its own
   tokens. Revoking a refresh token revokes its grant with every token under
   it; an unknown token answers `200` (#518).
+- The refresh token grant at the token endpoint (SMART App Launch 2.2.0,
+  Refresh access token): a public client by `client_id`, a confidential
+  one by its assertion, each only with its own token. Every refresh
+  rotates the token; a rotated token presented again revokes its grant
+  with every token under it (RFC 9700 §4.14.2). A `scope` may narrow the
+  grant and never widen it, the rotated token keeps the grant's scope, and
+  the answer carries the launch context. `[ferrosmart] refresh_idle`
+  (thirty days) and `online_idle` (eight hours) set how long an
+  `offline_access` and an `online_access` refresh token last unused, and
+  an `online_access` one ends with its upstream session. A client
+  registers `refresh_token` only beside `authorization_code`. The code
+  exchange opens the grant and answers its first refresh token when the
+  person granted `offline_access` or `online_access`, which the consent page
+  offers only to a client whose ceiling lists it and that registers
+  `refresh_token`; each login at the upstream provider is recorded as the
+  session an `online_access` grant ends with, and withdrawing a remembered
+  consent revokes its grants (#518).
 - Migration 0005: the grants, the refresh tokens stored as their SHA-256,
   the upstream sessions an `online_access` grant ends with, and the grant
   of each access token, so revocation reaches every replica at once. The

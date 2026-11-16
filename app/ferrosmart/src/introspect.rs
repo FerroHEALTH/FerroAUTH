@@ -243,7 +243,7 @@ fn own_access_token(state: &AppState, token: &str) -> Option<String> {
     let mut validation = Validation::new(Algorithm::RS256);
     validation.validate_exp = false;
     validation.validate_aud = false;
-    validation.set_required_spec_claims(&["iss", "jti"]);
+    validation.set_required_spec_claims(&["iss"]);
     validation.set_issuer(&[settings.issuer.as_str()]);
     let claims: Value = jsonwebtoken::decode(token, &key, &validation).ok()?.claims;
     claims.get("jti").and_then(Value::as_str).map(str::to_owned)
