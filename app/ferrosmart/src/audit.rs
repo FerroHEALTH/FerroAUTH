@@ -537,6 +537,13 @@ pub enum Event {
     /// An upstream session ended by a back-channel logout, with the grants
     /// under it (OpenID Connect Back-Channel Logout 1.0 §2.7).
     SessionEnded,
+    /// A launch an EHR registered at `POST /launch` (`docs/architecture.md`
+    /// §13.6 item 3).
+    LaunchRegistered,
+    /// A launch an app redeemed at the authorization endpoint.
+    LaunchRedeemed,
+    /// A launch registration or redemption refused.
+    LaunchRefused,
 }
 
 impl Event {
@@ -554,6 +561,18 @@ impl Event {
             Self::RefreshReused => "refresh-reused",
             Self::CodeReused => "code-reused",
             Self::SessionEnded => "session-ended",
+            Self::LaunchRegistered => "launch-registered",
+            Self::LaunchRedeemed => "launch-redeemed",
+            Self::LaunchRefused => "launch-refused",
+        }
+    }
+
+    /// The outcome the record states: a minor failure for a refused launch,
+    /// success for every other write (DICOM PS3.15 A.5.3, `EventOutcomeIndicator`).
+    const fn outcome(self) -> Outcome {
+        match self {
+            Self::LaunchRefused => Outcome::MinorFailure,
+            _ => Outcome::Success,
         }
     }
 
@@ -569,6 +588,9 @@ impl Event {
             Self::RefreshReused => "Refresh token reused",
             Self::CodeReused => "Authorization code reused",
             Self::SessionEnded => "Upstream session ended",
+            Self::LaunchRegistered => "EHR launch registered",
+            Self::LaunchRedeemed => "EHR launch redeemed",
+            Self::LaunchRefused => "EHR launch refused",
         }
     }
 
@@ -580,14 +602,16 @@ impl Event {
         let own = Coded::fixed(OWN_EVENTS, self.code(), self.display());
         match self {
             Self::SessionEnded => (USER_AUTHENTICATION, vec![LOGOUT, own], "E"),
-            Self::CodeIssued => (USER_AUTHENTICATION, vec![own], "C"),
-            Self::RefreshRotated => (USER_AUTHENTICATION, vec![own], "E"),
+            Self::CodeIssued | Self::LaunchRegistered => (USER_AUTHENTICATION, vec![own], "C"),
+            Self::RefreshRotated | Self::LaunchRedeemed => (USER_AUTHENTICATION, vec![own], "E"),
             Self::ConsentRemembered => {
                 (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "C")
             }
             Self::ConsentWithdrawn => (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "D"),
             Self::TokenRevoked | Self::GrantRevoked => (SECURITY_ALERT, vec![own], "D"),
-            Self::RefreshReused | Self::CodeReused => (SECURITY_ALERT, vec![own], "E"),
+            Self::RefreshReused | Self::CodeReused | Self::LaunchRefused => {
+                (SECURITY_ALERT, vec![own], "E")
+            }
         }
     }
 }
@@ -656,7 +680,7 @@ pub fn happened(happening: &Happening<'_>) -> Exchange {
             server: AUTHZ_OAUTH_SERVICE,
         },
         recorded: jiff::Timestamp::now(),
-        outcome: Outcome::Success,
+        outcome: happening.event.outcome(),
         outcome_description: None,
         direction: Direction::Received {
             client: Peer {

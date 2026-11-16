@@ -12,8 +12,9 @@ use std::sync::Arc;
 use axum::Router;
 use axum::body::Body;
 use ferrohealth_smart::client::assertion::AssertionKey;
+use ferrosmart::audit::{Event, Happening};
 use ferrosmart::launch::context::Context;
-use ferrosmart::launch::{Unresolved, resolve};
+use ferrosmart::launch::{Unresolved, redeem};
 use ferrosmart::server::{AppState, router};
 use ferrosmart::store::Store;
 use ferrosmart::store::launch::NewLaunch;
@@ -21,9 +22,13 @@ use http::{Request, StatusCode, header};
 use http_body_util::BodyExt as _;
 use jsonwebtoken::Algorithm;
 use serde_json::{Value, json};
+use sqlx::Connection as _;
 use tower::ServiceExt as _;
 
-use crate::support::{Database, Keys, RESOURCE, audit, config, ec_key, from_client, rsa_key};
+use crate::support::{
+    CLIENT_ADDRESS, Database, Keys, RESOURCE, audit, config, ec_key, events, from_client, records,
+    rsa_key,
+};
 
 /// The issuer every case configures.
 const ISSUER: &str = "https://smart.example.org";
@@ -169,20 +174,16 @@ impl Server {
         self.ehr.sign(typ, claims).expect("signs")
     }
 
-    /// Resolves `launch` for `app` at `resource`.
+    /// Redeems `launch` for `app` at `resource`, as the authorization
+    /// endpoint does with the `launch` scope requested.
     async fn resolve(&self, launch: &str, app: &str, resource: &str) -> Result<Context, String> {
-        let resolved = resolve(&self.state, launch, app, resource).await;
+        let from = CLIENT_ADDRESS.parse().expect("an address");
+        let redeemed = redeem(&self.state, app, launch, resource, "openid launch", from).await;
         assert!(
-            !matches!(resolved, Err(Unresolved::Store(_))),
-            "the store answers: {resolved:?}"
+            !matches!(redeemed, Err(Unresolved::Store(_))),
+            "the store answers: {redeemed:?}"
         );
-        match resolved {
-            Ok(resolved) => {
-                assert_eq!("ehr", resolved.ehr_client_id, "the EHR that launched");
-                Ok(resolved.context)
-            }
-            Err(refusal) => Err(refusal.to_string()),
-        }
+        redeemed.map_err(|refusal| refusal.to_string())
     }
 
     /// Drops the database.
@@ -374,18 +375,33 @@ async fn a_lapsed_launch_is_refused() {
             launch.as_bytes(),
         ))
     };
+    let mut tx = server.store.begin().await.expect("a transaction");
+    tx.record_launch(&NewLaunch {
+        launch_hash: &hash,
+        ehr_client_id: "ehr",
+        client_id: "app",
+        audience: RESOURCE,
+        context: &context,
+        expires_at: jiff::Timestamp::now().as_second() - 1,
+    })
+    .await
+    .expect("recorded");
+    let endpoint = url::Url::parse(ISSUER).expect("a URL");
+    let happening = Happening {
+        event: Event::LaunchRegistered,
+        issuer: ISSUER,
+        client_id: Some("ehr"),
+        subject: None,
+        from: CLIENT_ADDRESS.parse().expect("an address"),
+        endpoint: &endpoint,
+        details: Vec::new(),
+    };
     server
-        .store
-        .record_launch(&NewLaunch {
-            launch_hash: &hash,
-            ehr_client_id: "ehr",
-            client_id: "app",
-            audience: RESOURCE,
-            context: &context,
-            expires_at: jiff::Timestamp::now().as_second() - 1,
-        })
+        .state
+        .audit()
+        .commit_happening(tx, &happening)
         .await
-        .expect("recorded");
+        .expect("committed");
     assert!(server.resolve(launch, "app", RESOURCE).await.is_err());
     server.store.sweep().await.expect("swept");
     server.stop().await;
@@ -561,5 +577,82 @@ async fn a_launch_jwt_breaking_a_rule_is_refused() {
     let last = tampered.pop();
     tampered.push(if last == Some('x') { 'y' } else { 'x' });
     assert!(server.resolve(&tampered, "app", RESOURCE).await.is_err());
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn a_registration_a_redemption_and_a_refusal_are_recorded_without_the_launch() {
+    let server = Server::start().await;
+    let (status, _, body) = server
+        .register("app", RESOURCE, &[("patient", "4711")])
+        .await;
+    assert_eq!(StatusCode::CREATED, status, "{body}");
+    let launch = body["launch"].as_str().expect("a launch value");
+    server
+        .resolve(launch, "app", RESOURCE)
+        .await
+        .expect("redeemed");
+    assert!(server.resolve(launch, "app", RESOURCE).await.is_err());
+    let unknown = server.register("nobody", RESOURCE, &[]).await;
+    assert_eq!(StatusCode::BAD_REQUEST, unknown.0);
+
+    // NOTE: docs/architecture.md §13.6 item 3, each launch write commits with
+    // its record, and a refusal is recorded on its own.
+    let records = records(&server.store).await;
+    let kinds = events(&records);
+    for (event, count) in [
+        ("launch-registered", 1),
+        ("launch-redeemed", 1),
+        ("launch-refused", 2),
+    ] {
+        assert_eq!(
+            count,
+            kinds.iter().filter(|kind| *kind == event).count(),
+            "{event}: {kinds:?}"
+        );
+    }
+    let text = serde_json::to_string(&records).expect("JSON");
+    assert!(!text.contains(launch), "no record holds the launch value");
+    assert!(!text.contains("4711"), "no record holds a context value");
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn a_launch_whose_record_cannot_be_committed_is_not_kept() {
+    let server = Server::start().await;
+    let (status, _, body) = server.register("app", RESOURCE, &[]).await;
+    assert_eq!(StatusCode::CREATED, status, "{body}");
+    let launch = body["launch"].as_str().expect("a launch value").to_owned();
+    let url = server.database.as_ref().expect("a database").url.clone();
+    let mut connection = sqlx::PgConnection::connect(secrecy::ExposeSecret::expose_secret(&url))
+        .await
+        .expect("connects");
+    sqlx::query("ALTER TABLE audit_record RENAME TO audit_record_gone")
+        .execute(&mut connection)
+        .await
+        .expect("the table moves");
+    let (status, _, _) = server.register("app", RESOURCE, &[]).await;
+    assert_ne!(
+        StatusCode::CREATED,
+        status,
+        "a registration with no record fails"
+    );
+    assert!(
+        server.resolve(&launch, "app", RESOURCE).await.is_err(),
+        "a redemption with no record fails"
+    );
+    sqlx::query("ALTER TABLE audit_record_gone RENAME TO audit_record")
+        .execute(&mut connection)
+        .await
+        .expect("the table returns");
+    let kept: i64 = sqlx::query_scalar("SELECT count(*) FROM launch")
+        .fetch_one(&mut connection)
+        .await
+        .expect("counts");
+    assert_eq!(1, kept, "only the first launch was kept");
+    server
+        .resolve(&launch, "app", RESOURCE)
+        .await
+        .expect("the launch stayed unredeemed");
     server.stop().await;
 }
