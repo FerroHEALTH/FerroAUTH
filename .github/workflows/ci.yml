@@ -327,6 +327,49 @@ jobs:
         env:
           FERROHEALTH_KEYCLOAK_E2E: "1"
         run: cargo nextest run -p ferrohealth-smart --locked --no-tests=fail -E 'test(/^keycloak_live::/)'
+      # FerroSMART with Keycloak upstream (#522): a SMART standalone launch
+      # through the example's realm to a token with the mapped fhirUser
+      # (scripts/idp/keycloak-launch.sh).
+      - id: upstream
+        name: Does the change reach FerroSMART's upstream login
+        if: github.event_name != 'merge_group'
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          run=false
+          while IFS= read -r path; do
+            case "$path" in
+              app/ferrosmart/* | scripts/idp/* | crates/ferrohealth-smart/src/* | \
+                .github/workflows/ci.yml | docs/VERSIONS.md | Cargo.lock)
+                echo "reaches the upstream login: $path"
+                run=true
+                ;;
+              *) ;;
+            esac
+          done < <(git diff --name-only "$BASE...$HEAD")
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+      - if: steps.upstream.outputs.run == 'true'
+        name: A standalone launch through Keycloak
+        env:
+          LANE_DIR: ${{ runner.temp }}/keycloak-launch
+          LANE_PG: postgres://ferrosmart:ferrosmart@localhost:5432
+        run: |
+          cargo build -p ferrosmart --locked
+          scripts/idp/keycloak-launch.sh
+      - if: failure() && steps.upstream.outputs.run == 'true'
+        name: Keep the Keycloak launch's logs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: keycloak-launch
+          path: ${{ runner.temp }}/keycloak-launch/*.log
+          if-no-files-found: ignore
 
   # Every crate's public API against its newest version on crates.io, on a
   # pull request and in the merge queue: a break, or a public dependency

@@ -13,6 +13,14 @@ and this project adheres to
 
 ### Added
 
+- A Keycloak example as the upstream login: a realm with fixed ids whose
+  confidential client `ferrosmart` takes the authorization code flow with
+  PKCE S256, and whose mappers write the user's `fhir_user` attribute and
+  realm roles into the ID Token, and the `[ferrosmart.upstream]` and
+  `[[ferrosmart.role]]` configuration that reads them, with no Keycloak code.
+  CI drives a SMART standalone launch through it to a token with the mapped
+  `fhirUser` (#522).
+
 - The `ferrosmart` server: `serve`, `config check` and `healthcheck` on the
   family's stack, the `[ferrosmart]` configuration with its issuer and
   `RS256` signing key ring (current, previous and next key), the RFC 8414
