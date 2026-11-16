@@ -20,7 +20,6 @@ and this project adheres to
   `[[ferrosmart.role]]` configuration that reads them, with no Keycloak code.
   CI drives a SMART standalone launch through it to a token with the mapped
   `fhirUser` (#522).
-
 - The `ferrosmart` server: `serve`, `config check` and `healthcheck` on the
   family's stack, the `[ferrosmart]` configuration with its issuer and
   `RS256` signing key ring (current, previous and next key), the RFC 8414
