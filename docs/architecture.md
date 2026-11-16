@@ -1010,7 +1010,11 @@ three; a dotted path such as `realm_access.roles` reaches into a JSON object
 for an issuer that nests them), so a claim is read from that issuer's
 tokens alone, and a `federation` issuer contributes no role. A value is an array element that is a string, an element that is an
 object with a string `value` sub-attribute (a SCIM multi-valued attribute,
-`rfc7643 §2.4`), or each whitespace-separated word of a string. A role keeps
+`rfc7643 §2.4`), each member name of an object (an issuer that keys what it
+knows of each role by the role, as ZITADEL writes
+`urn:zitadel:iam:org:project:{projectId}:roles`,
+`docs/specs/zitadel/apps/docs/content/guides/integrate/retrieve-user-roles.mdx`), or each whitespace-separated word of a string.
+A role keeps
 the issuer's spelling, trimmed, and appears once. An introspection answer is
 read the same way (`rfc7662 §2.2` lets it carry further members). A Basic
 user's roles are the ones the product grants it (3.4), each one word.
@@ -2781,7 +2785,11 @@ specification governs.
    token, Response) and requires the server's policy to win (`smart
    scopes-and-launch-context`, SMART's scopes are used to delegate access).
    The mapping is content, never code.
-6. **Consent.** SMART leaves the user's part open: "The authorization
+6. **Consent.** (Built in #515: the consent page's "Remember this choice"
+   box writes the `consent` row; a later request whose offered scopes the
+   row covers goes back with a code at once; `GET /manage` logs the person
+   in at the provider and lists the rows, each withdrawn by a post that also
+   revokes the client's live access tokens about them.) SMART leaves the user's part open: "The authorization
    decision is up to the EHR authorization server which may request
    authorization from the end-user. The EHR authorization server will
    enforce access rules based on local policies and optionally direct
@@ -2811,14 +2819,30 @@ specification governs.
 8. **Introspection access.** `smart token-introspection` lets the endpoint
    take a SMART bearer token; FerroSMART takes a client authenticated as at
    the token endpoint, or a bearer token FerroSMART issued carrying the
-   scope `system/introspect` (a deployment can rename it to a full URI).
-   Every resource server that introspects is a registered client.
+   scope `system/introspect`. Every resource server that introspects is a
+   registered client whose scope ceiling lists `system/introspect`. A
+   bearer token must name FerroSMART's issuer as its `aud` (`rfc9068 §4`),
+   which the client credentials grant gives when `resource` names the
+   issuer. A failed bearer answers `401` with an RFC 6750 challenge, a
+   failed client `401` with `invalid_client` or `unauthorized_client`
+   (`rfc7662 §2.3`). The scope name is fixed, never a setting. Our own
+   design.
 9. **Upstream identity.** The user's FerroSMART `sub` is a pairwise-stable
    identifier derived from the upstream issuer and the upstream `sub`
    (SHA-256 of both, base64url), so two IdPs never collide and the upstream
    identifier never reaches a resource server; `fhirUser` comes from a
    configured claim of the upstream ID token or a mapping table. Our own
    design.
+10. **Revocation's reach.** Revoking a refresh token revokes its grant
+    with every refresh and access token under it (`rfc7009 §2.1`, SHOULD);
+    revoking an access token revokes that token alone (the MAY to revoke
+    the refresh token too is not taken). A token issued to another client
+    is refused with `unauthorized_client` (`rfc7009 §2.1`: "the request is
+    refused"; the RFC names no code, so the choice is our own design). The
+    endpoint ignores `token_type_hint` (`rfc7009 §2.1`, MAY) and tells the
+    two kinds apart by the value: an access token is an RFC 9068 JWT one
+    of FerroSMART's keys verifies, anything else is looked up by its
+    SHA-256 as a refresh token.
 
 ### 13.7 The crate layout
 
@@ -2892,8 +2916,8 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 | `signing_key` | `kid` | algorithm, public JWK, signer reference (file path or KMS key id), state (`next`, `active`, `retiring`), the times of each state |
 | `pending_authorization` | random id | the validated request (client, redirect URI, scope, `state`, `nonce`, PKCE challenge, `aud`, launch), the upstream `state`, `nonce` and PKCE verifier, expiry |
 | `authorization_code` | code hash | the grant it opens, the PKCE challenge, the redirect URI, expiry, redemption time |
-| `grant` | grant id | client, subject, `fhirUser`, scope, launch context, `auth_time`, upstream session, kind (`offline`, `online`, none), creation and revocation times |
-| `refresh_token` | token hash | grant, predecessor, expiry, last use, use time, revocation |
+| `authorization_grant` | grant id | client, subject, `fhirUser`, `aud`, scope, launch context, `auth_time`, upstream session, access (`offline`, `online`, none), creation and revocation times (`grant` is an SQL keyword, so the table takes RFC 6749 §1.3's full name) |
+| `refresh_token` | token hash | grant, predecessor, idle expiry, use time (set when rotated, kept for reuse detection), revocation |
 | `access_token` | `jti` | grant or client, `aud`, scope, `exp`, revocation, so introspection and revocation answer for a JWT |
 | `launch` | launch hash | EHR client, `aud`, context, expiry, use time |
 | `consent` | subject, client | the scope set the user chose to remember, times, revocation |
@@ -2928,18 +2952,17 @@ previous_key_overlap = "1h"                   # "0s": published while it is conf
 base = "https://ehr.example.org/fhir"
 kind = "fhir"                                 # or "openehr"
 
-[ferrosmart.upstream]                         # any OpenID Connect provider
-discovery = "https://idp.example.org/.well-known/openid-configuration"
+[ferrosmart.upstream]                         # any OpenID Connect provider, discovered at start
+issuer = "https://idp.example.org/realms/hospital"
 client_id = "ferrosmart"
-client_secret_file = "/run/secrets/upstream-secret"   # or private_key_file
+client_secret_file = "/run/secrets/upstream-secret"   # unset: a public client with PKCE
 scopes = ["openid", "profile"]
-user_claim = "sub"
-fhir_user_claim = "fhir_user"                 # or a [ferrosmart.upstream.fhir_user] table
-roles_claim = "roles"
+fhir_user_claim = "fhir_user"                 # the ID Token claim holding fhirUser; empty for none
+role_claims = ["roles"]                       # the dotted claims holding the person's roles
 
-[[ferrosmart.policy.role]]                    # policy as content
-role = "clinician"
-scopes = ["user/*.cruds", "patient/*.cruds", "launch", "launch/patient", "openid", "fhirUser", "offline_access"]
+[[ferrosmart.role]]                           # policy as content: what a role may be granted
+name = "clinician"
+scopes = ["user/Observation.rs", "user/Patient.rs"]    # user/ and patient/ scopes only
 
 [[ferrosmart.client]]                         # one table per client, written to the store at start
 client_id = "bulk-export"
@@ -2949,12 +2972,10 @@ jwks_uri = "https://export.example.org/jwks.json"   # or jwks_file, a JWK Set by
 scopes = ["system/Patient.rs", "system/Observation.rs"]   # the client's ceiling
 grant_types = ["client_credentials"]
 
-[ferrosmart.branding]                          # FerroUI's theme and words, never code (13.15)
-name = "Example Hospital"
-logo_file = "/etc/ferrosmart/logo.svg"
-locales = ["en", "nl"]
-consent_text_file = "/etc/ferrosmart/consent.ftl"     # the deployment's own consent wording, per locale
-smart_style_url = "https://smart.example.org/style.json"
+[ferrosmart.branding]                          # content, never code (13.15)
+name = "Example Hospital"                     # the name the pages carry
+smart_style_url = "https://ehr.example.org/smart-style.json"  # an app's token response carries it
+consent_text = "We log every access in your record's audit trail."  # the deployment's own words
 ```
 
 Every secret is a `_file` key read through `ferrohealth-secret`; the

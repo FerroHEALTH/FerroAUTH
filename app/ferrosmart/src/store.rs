@@ -8,6 +8,8 @@
 //! PostgreSQL advisory lock around them, so replicas starting together
 //! migrate once. No specification governs the storage: our own design.
 
+pub mod grant;
+
 use std::time::Duration;
 
 use secrecy::ExposeSecret as _;
@@ -31,7 +33,7 @@ pub enum StoreError {
     #[error("the database could not be migrated")]
     Migrate(#[from] sqlx::migrate::MigrateError),
     /// A stored row holds a value the server never writes.
-    #[error("the stored client `{client_id}` holds a value the server never writes")]
+    #[error("the stored row `{client_id}` holds a value the server never writes")]
     Corrupt {
         /// The client.
         client_id: String,
@@ -151,14 +153,309 @@ impl Store {
         Ok(inserted.rows_affected() == 1)
     }
 
+    /// Records the authorization request `pending`.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn begin_authorization(&self, pending: &Pending) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO pending_authorization (id, client_id, redirect_uri, scope, state, nonce, \
+             code_challenge, audience, upstream_state, upstream_nonce, upstream_verifier, form_token, \
+             expires_at, purpose) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
+             to_timestamp($13), $14)",
+        )
+        .bind(&pending.id)
+        .bind(&pending.client_id)
+        .bind(&pending.redirect_uri)
+        .bind(&pending.scope)
+        .bind(&pending.state)
+        .bind(&pending.nonce)
+        .bind(&pending.code_challenge)
+        .bind(&pending.audience)
+        .bind(&pending.upstream_state)
+        .bind(&pending.upstream_nonce)
+        .bind(&pending.upstream_verifier)
+        .bind(&pending.form_token)
+        .bind(pending.expires_at)
+        .bind(pending.purpose.as_str())
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Returns the live authorization request `id`.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the query fails.
+    pub async fn pending(&self, id: &str) -> Result<Option<Pending>, StoreError> {
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "{PENDING} WHERE id = $1 AND expires_at > now()"
+        )))
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| read_pending(&row)).transpose()
+    }
+
+    /// Returns the live authorization request whose upstream login carried
+    /// `upstream_state`.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the query fails.
+    pub async fn pending_by_upstream(
+        &self,
+        upstream_state: &str,
+    ) -> Result<Option<Pending>, StoreError> {
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "{PENDING} WHERE upstream_state = $1 AND expires_at > now()"
+        )))
+        .bind(upstream_state)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| read_pending(&row)).transpose()
+    }
+
+    /// Records who logged in for the request `id` and what the consent
+    /// page offers them.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn logged_in(&self, id: &str, login: &Login) -> Result<(), StoreError> {
+        sqlx::query(
+            "UPDATE pending_authorization SET subject = $2, fhir_user = $3, display_name = $4, \
+             offered_scope = $5, auth_time = $6 WHERE id = $1",
+        )
+        .bind(id)
+        .bind(&login.subject)
+        .bind(&login.fhir_user)
+        .bind(&login.display_name)
+        .bind(&login.offered_scope)
+        .bind(login.auth_time)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Ends the request `id`, whatever its outcome, and returns it when it
+    /// was still live, so it is decided once.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn finish(&self, id: &str) -> Result<Option<Pending>, StoreError> {
+        let row = sqlx::query(
+            "DELETE FROM pending_authorization WHERE id = $1 AND expires_at > now() \
+             RETURNING id, client_id, redirect_uri, scope, state, nonce, code_challenge, audience, \
+             upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
+             display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose",
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| read_pending(&row)).transpose()
+    }
+
+    /// Records the authorization code `code`, by the SHA-256 `hash` of its
+    /// value.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn issue_code(&self, hash: &str, code: &Code) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO authorization_code (code_hash, client_id, redirect_uri, code_challenge, \
+             audience, subject, fhir_user, scope, nonce, auth_time, expires_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11))",
+        )
+        .bind(hash)
+        .bind(&code.client_id)
+        .bind(&code.redirect_uri)
+        .bind(&code.code_challenge)
+        .bind(&code.audience)
+        .bind(&code.subject)
+        .bind(&code.fhir_user)
+        .bind(&code.scope)
+        .bind(&code.nonce)
+        .bind(code.auth_time)
+        .bind(code.expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Returns the code whose SHA-256 is `hash`, with whether it was
+    /// redeemed before, while it lives.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the query fails.
+    pub async fn code(&self, hash: &str) -> Result<Option<(Code, bool)>, StoreError> {
+        let row = sqlx::query(
+            "SELECT client_id, redirect_uri, code_challenge, audience, subject, fhir_user, scope, \
+             nonce, auth_time, extract(epoch FROM expires_at)::bigint AS expires, \
+             redeemed_at IS NOT NULL AS redeemed FROM authorization_code \
+             WHERE code_hash = $1 AND expires_at > now()",
+        )
+        .bind(hash)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(|row| -> Result<(Code, bool), StoreError> {
+            Ok((
+                Code {
+                    client_id: row.try_get("client_id")?,
+                    redirect_uri: row.try_get("redirect_uri")?,
+                    code_challenge: row.try_get("code_challenge")?,
+                    audience: row.try_get("audience")?,
+                    subject: row.try_get("subject")?,
+                    fhir_user: row.try_get("fhir_user")?,
+                    scope: row.try_get("scope")?,
+                    nonce: row.try_get("nonce")?,
+                    auth_time: row.try_get("auth_time")?,
+                    expires_at: row.try_get("expires")?,
+                },
+                row.try_get("redeemed")?,
+            ))
+        })
+        .transpose()
+    }
+
+    /// Marks the code whose SHA-256 is `hash` redeemed, and returns whether
+    /// this call redeemed it: `false` when another request did first.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn redeem(&self, hash: &str) -> Result<bool, StoreError> {
+        let done = sqlx::query(
+            "UPDATE authorization_code SET redeemed_at = now() \
+             WHERE code_hash = $1 AND redeemed_at IS NULL",
+        )
+        .bind(hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(done.rows_affected() == 1)
+    }
+
+    /// Revokes every access token issued for the code whose SHA-256 is
+    /// `hash` ("SHOULD revoke (when possible) all access tokens and refresh
+    /// tokens previously issued based on that authorization code", OAuth 2.1
+    /// draft §4.1.3).
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn revoke_code(&self, hash: &str) -> Result<u64, StoreError> {
+        let done = sqlx::query(
+            "UPDATE access_token SET revoked_at = now() WHERE code_hash = $1 AND revoked_at IS NULL",
+        )
+        .bind(hash)
+        .execute(&self.pool)
+        .await?;
+        Ok(done.rows_affected())
+    }
+
+    /// Returns the scopes `subject` chose to remember for `client_id`.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the query fails.
+    pub async fn remembered(
+        &self,
+        subject: &str,
+        client_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let row = sqlx::query("SELECT scope FROM consent WHERE subject = $1 AND client_id = $2")
+            .bind(subject)
+            .bind(client_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        row.map(|row| row.try_get("scope").map_err(StoreError::from))
+            .transpose()
+    }
+
+    /// Remembers that `subject` gave `client_id` the scopes `scope`.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn remember(
+        &self,
+        subject: &str,
+        client_id: &str,
+        scope: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO consent (subject, client_id, scope) VALUES ($1, $2, $3) \
+             ON CONFLICT (subject, client_id) DO UPDATE SET scope = $3, granted_at = now()",
+        )
+        .bind(subject)
+        .bind(client_id)
+        .bind(scope)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Returns every consent `subject` remembered, by client.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the query fails.
+    pub async fn consents(&self, subject: &str) -> Result<Vec<(String, String)>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT client_id, scope FROM consent WHERE subject = $1 ORDER BY client_id",
+        )
+        .bind(subject)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| Ok((row.try_get("client_id")?, row.try_get("scope")?)))
+            .collect()
+    }
+
+    /// Forgets the consent `subject` gave `client_id` and revokes the access
+    /// tokens issued to the client about them, and returns whether there
+    /// was one.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when a statement fails; nothing is
+    /// changed then.
+    pub async fn revoke_consent(&self, subject: &str, client_id: &str) -> Result<bool, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let forgotten = sqlx::query("DELETE FROM consent WHERE subject = $1 AND client_id = $2")
+            .bind(subject)
+            .bind(client_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "UPDATE access_token SET revoked_at = now() \
+             WHERE subject = $1 AND client_id = $2 AND revoked_at IS NULL",
+        )
+        .bind(subject)
+        .bind(client_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(forgotten.rows_affected() == 1)
+    }
+
+    /// Returns whether the access token `jti` was revoked.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the query fails.
+    pub async fn revoked(&self, jti: &str) -> Result<bool, StoreError> {
+        let row = sqlx::query(
+            "SELECT revoked_at IS NOT NULL AS revoked FROM access_token WHERE jti = $1",
+        )
+        .bind(jti)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(match row {
+            Some(row) => row.try_get("revoked")?,
+            None => false,
+        })
+    }
+
     /// Records the access token `token` describes.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when the statement fails.
     pub async fn record_token(&self, token: &IssuedToken<'_>) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO access_token (jti, client_id, subject, audience, scope, issued_at, expires_at) \
-             VALUES ($1, $2, $3, $4, $5, to_timestamp($6), to_timestamp($7))",
+            "INSERT INTO access_token (jti, client_id, subject, audience, scope, issued_at, expires_at, code_hash, grant_id) \
+             VALUES ($1, $2, $3, $4, $5, to_timestamp($6), to_timestamp($7), $8, $9)",
         )
         .bind(token.jti)
         .bind(token.client_id)
@@ -167,12 +464,15 @@ impl Store {
         .bind(token.scope)
         .bind(token.issued_at)
         .bind(token.expires_at)
+        .bind(token.code_hash)
+        .bind(token.grant_id)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
-    /// Deletes the assertion ids and the access tokens past their expiry.
+    /// Deletes the assertion ids and the access and refresh tokens past
+    /// their expiry, and the grants an hour old with no token left.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when a statement fails.
@@ -181,6 +481,24 @@ impl Store {
             .execute(&self.pool)
             .await?;
         sqlx::query("DELETE FROM access_token WHERE expires_at < now()")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM refresh_token WHERE expires_at < now()")
+            .execute(&self.pool)
+            .await?;
+        // NOTE: no specification governs this: our own design, an hour's margin so
+        // a grant recorded just before its first token is never swept between them.
+        sqlx::query(
+            "DELETE FROM authorization_grant g WHERE g.created_at < now() - interval '1 hour' \
+             AND NOT EXISTS (SELECT 1 FROM refresh_token r WHERE r.grant_id = g.id) \
+             AND NOT EXISTS (SELECT 1 FROM access_token t WHERE t.grant_id = g.id)",
+        )
+        .execute(&self.pool)
+        .await?;
+        sqlx::query("DELETE FROM pending_authorization WHERE expires_at < now()")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM authorization_code WHERE expires_at < now()")
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -285,4 +603,161 @@ pub struct IssuedToken<'a> {
     pub issued_at: i64,
     /// Its `exp`, in seconds since the epoch.
     pub expires_at: i64,
+    /// The grant it was issued under; none for a client credentials token.
+    pub grant_id: Option<&'a str>,
+    /// The SHA-256 of the authorization code it was issued for, if any.
+    pub code_hash: Option<&'a str>,
+}
+
+/// The columns of a pending authorization, as [`read_pending`] reads them.
+const PENDING: &str = "SELECT id, client_id, redirect_uri, scope, state, nonce, code_challenge, \
+    audience, upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
+    display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose \
+    FROM pending_authorization";
+
+/// An authorization request between the authorization endpoint and the
+/// code.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Pending {
+    /// Its id, the browser's cookie.
+    pub id: String,
+    /// The client; none on a management visit.
+    pub client_id: Option<String>,
+    /// The client's redirect URI.
+    pub redirect_uri: String,
+    /// The scope the client requested.
+    pub scope: String,
+    /// The client's `state`.
+    pub state: String,
+    /// The client's OpenID Connect `nonce`.
+    pub nonce: Option<String>,
+    /// The client's PKCE challenge.
+    pub code_challenge: String,
+    /// The resource server the token is for.
+    pub audience: String,
+    /// The upstream login's `state`.
+    pub upstream_state: String,
+    /// The upstream login's `nonce`.
+    pub upstream_nonce: String,
+    /// The upstream login's PKCE verifier, a secret.
+    pub upstream_verifier: String,
+    /// The token the consent form carries, against cross-site posts.
+    pub form_token: String,
+    /// The person's FerroSMART `sub`, once they logged in.
+    pub subject: Option<String>,
+    /// Their `fhirUser`, when the provider carries one.
+    pub fhir_user: Option<String>,
+    /// The name the consent page greets them by.
+    pub display_name: Option<String>,
+    /// The scopes the consent page offers.
+    pub offered_scope: Option<String>,
+    /// When they logged in, in seconds since the epoch.
+    pub auth_time: Option<i64>,
+    /// When the request lapses, in seconds since the epoch.
+    pub expires_at: i64,
+    /// What the login is for.
+    pub purpose: Purpose,
+}
+
+/// What a login is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purpose {
+    /// An app's authorization request.
+    Authorize,
+    /// The person's own visit to the management page.
+    Manage,
+}
+
+impl Purpose {
+    /// Returns the purpose as the store writes it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Authorize => "authorize",
+            Self::Manage => "manage",
+        }
+    }
+}
+
+impl std::fmt::Debug for Pending {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Pending")
+            .field("client_id", &self.client_id)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Who logged in for a pending request, and what they are offered.
+#[derive(Debug, Clone)]
+pub struct Login {
+    /// The FerroSMART `sub`.
+    pub subject: String,
+    /// The `fhirUser`, if any.
+    pub fhir_user: Option<String>,
+    /// The name to greet them by, if any.
+    pub display_name: Option<String>,
+    /// The scopes the consent page offers.
+    pub offered_scope: String,
+    /// When they logged in.
+    pub auth_time: i64,
+}
+
+/// An authorization code's grant.
+#[expect(
+    clippy::struct_field_names,
+    reason = "`code_challenge` is the parameter's name in RFC 7636 §4.3"
+)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Code {
+    /// The client.
+    pub client_id: String,
+    /// The redirect URI of the request.
+    pub redirect_uri: String,
+    /// The PKCE challenge.
+    pub code_challenge: String,
+    /// The resource server.
+    pub audience: String,
+    /// The person's `sub`.
+    pub subject: String,
+    /// Their `fhirUser`.
+    pub fhir_user: Option<String>,
+    /// The scope granted.
+    pub scope: String,
+    /// The client's `nonce`.
+    pub nonce: Option<String>,
+    /// When the person logged in.
+    pub auth_time: i64,
+    /// When the code lapses.
+    pub expires_at: i64,
+}
+
+/// Reads a pending authorization row.
+fn read_pending(row: &sqlx::postgres::PgRow) -> Result<Pending, StoreError> {
+    let id: String = row.try_get("id")?;
+    let purpose = match row.try_get::<String, _>("purpose")?.as_str() {
+        "manage" => Purpose::Manage,
+        "authorize" => Purpose::Authorize,
+        _ => return Err(StoreError::Corrupt { client_id: id }),
+    };
+    Ok(Pending {
+        id,
+        client_id: row.try_get("client_id")?,
+        redirect_uri: row.try_get("redirect_uri")?,
+        scope: row.try_get("scope")?,
+        state: row.try_get("state")?,
+        nonce: row.try_get("nonce")?,
+        code_challenge: row.try_get("code_challenge")?,
+        audience: row.try_get("audience")?,
+        upstream_state: row.try_get("upstream_state")?,
+        upstream_nonce: row.try_get("upstream_nonce")?,
+        upstream_verifier: row.try_get("upstream_verifier")?,
+        form_token: row.try_get("form_token")?,
+        subject: row.try_get("subject")?,
+        fhir_user: row.try_get("fhir_user")?,
+        display_name: row.try_get("display_name")?,
+        offered_scope: row.try_get("offered_scope")?,
+        auth_time: row.try_get("auth_time")?,
+        expires_at: row.try_get("expires")?,
+        purpose,
+    })
 }

@@ -13,6 +13,12 @@ and this project adheres to
 
 ### Added
 
+- A role claim whose value is a JSON object carries each member name as a
+  role, for an issuer that keys what it knows of each role by the role:
+  ZITADEL writes `urn:zitadel:iam:org:project:{projectId}:roles` as
+  `{"<role>": {"<orgId>": "<orgDomain>"}}` (its `retrieve-user-roles.mdx` at
+  v4.20.3, vendored under `docs/specs/zitadel/`). Before, such a value
+  carried no role. Name the claim in the issuer's `role_claims` (#523).
 - `oidc::RelyingParty::logout_token` checks the Logout Token of OpenID
   Connect Back-Channel Logout 1.0 as §2.6 has a relying party check it: the
   provider's signature under an algorithm accepted for ID Tokens, `iss`,
