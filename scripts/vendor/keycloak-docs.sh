@@ -68,6 +68,7 @@ paths=(
   "$mappers/UserRealmRoleMappingMapper.java"
   services/src/main/java/org/keycloak/protocol/ProtocolMapperUtils.java
   docs/guides/server/importExport.adoc
+  docs/guides/server/keycloak-truststore.adoc
   services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java
   services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java
   services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json
@@ -192,6 +193,9 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   realms", whose section "Using Environment Variables within the Realm
   Configuration Files" the example's realm placeholders rely on, and
   \`--import-realm\`.
+- \`docs/guides/server/keycloak-truststore.adoc\`: "Configuring trusted
+  certificates", the \`--truststore-paths\` option by which the Inferno
+  lane's Keycloak trusts the lane CA to read FerroSMART's JWK Set (#569).
 - \`server-spi-private/src/main/java/org/keycloak/protocol/oidc/OIDCConfigAttributes.java\`,
   and \`JWTClientAuthenticator.java\`, \`AbstractJWTClientValidator.java\`
   and \`JWTClientValidator.java\` under

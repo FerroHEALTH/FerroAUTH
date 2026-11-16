@@ -153,8 +153,7 @@ make_keys() {
   jq '{keys: [.keys[] | select(.key_ops | index("verify"))
         | {kty, kid, alg, crv, x, y, n, e} | with_entries(select(.value != null))]}' \
     "$INFERNO_KIT/lib/smart_app_launch/smart_jwks.json" > "$dir/inferno-client.jwks.json"
-  openssl rand -hex 32 | tr -d '\n' > "$dir/keycloak-client-secret"
-  chmod 0644 "$dir"/*.key "$dir"/*.pem "$dir/keycloak-client-secret"
+  chmod 0644 "$dir"/*.key "$dir"/*.pem
 }
 
 # An access token of the lane's own client for `scope` with the audience
@@ -198,12 +197,17 @@ run() {
   [ -n "$person" ] || { echo "lane: FerroEHR stored no PERSON" >&2; return 1; }
   practitioner="https://bridge.localhost:9443/fhir/Practitioner/$person"
 
-  # 2. Keycloak, the upstream login, whose person's fhirUser names it.
+  # 2. Keycloak, the upstream login, whose person's fhirUser names it. It
+  # reads FerroSMART's JWK Set over the lane's TLS, so it trusts the lane CA
+  # (Keycloak's server guide, Configuring trusted certificates).
   password=$(openssl rand -hex 16)
   docker run -d --name inferno-lane-keycloak --network host \
     -v "$root/app/ferrosmart/examples/keycloak/ferrosmart-realm.json:/opt/keycloak/data/import/ferrosmart-realm.json:ro" \
+    -v "$LANE_DIR/ca.crt:/opt/keycloak/lane-ca.pem:ro" \
+    --add-host smart.localhost:127.0.0.1 \
     -e KC_HTTP_PORT=8180 -e KC_HTTP_HOST=127.0.0.1 \
-    -e "FERROSMART_KEYCLOAK_CLIENT_SECRET=$(cat "$LANE_DIR/keycloak-client-secret")" \
+    -e KC_TRUSTSTORE_PATHS=/opt/keycloak/lane-ca.pem \
+    -e FERROSMART_KEYCLOAK_JWKS_URL=https://smart.localhost:8443/jwks \
     -e FERROSMART_KEYCLOAK_REDIRECT_URI=https://smart.localhost:8443/callback \
     -e "FERROSMART_KEYCLOAK_USER_PASSWORD=$password" \
     -e "FERROSMART_KEYCLOAK_FHIR_USER=$practitioner" \
@@ -216,7 +220,6 @@ run() {
     --set "server.tls.key_file=$LANE_DIR/smart.key" \
     --set "ferrosmart.keys.private_key_file=$LANE_DIR/signing.pem" \
     --set "ferrosmart.database.url=$LANE_PG/ferrosmart" \
-    --set "ferrosmart.upstream.client_secret_file=$LANE_DIR/keycloak-client-secret" \
     --set "ferrosmart.client[0].jwks_file=$LANE_DIR/inferno-client.jwks.json" \
     --set "ferrosmart.client[2].jwks_file=$LANE_DIR/lane-client.jwks.json" \
     serve > "$LANE_DIR/ferrosmart.log" 2>&1 &
