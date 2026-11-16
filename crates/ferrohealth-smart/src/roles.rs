@@ -10,11 +10,11 @@
 //! `[[auth.issuer]]` ([`crate::config::IssuerEntry::role_claims`], by
 //! default those three); a dotted path reaches into a JSON object, for an
 //! authorization server that nests them. A claim name may itself contain a
-//! dot (OpenID Connect Core 1.0 §5.1.2 lets it be any string; Microsoft
-//! Entra ID writes a directory extension as `extn.<name>`), so at each
-//! level the member named by the longest run of the remaining steps is
-//! taken first (no specification governs the reading of a path: our own
-//! design). Each value is a role:
+//! dot (OpenID Connect Core 1.0 §5.1.2 lets it be any string, and a
+//! provider may name a directory attribute `extn.<name>` or a claim by a
+//! URL), so at each level the member named by the longest run of the
+//! remaining steps is taken first (no specification governs the reading of
+//! a path: our own design). Each value is a role:
 //! an array element that is a string, an element that is an object with a
 //! string `value` sub-attribute (a SCIM multi-valued attribute, RFC 7643
 //! §2.4), each member name of an object, for an issuer that keys what it
@@ -205,8 +205,8 @@ mod tests {
         assert_eq!(claim_text(&claims, "realm_access"), None);
     }
 
-    // NOTE: docs/specs/entra-docs/docs/identity-platform/optional-claims.md, Directory
-    // extension formatting: a directory extension is emitted in a JWT as `extn.<name>`.
+    // NOTE: OpenID Connect Core 1.0 §5.1.2: a claim name is any case-sensitive string,
+    // a dot included.
     #[test]
     fn a_claim_name_may_hold_a_dot() {
         let claims = claims(&json!({
