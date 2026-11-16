@@ -13,6 +13,16 @@ and this project adheres to
 
 ### Added
 
+- Microsoft Entra ID and Okta as the upstream login, each with an example
+  configuration under `examples/` and no provider code. Entra ID: a
+  single-tenant app registration's v2.0 authority, the app roles in `roles`
+  and the directory extension attribute `fhirUser` as the optional claim
+  `extn.fhirUser`; the multitenant `/common` and `/organizations`
+  authorities fail discovery, since their metadata names another issuer.
+  Okta: the `default` custom authorization server, a `groups` claim and a
+  custom `fhir_user` claim. Contract tests run each example through a
+  standalone launch against a stub serving the provider's published
+  discovery document, key set and token answer (#524, #525).
 - The Inferno lane runs its FHIR server on the family's own stack: FerroBRIDGE's
   facade, with FerroEHR as its CDR, serves the person's `fhirUser` as a
   Practitioner, and Keycloak is the upstream login. Group 4, Token
