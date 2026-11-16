@@ -23,7 +23,7 @@ use jsonwebtoken::Algorithm;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 
-use crate::support::{Database, Keys, RESOURCE, config, ec_key, rsa_key};
+use crate::support::{Database, Keys, RESOURCE, audit, config, ec_key, from_client, rsa_key};
 
 /// The issuer every case configures.
 const ISSUER: &str = "https://smart.example.org";
@@ -83,7 +83,8 @@ impl Server {
             .expect("connects");
         store.migrate().await.expect("migrates");
         store.register(&settings.clients).await.expect("registered");
-        let state = Arc::new(AppState::new(settings, store.clone()));
+        let audit = audit(&settings);
+        let state = Arc::new(AppState::new(settings, store.clone(), audit));
         let app = router(Arc::clone(&state));
         Self {
             state,
@@ -116,7 +117,12 @@ impl Server {
             .header(header::CONTENT_TYPE, content_type)
             .body(Body::from(body))
             .expect("a request");
-        let response = self.app.clone().oneshot(request).await.expect("an answer");
+        let response = self
+            .app
+            .clone()
+            .oneshot(from_client(request))
+            .await
+            .expect("an answer");
         let status = response.status();
         let headers = response.headers().clone();
         let bytes = response

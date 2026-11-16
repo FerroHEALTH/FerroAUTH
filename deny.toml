@@ -57,6 +57,9 @@ exceptions = [
   { allow = ["BUSL-1.1"], crate = "ferrohealth-health" },
   # The family's shared UI crate, whose session-watch wire ferrohealth-session answers.
   { allow = ["BUSL-1.1"], crate = "ferrohealth-ui" },
+  # The family's audit crate (FerroAUDIT), FerroSMART's AuditEvent, spool and
+  # FHIR Feed forwarder.
+  { allow = ["BUSL-1.1"], crate = "ihe-atna" },
 ]
 
 [bans]

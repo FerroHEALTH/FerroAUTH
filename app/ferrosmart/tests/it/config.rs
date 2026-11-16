@@ -109,6 +109,37 @@ fn a_style_url_other_than_https_is_refused() {
 }
 
 #[test]
+fn the_audit_feed_is_optional_and_https_only() {
+    let keys = Keys::new();
+    let base = "[ferrosmart]\nissuer = \"https://smart.example.org\"\n";
+    let local = config(base, &keys)
+        .resolve()
+        .expect("resolves without a feed");
+    assert!(local.audit.feed.is_none(), "the records stay in the store");
+    assert_eq!(
+        "smart.example.org", local.audit.observer.source_id,
+        "the issuer's host"
+    );
+    let fed = config(
+        &format!("{base}[ferrosmart.audit.feed]\nurl = \"https://audit.example.org/fhir\""),
+        &keys,
+    )
+    .resolve()
+    .expect("resolves with a feed");
+    assert!(fed.audit.feed.is_some(), "the records are forwarded");
+    // NOTE: ihe-atna 0.22.0 FeedRepository::new, a record names people, so the feed is https.
+    let cleartext = config(
+        &format!("{base}[ferrosmart.audit.feed]\nurl = \"http://audit.example.org/fhir\""),
+        &keys,
+    )
+    .resolve();
+    assert!(
+        matches!(cleartext, Err(Error::AuditBase { .. })),
+        "an http repository is refused"
+    );
+}
+
+#[test]
 fn a_zero_token_lifetime_is_refused() {
     let keys = Keys::new();
     assert!(matches!(

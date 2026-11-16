@@ -13,15 +13,18 @@
 
 use std::sync::Arc;
 
+use axum::Extension;
 use axum::Json;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
+use ferrohealth_server::client_address::ClientAddress;
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, jwk::Jwk};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
+use crate::audit;
 use crate::clients::{Client, ClientKeys, ClientKind, GrantType};
 use crate::discovery::TOKEN_ROUTE;
 use crate::form::Params;
@@ -86,34 +89,90 @@ impl IntoResponse for Refusal {
 }
 
 /// `POST {issuer}/token`.
+///
+/// Each request is recorded before its answer is returned: an issued token
+/// and its record commit in one transaction, and a request whose record
+/// could not be stored is answered `503` with no token (no specification
+/// governs the refusal: our own design).
 pub async fn token(
     State(state): State<Arc<AppState>>,
+    client: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    match issue(&state, &headers, &body).await {
-        Ok(answer) => {
-            tracing::info!(
-                target: "ferrosmart::audit",
-                event = "token.issued",
-                client_id = %answer.client_id,
-                jti = %answer.jti,
-                aud = %answer.audience,
-                scope = %answer.response.scope,
-                "an access token was issued"
+    let Some(Extension(ClientAddress(from))) = client else {
+        tracing::error!("a token request came over no connection, so it cannot be recorded");
+        return unrecorded();
+    };
+    let answer = issue(&state, &headers, &body).await;
+    // NOTE: a form that cannot be read names no client; the record then says so.
+    let form = Params::parse(&body, &[]).ok();
+    let endpoint = state.settings().endpoint_url(TOKEN_ROUTE);
+    let request = audit::TokenRequest {
+        client_id: form.as_ref().and_then(|form| form.get("client_id")),
+        from,
+        endpoint: &endpoint,
+        content_type: headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        body: &body,
+    };
+    let committed = commit(&state, &answer, &request).await;
+    if let Err(error) = committed {
+        tracing::error!(error = %ferrohealth_server::run::chain(&error), "a token request could not be recorded");
+        return unrecorded();
+    }
+    match answer {
+        Ok(issued) => no_store(Json(issued.response).into_response()),
+        Err(refusal) => refusal.into_response(),
+    }
+}
+
+/// Commits the record of `request` answered `answer`: an issued token
+/// together with its record, a refusal's record alone.
+async fn commit(
+    state: &AppState,
+    answer: &Result<Issued, Refusal>,
+    request: &audit::TokenRequest<'_>,
+) -> Result<(), audit::RecordFailure> {
+    let lane = state.audit();
+    match answer {
+        Ok(issued) => {
+            let exchange = audit::token_request(
+                request,
+                Ok(audit::Token {
+                    issuer: &state.settings().issuer,
+                    jti: &issued.jti,
+                    client_id: &issued.client_id,
+                    audience: &issued.audience,
+                    subject: issued.person.as_deref(),
+                }),
             );
-            no_store(Json(answer.response).into_response())
+            let row = lane.row(
+                &exchange,
+                "token",
+                issued.person.as_deref(),
+                Some(&issued.client_id),
+            )?;
+            state
+                .store()
+                .record_token_audited(&issued.record(), &row)
+                .await
+                .map_err(audit::RecordFailure::Store)?;
+            lane.committed();
+            Ok(())
         }
         Err(refusal) => {
-            tracing::info!(
-                target: "ferrosmart::audit",
-                event = "token.refused",
-                error = refusal.error,
-                "a token request was refused"
-            );
-            refusal.into_response()
+            let exchange = audit::token_request(request, Err(refusal.error));
+            let row = lane.row(&exchange, "token", None, request.client_id)?;
+            lane.record(state.store(), &row).await
         }
     }
+}
+
+/// The answer to a token request that could not be recorded.
+fn unrecorded() -> Response {
+    no_store(StatusCode::SERVICE_UNAVAILABLE.into_response())
 }
 
 /// Returns `response` with the headers every token response carries: "The
@@ -167,6 +226,35 @@ pub(crate) struct Issued {
     jti: String,
     /// The token's `aud`.
     audience: String,
+    /// The person the token was issued for, when one logged in.
+    person: Option<String>,
+    /// The token's `sub`.
+    subject: String,
+    /// Its `iat`.
+    iat: i64,
+    /// Its `exp`.
+    exp: i64,
+    /// The SHA-256 of the code it answers, if any.
+    code_hash: Option<String>,
+    /// The grant it was issued under; none for a client credentials token.
+    grant_id: Option<String>,
+}
+
+impl Issued {
+    /// Returns the access token as the store records it.
+    fn record(&self) -> IssuedToken<'_> {
+        IssuedToken {
+            jti: &self.jti,
+            client_id: &self.client_id,
+            subject: &self.subject,
+            audience: &self.audience,
+            scope: &self.response.scope,
+            issued_at: self.iat,
+            expires_at: self.exp,
+            code_hash: self.code_hash.as_deref(),
+            grant_id: self.grant_id.as_deref(),
+        }
+    }
 }
 
 /// Answers the token request `body`.
@@ -230,7 +318,6 @@ async fn client_credentials(state: &AppState, form: &Params) -> Result<Issued, R
             context: &Map::new(),
         },
     )
-    .await
 }
 
 /// The authorization code grant (RFC 6749 §4.1.3; SMART App Launch 2.2.0,
@@ -316,8 +403,7 @@ async fn authorization_code(state: &AppState, form: &Params) -> Result<Issued, R
             under: Some(&launch.grant_id),
             context: &launch.context,
         },
-    )
-    .await?;
+    )?;
     issued.response.refresh_token = launch.refresh_token;
     Ok(issued)
 }
@@ -626,11 +712,7 @@ pub(crate) struct Grant<'a> {
 /// `sub` (RFC 9068 §5); a person's `sub` is pairwise per upstream issuer
 /// (13.6 item 9). The person's `fhirUser` rides in the access token beside
 /// the RFC 9068 set (13.6 item 2).
-pub(crate) async fn mint(
-    state: &AppState,
-    client: &Client,
-    grant: Grant<'_>,
-) -> Result<Issued, Refusal> {
+pub(crate) fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Issued, Refusal> {
     let settings = state.settings();
     let lifetime = settings.access_token_lifetime.as_secs();
     let issued_at = jiff::Timestamp::now().as_second();
@@ -680,21 +762,6 @@ pub(crate) async fn mint(
         }
         None => None,
     };
-    state
-        .store()
-        .record_token(&IssuedToken {
-            jti: &jti,
-            client_id: &client.client_id,
-            subject: grant.subject,
-            audience: grant.audience,
-            scope: grant.scope,
-            issued_at,
-            expires_at,
-            code_hash: grant.code_hash,
-            grant_id: grant.under,
-        })
-        .await
-        .map_err(|error| server_error("the access token could not be recorded", &error))?;
     Ok(Issued {
         response: TokenResponse {
             access_token,
@@ -708,6 +775,12 @@ pub(crate) async fn mint(
         client_id: client.client_id.clone(),
         jti,
         audience: grant.audience.to_owned(),
+        person: grant.under.map(|_| grant.subject.to_owned()),
+        subject: grant.subject.to_owned(),
+        iat: issued_at,
+        exp: expires_at,
+        code_hash: grant.code_hash.map(str::to_owned),
+        grant_id: grant.under.map(str::to_owned),
     })
 }
 

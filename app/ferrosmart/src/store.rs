@@ -8,6 +8,7 @@
 //! PostgreSQL advisory lock around them, so replicas starting together
 //! migrate once. No specification governs the storage: our own design.
 
+pub mod audit;
 pub mod grant;
 pub mod launch;
 
@@ -482,22 +483,7 @@ impl Store {
     /// # Errors
     /// Returns [`StoreError::Database`] when the statement fails.
     pub async fn record_token(&self, token: &IssuedToken<'_>) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO access_token (jti, client_id, subject, audience, scope, issued_at, expires_at, code_hash, grant_id) \
-             VALUES ($1, $2, $3, $4, $5, to_timestamp($6), to_timestamp($7), $8, $9)",
-        )
-        .bind(token.jti)
-        .bind(token.client_id)
-        .bind(token.subject)
-        .bind(token.audience)
-        .bind(token.scope)
-        .bind(token.issued_at)
-        .bind(token.expires_at)
-        .bind(token.code_hash)
-        .bind(token.grant_id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
+        insert_token(&self.pool, token).await
     }
 
     /// Deletes the assertion ids, the access and refresh tokens and the
@@ -813,4 +799,28 @@ fn launch_context(row: &sqlx::postgres::PgRow) -> Result<Option<Context>, StoreE
     Ok(row
         .try_get::<Option<Json<Context>>, _>("launch_context")?
         .map(|context| context.0))
+}
+
+/// Inserts the access token `token` through `executor`, a pool or a
+/// transaction.
+pub(crate) async fn insert_token<'e, E: sqlx::PgExecutor<'e>>(
+    executor: E,
+    token: &IssuedToken<'_>,
+) -> Result<(), StoreError> {
+    sqlx::query(
+        "INSERT INTO access_token (jti, client_id, subject, audience, scope, issued_at, expires_at, code_hash, grant_id) \
+         VALUES ($1, $2, $3, $4, $5, to_timestamp($6), to_timestamp($7), $8, $9)",
+    )
+    .bind(token.jti)
+    .bind(token.client_id)
+    .bind(token.subject)
+    .bind(token.audience)
+    .bind(token.scope)
+    .bind(token.issued_at)
+    .bind(token.expires_at)
+    .bind(token.code_hash)
+    .bind(token.grant_id)
+    .execute(executor)
+    .await?;
+    Ok(())
 }

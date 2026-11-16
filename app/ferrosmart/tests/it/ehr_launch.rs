@@ -27,7 +27,7 @@ use tower::ServiceExt as _;
 use url::Url;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers};
 
-use crate::support::{Database, Keys, RESOURCE, config, ec_key};
+use crate::support::{Database, Keys, RESOURCE, audit, config, ec_key, from_client};
 
 /// FerroSMART's issuer.
 const ISSUER: &str = "https://smart.example.org";
@@ -129,7 +129,8 @@ impl Smart {
             .relying_party(callback)
             .await
             .expect("the provider is discovered");
-        let state = AppState::new(settings, store.clone()).with_login(party);
+        let audit = audit(&settings);
+        let state = AppState::new(settings, store.clone(), audit).with_login(party);
         Self {
             app: router(Arc::new(state)),
             provider,
@@ -169,7 +170,12 @@ impl Smart {
 
     /// Sends `request` and returns the status, the headers and the body.
     async fn send(&self, request: Request<Body>) -> (StatusCode, http::HeaderMap, String) {
-        let response = self.app.clone().oneshot(request).await.expect("an answer");
+        let response = self
+            .app
+            .clone()
+            .oneshot(from_client(request))
+            .await
+            .expect("an answer");
         let status = response.status();
         let headers = response.headers().clone();
         let bytes = response

@@ -112,8 +112,7 @@ pub(crate) async fn refresh(state: &AppState, form: &Params) -> Result<Issued, R
             under: Some(&grant.id),
             context: &context,
         },
-    )
-    .await?;
+    )?;
     tracing::info!(
         target: "ferrosmart::audit",
         event = "refresh.rotated",
