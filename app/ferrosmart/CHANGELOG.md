@@ -32,6 +32,16 @@ and this project adheres to
   custom `fhir_user` claim. Contract tests run each example through a
   standalone launch against a stub serving the provider's published
   discovery document, key set and token answer (#524, #525).
+- ZITADEL as the upstream login (`compose.zitadel.yaml`, an override of the
+  quickstart): `app/ferrosmart/examples/zitadel/bootstrap.sh` makes the
+  project, its role, the application, the user and an Actions v2 target
+  through ZITADEL's v2 APIs and writes FerroSMART's configuration, and the
+  target, `tools/zitadel-fhir-user`, writes the user's `fhirUser` claim. CI
+  drives a SMART standalone launch through it to a token with the mapped
+  `fhirUser` and a role-granted scope (#523).
+- `[ferrosmart.upstream] trusted_audiences`: the audiences an upstream ID
+  Token may name beside FerroSMART's client id (OpenID Connect Core 1.0
+  §3.1.3.7 item 3) (#523).
 - The Inferno lane runs its FHIR server on the family's own stack: FerroBRIDGE's
   facade, with FerroEHR as its CDR, serves the person's `fhirUser` as a
   Practitioner, and Keycloak is the upstream login. Group 4, Token

@@ -13,6 +13,13 @@ and this project adheres to
 
 ### Added
 
+- `oidc::RelyingParty::with_trusted_audiences` trusts named audiences beside
+  the client in an ID Token's or a logout token's `aud`: OpenID Connect Core
+  1.0 §3.1.3.7 item 3 refuses only "additional audiences not trusted by the
+  Client", and ZITADEL names the project beside the client in every ID
+  Token. A token with several audiences must then carry an `azp` naming the
+  client (item 4). Without the call nothing changes: an audience beyond the
+  client is refused as before (#523).
 - A claim path reads a claim whose name contains a dot. OpenID Connect
   Core 1.0 §5.1.2 lets a claim name be any string, and Microsoft Entra ID
   writes a directory extension attribute into a JWT as `extn.<name>`

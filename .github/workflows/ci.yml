@@ -108,6 +108,9 @@ jobs:
       - name: The Keycloak overlay of the quickstart is a valid compose file
         if: ${{ !cancelled() }}
         run: docker compose -f compose.yaml -f compose.keycloak.yaml config --quiet
+      - name: The ZITADEL overlay of the quickstart is a valid compose file
+        if: ${{ !cancelled() }}
+        run: docker compose -f compose.yaml -f compose.zitadel.yaml config --quiet
       - name: The changelog Security check passes and refuses what it claims to
         if: ${{ !cancelled() }}
         run: bash scripts/checks/changelog-security.sh --self-test
@@ -367,7 +370,7 @@ jobs:
           run=false
           while IFS= read -r path; do
             case "$path" in
-              app/ferrosmart/* | scripts/idp/* | crates/ferrohealth-smart/src/* | \
+              app/ferrosmart/* | scripts/idp/* | crates/ferrohealth-smart/src/* | tools/zitadel-fhir-user/* | \
                 .github/workflows/ci.yml | docs/VERSIONS.md | Cargo.lock)
                 echo "reaches the upstream login: $path"
                 run=true
@@ -390,6 +393,25 @@ jobs:
         with:
           name: keycloak-launch
           path: ${{ runner.temp }}/keycloak-launch/*.log
+          if-no-files-found: ignore
+      # FerroSMART with ZITADEL upstream (#523): the example's bootstrap and
+      # Actions v2 target, and a SMART standalone launch through them to a
+      # token with the mapped fhirUser and a role-granted scope
+      # (scripts/idp/zitadel-launch.sh).
+      - if: steps.upstream.outputs.run == 'true'
+        name: A standalone launch through ZITADEL
+        env:
+          LANE_DIR: ${{ runner.temp }}/zitadel-launch
+          LANE_PG: postgres://ferrosmart:ferrosmart@localhost:5432
+        run: |
+          cargo build -p ferrosmart -p zitadel-fhir-user --locked
+          scripts/idp/zitadel-launch.sh
+      - if: failure() && steps.upstream.outputs.run == 'true'
+        name: Keep the ZITADEL launch's logs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: zitadel-launch
+          path: ${{ runner.temp }}/zitadel-launch/*.log
           if-no-files-found: ignore
       # The Inferno SMART App Launch lane (#520): the kit's STU 2.2 suite
       # against FerroSMART, with FerroEHR as the resource server
