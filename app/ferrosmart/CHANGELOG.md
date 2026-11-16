@@ -158,3 +158,9 @@ and this project adheres to
   codes are in `urn:ferrosmart:audit-event`, our own design where no IHE or
   BALP pattern exists, and a write whose record cannot be committed does
   not happen (#554).
+- The EHR launch API writes audit records (#558): a registration commits
+  with its launch row and a redemption with its use in one audited
+  transaction (`launch-registered`, `launch-redeemed`), and a refused
+  registration or redemption is a `launch-refused` record. A launch whose
+  record cannot be kept is not kept. No record holds the launch value or a
+  context value.
