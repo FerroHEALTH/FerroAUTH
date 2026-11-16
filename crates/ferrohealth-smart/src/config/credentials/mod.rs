@@ -16,7 +16,6 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use crate::basic::Credential;
-use crate::client::AssertionAudience;
 use crate::client::ClientAuth;
 use crate::client::ClientCredentials;
 use crate::client::Endpoint;
@@ -66,6 +65,10 @@ pub struct CredentialsSection {
     /// with `oauth`.
     pub onward: Option<onward::OnwardSection>,
 }
+
+/// What replaced `assertion_audience`, removed in 0.28.0; deleted with its
+/// refusal in the next release.
+pub(crate) const REMOVED_ASSERTION_AUDIENCE: &str = "the assertion's aud follows security_profile: the token endpoint (SMART App Launch 2.2.0, Client Authentication: Asymmetric), or the issuer under fapi2 (FAPI 2.0 Security Profile §5.3.3.1); delete the key";
 
 /// The `[<lane>.credentials.oauth]` table.
 ///
@@ -119,9 +122,13 @@ pub struct OauthSection {
     pub refresh_margin: Duration,
     /// How long one call to the authorization server may take.
     pub timeout: Duration,
-    /// The `aud` of a `private_key_jwt` assertion: `token_endpoint` (the
-    /// default) or `issuer`, which needs `issuer` set.
-    pub assertion_audience: AssertionAudience,
+    /// Removed in 0.28.0: the `aud` of a `private_key_jwt` assertion follows
+    /// `security_profile`, the token endpoint (SMART App Launch 2.2.0) or
+    /// under `fapi2` the issuer (FAPI 2.0 §5.3.3.1). Set, it is refused
+    /// naming that; the refusal is deleted in the next release.
+    #[serde(skip_serializing)]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    pub assertion_audience: Option<String>,
     /// The TLS of the token endpoint connection: trust roots beside the
     /// platform's, the client identity presented over mutual TLS (RFC 8705
     /// §2) and the minimum version. The crate reads none of it: a table that
@@ -276,7 +283,7 @@ impl OauthSection {
     /// for a client certificate file without its key file or the reverse,
     /// a mutual-TLS `client_auth` without a client certificate, TLS
     /// material that is no PEM (with the `fetch` feature), and
-    /// `assertion_audience = "issuer"` without `issuer`.
+    /// [`ConfigError::Removed`] for `assertion_audience`, removed in 0.28.0.
     pub fn resolve(&self) -> Result<ClientCredentials, ConfigError> {
         if self.tls.names_material() {
             return Err(ConfigError::TlsNotBuilt {
@@ -340,6 +347,12 @@ impl OauthSection {
         &self,
         presented: Option<PresentedTls>,
     ) -> Result<ClientCredentials, ConfigError> {
+        if self.assertion_audience.is_some() {
+            return Err(ConfigError::Removed {
+                key: "credentials.oauth.assertion_audience",
+                replacement: REMOVED_ASSERTION_AUDIENCE,
+            });
+        }
         let endpoint = match (self.issuer.is_empty(), self.token_endpoint.is_empty()) {
             (false, false) => {
                 return Err(ConfigError::Exclusive {
@@ -397,12 +410,6 @@ impl OauthSection {
                 self.mutual_tls_grant(endpoint, &tls)?
             }
         };
-        if self.assertion_audience == AssertionAudience::Issuer && self.issuer.is_empty() {
-            return Err(ConfigError::Missing {
-                key: "credentials.oauth.issuer, which assertion_audience = \"issuer\" names",
-            });
-        }
-        grant.assertion_audience = self.assertion_audience;
         // NOTE: RFC 8693 §2.1, the actor token is independent of the client
         // authentication, so the key that signs it is read whatever the method.
         if self.client_auth != ClientAuth::PrivateKeyJwt {
@@ -595,7 +602,7 @@ impl Default for OauthSection {
             audience: String::new(),
             refresh_margin: Duration::from_secs(30),
             timeout: Duration::from_secs(10),
-            assertion_audience: AssertionAudience::TokenEndpoint,
+            assertion_audience: None,
             tls: TlsClientSection::default(),
             dpop_key_file: None,
             certificate_bound: false,

@@ -85,6 +85,15 @@ pub enum ConfigError {
         /// What would use it.
         needs: &'static str,
     },
+    /// A key this release removed is set; the refusal names what replaced
+    /// it and lives one release.
+    #[error("{key} is removed: {replacement}")]
+    Removed {
+        /// The key.
+        key: &'static str,
+        /// What replaced it.
+        replacement: &'static str,
+    },
     /// A key the section needs is not set, or does not parse.
     #[error("{key} is not set or does not parse")]
     Missing {

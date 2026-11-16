@@ -12,7 +12,6 @@ use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 
-use ferrohealth_smart::client::AssertionAudience;
 use ferrohealth_smart::client::CallError;
 use ferrohealth_smart::client::ClientAuth;
 use ferrohealth_smart::client::ClientCredentials;
@@ -1013,10 +1012,11 @@ async fn a_client_with_a_certificate_uses_the_mutual_tls_alias() -> Result<(), B
     Ok(())
 }
 
-// NOTE: RFC 7523 §3 item 3 admits any value identifying the authorization
-// server; SMART App Launch 2.2.0 fixes the token URL, which stays the default.
+// NOTE: SMART App Launch 2.2.0, Client Authentication: Asymmetric, fixes the
+// token URL as `aud` and `JWT` as `typ`, whether the grant names it or discovers it.
 #[tokio::test]
-async fn the_assertion_names_the_issuer_when_configured() -> Result<(), Box<dyn StdError>> {
+async fn a_grant_configured_by_its_issuer_names_the_discovered_token_endpoint()
+-> Result<(), Box<dyn StdError>> {
     let server = MockServer::start().await;
     Mock::given(method("GET"))
         .and(path("/.well-known/oauth-authorization-server"))
@@ -1034,20 +1034,24 @@ async fn the_assertion_names_the_issuer_when_configured() -> Result<(), Box<dyn 
     let key = ec_key("unused", Algorithm::ES384);
     let assertion_key = AssertionKey::from_pem(&key.pem, None, None)?;
     let public: Jwk = serde_json::from_value(assertion_key.public_jwk())?;
-    let mut config = ClientCredentials::with_private_key_jwt(
+    let config = ClientCredentials::with_private_key_jwt(
         Endpoint::Issuer(server.uri()),
         String::from("ferrofed"),
         assertion_key,
     );
-    config.assertion_audience = AssertionAudience::Issuer;
     TokenSource::new(config)?
         .token()
         .await
         .map_err(|error| error.to_string())?;
     let form = token_request_form(&server, 0).await?;
     let assertion = param(&form, "client_assertion").ok_or("the assertion")?;
+    assert_eq!(
+        Some(String::from("JWT")),
+        jsonwebtoken::decode_header(&assertion)?.typ
+    );
+    let token_endpoint = format!("{}{TOKEN_PATH}", server.uri());
     let mut validation = Validation::new(Algorithm::ES384);
-    validation.set_audience(&[server.uri().as_str()]);
+    validation.set_audience(&[token_endpoint.as_str()]);
     validation.set_issuer(&["ferrofed"]);
     let claims = jsonwebtoken::decode::<serde_json::Map<String, serde_json::Value>>(
         &assertion,
@@ -1055,7 +1059,7 @@ async fn the_assertion_names_the_issuer_when_configured() -> Result<(), Box<dyn 
         &validation,
     )?
     .claims;
-    assert_eq!(Some(&serde_json::json!(server.uri())), claims.get("aud"));
+    assert_eq!(Some(&serde_json::json!(token_endpoint)), claims.get("aud"));
     Ok(())
 }
 
@@ -1127,20 +1131,25 @@ fn the_oauth_table_takes_its_tls_from_the_product_s_builder() -> Result<(), Box<
         );
     }
     let pem = temp_file("assertion.pem", &ec_key("unused", Algorithm::ES384).pem);
-    assert!(matches!(
-        table(&format!(
-            "client_auth = \"private_key_jwt\"\nprivate_key_file = {pem:?}\nassertion_audience = \"issuer\""
-        ))?
-        .resolve(),
-        Err(ConfigError::Missing { .. })
-    ));
-    let issuer: OauthSection = toml::from_str(&format!(
-        "issuer = \"https://as.example.org\"\nclient_id = \"ferrofed\"\nclient_auth = \"private_key_jwt\"\nprivate_key_file = {pem:?}\nassertion_audience = \"issuer\""
-    ))?;
-    assert_eq!(
-        AssertionAudience::Issuer,
-        issuer.resolve()?.assertion_audience
-    );
+    for audience in ["issuer", "token_endpoint"] {
+        let removed = table(&format!(
+            "client_auth = \"private_key_jwt\"\nprivate_key_file = {pem:?}\nassertion_audience = \"{audience}\""
+        ))?;
+        assert!(matches!(
+            removed.resolve(),
+            Err(ConfigError::Removed {
+                key: "credentials.oauth.assertion_audience",
+                ..
+            })
+        ));
+        assert!(
+            removed
+                .problems("lane.credentials.oauth")
+                .iter()
+                .any(|problem| problem.contains("assertion_audience is removed")),
+            "removed in 0.28.0, refused for one release"
+        );
+    }
     for file in [identity, ca, pem] {
         std::fs::remove_file(file)?;
     }
