@@ -16,6 +16,7 @@ pub mod command;
 pub mod config;
 pub mod discovery;
 pub mod introspect;
+pub mod refresh;
 pub mod revoke;
 pub mod server;
 pub mod store;

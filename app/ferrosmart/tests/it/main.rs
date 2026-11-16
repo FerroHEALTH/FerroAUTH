@@ -13,6 +13,7 @@ mod clients;
 mod config;
 mod discovery;
 mod introspection;
+mod refresh;
 mod revocation;
 mod store;
 mod support;

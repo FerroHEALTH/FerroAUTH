@@ -235,6 +235,13 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
         }
         ClientKind::ConfidentialAsymmetric => Some(keys(section)?),
     };
+    // NOTE: SMART App Launch 2.2.0, Backend Services, refresh tokens SHOULD NOT be
+    // issued there; a refresh token continues an authorization code grant.
+    if grant_types.contains(&GrantType::RefreshToken)
+        && !grant_types.contains(&GrantType::AuthorizationCode)
+    {
+        return Err(rule("`refresh_token` needs `authorization_code`"));
+    }
     if grant_types.contains(&GrantType::AuthorizationCode) && section.redirect_uris.is_empty() {
         return Err(rule("`authorization_code` needs `redirect_uris`"));
     }

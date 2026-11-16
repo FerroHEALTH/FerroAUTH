@@ -21,7 +21,7 @@ use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, jwk::Jwk};
 use serde::Serialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 use crate::clients::{Client, ClientKeys, ClientKind, GrantType};
 use crate::discovery::TOKEN_ROUTE;
@@ -140,13 +140,20 @@ pub struct TokenResponse {
     pub expires_in: u64,
     /// The scope granted.
     pub scope: String,
+    /// The refresh token, when the grant carries one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    /// The launch context parameters (SMART App Launch 2.2.0, Scopes and
+    /// Launch Context), each a member of the response.
+    #[serde(flatten)]
+    pub context: Map<String, Value>,
 }
 
 /// An issued token with what the audit record names.
 #[derive(Debug)]
-struct Issued {
+pub(crate) struct Issued {
     /// The response.
-    response: TokenResponse,
+    pub(crate) response: TokenResponse,
     /// The client.
     client_id: String,
     /// The token's `jti`.
@@ -160,6 +167,7 @@ async fn issue(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Iss
     let form = read_form(headers, body)?;
     match form.get("grant_type") {
         Some("client_credentials") => client_credentials(state, &form).await,
+        Some("refresh_token") => crate::refresh::refresh(state, &form).await,
         Some(_) => Err(Refusal {
             error: "unsupported_grant_type",
             description: "the grant type is not supported",
@@ -224,7 +232,27 @@ async fn client_credentials(state: &AppState, form: &Form) -> Result<Issued, Ref
     }
     let scope = granted_scope(&client, form.get("scope"))?;
     let audience = audience(state, form.get("resource"))?;
-    mint(state, &client, &client.client_id, &audience, &scope).await
+    mint(state, &client, &client.client_id, &audience, &scope, None).await
+}
+
+/// Returns the client of `form`: authenticated by its assertion, or a
+/// registered public client named by `client_id`, which cannot
+/// authenticate (SMART App Launch 2.2.0, Refresh access token, Request;
+/// RFC 6749 §2.3, §3.2.1).
+pub(crate) async fn identify(state: &AppState, form: &Form) -> Result<Client, Refusal> {
+    if form.get("client_assertion").is_some() || form.get("client_assertion_type").is_some() {
+        return authenticate(state, form).await;
+    }
+    let client_id = form
+        .get("client_id")
+        .ok_or(Refusal::client("the request names no client"))?;
+    match state.store().client(client_id).await {
+        Ok(Some(client)) if client.kind == ClientKind::Public => Ok(client),
+        Ok(_) => Err(Refusal::client(
+            "the client is not a registered public client",
+        )),
+        Err(error) => Err(server_error("the client registry cannot be read", &error)),
+    }
 }
 
 /// Returns the scope the client is granted: each requested scope its
@@ -467,7 +495,8 @@ struct AccessClaims<'a> {
     scope: &'a str,
 }
 
-/// Signs, records and answers an access token for `client` about `subject`.
+/// Signs, records and answers an access token for `client` about `subject`,
+/// issued under the grant `grant_id` when it continues one.
 ///
 /// Its `sub` for the client credentials grant is the client id: "the value
 /// of 'sub' SHOULD correspond to an identifier the authorization server
@@ -475,12 +504,13 @@ struct AccessClaims<'a> {
 /// fixes every `client_id` by configuration, so a client cannot choose a
 /// person's `sub` (RFC 9068 §5); a person's `sub` is pairwise per upstream
 /// issuer (13.6 item 9).
-async fn mint(
+pub(crate) async fn mint(
     state: &AppState,
     client: &Client,
     subject: &str,
     audience: &str,
     scope: &str,
+    grant_id: Option<&str>,
 ) -> Result<Issued, Refusal> {
     let settings = state.settings();
     let lifetime = settings.access_token_lifetime.as_secs();
@@ -513,7 +543,7 @@ async fn mint(
             scope,
             issued_at,
             expires_at,
-            grant_id: None,
+            grant_id,
         })
         .await
         .map_err(|error| server_error("the access token could not be recorded", &error))?;
@@ -523,6 +553,8 @@ async fn mint(
             token_type: "bearer",
             expires_in: lifetime,
             scope: scope.to_owned(),
+            refresh_token: None,
+            context: Map::new(),
         },
         client_id: client.client_id.clone(),
         jti,

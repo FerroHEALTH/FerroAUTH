@@ -108,6 +108,27 @@ fn a_zero_token_lifetime_is_refused() {
 }
 
 #[test]
+fn the_refresh_idle_times_default_and_refuse_zero() {
+    let keys = Keys::new();
+    let settings = config(
+        "[ferrosmart]\nissuer = \"https://smart.example.org\"",
+        &keys,
+    )
+    .resolve()
+    .expect("resolves");
+    assert_eq!(30 * 86_400, settings.refresh_idle.as_secs(), "thirty days");
+    assert_eq!(8 * 3600, settings.online_idle.as_secs(), "eight hours");
+    for key in ["refresh_idle", "online_idle"] {
+        let text = format!("[ferrosmart]\nissuer = \"https://smart.example.org\"\n{key} = \"0s\"");
+        let refused = config(&text, &keys).resolve();
+        assert!(
+            matches!(&refused, Err(Error::Zero { key: named }) if named.ends_with(key)),
+            "{key}"
+        );
+    }
+}
+
+#[test]
 fn a_missing_or_unreadable_key_is_refused() {
     let keys = Keys::new();
     let missing = format!(

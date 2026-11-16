@@ -19,10 +19,9 @@ use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 
-use crate::clients::{Client, ClientKind};
 use crate::introspect::{Found, find};
 use crate::server::AppState;
-use crate::token::{Form, Refusal, authenticate, no_store, read_form, server_error};
+use crate::token::{Refusal, identify, no_store, read_form, server_error};
 
 /// `POST {issuer}/revoke`.
 pub async fn revoke(
@@ -48,7 +47,7 @@ pub async fn revoke(
 /// token is its own.
 async fn revoked(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<(), Refusal> {
     let form = read_form(headers, body)?;
-    let client = client(state, &form).await?;
+    let client = identify(state, &form).await?;
     let token = form
         .get("token")
         .ok_or(Refusal::request("the request carries no token"))?;
@@ -98,22 +97,4 @@ async fn revoked(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<(
         None => {}
     }
     Ok(())
-}
-
-/// Returns the client of the request: authenticated by its assertion, or a
-/// registered public client named by `client_id`.
-async fn client(state: &AppState, form: &Form) -> Result<Client, Refusal> {
-    if form.get("client_assertion").is_some() || form.get("client_assertion_type").is_some() {
-        return authenticate(state, form).await;
-    }
-    let client_id = form
-        .get("client_id")
-        .ok_or(Refusal::client("the request names no client"))?;
-    match state.store().client(client_id).await {
-        Ok(Some(client)) if client.kind == ClientKind::Public => Ok(client),
-        Ok(_) => Err(Refusal::client(
-            "the client is not a registered public client",
-        )),
-        Err(error) => Err(server_error("the client registry cannot be read", &error)),
-    }
 }
