@@ -2640,7 +2640,7 @@ publisher of a Brand Bundle, which FerroSMART is not, and the
 | `authorization_response_iss_parameter_supported` is `true` and every authorization response carries `iss` | MUST (when advertised) | `rfc9207 §2`, `§3` | 3 |
 | Each listed capability is supported: `launch-ehr`, `launch-standalone`, `authorize-post`, `client-public`, `client-confidential-symmetric`, `client-confidential-asymmetric`, `sso-openid-connect`, `context-banner`, `context-style`, `context-ehr-patient`, `context-ehr-encounter`, `context-standalone-patient`, `context-standalone-encounter`, `permission-offline`, `permission-online`, `permission-patient`, `permission-user`, `permission-v1`, `permission-v2` | SHALL (per listed capability) | `smart conformance`, Capabilities | 2 to 6 |
 | The four capability sets (patient and clinician, standalone and EHR launch) | SHOULD support one or more | `smart conformance`, Capability Sets | 3, 5 |
-| CORS on the discovery documents for any origin, and on the token endpoint for a client's registered origins | SHALL (browser apps) | `smart app-launch`, Considerations for CORS support; `rfc7009 §2.3` | 2, 3 |
+| CORS on the discovery documents for any origin, and on the token endpoint for a client's registered origins | SHALL (browser apps) | `smart app-launch`, Considerations for CORS support; `rfc7009 §2.3` | 2, 3 (13.6 item 12) |
 
 **Client registration and authentication**
 
@@ -2994,6 +2994,15 @@ specification governs.
     issued under, with the launch context and the upstream session the
     person logged in under; withdrawing a remembered consent revokes the
     grants it covered with every token under them.
+12. **A client's registered origins.** `smart app-launch`, Considerations
+    for CORS support, has the token endpoint readable "for requests from a
+    client's registered origin(s)" and says nothing of how an origin is
+    registered. A client's registered origins are the origins (`rfc6454
+    §4`) of its registered redirect URIs, where a browser app receives its
+    code. A token response to a request whose `Origin` is one of them
+    carries `Access-Control-Allow-Origin` with it and `Vary: Origin`; any
+    other origin, `null` included, gets no CORS header. Our own design
+    (#560).
 
 ### 13.7 The crate layout
 

@@ -164,3 +164,11 @@ and this project adheres to
   registration or redemption is a `launch-refused` record. A launch whose
   record cannot be kept is not kept. No record holds the launch value or a
   context value.
+
+### Fixed
+
+- The token endpoint answers a request from one of the client's registered
+  origins, the origins of its redirect URIs, with
+  `Access-Control-Allow-Origin` and `Vary: Origin`, so a browser app can
+  read its token response (SMART App Launch 2.2.0, Considerations for CORS
+  support). Every other origin gets no CORS header (#560).

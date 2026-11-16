@@ -116,9 +116,49 @@ pub async fn token(
         tracing::error!(error = %ferrohealth_server::run::chain(&error), "a token request could not be recorded");
         return unrecorded();
     }
-    match answer {
+    let client_id = match &answer {
+        Ok(issued) => Some(issued.client_id.clone()),
+        Err(_) => request.client_id.map(str::to_owned),
+    };
+    let mut response = match answer {
         Ok(issued) => no_store(Json(issued.response).into_response()),
         Err(refusal) => refusal.into_response(),
+    };
+    if let Some(client_id) = client_id {
+        allow_registered_origin(&state, &headers, &client_id, &mut response).await;
+    }
+    response
+}
+
+/// Lets the browser read `response` when the request came from one of the
+/// registered origins of the client `client_id`: "For requests from a
+/// client's registered origin(s), CORS configuration permits access to the
+/// token endpoint" (SMART App Launch 2.2.0, App Launch, Considerations for
+/// CORS support). A client's registered origins are the origins (RFC 6454
+/// §4) of its registered redirect URIs, which SMART leaves open: our own
+/// design. Every other request gets no CORS header.
+async fn allow_registered_origin(
+    state: &AppState,
+    headers: &HeaderMap,
+    client_id: &str,
+    response: &mut Response,
+) {
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return;
+    };
+    // NOTE: a registry that cannot be read admits no origin, so the browser reads
+    // nothing; the answer itself is unchanged.
+    let Ok(Some(client)) = state.store().client(client_id).await else {
+        return;
+    };
+    let registered = client.redirect_uris.iter().any(|uri| {
+        url::Url::parse(uri)
+            .is_ok_and(|url| origin.as_bytes() == url.origin().ascii_serialization().as_bytes())
+    });
+    if registered && origin.as_bytes() != b"null" {
+        let headers = response.headers_mut();
+        headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone());
+        headers.append(header::VARY, HeaderValue::from_static("origin"));
     }
 }
 
