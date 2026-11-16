@@ -520,11 +520,20 @@ ways, configured, never guessed from the server's metadata:
   minutes in the future" (the library signs it valid for 60 seconds, since
   it is sent at once and some authorization servers cap the lifetime below
   five minutes: our own design) and a unique `jti`; one assertion per request,
-  never reused (`rfc7523 §3` items 1 to 7). The `aud` is configurable:
-  `token_endpoint`, the default and SMART's rule, or `issuer`, the
-  configured issuer identifier, which `rfc7523 §3` item 3 also admits as "a
-  value that identifies the authorization server", for an authorization
-  server outside the SMART profile that asks for it (#59). The private key comes from
+  never reused (`rfc7523 §3` items 1 to 7). The `aud` and the `typ` are
+  fixed by the grant's security profile, never configured: the token
+  endpoint URL under `JWT` for every grant ("The FHIR authorization
+  server's 'token URL'", `typ` "Fixed value: JWT", `smart
+  client-confidential-asymmetric`, Request), and under `security_profile =
+  "fapi2"` the issuer identifier as a string under
+  `client-authentication+jwt` (a client "shall use the authorization
+  server's issuer identifier value ... in the aud claim ... as a string not
+  as an item in an array", FAPI 2.0 §5.3.3.1; RFC 10070 §4 types it). RFC
+  10070 §4 has every client use the issuer; SMART 2.2 governs a SMART
+  client and requires the token URL, so the plain grant deviates from RFC
+  10070 there, the conflict FerroHEALTH/FerroAUTH#528 reports (#529; the
+  `assertion_audience` key of #59 is removed in 0.28.0 and refused for one
+  release). The private key comes from
   `private_key_file`; the product serves the matching public JWK Set at a
   route of its own, which the library renders (`rfc7517 §5`, bare `n`/`e` or
   `crv`/`x`/`y` as the SMART profile requires), holding the current and the
@@ -1906,7 +1915,6 @@ client_secret_file = "/run/secrets/terminology-client-secret"
 # private_key_file = "/run/secrets/terminology-client.pem"
 # kid = "2026-10"
 # assertion_alg = "ES384"
-# assertion_audience = "issuer"      # the default names the token endpoint
 scope = "system/CodeSystem.rs"
 refresh_margin = "30s"
 # mutual TLS (RFC 8705 §2) instead, or a certificate beside another method:
@@ -2034,7 +2042,7 @@ fragment component"), so a bad grant refuses the start rather than the
 first token request. The TLS files are read and parsed at load too: a
 certificate file without its key file or the reverse, a mutual-TLS method
 without a certificate, and roots that hold no certificate each refuse the
-start, and so does `assertion_audience = "issuer"` without `issuer`.
+start, and so does the removed `assertion_audience` key (one release).
 
 ## 5. How a product integrates
 
@@ -2263,7 +2271,7 @@ four agree on and settles each difference:
 | A product may name the header the credential travels in, schemed or bare; the default stays `Authorization` and the rules of 3.3 hold in any header | `rfc6750 §2.1`, `§3.1`; `rfc9700 §4.13` puts the sanitizing on the proxy (#56) | a deployment that names a header sanitizes it at its proxy |
 | A product verifier reports an upstream failure as `Rejection::Upstream`, answered `503` like an unreadable key set | our own design (#57) | none |
 | The token client authenticates with mutual TLS (`tls_client_auth`, `self_signed_tls_client_auth`), uses the mTLS alias of a discovered token endpoint, adds configured trust roots, and takes a product `reqwest::Client` | `rfc8705 §2`, `§5` (#58); certificate-bound access tokens at the resource server stay product-specific | none |
-| The assertion `aud` is the token endpoint by default and the issuer identifier when configured | SMART App Launch 2.2.0, Client Authentication: Asymmetric, fixes the token URL; `rfc7523 §3` item 3 admits the issuer (#59) | none |
+| The assertion `aud` and `typ` follow the security profile and are never configured: the token endpoint under `JWT`, and under FAPI 2.0 the issuer as a string under `client-authentication+jwt`; the plain grant deviates from RFC 10070 §4 | SMART App Launch 2.2.0, Client Authentication: Asymmetric, Request; FAPI 2.0 §5.3.3.1; `rfc10070 §4`; SMART 2.2 governs a SMART client (owner, 2026-11-16, #529, #528) | a product that set `assertion_audience` deletes it; a FAPI 2.0 grant needs no change |
 | The RFC 9470 step-up challenge is a crate refusal, with `acr_values` and `max_age`, and the crate checks `acr` and `auth_time` against the product's requirement | `rfc9470 §3`, `§6`; what a resource requires is the product's (#60) | none |
 | `Caller` carries a typed extension map a resource server or a product verifier fills; the configuration sections still take no product field (#49) | our own design: the verifier that routed the token already knows the issuer's policy, and the crate reads no extension (#61) | none |
 | `Caller::basic_user_in` and `Requirement::basic_users` answer whether a Basic caller is one of a list | our own design (#62) | none |
@@ -2586,7 +2594,7 @@ publisher of a Brand Bundle, which FerroSMART is not, and the
 | Key resolution: a `jku` header must equal the registered JWK Set URL, otherwise the registered keys; exactly one key matching `kid` and the `kty` of `alg` | SHALL | same | 2 |
 | A client's JWK Set is cached no longer than its `Cache-Control` allows | SHALL NOT exceed; SHOULD cache | same | 2 |
 | Any authentication failure answers `invalid_client` | SHALL | same; `rfc6749 §5.2` | 2 |
-| The assertion's `aud` (see 13.6, decision 1) | conflicting | `smart client-confidential-asymmetric`, Request; `rfc10070 §4` | 2 |
+| The assertion's `aud` is a single string equal to the token endpoint URL or the issuer identifier; `typ` is `JWT` or `client-authentication+jwt` (13.6 item 1, a recorded deviation from `rfc10070 §4`) | SHALL (SMART); MUST (RFC 10070) | `smart client-confidential-asymmetric`, Request and Signature Verification; `rfc7523 §3`; `rfc10070 §4` | 2 |
 | The symmetric profile is not used for Backend Services | SHALL NOT | `smart client-confidential-symmetric`, Profile audience and scope | 2 |
 | Dynamic client registration is encouraged, not required | MAY | `smart app-launch`, Register App with EHR; `rfc7591 §3` | after 9 |
 
@@ -2601,7 +2609,7 @@ publisher of a Brand Bundle, which FerroSMART is not, and the
 | An invalid `client_id` or `redirect_uri` is shown to the user and never redirected | MUST NOT redirect | `rfc6749 §4.1.2.1`; `rfc9700 §4.11` | 3 |
 | `state` returned exactly as received | REQUIRED | `smart app-launch`, Obtain authorization code, Response; `rfc6749 §4.1.2` | 3 |
 | The code expires shortly after issue (FerroSMART: 60 seconds), is single-use, and a second valid use is denied and revokes what it issued | SHOULD; MUST deny, SHOULD revoke | `smart app-launch`, Response; `rfc6749 §4.1.2`; `oauth21 §4.1.3`, `§7.5.3` | 3 |
-| The decision to grant or deny is the server's, by local policy and optionally the user's input; a denial is an `access_denied` error response | SHALL | `smart app-launch`, Response; `rfc6749 §4.1.2.1` | 3 |
+| The decision to grant or deny is the server's, by local policy and optionally the user's input (FerroSMART asks the user every time, 13.6 item 6); a denial is an `access_denied` error response | SHALL | `smart app-launch`, Response; `rfc6749 §4.1.2.1` | 3 |
 | The granted scope may differ from the request and is reported | MAY, SHALL report | `smart app-launch`, Obtain access token, Response; `rfc6749 §3.3` | 3 |
 | v1 scopes (`.read`, `.write`, `.*`) are processed as `.rs`, `.cud`, `.cruds`, and returned as v1 when granted as v1 | SHOULD | `smart scopes-and-launch-context`, Scopes for requesting FHIR Resources | 3 |
 | Undefined or out-of-order interactions may be ignored, replaced or refused | MAY | same | 3 |
@@ -2683,25 +2691,44 @@ publisher of a Brand Bundle, which FerroSMART is not, and the
 Each item names the decision. "Our own design" marks where no
 specification governs.
 
-1. **The client assertion's `aud`.** SMART 2.2 has the client put "the
-   FHIR authorization server's token URL" in `aud` (`smart
-   client-confidential-asymmetric`, Request), and the Inferno kit sends
-   that value. RFC 10070 (November 2026) updates RFC 7523 so that "the
-   'aud' (audience) claim value MUST use the issuer identifier ... as its
-   sole value ... the token endpoint URL ... MUST NOT be used", and "The
-   authorization server MUST reject any JWT that does not contain its issuer
-   identifier as its sole audience value" (`rfc10070 §4`), to close the
-   audience injection attack its §1 describes. The two cannot both hold.
-   Decision, for the owner to confirm: FerroSMART accepts an assertion whose
-   `aud` is a single value equal to its issuer identifier or to its token
-   endpoint URL, and refuses any other value and any `aud` array, so every
-   SMART 2.2 client and every RFC 10070 client authenticates; the
-   `client-authentication+jwt` `typ` is accepted and never required
-   (`rfc10070 §4`, NOT RECOMMENDED to reject). A deployment can set
-   `[clients] assertion_audience = "issuer"` to take RFC 10070 strictly. The
-   conflict is the `upstream-report` FerroHEALTH/FerroAUTH#528.
-   `ferrohealth-smart`'s own `private_key_jwt` client, whose default `aud`
-   is the token endpoint, moves to the issuer in FerroHEALTH/FerroAUTH#529.
+1. **The client assertion's `aud`: one fixed behaviour.** The texts:
+   - SMART 2.2, `smart client-confidential-asymmetric`, Request: the
+     client's `aud` is "required: The FHIR authorization server's 'token
+     URL' (the same URL to which this authentication JWT will be posted)",
+     and `typ` is "required: Fixed value: JWT". Signature Verification: the
+     server "SHALL validate the JWT according to the processing
+     requirements defined in Section 3 of RFC7523".
+   - `rfc7523 §3` item 3, the text SMART 2.2 cites: "The JWT MUST contain an
+     'aud' (audience) claim containing a value that identifies the
+     authorization server as an intended audience. The token endpoint URL
+     of the authorization server MAY be used ... The authorization server
+     MUST reject any JWT that does not contain its own identity as the
+     intended audience", compared by "Simple String Comparison".
+   - `rfc10070 §4` replaces that item for client authentication: "the 'aud'
+     (audience) claim value MUST use the issuer identifier [RFC8414] of the
+     authorization server as its sole value ... the token endpoint URL of
+     the authorization server MUST NOT be used as an audience value. The
+     authorization server MUST reject any JWT that does not contain its
+     issuer identifier as its sole audience value", and has client
+     authentication JWTs "SHOULD be explicitly typed" as
+     `client-authentication+jwt`, while "it is NOT RECOMMENDED for servers
+     to reject JWTs that do not have explicit types".
+
+   No one behaviour meets both: a SMART 2.2 client must send the token URL,
+   and an RFC 10070 server must reject it. SMART 2.2 governs a SMART
+   authorization server (owner, 2026-11-16). FerroSMART therefore accepts an
+   `aud` that is a single string equal to its token endpoint URL (SMART 2.2,
+   and `rfc7523 §3` item 3 as SMART cites it) or to its issuer identifier
+   (`rfc7523 §3` item 3, "a value that identifies the authorization server";
+   `rfc10070 §4`), each compared by simple string comparison, and refuses an
+   array and every other value (`rfc10070 §4`, "sole value"). It accepts
+   `typ` `JWT` (SMART 2.2) and `client-authentication+jwt` (`rfc10070 §4`)
+   and refuses an assertion with no `typ` or another one. This is fixed
+   behaviour with no setting. Accepting the token URL deviates from
+   `rfc10070 §4`'s server MUST; FerroHEALTH/FerroAUTH#528 is the upstream
+   report. `ferrohealth-smart`'s own client follows the same reading
+   (3.5, #529): the token URL under `JWT`, and under FAPI 2.0 the issuer
+   (FAPI 2.0 §5.3.3.1).
 2. **The launch context in the access token.** SMART puts the context in
    the token response and the introspection response only. A resource
    server reading a JWT needs it in the token, and `ferrohealth-smart` reads
@@ -2725,15 +2752,22 @@ specification governs.
    key of its registered JWK Set, and passes the compact JWT as `launch`;
    FerroSMART checks it as it checks a client assertion (signature, `iss`,
    sole `aud`, `exp`, `jti` replay) and takes the context from it.
-4. **The patient picker.** SMART leaves "a patient selection widget" to the
-   server (`smart app-launch`, Obtain authorization code). Our own design
-   (#516): the picker searches `Patient` at the configured FHIR base (`GET
-   [base]/Patient?name=…` and `identifier=…`) with a short-lived token
-   FerroSMART issues to itself for the signed-in user, `aud` the base and
-   scope `user/Patient.rs`, so the FHIR server's own access rules decide
-   which patients the user sees; for an openEHR `aud`, the EHR id comes from
-   `GET [base]/ehr?subject_id=…&subject_namespace=…` (ITS-REST) under the
-   same rule.
+4. **The patient picker.** SMART places the choice inside the
+   authorization server's own flow: for `launch/patient` "The EHR's
+   'authorize' endpoint will take care of acquiring the context it needs
+   ... the EHR may provide the end-user with a patient selection widget"
+   (`smart app-launch`, Obtain authorization code). SMART defines no
+   protocol for handing the choice to a picker elsewhere and back, so an
+   external picker URL would be a hand-off of our own invention with its
+   own threat surface. FerroSMART draws the picker itself (#516): a
+   server-rendered form, part of the `/authorize` flow, over a FHIR Patient
+   search (`GET [base]/Patient?name=…` and `identifier=…`) at the configured
+   base with a short-lived token FerroSMART issues to itself for the
+   signed-in user, `aud` the base and scope `user/Patient.rs`, so the FHIR
+   server's own access rules decide which patients the user sees; for an
+   openEHR `aud`, the EHR id comes from `GET
+   [base]/ehr?subject_id=…&subject_namespace=…` (ITS-REST) under the same
+   rule. The search call and the page are our own design.
 5. **Scope narrowing.** The granted scope is the intersection of the
    request, the client's registered ceiling, the user's roles mapped to
    scopes by configuration, and the consent the user gave; SMART allows the
@@ -2741,11 +2775,28 @@ specification governs.
    token, Response) and requires the server's policy to win (`smart
    scopes-and-launch-context`, SMART's scopes are used to delegate access).
    The mapping is content, never code.
-6. **Consent.** SMART makes the user's input optional. FerroSMART asks for
-   consent the first time a user authorizes a client for a scope set, and
-   again when the set grows; a client registered as trusted by the
-   deployment skips the page. The consent record is a row with the scope
-   granted, revocable at the management endpoint. Our own design.
+6. **Consent.** SMART leaves the user's part open: "The authorization
+   decision is up to the EHR authorization server which may request
+   authorization from the end-user. The EHR authorization server will
+   enforce access rules based on local policies and optionally direct
+   end-user input" (`smart app-launch`, Obtain authorization code,
+   Response), and the granted scope "can be different from the scopes
+   requested by the app" (Obtain access token, Response). FerroSMART takes
+   the end-user input in every user flow, standalone and EHR launch (owner,
+   2026-11-16): policy first narrows the request to what the client's
+   ceiling and the user's roles allow (item 5), then the consent page shows
+   the remaining scopes and the user approves them, narrows them by
+   unticking any, or denies (an `access_denied` error response, `rfc6749
+   §4.1.2.1`). No client skips the page. Backend Services has no user and
+   no consent step (`smart backend-services`, Scopes: "The client is
+   pre-authorized by the server"). A consent is remembered only when the
+   user ticks to remember it, for that client and that scope set; a request
+   that asks for more shows the page again. A remembered consent is listed
+   and revocable at the `management_endpoint`, "URL where an end-user can
+   view which applications currently have access to data and can make
+   adjustments to these access rights" (`smart conformance`, Metadata), and
+   revoking it revokes the grants it covered. Remembering is our own
+   design.
 7. **`online_access`.** "As long as the end-user remains online" has no
    mechanism in SMART. FerroSMART ties an online refresh token to the
    upstream login session: it ends at upstream logout (an OpenID Connect
@@ -2787,7 +2838,7 @@ always builds against the libraries of the same commit. Its modules:
 | `introspect`, `revoke` | RFC 7662 and RFC 7009 |
 | `store` | the PostgreSQL store (`sqlx` 0.9, the family's driver) and its migrations |
 | `audit` | the BALP and EHDS records through `ihe-atna` and `ehds-logging` |
-| `pages` | the login, consent, picker and error pages, server-drawn with FerroUI |
+| `pages` | the consent, picker and error pages, server-drawn with FerroUI (13.15) |
 
 The server stack is `ferrohealth-server` (request id, timeout, body
 ceiling, TLS listener, drain), `ferrohealth-telemetry` and
@@ -2831,7 +2882,7 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 
 | Table | Key | Holds |
 |---|---|---|
-| `client` | `client_id` | type (public, symmetric, asymmetric), secret hash, `jwks` or `jwks_uri`, redirect URIs, launch URI, registered origins, scope ceiling, grant types, trusted (skips consent), offline access allowed, name and logo, disabled time |
+| `client` | `client_id` | type (public, symmetric, asymmetric), secret hash, `jwks` or `jwks_uri`, redirect URIs, launch URI, registered origins, scope ceiling, grant types, offline access allowed, name and logo, disabled time |
 | `signing_key` | `kid` | algorithm, public JWK, signer reference (file path or KMS key id), state (`next`, `active`, `retiring`), the times of each state |
 | `pending_authorization` | random id | the validated request (client, redirect URI, scope, `state`, `nonce`, PKCE challenge, `aud`, launch), the upstream `state`, `nonce` and PKCE verifier, expiry |
 | `authorization_code` | code hash | the grant it opens, the PKCE challenge, the redirect URI, expiry, redemption time |
@@ -2839,7 +2890,7 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 | `refresh_token` | token hash | grant, predecessor, expiry, last use, use time, revocation |
 | `access_token` | `jti` | grant or client, `aud`, scope, `exp`, revocation, so introspection and revocation answer for a JWT |
 | `launch` | launch hash | EHR client, `aud`, context, expiry, use time |
-| `consent` | subject, client | scope granted, times, revocation |
+| `consent` | subject, client | the scope set the user chose to remember, times, revocation |
 | `upstream_session` | id | upstream issuer, upstream `sid` and `sub`, last seen, end |
 | `seen_jti` | issuer, `jti` | client assertions and launch JWTs, until their `exp` |
 
@@ -2884,12 +2935,13 @@ role = "clinician"
 scopes = ["user/*.cruds", "patient/*.cruds", "launch", "launch/patient", "openid", "fhirUser", "offline_access"]
 
 [ferrosmart.clients]
-assertion_audience = "smart-or-issuer"       # 13.6 item 1; "issuer" for RFC 10070 alone
 seed_file = "/etc/ferrosmart/clients.toml"    # registry rows loaded at start; the admin API edits the rest
 
-[ferrosmart.branding]
+[ferrosmart.branding]                          # FerroUI's theme and words, never code (13.15)
 name = "Example Hospital"
-consent_text_file = "/etc/ferrosmart/consent.md"
+logo_file = "/etc/ferrosmart/logo.svg"
+locales = ["en", "nl"]
+consent_text_file = "/etc/ferrosmart/consent.ftl"     # the deployment's own consent wording, per locale
 smart_style_url = "https://smart.example.org/style.json"
 ```
 
@@ -2924,7 +2976,7 @@ Every secret is a `_file` key read through `ferrohealth-secret`; the
 | A stolen or injected authorization code | PKCE `S256` on every client, single use with revocation on a second valid use, 60-second lifetime, bound to client and redirect URI | `rfc9700 §4.5`; `oauth21 §7.5.3` |
 | Open redirection and code leakage | exact redirect URI match, no redirect on an invalid client or URI, `Referrer-Policy: no-referrer` on every page | `rfc9700 §4.1`, `§4.2`, `§4.11` |
 | Mix-up between authorization servers | `iss` in every authorization response | `rfc9207 §2`; `rfc9700 §4.4` |
-| CSRF and clickjacking on the login, consent and picker pages | a per-request form token bound to the pending authorization, `frame-ancestors 'none'`, a strict CSP | `rfc9700 §4.7`, `§4.16`; `rfc6749 §10.12`, `§10.13` |
+| CSRF and clickjacking on the consent and picker pages | a per-request form token bound to the pending authorization, `frame-ancestors 'none'`, the CSP of 13.15 | `rfc9700 §4.7`, `§4.16`; `rfc6749 §10.12`, `§10.13` |
 | Client assertion replay and audience injection | the `jti` store, a single `aud` value (13.6 item 1) | `rfc7523 §3`; `rfc10070 §1`, `§4` |
 | SSRF through a client's `jwks_uri` | `https` only, taken from the registry and never from a request; no private or loopback address; time and size bounds | `smart client-confidential-asymmetric`, Registering a client (TLS-protected URL); the address rule is our own design |
 | A stolen access token | 300-second lifetime, `aud` restricted to one base, DPoP when step DPoP lands | `rfc9700 §2.2.1`, `§2.3` |
@@ -2964,3 +3016,35 @@ flow (#515), which the picker (#516), the EHR launch API (#517), refresh
 and introspection (#518), the Inferno lane (#520) and the four upstream
 providers (#522 to #525) wait on; the image (#519) and the issuer preset
 with the family adoption (#521) follow the core.
+
+### 13.15 The screens
+
+FerroSMART has no frontend project: no single-page app and no JavaScript
+application. Login belongs to the upstream identity provider. The screens
+SMART needs from the authorization server itself are the consent page
+(13.6 item 6), the patient picker (13.6 item 4), the management page of
+remembered consents and the error page. The Rust server draws each as a
+whole HTML document of plain forms.
+
+They are drawn with FerroUI (`ferrohealth-ui`, pinned exactly in
+`[workspace.dependencies]`; owner, 2026-11-16), so they look and behave
+like the family's consoles: askama templates compiled into the binary,
+fluent locales for the deployment's languages, the light and dark themes,
+and FerroUI's axum asset router serving its CSS, script modules and fonts
+from FerroSMART's own origin. FerroSMART follows FerroUI's consumer guide
+(`docs/consoles.md`) and component rules (`.claude/rules/console-ui.md`) at
+the git tag of the pin, the way FerroBRIDGE's console does. The pages work
+without script wherever FerroUI allows it: every action is a form post the
+server answers with the next page. The CSP is `default-src 'none';
+script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self';
+form-action 'self'; frame-ancestors 'none'` (`rfc9700 §4.16`).
+
+A component, pattern or locale the screens need and FerroUI lacks is
+added in FerroUI as a general component, through FerroUI's own tracker and
+release, and FerroSMART takes the release; it is never copied into this
+repository (owner, 2026-11-16). FerroUI 0.6.8 ships a sign-in card, a
+picker, search, a refusal and an error page; it has no design under
+`design/consoles/` for FerroSMART's pages and no scope-approval form, which
+#515 adds to FerroUI. Branding is content: the deployment's name, logo,
+locales and consent wording come from `[ferrosmart.branding]`, never a code
+edit.

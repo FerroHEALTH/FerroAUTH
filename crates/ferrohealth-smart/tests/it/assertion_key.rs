@@ -44,7 +44,7 @@ fn an_ec_key_signs_the_algorithm_of_its_curve() -> Result<(), Box<dyn StdError>>
             "the published key names its algorithm"
         );
         assert!(
-            key.assertion("synthetic-client", "https://as.example.org/token")
+            key.assertion("synthetic-client", "https://as.example.org/token", "JWT")
                 .is_ok()
         );
     }
@@ -129,7 +129,7 @@ fn the_rings_current_key_signs_a_products_own_claims_under_its_type()
 #[test]
 fn a_client_assertion_lives_sixty_seconds() -> Result<(), Box<dyn StdError>> {
     let key = AssertionKey::from_pem(&ec_key("unused", Algorithm::ES256).pem, None, None)?;
-    let assertion = key.assertion("synthetic-client", "https://as.example.org/token")?;
+    let assertion = key.assertion("synthetic-client", "https://as.example.org/token", "JWT")?;
 
     let public: Jwk = serde_json::from_value(key.public_jwk())?;
     let mut validation = Validation::new(Algorithm::ES256);

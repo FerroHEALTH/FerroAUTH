@@ -111,20 +111,9 @@ impl ClientAuth {
     }
 }
 
-/// The `aud` a `private_key_jwt` assertion names.
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AssertionAudience {
-    /// The token endpoint URL the assertion is posted to, the value SMART
-    /// App Launch 2.2.0, Client Authentication: Asymmetric, fixes.
-    #[default]
-    TokenEndpoint,
-    /// The configured issuer identifier, a value RFC 7523 §3 item 3 also
-    /// admits as identifying the authorization server, for an authorization
-    /// server outside the SMART profile that asks for it.
-    Issuer,
-}
+/// The explicit type of a FAPI 2.0 grant's client assertion, the type RFC
+/// 10070 §4 has every client authentication JWT carry.
+pub const CLIENT_AUTHENTICATION_TYP: &str = "client-authentication+jwt";
 
 /// Returns what of `url` a token endpoint must not carry: `userinfo`
 /// (RFC 9110 §4.2.4, RFC 3986 §3.2.1) or a `fragment` (RFC 6749 §3.2). A
@@ -337,8 +326,6 @@ pub struct ClientCredentials {
     pub refresh_margin: Duration,
     /// How long one call to the authorization server may take.
     pub timeout: Duration,
-    /// The `aud` of a `private_key_jwt` assertion.
-    pub assertion_audience: AssertionAudience,
     /// The trust roots and the client certificate of the token endpoint
     /// connection.
     pub tls: Tls,
@@ -424,7 +411,6 @@ impl ClientCredentials {
             resource: None,
             refresh_margin: Duration::from_secs(30),
             timeout: Duration::from_secs(10),
-            assertion_audience: AssertionAudience::default(),
             tls: Tls::default(),
             token_binding: None,
             authorization_details: None,
@@ -497,14 +483,6 @@ impl ClientCredentials {
         {
             return Err(TokenError::Credential {
                 what: "client certificate for the certificate binding",
-            });
-        }
-        if self.client_auth == ClientAuth::PrivateKeyJwt
-            && self.assertion_audience == AssertionAudience::Issuer
-            && !matches!(self.endpoint, Endpoint::Issuer(_))
-        {
-            return Err(TokenError::Credential {
-                what: "issuer for the assertion audience",
             });
         }
         match self.client_auth {
@@ -828,8 +806,12 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "fetch")]
     #[test]
-    fn an_issuer_assertion_audience_needs_an_issuer() {
+    fn the_assertion_audience_and_type_follow_the_security_profile() {
+        use super::{CLIENT_AUTHENTICATION_TYP, SecurityProfile, endpoint, fapi2};
+        use url::Url;
+
         let key = super::assertion::AssertionKey::from_pem(
             &aws_lc_rs::signature::EcdsaKeyPair::generate(
                 &aws_lc_rs::signature::ECDSA_P384_SHA384_ASN1_SIGNING,
@@ -841,22 +823,48 @@ mod tests {
             None,
         )
         .expect("a P-384 key");
+        let token: Url = "https://as.example.org/token".parse().expect("a URL");
+        let claims = |assertion: &str| -> (Option<String>, serde_json::Value) {
+            let header = jsonwebtoken::decode_header(assertion).expect("a header");
+            let payload = assertion.split('.').nth(1).expect("a payload");
+            let bytes =
+                base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
+                    .expect("base64url");
+            let claims: serde_json::Value = serde_json::from_slice(&bytes).expect("JSON");
+            (header.typ, claims["aud"].clone())
+        };
         let mut grant = ClientCredentials::with_private_key_jwt(
-            Endpoint::Token("https://as.example.org/token".parse().expect("a URL")),
+            Endpoint::Issuer(String::from("https://as.example.org")),
             String::from("client"),
             key,
         );
-        grant.assertion_audience = super::AssertionAudience::Issuer;
+        let ring = grant.assertion_keys.clone().expect("a key ring");
+        // NOTE: SMART App Launch 2.2.0, Client Authentication: Asymmetric, Request.
+        let smart = endpoint::client_assertion(ring.current(), &grant, &token).expect("signs");
+        assert_eq!(
+            (Some(String::from("JWT")), serde_json::json!(token.as_str())),
+            claims(&smart)
+        );
+        // NOTE: FAPI 2.0 §5.3.3.1 and RFC 10070 §4, the issuer as a string.
+        grant.profile = SecurityProfile::Fapi2(fapi2::Fapi2::new());
+        let fapi = endpoint::client_assertion(ring.current(), &grant, &token).expect("signs");
+        assert_eq!(
+            (
+                Some(String::from(CLIENT_AUTHENTICATION_TYP)),
+                serde_json::json!("https://as.example.org")
+            ),
+            claims(&fapi)
+        );
+        grant.endpoint = Endpoint::Token(token.clone());
         assert!(matches!(
-            grant.validate(),
+            endpoint::client_assertion(ring.current(), &grant, &token),
             Err(TokenError::Credential {
-                what: "issuer for the assertion audience"
+                what: "issuer for the FAPI 2.0 assertion audience"
             })
         ));
-        grant.endpoint = Endpoint::Issuer(String::from("https://as.example.org"));
-        assert!(grant.validate().is_ok());
     }
 
+    #[cfg(feature = "fetch")]
     fn pem(der: &[u8]) -> Vec<u8> {
         use base64::Engine as _;
         let body = base64::engine::general_purpose::STANDARD.encode(der);
