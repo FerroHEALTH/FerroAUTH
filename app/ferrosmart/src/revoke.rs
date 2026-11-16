@@ -20,9 +20,10 @@ use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, StatusCode};
 
 use crate::clients::{Client, ClientKind};
+use crate::form::Params;
 use crate::introspect::{Found, find};
 use crate::server::AppState;
-use crate::token::{Form, Refusal, authenticate, no_store, read_form, server_error};
+use crate::token::{Refusal, authenticate, no_store, read_form, server_error};
 
 /// `POST {issuer}/revoke`.
 pub async fn revoke(
@@ -102,7 +103,7 @@ async fn revoked(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<(
 
 /// Returns the client of the request: authenticated by its assertion, or a
 /// registered public client named by `client_id`.
-async fn client(state: &AppState, form: &Form) -> Result<Client, Refusal> {
+async fn client(state: &AppState, form: &Params) -> Result<Client, Refusal> {
     if form.get("client_assertion").is_some() || form.get("client_assertion_type").is_some() {
         return authenticate(state, form).await;
     }

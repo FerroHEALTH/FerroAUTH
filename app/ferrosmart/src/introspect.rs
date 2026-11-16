@@ -23,9 +23,10 @@ use jsonwebtoken::jwk::Jwk;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde_json::{Map, Value, json};
 
+use crate::form::Params;
 use crate::server::AppState;
 use crate::store::grant::{AccessRecord, GrantRecord, RefreshRecord};
-use crate::token::{Form, Refusal, authenticate, no_store, read_form, server_error};
+use crate::token::{Refusal, authenticate, no_store, read_form, server_error};
 
 /// The scope that lets a caller introspect (`docs/architecture.md` §13.6
 /// item 8).
@@ -148,7 +149,7 @@ async fn answer(
 
 /// Returns the `client_id` of the caller, once it holds the right to
 /// introspect.
-async fn caller(state: &AppState, headers: &HeaderMap, form: &Form) -> Result<String, Refused> {
+async fn caller(state: &AppState, headers: &HeaderMap, form: &Params) -> Result<String, Refused> {
     if let Some(authorization) = headers.get(header::AUTHORIZATION) {
         let token = authorization
             .to_str()
@@ -209,7 +210,7 @@ pub(crate) async fn find(state: &AppState, token: &str) -> Result<Option<Found>,
             .map_err(|error| server_error("the token record cannot be read", &error))?;
         return Ok(record.map(|record| Found::Access { jti, record }));
     }
-    let hash = sha256(token);
+    let hash = crate::authorize::sha256(token);
     let record = state
         .store()
         .refresh_token(&hash)
@@ -246,15 +247,6 @@ fn own_access_token(state: &AppState, token: &str) -> Option<String> {
     validation.set_issuer(&[settings.issuer.as_str()]);
     let claims: Value = jsonwebtoken::decode(token, &key, &validation).ok()?.claims;
     claims.get("jti").and_then(Value::as_str).map(str::to_owned)
-}
-
-/// Returns the SHA-256 of `value`, base64url without padding, the form a
-/// refresh token is stored in.
-#[must_use]
-pub fn sha256(value: &str) -> String {
-    use base64::Engine as _;
-    let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, value.as_bytes());
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(digest.as_ref())
 }
 
 /// Returns the answer for the active access token `record`: the members

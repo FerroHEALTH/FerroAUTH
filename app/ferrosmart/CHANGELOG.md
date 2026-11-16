@@ -34,6 +34,23 @@ and this project adheres to
   `RS256`, recorded in the store and answered with `no-store`. Each refusal
   is its RFC 6749 §5.2 error, and every issue and refusal writes an audit
   line (#514).
+- The authorization code flow of SMART App Launch 2.2.0, standalone
+  launch: the authorization endpoint by `GET` and `POST` (code with PKCE
+  `S256` only, `aud` among the configured resource servers, the redirect URI
+  matched exactly, an untrusted client or redirect shown and never
+  redirected to), the login at any OpenID Connect provider through
+  `[ferrosmart.upstream]`, the person's pairwise `sub`, `fhirUser` and roles
+  from configured claims, the scopes narrowed by the client's ceiling and
+  `[[ferrosmart.role]]` before the consent page, which FerroUI draws in the
+  FerroSMART brand with no script and lets the person untick any scope,
+  decline or remember the choice, the single-use code with `state` and
+  `iss` (RFC 9207), and the code exchange for public and asymmetric clients
+  with an RFC 9068 access token, an RS256 ID Token carrying `fhirUser` and
+  the `smart_style_url` of `[ferrosmart.branding]`;
+  a second use of a code revokes what the first issued. `GET /manage` lists
+  the remembered choices and withdraws one, and the OpenID Connect
+  discovery document and the App Launch SMART configuration describe the
+  login once it is configured (#515).
 - The introspection endpoint, `POST /introspect` (RFC 7662 with SMART App
   Launch 2.2.0, Token Introspection): a client whose ceiling lists
   `system/introspect` authenticates by its assertion or presents a bearer

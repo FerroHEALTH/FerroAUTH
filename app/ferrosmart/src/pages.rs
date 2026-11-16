@@ -1,0 +1,356 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The pages a person sees: the consent page and the error pages.
+//!
+//! Each is a whole document drawn on the server with FerroUI's components in the
+//! FerroSMART brand (`docs/architecture.md` §13.15). Every action is a
+//! form post, so a page works with no script; the policy admits scripts and
+//! styles from FerroSMART's own origin alone.
+
+use axum::response::{IntoResponse, Response};
+use ferrohealth_ui::html::Html;
+use ferrohealth_ui::i18n::{Arg, Locale};
+use ferrohealth_ui::icon::Glyph;
+use ferrohealth_ui::serve::Assets;
+use ferrohealth_ui::style::Brand;
+use ferrohealth_ui::theme::Preferences;
+use ferrohealth_ui::view::button::{Variant, label};
+use ferrohealth_ui::view::error_page::{ErrorPage, Status, error_page};
+use ferrohealth_ui::view::form::{check, check_field, fieldset};
+use ferrohealth_ui::view::scope::{ScopeGrant, scope_grants};
+use ferrohealth_ui::view::shell::{Document, Footer, centred, document, lockup_plain, mark};
+use ferrohealth_ui::view::surface::{card, page_card};
+use http::{HeaderMap, HeaderValue, StatusCode, header};
+use url::Url;
+
+use crate::authorize::{CONSENT_ROUTE, MANAGE_ROUTE};
+use crate::clients::Client;
+use crate::server::AppState;
+use crate::store::Pending;
+
+fluent_templates::static_loader! {
+    static CATALOG = {
+        locales: "./locales",
+        fallback_language: "en",
+        // NOTE: Fluent's guide, "Bidirectionality": the isolation marks are for
+        // mixed-direction text; the English catalog draws none.
+        customise: |bundle| bundle.set_use_isolating(false),
+    };
+}
+
+/// Why a page answers instead of the flow going on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fault {
+    /// The client or its redirect URI is not registered, so the browser is
+    /// not sent back to it (RFC 6749 §4.1.2.1).
+    UnknownClient,
+    /// The redirect URI is not one the client registered.
+    UnknownRedirect,
+    /// The request lapsed or was already decided.
+    Lapsed,
+    /// The request began in another browser.
+    OtherBrowser,
+    /// The request could not be read.
+    BadRequest,
+    /// The server failed.
+    Server,
+}
+
+impl Fault {
+    /// The page's status, its words' ids and the HTTP status.
+    const fn parts(self) -> (Status, StatusCode, &'static str, &'static str) {
+        match self {
+            Self::UnknownClient | Self::UnknownRedirect => (
+                Status::BadRequest,
+                StatusCode::BAD_REQUEST,
+                "fault-unknown-client",
+                "fault-unknown-client-body",
+            ),
+            Self::Lapsed => (
+                Status::NotFound,
+                StatusCode::NOT_FOUND,
+                "fault-lapsed",
+                "fault-lapsed-body",
+            ),
+            Self::OtherBrowser => (
+                Status::Forbidden,
+                StatusCode::FORBIDDEN,
+                "fault-other-browser",
+                "fault-other-browser-body",
+            ),
+            Self::BadRequest => (
+                Status::BadRequest,
+                StatusCode::BAD_REQUEST,
+                "fault-bad-request",
+                "fault-bad-request-body",
+            ),
+            Self::Server => (
+                Status::Fault,
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "fault-server",
+                "fault-server-body",
+            ),
+        }
+    }
+}
+
+/// Returns the page `fault` names.
+pub fn fault(state: &AppState, fault: Fault) -> Response {
+    let locale = Locale::default().with_catalog(&*CATALOG);
+    let (status, code, title, body) = fault.parts();
+    let page = error_page(
+        &locale,
+        ErrorPage {
+            status,
+            title: locale.lookup(&*CATALOG, title),
+            body: Html::text(locale.lookup(&*CATALOG, body)),
+            hint: None,
+            ways: Vec::new(),
+            detail: None,
+        },
+    );
+    let title = locale.lookup(&*CATALOG, title);
+    respond(state, code, &locale, title, page, &[])
+}
+
+/// Logs `error` with its whole chain and returns the server's fault page.
+pub fn server_error(state: &AppState, error: &dyn std::error::Error) -> Response {
+    tracing::error!(error = %ferrohealth_server::run::chain(error), "a page failed");
+    fault(state, Fault::Server)
+}
+
+/// Returns the consent page of `pending` for `client`, in the language the
+/// request's `Accept-Language` prefers among the catalog's.
+pub fn consent(
+    state: &AppState,
+    headers: &HeaderMap,
+    client: &Client,
+    pending: &Pending,
+) -> Response {
+    let locale = negotiated(headers);
+    let words = |id: &str| locale.lookup(&*CATALOG, id);
+    let with = |id: &str, args: &[(&'static str, Arg)]| locale.lookup_with(&*CATALOG, id, args);
+    let offered: Vec<&str> = pending
+        .offered_scope
+        .as_deref()
+        .unwrap_or_default()
+        .split(' ')
+        .filter(|scope| !scope.is_empty())
+        .collect();
+    let grants: Vec<ScopeGrant> = offered
+        .iter()
+        .map(|scope| {
+            ScopeGrant::read(&locale, *scope, |read| {
+                (read.resource.clone(), read.resource == "*")
+            })
+        })
+        .collect();
+    let checks = Html::join(offered.iter().enumerate().map(|(index, scope)| {
+        let id = format!("scope-{index}");
+        let checkbox = Html::raw(format!(
+            "<input type=\"checkbox\" id=\"{id}\" name=\"scope\" value=\"{}\" checked>",
+            Html::text(scope)
+        ));
+        check(&id, *scope, checkbox)
+    }));
+    let signed_in = pending.display_name.as_deref().map_or_else(
+        || words("consent-signed-in-plain"),
+        |name| with("consent-signed-in", &[("name", Arg::from(name))]),
+    );
+    let client_name = Arg::from(client.name.as_str());
+    let action = state.settings().endpoint(CONSENT_ROUTE);
+    let remember = check_field(
+        "remember",
+        with("consent-remember", &[("client", client_name.clone())]),
+        with("consent-remember-help", &[("client", client_name.clone())]),
+        Html::raw(String::from(
+            "<input type=\"checkbox\" id=\"remember\" name=\"remember\" value=\"yes\" aria-describedby=\"remember-help\">",
+        )),
+    );
+    let form = Html::raw(format!(
+        "<form method=\"post\" action=\"{action}\" class=\"fui-stack\">\
+         <input type=\"hidden\" name=\"form_token\" value=\"{token}\">{fields}{remember}\
+         <div class=\"fui-cluster\">\
+         <button type=\"submit\" name=\"decision\" value=\"approve\" class=\"{primary}\">{allow}</button>\
+         <button type=\"submit\" name=\"decision\" value=\"deny\" class=\"{secondary}\">{deny}</button>\
+         </div></form>",
+        action = Html::text(&action),
+        token = Html::text(&pending.form_token),
+        fields = fieldset(words("consent-choose"), checks),
+        primary = Variant::Primary.class(),
+        secondary = Variant::Secondary.class(),
+        allow = label(Some(Glyph::CHECK), words("consent-allow")),
+        deny = label(None, words("consent-deny")),
+    ));
+    let deployment = &state.settings().branding;
+    let own_words = if deployment.consent_text.is_empty() {
+        Html::empty()
+    } else {
+        Html::raw(format!("<p>{}</p>", Html::text(&deployment.consent_text)))
+    };
+    let body = Html::join([
+        Html::raw(format!("<p>{}</p>", Html::text(signed_in))),
+        Html::raw(format!(
+            "<p>{}</p>",
+            Html::text(with("consent-intro", &[("client", client_name.clone())]))
+        )),
+        scope_grants(&locale, &words("consent-scopes"), grants),
+        own_words,
+        form,
+    ]);
+    let title = with("consent-title", &[("client", client_name)]);
+    let lockup = lockup_plain(
+        mark(Glyph::KEY_ROUND),
+        &deployment.name,
+        words("product-word"),
+    );
+    let page = page_card(Some(lockup), title.clone(), body);
+    // NOTE: CSP Level 3 §6.4.2, form-action also holds the redirect that follows
+    // the post, so the policy names the app's origin beside FerroSMART's.
+    let origin = Url::parse(&pending.redirect_uri)
+        .ok()
+        .map(|url| url.origin().ascii_serialization())
+        .filter(|origin| origin != "null");
+    respond(
+        state,
+        StatusCode::OK,
+        &locale,
+        title,
+        page,
+        &origin.into_iter().collect::<Vec<_>>(),
+    )
+}
+
+/// A consent the person remembered, as the management page lists it.
+#[derive(Debug, Clone)]
+pub struct Remembered {
+    /// The client.
+    pub client_id: String,
+    /// Its name.
+    pub name: String,
+    /// The scopes given.
+    pub scope: String,
+}
+
+/// Returns the management page of `pending`'s person, listing `remembered`
+/// with a withdraw form each.
+///
+/// It is the `management_endpoint`, a "URL where an end-user can view which
+/// applications currently have access to data and can make adjustments to
+/// these access rights" (SMART App Launch 2.2.0, Conformance, Metadata).
+pub fn manage(
+    state: &AppState,
+    headers: &HeaderMap,
+    pending: &Pending,
+    remembered: &[Remembered],
+) -> Response {
+    let locale = negotiated(headers);
+    let words = |id: &str| locale.lookup(&*CATALOG, id);
+    let action = state.settings().endpoint(MANAGE_ROUTE);
+    let rows = if remembered.is_empty() {
+        Html::raw(format!("<p>{}</p>", Html::text(words("manage-none"))))
+    } else {
+        Html::join(remembered.iter().map(|each| {
+            let grants: Vec<ScopeGrant> = each
+                .scope
+                .split(' ')
+                .filter(|scope| !scope.is_empty())
+                .map(|scope| {
+                    ScopeGrant::read(&locale, scope, |read| {
+                        (read.resource.clone(), read.resource == "*")
+                    })
+                })
+                .collect();
+            let form = Html::raw(format!(
+                "<form method=\"post\" action=\"{action}\">\
+                 <input type=\"hidden\" name=\"form_token\" value=\"{token}\">\
+                 <input type=\"hidden\" name=\"client_id\" value=\"{client}\">\
+                 <button type=\"submit\" class=\"{danger}\">{withdraw}</button></form>",
+                action = Html::text(&action),
+                token = Html::text(&pending.form_token),
+                client = Html::text(&each.client_id),
+                danger = Variant::Danger.class(),
+                withdraw = label(None, words("manage-withdraw")),
+            ));
+            card(
+                each.name.clone(),
+                Html::join([scope_grants(&locale, &words("manage-scope"), grants), form]),
+            )
+        }))
+    };
+    let deployment = &state.settings().branding;
+    let body = Html::join([
+        Html::raw(format!("<p>{}</p>", Html::text(words("manage-intro")))),
+        rows,
+    ]);
+    let title = words("manage-title");
+    let lockup = lockup_plain(
+        mark(Glyph::KEY_ROUND),
+        &deployment.name,
+        words("product-word"),
+    );
+    let page = page_card(Some(lockup), title.clone(), body);
+    respond(state, StatusCode::OK, &locale, title, page, &[])
+}
+
+/// Returns the locale the request's `Accept-Language` prefers among the
+/// catalog's, English when none matches.
+fn negotiated(headers: &HeaderMap) -> Locale {
+    let accept = headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    Locale::negotiate_with(accept, &*CATALOG, Locale::default()).with_catalog(&*CATALOG)
+}
+
+/// Returns `content` as a whole document in the centred layout, with the
+/// headers every page carries.
+fn respond(
+    state: &AppState,
+    status: StatusCode,
+    locale: &Locale,
+    title: String,
+    content: Html,
+    form_origins: &[String],
+) -> Response {
+    let footer = Footer {
+        product: "FerroSMART".into(),
+        version: env!("CARGO_PKG_VERSION").into(),
+        about: state.settings().endpoint("/").into(),
+    };
+    let html = document(Document {
+        locale: locale.clone(),
+        preferences: Preferences::default(),
+        title,
+        assets: Assets::of(Brand::Smart),
+        nonce: None,
+        head: Html::empty(),
+        body: centred(locale, content, Html::empty(), footer),
+    });
+    let mut response = (status, axum::response::Html(String::from(html))).into_response();
+    let mut form_action = String::from("'self'");
+    for origin in form_origins {
+        form_action.push(' ');
+        form_action.push_str(origin);
+    }
+    let policy = format!(
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; \
+         font-src 'self'; form-action {form_action}; frame-ancestors 'none'; base-uri 'none'"
+    );
+    let headers = response.headers_mut();
+    if let Ok(policy) = HeaderValue::from_str(&policy) {
+        headers.insert(header::CONTENT_SECURITY_POLICY, policy);
+    }
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    response
+}
