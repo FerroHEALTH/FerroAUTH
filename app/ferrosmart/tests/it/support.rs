@@ -12,6 +12,9 @@ use aws_lc_rs::rsa::KeySize;
 use aws_lc_rs::signature::{ECDSA_P384_SHA384_FIXED_SIGNING, EcdsaKeyPair, RsaKeyPair};
 use base64::Engine as _;
 use ferrosmart::config::Config;
+use ferrosmart::store::Store;
+use secrecy::SecretString;
+use sqlx::Connection as _;
 use tempfile::TempDir;
 
 /// Returns `der` as a PEM `PRIVATE KEY` document.
@@ -64,16 +67,94 @@ impl Keys {
     }
 }
 
+/// The resource server a case configures unless it names its own.
+pub(crate) const RESOURCE: &str = "https://ehr.example.org/fhir";
+
+/// The database URL a case that never reaches the database configures.
+pub(crate) const UNREACHED_DATABASE: &str = "postgres://ferrosmart@127.0.0.1:1/unreached";
+
 /// Returns the configuration `text` holds, with `[ferrosmart.keys]` naming
-/// `keys`' current key unless `text` names one.
+/// `keys`' current key unless `text` names one, and
+/// [`UNREACHED_DATABASE`] as the database unless `text` names one.
 pub(crate) fn config(text: &str, keys: &Keys) -> Config {
-    let text = if text.contains("private_key_file") {
-        text.to_owned()
-    } else {
-        format!(
-            "{text}\n[ferrosmart.keys]\nprivate_key_file = {:?}\n",
-            keys.current.display().to_string()
-        )
-    };
-    Config::from_sources(Some(&text), &BTreeMap::new()).expect("the configuration reads")
+    let mut environment = BTreeMap::new();
+    if !text.contains("[ferrosmart.database]") {
+        environment.insert(
+            String::from("FERROSMART__FERROSMART__DATABASE__URL"),
+            String::from(UNREACHED_DATABASE),
+        );
+    }
+    if !text.contains("[[ferrosmart.resource]]") {
+        environment.insert(
+            String::from("FERROSMART__FERROSMART__RESOURCE"),
+            format!("[{{ base = {RESOURCE:?} }}]"),
+        );
+    }
+    if !text.contains("private_key_file") {
+        environment.insert(
+            String::from("FERROSMART__FERROSMART__KEYS__PRIVATE_KEY_FILE"),
+            keys.current.display().to_string(),
+        );
+    }
+    Config::from_sources(Some(text), &environment).expect("the configuration reads")
+}
+
+/// The variable naming the test server.
+const ENV: &str = "FERROSMART_TEST_PG_URL";
+
+/// A database that lives as long as the case.
+pub(crate) struct Database {
+    /// The server's administrative URL.
+    admin: String,
+    /// The database's name.
+    name: String,
+    /// The database's URL.
+    pub(crate) url: SecretString,
+}
+
+impl Database {
+    /// Creates a fresh, empty database.
+    pub(crate) async fn create() -> Self {
+        let admin = std::env::var(ENV)
+            .expect("FERROSMART_TEST_PG_URL names the PostgreSQL server to test against");
+        let mut bytes = [0_u8; 8];
+        aws_lc_rs::rand::fill(&mut bytes).expect("the random source draws");
+        let name = bytes
+            .iter()
+            .fold(String::from("ferrosmart_test_"), |mut name, byte| {
+                use std::fmt::Write as _;
+                write!(name, "{byte:02x}").expect("a String takes every write");
+                name
+            });
+        let mut connection = sqlx::PgConnection::connect(&admin)
+            .await
+            .expect("the server answers");
+        // The name is the fixed prefix and the hex digits this case drew, never input.
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
+            .execute(&mut connection)
+            .await
+            .expect("the database is created");
+        let mut url = url::Url::parse(&admin).expect("a URL");
+        url.set_path(&name);
+        Self {
+            admin,
+            name,
+            url: SecretString::from(url.to_string()),
+        }
+    }
+
+    /// Drops the database.
+    pub(crate) async fn drop(self, store: Store) {
+        drop(store);
+        let mut connection = sqlx::PgConnection::connect(&self.admin)
+            .await
+            .expect("the server answers");
+        sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DROP DATABASE {} WITH (FORCE)",
+            self.name
+        )))
+        .execute(&mut connection)
+        .await
+        .expect("the database is dropped");
+    }
 }

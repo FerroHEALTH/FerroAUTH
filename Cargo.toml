@@ -72,6 +72,10 @@ aws-lc-rs = { version = "1.18.2", default-features = false, features = ["aws-lc-
 ferrohealth-telemetry = { version = "0.5.0", default-features = false }
 ferrohealth-health = { version = "0.1.1", default-features = false }
 clap = { version = "4.6.7", features = ["derive"] }
+# FerroSMART's state in PostgreSQL (docs/architecture.md §13.9): the driver
+# and the embedded migrations, on the line FerroEHR resolves. Verified
+# against crates.io on 2026-11-16.
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "postgres", "migrate", "macros", "json"] }
 # Test-only: the stub authorization server, the body reader of the
 # framework tests, and the JSON formatter the audit line is read back through.
 wiremock = "0.6.5"

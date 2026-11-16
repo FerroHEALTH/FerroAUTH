@@ -7,11 +7,15 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use ferrohealth_secret::file::require_secret;
 use ferrohealth_server::section::ServerSection;
 use ferrohealth_smart::client::assertion::AssertionKey;
 use ferrohealth_smart::client::keys::KeyRing;
 use jsonwebtoken::Algorithm;
+use secrecy::SecretString;
 use url::Url;
+
+use crate::clients::Client;
 
 use crate::config::error::Error;
 use crate::config::{Config, KeysSection};
@@ -31,6 +35,14 @@ pub struct Settings {
     pub access_token_lifetime: Duration,
     /// The keys that sign every token.
     pub keys: Arc<KeyRing>,
+    /// The connection URL of the database.
+    pub database_url: SecretString,
+    /// The most connections one replica holds.
+    pub max_connections: u32,
+    /// The clients the configuration registers.
+    pub clients: Vec<Client>,
+    /// The base URLs of the resource servers, each as configured.
+    pub resources: Vec<String>,
 }
 
 impl Settings {
@@ -78,12 +90,30 @@ impl Config {
                 key: "ferrosmart.access_token_lifetime",
             });
         }
+        if section.database.max_connections == 0 {
+            return Err(Error::Zero {
+                key: "ferrosmart.database.max_connections",
+            });
+        }
+        let database_url: SecretString = require_secret(
+            "ferrosmart.database.url",
+            section
+                .database
+                .url
+                .as_ref()
+                .map(ferrohealth_secret::secret::Secret::to_secret_string),
+            section.database.url_file.as_deref(),
+        )?;
         Ok(Settings {
             server: self.server.clone(),
             issuer: section.issuer.clone(),
             issuer_url: issuer,
             access_token_lifetime: section.access_token_lifetime.get(),
             keys: Arc::new(key_ring(&section.keys)?),
+            database_url,
+            max_connections: section.database.max_connections,
+            clients: crate::clients::resolve(&section.client)?,
+            resources: resources(&section.resource)?,
         })
     }
 }
@@ -123,4 +153,29 @@ fn read_key(key: &'static str, path: &Path, kid: Option<String>) -> Result<Asser
     })?;
     AssertionKey::from_pem(&pem, Some(Algorithm::RS256), kid)
         .map_err(|source| Error::Key { key, source })
+}
+
+/// Returns the base URLs `sections` configure: at least one, each an
+/// absolute `https` URL (a loopback host may be `http`) with no query and
+/// no fragment, none twice.
+fn resources(sections: &[crate::config::ResourceSection]) -> Result<Vec<String>, Error> {
+    if sections.is_empty() {
+        return Err(Error::Resource {
+            rule: "at least one resource server is configured",
+        });
+    }
+    let mut bases: Vec<String> = Vec::with_capacity(sections.len());
+    for section in sections {
+        // NOTE: SMART App Launch 2.2.0, the `aud` is the "URL of the EHR resource
+        // server"; the loopback exception is the one `issuer_url` makes.
+        ferrohealth_smart::metadata::issuer_url(&section.base)
+            .map_err(|source| Error::ResourceBase { source })?;
+        if bases.contains(&section.base) {
+            return Err(Error::Resource {
+                rule: "a base is configured twice",
+            });
+        }
+        bases.push(section.base.clone());
+    }
+    Ok(bases)
 }

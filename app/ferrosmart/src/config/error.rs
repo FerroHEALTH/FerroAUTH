@@ -30,6 +30,19 @@ pub enum Error {
     /// The issuer's path is not the base path the server serves under.
     #[error("the path of `ferrosmart.issuer` is not `server.base_path`")]
     IssuerPath,
+    /// No resource server is configured, or a base URL is outside the rule.
+    #[error("`ferrosmart.resource`: {rule}")]
+    Resource {
+        /// The rule broken.
+        rule: &'static str,
+    },
+    /// A resource server's base URL is outside the rule.
+    #[error("a `ferrosmart.resource` base is no https URL without a query or a fragment")]
+    ResourceBase {
+        /// Why.
+        #[source]
+        source: ferrohealth_smart::metadata::DiscoveryError,
+    },
     /// A lifetime that must be positive is zero.
     #[error("`{key}` must be greater than zero")]
     Zero {
@@ -56,6 +69,12 @@ pub enum Error {
         #[source]
         source: ferrohealth_smart::client::assertion::AssertionError,
     },
+    /// A secret is set twice, or its `_file` sibling cannot be read.
+    #[error(transparent)]
+    Secret(#[from] ferrohealth_secret::file::SecretError),
+    /// A client table breaks a rule of the registry.
+    #[error(transparent)]
+    Client(#[from] crate::clients::ClientError),
     /// The keys of the ring repeat one another.
     #[error("`ferrosmart.keys` names one key twice")]
     KeyRing {
