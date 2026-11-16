@@ -312,6 +312,14 @@ async fn proceed(
         offered_scope: String::new(),
         auth_time: now(),
     };
+    tracing::info!(
+        target: "ferrosmart::audit",
+        event = "login",
+        subject = %login.subject,
+        client_id = ?pending.client_id,
+        manage = pending.purpose == Purpose::Manage,
+        "a person logged in at the upstream provider"
+    );
     if pending.purpose == Purpose::Manage {
         if let Err(error) = state.store().logged_in(&pending.id, &login).await {
             return pages::server_error(state, &error);
@@ -478,6 +486,12 @@ pub async fn consent_post(
         let remember = form.get("remember") == Some("yes");
         approve(&state, &pending, &form.all("scope"), remember, &back).await
     } else {
+        tracing::info!(
+            target: "ferrosmart::audit",
+            event = "authorization.declined",
+            client_id = ?pending.client_id,
+            "the person declined"
+        );
         back.deny(Denial {
             error: "access_denied",
             description: "the person declined",
