@@ -21,7 +21,9 @@ use jsonwebtoken::Algorithm;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 
-use crate::support::{Database, Keys, RESOURCE, audit, config, ec_key, from_client, rsa_key};
+use crate::support::{
+    Database, Keys, RESOURCE, audit, commit, config, ec_key, from_client, rsa_key,
+};
 
 /// The issuer every case configures.
 pub(crate) const ISSUER: &str = "https://smart.example.org";
@@ -266,6 +268,12 @@ impl Server {
         token
     }
 
+    /// Returns the URL of the case's database.
+    pub(crate) fn database_url(&self) -> String {
+        secrecy::ExposeSecret::expose_secret(&self.database.as_ref().expect("a database").url)
+            .to_owned()
+    }
+
     /// Drops the database.
     pub(crate) async fn stop(mut self) {
         if let Some(database) = self.database.take() {
@@ -402,7 +410,9 @@ async fn a_revoked_grant_s_tokens_are_inactive() {
         .await;
     let access = server.access("app", Some(&grant), 300).await;
     let refresh = server.refresh(&grant, 3600).await;
-    assert!(server.store.revoke_grant(&grant).await.expect("revoked"));
+    let mut tx = server.store.begin().await.expect("begins");
+    assert!(tx.revoke_grant(&grant).await.expect("revoked"));
+    commit(tx).await;
     assert_eq!(inactive(), server.introspect(&access).await);
     assert_eq!(inactive(), server.introspect(&refresh).await);
     server.stop().await;
@@ -427,7 +437,9 @@ async fn an_online_refresh_token_ends_with_its_upstream_session() {
         .await;
     let refresh = server.refresh(&grant, 3600).await;
     assert_eq!(json!(true), server.introspect(&refresh).await["active"]);
-    assert!(server.store.end_session(&session).await.expect("ended"));
+    let mut tx = server.store.begin().await.expect("begins");
+    assert!(tx.end_session(&session).await.expect("ended"));
+    commit(tx).await;
     // NOTE: docs/architecture.md §13.6 item 7, online_access ends with the upstream login.
     assert_eq!(inactive(), server.introspect(&refresh).await);
     server.stop().await;

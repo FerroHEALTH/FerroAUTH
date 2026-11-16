@@ -10,7 +10,9 @@ use http::StatusCode;
 use serde_json::json;
 
 use crate::introspection::{Server, inactive, unique};
-use crate::support::RESOURCE;
+use sqlx::Connection as _;
+
+use crate::support::{RESOURCE, events, records};
 
 /// Returns the form that revokes `token`, with the `token_type_hint`
 /// `hint`.
@@ -50,6 +52,10 @@ async fn revoking_a_refresh_token_revokes_its_whole_grant() {
         )
         .await;
     assert_eq!(StatusCode::OK, status);
+    assert!(
+        events(&records(&server.store).await).contains(&String::from("grant-revoked")),
+        "the grant's revocation is recorded"
+    );
     // NOTE: RFC 7009 §2.1, the server SHOULD also invalidate all access tokens
     // based on the same authorization grant.
     assert_eq!(inactive(), server.introspect(&refresh).await);
@@ -84,6 +90,41 @@ async fn revoking_an_access_token_revokes_it_alone() {
     assert_eq!(inactive(), server.introspect(&access).await);
     assert_eq!(json!(true), server.introspect(&sibling).await["active"]);
     assert_eq!(json!(true), server.introspect(&refresh).await["active"]);
+    // NOTE: docs/architecture.md §13.2, the revocation commits with its record.
+    assert!(
+        events(&records(&server.store).await).contains(&String::from("token-revoked")),
+        "the revocation is recorded"
+    );
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn a_revocation_whose_record_cannot_be_committed_revokes_nothing() {
+    let server = Server::start().await;
+    let grant = server
+        .grant("app", Some(Access::Offline), None, &json!({}))
+        .await;
+    let access = server.access("app", Some(&grant), 300).await;
+    let mut connection = sqlx::PgConnection::connect(&server.database_url())
+        .await
+        .expect("connects");
+    sqlx::query("ALTER TABLE audit_record RENAME TO audit_record_gone")
+        .execute(&mut connection)
+        .await
+        .expect("the table moves");
+    let (status, _, _) = server
+        .post("/revoke", &public(revoke(&access, None), "app"), None)
+        .await;
+    assert_ne!(StatusCode::OK, status, "the revocation fails");
+    sqlx::query("ALTER TABLE audit_record_gone RENAME TO audit_record")
+        .execute(&mut connection)
+        .await
+        .expect("the table returns");
+    assert_eq!(
+        json!(true),
+        server.introspect(&access).await["active"],
+        "the token stays active with no record of its revocation"
+    );
     server.stop().await;
 }
 
