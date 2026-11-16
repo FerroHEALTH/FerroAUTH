@@ -24,7 +24,9 @@ use tower::ServiceExt as _;
 use url::Url;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers};
 
-use crate::support::{Database, Keys, RESOURCE, audit, config, from_client, iua_71, records};
+use crate::support::{
+    Database, Keys, RESOURCE, audit, commit, config, events, from_client, iua_71, records,
+};
 
 /// FerroSMART's issuer in every case.
 const ISSUER: &str = "https://smart.example.org";
@@ -108,6 +110,27 @@ impl Provider {
             .up_to_n_times(1)
             .mount(&self.server)
             .await;
+    }
+}
+
+impl Provider {
+    /// Returns a Logout Token for FerroSMART's client naming the person
+    /// `subject`, with `claims` over the valid set (OpenID Connect
+    /// Back-Channel Logout 1.0 §2.4).
+    fn logout_token(&self, claims: &Value) -> String {
+        let now = jiff::Timestamp::now().as_second();
+        let mut body = json!({
+            "iss": self.server.uri(), "aud": UPSTREAM_CLIENT, "sub": "synthetic-person",
+            "iat": now, "exp": now + 120, "jti": "synthetic-logout",
+            "events": { "http://schemas.openid.net/event/backchannel-logout": {} }
+        });
+        if let (Some(base), Some(over)) = (body.as_object_mut(), claims.as_object()) {
+            base.extend(over.clone());
+        }
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(String::from("op-1"));
+        header.typ = Some(String::from("logout+jwt"));
+        jsonwebtoken::encode(&header, &body, &self.encoding).expect("signs")
     }
 }
 
@@ -210,6 +233,24 @@ impl Smart {
         }
         self.send(request.body(Body::empty()).expect("a request"))
             .await
+    }
+
+    /// Posts the form `pairs` to `path` as a browser on `origin` would.
+    async fn post_from(
+        &self,
+        path: &str,
+        pairs: &[(&str, &str)],
+        origin: &str,
+    ) -> (StatusCode, http::HeaderMap, String) {
+        let body = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(pairs)
+            .finish();
+        let request = Request::post(path)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(header::ORIGIN, origin)
+            .body(Body::from(body))
+            .expect("a request");
+        self.send(request).await
     }
 
     /// Posts the form `pairs` to `path` with the cookie, if any.
@@ -496,6 +537,10 @@ async fn a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens() {
     // NOTE: OAuth 2.1 draft §4.1.3, a second use is refused and revokes.
     let (status, _, body) = smart.post("/token", &exchange, None).await;
     assert_eq!(StatusCode::BAD_REQUEST, status);
+    assert!(
+        events(&records(&smart.store).await).contains(&String::from("code-reused")),
+        "the reuse is recorded"
+    );
     assert!(body.contains("invalid_grant"));
     let jti = access["jti"].as_str().expect("a jti");
     assert!(
@@ -887,6 +932,19 @@ async fn a_remembered_consent_answers_again_until_it_is_withdrawn() {
     );
     let (_, headers, _) = smart.get(&callback, Some(&cookie)).await;
     assert_eq!("/consent", location(&headers).path(), "asked again");
+    // NOTE: docs/architecture.md §13.2, each code and each consent change commits
+    // with its record.
+    let happened = events(&records(&smart.store).await);
+    for event in [
+        "authorization-code",
+        "consent-remembered",
+        "consent-withdrawn",
+    ] {
+        assert!(
+            happened.contains(&String::from(event)),
+            "{event}: {happened:?}"
+        );
+    }
     smart.stop().await;
 }
 
@@ -1000,7 +1058,9 @@ async fn an_online_access_launch_ends_with_its_upstream_login() {
             .await
             .expect("the grant names its session")
     };
-    assert!(smart.store.end_session(&session).await.expect("ended"));
+    let mut tx = smart.store.begin().await.expect("begins");
+    assert!(tx.end_session(&session).await.expect("ended"));
+    commit(tx).await;
     // NOTE: docs/architecture.md §13.6 item 7, online_access ends with the upstream login.
     let next = renewed["refresh_token"].as_str().expect("rotated");
     let (status, refused) = refresh(&smart, next).await;
@@ -1018,11 +1078,9 @@ async fn withdrawing_a_consent_revokes_the_grants_it_covered() {
     )
     .expect("claims");
     let subject = access["sub"].as_str().expect("a sub");
-    smart
-        .store
-        .revoke_consent(subject, "app")
-        .await
-        .expect("withdrawn");
+    let mut tx = smart.store.begin().await.expect("begins");
+    tx.revoke_consent(subject, "app").await.expect("withdrawn");
+    commit(tx).await;
     // NOTE: docs/architecture.md §13.6 item 6, revoking a consent revokes its grants.
     let (status, refused) = refresh(&smart, token).await;
     assert_eq!(StatusCode::BAD_REQUEST, status);
@@ -1057,4 +1115,168 @@ fn offline_and_online_access_are_offered_to_a_client_that_refreshes() {
             None,
         )
     );
+}
+
+/// Posts the Logout Token `token` to the back-channel logout URI and
+/// returns the status, the headers and the body.
+async fn log_out(smart: &Smart, token: &str) -> (StatusCode, http::HeaderMap, String) {
+    smart
+        .post("/backchannel-logout", &[("logout_token", token)], None)
+        .await
+}
+
+#[tokio::test]
+async fn a_back_channel_logout_ends_the_online_access_grants_of_the_login() {
+    let (smart, body) = launch_with("online_access").await;
+    let token = body["refresh_token"].as_str().expect("a refresh token");
+    let access: Value = jsonwebtoken::dangerous::insecure_decode_claims(
+        body["access_token"].as_str().expect("a token"),
+    )
+    .expect("claims");
+    let logout = smart.provider.logout_token(&json!({}));
+    // NOTE: Back-Channel Logout 1.0 §2.8, a 200 that is never cached.
+    let (status, headers, _) = log_out(&smart, &logout).await;
+    assert_eq!(StatusCode::OK, status, "the logout succeeds");
+    assert_eq!(
+        Some("no-store"),
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok()),
+        "Back-Channel Logout 1.0 §2.8, SHOULD include no-store"
+    );
+    // NOTE: Back-Channel Logout 1.0 §2.7, a refresh token without offline_access
+    // SHOULD be revoked; docs/architecture.md §13.6 item 7.
+    let (status, refused) = refresh(&smart, token).await;
+    assert_eq!(StatusCode::BAD_REQUEST, status, "{refused}");
+    assert_eq!(json!("invalid_grant"), refused["error"]);
+    let jti = access["jti"].as_str().expect("a jti");
+    assert!(
+        smart.store.revoked(jti).await.expect("read"),
+        "the grant's access token is revoked with it"
+    );
+    // NOTE: DICOM PS3.15 A.5.3.12, the session end commits with its Logout record.
+    let logged_out = |records: &[Value]| {
+        records
+            .iter()
+            .filter(|record| {
+                record.pointer("/type/code") == Some(&json!("110114"))
+                    && record.pointer("/subtype/0/code") == Some(&json!("110123"))
+            })
+            .count()
+    };
+    let stored = records(&smart.store).await;
+    assert_eq!(1, logged_out(&stored), "one Logout record");
+    assert!(events(&stored).contains(&String::from("session-ended")));
+    let (status, _, _) = log_out(&smart, &logout).await;
+    assert_eq!(StatusCode::OK, status, "a second logout ends nothing more");
+    assert_eq!(
+        1,
+        logged_out(&records(&smart.store).await),
+        "a logout that ends nothing writes nothing"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_back_channel_logout_leaves_an_offline_access_grant() {
+    let (smart, body) = launch_with("offline_access").await;
+    let token = body["refresh_token"].as_str().expect("a refresh token");
+    let logout = smart.provider.logout_token(&json!({}));
+    let (status, _, _) = log_out(&smart, &logout).await;
+    assert_eq!(StatusCode::OK, status, "the logout succeeds");
+    // NOTE: Back-Channel Logout 1.0 §2.7, offline_access SHOULD NOT be revoked.
+    let (status, renewed) = refresh(&smart, token).await;
+    assert_eq!(StatusCode::OK, status, "{renewed}");
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_logout_token_that_does_not_check_is_a_400() {
+    let (smart, body) = launch_with("online_access").await;
+    let token = body["refresh_token"].as_str().expect("a refresh token");
+    let cases = [
+        smart
+            .provider
+            .logout_token(&json!({"aud": "another-client"})),
+        smart.provider.logout_token(&json!({"events": {}})),
+        smart.provider.logout_token(&json!({"nonce": "n-1"})),
+        String::from("not-a-token"),
+    ];
+    for logout in &cases {
+        let (status, headers, refused) = log_out(&smart, logout).await;
+        // NOTE: Back-Channel Logout 1.0 §2.6 and §2.8, a 400 with an error body.
+        assert_eq!(StatusCode::BAD_REQUEST, status, "{refused}");
+        assert!(refused.contains("invalid_request"), "{refused}");
+        assert_eq!(
+            Some("no-store"),
+            headers
+                .get(header::CACHE_CONTROL)
+                .and_then(|v| v.to_str().ok()),
+            "never cached"
+        );
+    }
+    let (status, _, _) = smart.post("/backchannel-logout", &[], None).await;
+    assert_eq!(StatusCode::BAD_REQUEST, status, "no logout_token");
+    let (status, renewed) = refresh(&smart, token).await;
+    assert_eq!(StatusCode::OK, status, "the login lives on: {renewed}");
+    smart.stop().await;
+}
+
+// NOTE: SMART App Launch 2.2.0, App Launch, Considerations for CORS support: the token
+// endpoint is readable from a client's registered origins and from no other.
+#[tokio::test]
+async fn a_token_response_is_readable_from_the_app_s_origin_alone() {
+    let smart = Smart::start().await;
+    let (cookie, token) = to_consent(&smart, &["clinician"]).await;
+    let (_, headers, _) = smart
+        .post(
+            "/consent",
+            &[
+                ("form_token", &token),
+                ("decision", "approve"),
+                ("scope", "openid"),
+                ("scope", "user/Observation.rs"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let allowed = |headers: &http::HeaderMap| {
+        headers
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned)
+    };
+    let (status, headers, body) = smart
+        .post_from("/token", &exchange, "https://app.example.org")
+        .await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    assert_eq!(
+        Some(String::from("https://app.example.org")),
+        allowed(&headers)
+    );
+    assert!(
+        headers
+            .get_all(header::VARY)
+            .iter()
+            .any(|value| value.as_bytes().eq_ignore_ascii_case(b"origin")),
+        "the answer varies by origin"
+    );
+
+    // A second use is refused; from another origin the browser reads nothing.
+    let (status, headers, _) = smart
+        .post_from("/token", &exchange, "https://elsewhere.example.org")
+        .await;
+    assert_eq!(StatusCode::BAD_REQUEST, status);
+    assert_eq!(None, allowed(&headers));
+    let (_, headers, _) = smart.post_from("/token", &exchange, "null").await;
+    assert_eq!(None, allowed(&headers));
+    smart.stop().await;
 }

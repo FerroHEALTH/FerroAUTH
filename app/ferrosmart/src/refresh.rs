@@ -16,11 +16,13 @@
 
 use serde_json::{Map, Value};
 
+use crate::audit::{Event, Happening};
 use crate::authorize::{random, sha256};
 use crate::clients::{Client, GrantType};
 use crate::form::Params;
 use crate::server::AppState;
 use crate::store::Code;
+use crate::store::Transaction;
 use crate::store::grant::{Access, IdleUntil, NewGrant, Rotation};
 use crate::token::{Grant, Issued, Refusal, identify, mint, server_error};
 
@@ -35,7 +37,11 @@ const fn invalid(description: &'static str) -> Refusal {
 }
 
 /// Answers a refresh token request.
-pub(crate) async fn refresh(state: &AppState, form: &Params) -> Result<Issued, Refusal> {
+pub(crate) async fn refresh(
+    state: &AppState,
+    form: &Params,
+    from: std::net::IpAddr,
+) -> Result<Issued, Refusal> {
     let client = identify(state, form).await?;
     if !client.grant_types.contains(&GrantType::RefreshToken) {
         return Err(Refusal {
@@ -69,23 +75,45 @@ pub(crate) async fn refresh(state: &AppState, form: &Params) -> Result<Issued, R
         offline: now.saturating_add_unsigned(settings.refresh_idle.as_secs()),
         online: now.saturating_add_unsigned(settings.online_idle.as_secs()),
     };
-    let rotation = state
+    let mut tx = state
         .store()
+        .begin()
+        .await
+        .map_err(|error| server_error("the refresh token cannot be redeemed", &error))?;
+    let rotation = tx
         .rotate(&hash, &client.client_id, &sha256(&successor), idle)
         .await
         .map_err(|error| server_error("the refresh token cannot be redeemed", &error))?;
+    let endpoint = settings.endpoint_url(crate::discovery::TOKEN_ROUTE);
+    let happening = |event, subject, grant_id: &str| Happening {
+        event,
+        issuer: &settings.issuer,
+        client_id: Some(&client.client_id),
+        subject,
+        from,
+        endpoint: &endpoint,
+        details: vec![("grant", grant_id.to_owned())],
+    };
     let grant = match rotation {
-        Rotation::Rotated(grant) => grant,
+        Rotation::Rotated(grant) => {
+            commit(
+                state,
+                tx,
+                &happening(
+                    Event::RefreshRotated,
+                    Some(grant.subject.as_str()),
+                    &grant.id,
+                ),
+            )
+            .await?;
+            grant
+        }
         Rotation::Reused { grant_id } => {
-            tracing::warn!(
-                target: "ferrosmart::audit",
-                event = "refresh.reused",
-                client_id = %client.client_id,
-                grant = %grant_id,
-                "a rotated refresh token was presented again; its grant is revoked"
-            );
+            commit(state, tx, &happening(Event::RefreshReused, None, &grant_id)).await?;
             return Err(invalid("the refresh token was used before"));
         }
+        // NOTE: an invalid or foreign token changes nothing, so the transaction
+        // is dropped and its request is recorded as the ITI-71 refusal alone.
         Rotation::OtherClient | Rotation::Invalid => {
             return Err(invalid("the refresh token is not valid"));
         }
@@ -113,13 +141,6 @@ pub(crate) async fn refresh(state: &AppState, form: &Params) -> Result<Issued, R
             context: &context,
         },
     )?;
-    tracing::info!(
-        target: "ferrosmart::audit",
-        event = "refresh.rotated",
-        client_id = %client.client_id,
-        grant = %grant.id,
-        "a refresh token was rotated"
-    );
     // NOTE: SMART App Launch 2.2.0, Refresh access token, Response: the launch
     // context MAY be included, and is, as the original response carried it.
     issued.response.refresh_token = Some(successor);
@@ -272,4 +293,18 @@ fn narrowed(granted: &str, requested: &str) -> Result<String, Refusal> {
         .filter(|scope| requested.contains(scope))
         .collect::<Vec<_>>()
         .join(" "))
+}
+
+/// Commits `tx` with the record of `happening`, or refuses the request as
+/// the server's failure.
+async fn commit(
+    state: &AppState,
+    tx: Transaction,
+    happening: &Happening<'_>,
+) -> Result<(), Refusal> {
+    state
+        .audit()
+        .commit_happening(tx, happening)
+        .await
+        .map_err(|error| server_error("the refresh could not be recorded", &error))
 }

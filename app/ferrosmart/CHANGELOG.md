@@ -116,6 +116,12 @@ and this project adheres to
   `refresh_token`; each login at the upstream provider is recorded as the
   session an `online_access` grant ends with, and withdrawing a remembered
   consent revokes its grants (#518).
+- `POST /backchannel-logout`, the back-channel logout URI to register at
+  the upstream provider (OpenID Connect Back-Channel Logout 1.0): a Logout
+  Token that checks ends the upstream sessions it names and revokes their
+  `online_access` grants with every token under them, leaving
+  `offline_access` grants; a token that does not check answers `400` with an
+  OAuth 2.0 error body, every answer `no-store` (#518).
 - Migration 0005: the grants, the refresh tokens stored as their SHA-256,
   the upstream sessions an `online_access` grant ends with, and the grant
   of each access token, so revocation reaches every replica at once. The
@@ -151,3 +157,18 @@ and this project adheres to
   results, which hold each test to `pass` outside a listed exception. Group
   3, Backend Services, runs; the groups whose steps have not landed are
   listed as pending in every run (#520).
+- Every other write FerroSMART makes for a person or a client commits with
+  its audit record in one transaction: a code issued, a consent remembered
+  or withdrawn, a token or a grant revoked, a refresh token rotated or
+  reused, a code reused, and an upstream session ended (DICOM Logout). Their
+  codes are in `urn:ferrosmart:audit-event`, our own design where no IHE or
+  BALP pattern exists, and a write whose record cannot be committed does
+  not happen (#554).
+
+### Fixed
+
+- The token endpoint answers a request from one of the client's registered
+  origins, the origins of its redirect URIs, with
+  `Access-Control-Allow-Origin` and `Vary: Origin`, so a browser app can
+  read its token response (SMART App Launch 2.2.0, Considerations for CORS
+  support). Every other origin gets no CORS header (#560).

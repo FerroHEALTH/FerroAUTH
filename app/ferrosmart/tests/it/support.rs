@@ -19,7 +19,8 @@ use ferrosmart::audit::Audit;
 use ferrosmart::config::Config;
 use ferrosmart::config::settings::Settings;
 use ferrosmart::store::Store;
-use ferrosmart::store::audit::AuditQuery;
+use ferrosmart::store::Transaction;
+use ferrosmart::store::audit::{AuditQuery, AuditRow};
 use http::Request;
 use secrecy::SecretString;
 use serde_json::Value;
@@ -304,3 +305,35 @@ const PARTICIPATION_TYPE: &str = "http://terminology.hl7.org/CodeSystem/v3-Parti
 const AUDIT_ENTITY_TYPE: &str = "http://terminology.hl7.org/CodeSystem/audit-entity-type";
 /// FHIR R4 `object-role`.
 const OBJECT_ROLE: &str = "http://terminology.hl7.org/CodeSystem/object-role";
+
+/// Commits `tx`, a write a case makes in place of the endpoint that would,
+/// with a record of it, as every audited write commits.
+pub(crate) async fn commit(mut tx: Transaction) {
+    tx.record(&AuditRow {
+        recorded_at: jiff::Timestamp::now().to_string(),
+        kind: "test",
+        outcome: "0",
+        subject: None,
+        client_id: None,
+        document: String::from("{\"resourceType\":\"AuditEvent\"}"),
+    })
+    .await
+    .expect("recorded");
+    tx.commit().await.expect("committed");
+}
+
+/// Returns the FerroSMART event codes of `records`, in order: each
+/// record's subtype in `urn:ferrosmart:audit-event`.
+pub(crate) fn events(records: &[Value]) -> Vec<String> {
+    records
+        .iter()
+        .filter_map(|record| record.get("subtype").and_then(Value::as_array))
+        .flat_map(|subtypes| subtypes.iter())
+        .filter(|coding| coding.get("system").and_then(Value::as_str) == Some(OWN_EVENTS))
+        .filter_map(|coding| coding.get("code").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect()
+}
+
+/// FerroSMART's own code system of audit events.
+const OWN_EVENTS: &str = "urn:ferrosmart:audit-event";

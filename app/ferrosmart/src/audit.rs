@@ -33,8 +33,9 @@ use std::time::Duration;
 use ihe_atna::atna::forwarder::{Outbox, OutboxError};
 use ihe_atna::atna::spool::{Depth, Stored};
 use ihe_atna::balp::{
-    APPLICATION, Coded, DESTINATION_ROLE, Direction, Entity, EventKind, Exchange, IHE_TRANSACTIONS,
-    LOGIN, NetworkAddress, Observer, Outcome, Peer, RecordError, SOURCE_ROLE, USER_AUTHENTICATION,
+    APPLICATION, Coded, DCM, DESTINATION_ROLE, Described, Detail, Direction, Entity, EventKind,
+    Exchange, IHE_TRANSACTIONS, LOGIN, LOGOUT, NetworkAddress, Observer, Outcome, Peer,
+    RecordError, SOURCE_ROLE, SYSTEM_OBJECT, USER_AUTHENTICATION,
 };
 use ihe_atna::user::{OnBehalfOf, User};
 use secrecy::{ExposeSecret as _, SecretSlice, SecretString};
@@ -42,7 +43,7 @@ use tokio::sync::Notify;
 use url::Url;
 
 use crate::store::audit::AuditRow;
-use crate::store::{Store, StoreError};
+use crate::store::{Store, StoreError, Transaction};
 
 /// The canonical URL of BALP 1.1.4's profile of the ITI-71 audit event.
 pub const IUA_71: &str = "https://profiles.ihe.net/ITI/BALP/StructureDefinition/IHE.IUA.71";
@@ -155,6 +156,48 @@ impl Audit {
             .map_err(RecordFailure::Store)?;
         self.committed();
         Ok(())
+    }
+
+    /// Writes the record of `exchange` in `tx` and commits both: the write
+    /// and its record are kept together or not at all.
+    ///
+    /// # Errors
+    ///
+    /// Returns the [`RecordFailure`] of a record that could not be written,
+    /// or of a commit that failed; nothing is kept then.
+    pub async fn commit(
+        &self,
+        mut tx: Transaction,
+        exchange: &Exchange,
+        kind: &'static str,
+        subject: Option<&str>,
+        client_id: Option<&str>,
+    ) -> Result<(), RecordFailure> {
+        let row = self.row(exchange, kind, subject, client_id)?;
+        tx.record(&row).await.map_err(RecordFailure::Store)?;
+        tx.commit().await.map_err(RecordFailure::Store)?;
+        self.committed();
+        Ok(())
+    }
+
+    /// Commits `tx` with the record of `happening`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Audit::commit`].
+    pub async fn commit_happening(
+        &self,
+        tx: Transaction,
+        happening: &Happening<'_>,
+    ) -> Result<(), RecordFailure> {
+        self.commit(
+            tx,
+            &happened(happening),
+            happening.event.code(),
+            happening.subject,
+            happening.client_id,
+        )
+        .await
     }
 
     /// Wakes the forwarder once a record committed.
@@ -454,5 +497,229 @@ pub fn login(provider: &Url, answer: Result<Person<'_>, &str>) -> Exchange {
         on_behalf,
         entities: Vec::new(),
         security: Vec::new(),
+    }
+}
+
+/// FerroSMART's own code system of the audit events no IHE or BALP pattern
+/// describes. No specification governs the codes: our own design
+/// (`docs/architecture.md` §13.2).
+pub const OWN_EVENTS: &str = "urn:ferrosmart:audit-event";
+
+/// DICOM `110113` Security Alert (DICOM PS3.15 A.5.3.11).
+pub const SECURITY_ALERT: Coded = Coded::fixed(DCM, "110113", "Security Alert");
+
+/// DICOM `110137` User Security Attributes Changed (DICOM PS3.15
+/// A.5.3.11, an `EventTypeCode` of Security Alert).
+pub const SECURITY_ATTRIBUTES_CHANGED: Coded =
+    Coded::fixed(DCM, "110137", "User Security Attributes Changed");
+
+/// A write FerroSMART records beside the token requests and the logins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Event {
+    /// An authorization code issued to an app.
+    CodeIssued,
+    /// A person's consent remembered for a client.
+    ConsentRemembered,
+    /// A remembered consent withdrawn, with the tokens it covered.
+    ConsentWithdrawn,
+    /// An access token revoked at `/revoke` (RFC 7009).
+    TokenRevoked,
+    /// A grant revoked at `/revoke` by its refresh token (RFC 7009 §2.1).
+    GrantRevoked,
+    /// A refresh token rotated (OAuth 2.1 draft §4.3.1).
+    RefreshRotated,
+    /// A rotated refresh token presented again, its grant revoked (RFC 9700
+    /// §4.14.2).
+    RefreshReused,
+    /// An authorization code redeemed again, the tokens it gave revoked
+    /// (OAuth 2.1 draft §4.1.3).
+    CodeReused,
+    /// An upstream session ended by a back-channel logout, with the grants
+    /// under it (OpenID Connect Back-Channel Logout 1.0 §2.7).
+    SessionEnded,
+}
+
+impl Event {
+    /// The code the store files the record under, and its own subtype in
+    /// [`OWN_EVENTS`].
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::CodeIssued => "authorization-code",
+            Self::ConsentRemembered => "consent-remembered",
+            Self::ConsentWithdrawn => "consent-withdrawn",
+            Self::TokenRevoked => "token-revoked",
+            Self::GrantRevoked => "grant-revoked",
+            Self::RefreshRotated => "refresh-rotated",
+            Self::RefreshReused => "refresh-reused",
+            Self::CodeReused => "code-reused",
+            Self::SessionEnded => "session-ended",
+        }
+    }
+
+    /// The words of the code.
+    const fn display(self) -> &'static str {
+        match self {
+            Self::CodeIssued => "Authorization code issued",
+            Self::ConsentRemembered => "Consent remembered",
+            Self::ConsentWithdrawn => "Consent withdrawn",
+            Self::TokenRevoked => "Access token revoked",
+            Self::GrantRevoked => "Grant revoked",
+            Self::RefreshRotated => "Refresh token rotated",
+            Self::RefreshReused => "Refresh token reused",
+            Self::CodeReused => "Authorization code reused",
+            Self::SessionEnded => "Upstream session ended",
+        }
+    }
+
+    /// The `type`, the subtypes and the `action` the record takes: DICOM
+    /// User Authentication with `110123` Logout for a session end (DICOM
+    /// PS3.15 A.5.3.12), and DICOM User Authentication or Security Alert
+    /// with an [`OWN_EVENTS`] subtype for the rest.
+    fn kind(self) -> (Coded, Vec<Coded>, &'static str) {
+        let own = Coded::fixed(OWN_EVENTS, self.code(), self.display());
+        match self {
+            Self::SessionEnded => (USER_AUTHENTICATION, vec![LOGOUT, own], "E"),
+            Self::CodeIssued => (USER_AUTHENTICATION, vec![own], "C"),
+            Self::RefreshRotated => (USER_AUTHENTICATION, vec![own], "E"),
+            Self::ConsentRemembered => {
+                (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "C")
+            }
+            Self::ConsentWithdrawn => (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "D"),
+            Self::TokenRevoked | Self::GrantRevoked => (SECURITY_ALERT, vec![own], "D"),
+            Self::RefreshReused | Self::CodeReused => (SECURITY_ALERT, vec![own], "E"),
+        }
+    }
+}
+
+/// One recorded write, as its record names it.
+#[derive(Debug, Clone)]
+pub struct Happening<'a> {
+    /// What happened.
+    pub event: Event,
+    /// FerroSMART's issuer, which a person's subject is FerroSMART's own
+    /// under.
+    pub issuer: &'a str,
+    /// The client it concerns, when one.
+    pub client_id: Option<&'a str>,
+    /// The person it concerns, by their pairwise subject, when one.
+    pub subject: Option<&'a str>,
+    /// The address the request came from.
+    pub from: std::net::IpAddr,
+    /// The endpoint the request came to.
+    pub endpoint: &'a Url,
+    /// What the record holds of the write, such as a grant id or a count,
+    /// never a code, a token or a secret.
+    pub details: Vec<(&'static str, String)>,
+}
+
+/// Returns the record of `happening`. Its form is our own design where the
+/// event has no IHE or BALP pattern; see [`Event`].
+#[must_use]
+pub fn happened(happening: &Happening<'_>) -> Exchange {
+    let (event_type, subtypes, action) = happening.event.kind();
+    let on_behalf = happening.subject.map_or(OnBehalfOf::System, |subject| {
+        let user = match happening.client_id {
+            Some(client_id) => User::new(
+                happening.issuer.to_owned(),
+                subject.to_owned(),
+                client_id.to_owned(),
+            ),
+            None => User::local(subject.to_owned()).with_issuer(Some(happening.issuer.to_owned())),
+        };
+        OnBehalfOf::User(user)
+    });
+    let entities = if happening.details.is_empty() {
+        Vec::new()
+    } else {
+        vec![Entity::Described(Described {
+            what: None,
+            kind: SYSTEM_OBJECT,
+            role: Some(SECURITY_RESOURCE),
+            name: Some(happening.event.code().to_owned()),
+            description: None,
+            details: happening
+                .details
+                .iter()
+                .map(|(kind, value)| Detail::new(*kind, value.as_str()))
+                .collect(),
+            security_labels: Vec::new(),
+        })]
+    };
+    Exchange {
+        kind: EventKind {
+            profile: "",
+            event_type,
+            subtypes,
+            action,
+            client: APPLICATION,
+            server: AUTHZ_OAUTH_SERVICE,
+        },
+        recorded: jiff::Timestamp::now(),
+        outcome: Outcome::Success,
+        outcome_description: None,
+        direction: Direction::Received {
+            client: Peer {
+                who: happening
+                    .client_id
+                    .unwrap_or(UNIDENTIFIED_CLIENT)
+                    .to_owned(),
+                network: NetworkAddress::Ip(happening.from),
+            },
+            endpoint: NetworkAddress::uri(happening.endpoint),
+        },
+        on_behalf,
+        entities,
+        security: Vec::new(),
+    }
+}
+
+/// The participant object role of a security resource (FHIR R4
+/// `object-role` `13`).
+pub const SECURITY_RESOURCE: Coded = Coded::fixed(
+    "http://terminology.hl7.org/CodeSystem/object-role",
+    "13",
+    "Security Resource",
+);
+
+/// The address the stack names a request's client by.
+///
+/// Every audited request has one. A request that came over no connection,
+/// which no record could name, is refused `503` before it writes anything
+/// (no specification governs the refusal: our own design).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Connected(pub std::net::IpAddr);
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for Connected {
+    type Rejection = NoConnection;
+
+    fn from_request_parts(
+        parts: &mut http::request::Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        std::future::ready(
+            parts
+                .extensions
+                .get::<ferrohealth_server::client_address::ClientAddress>()
+                .map(|address| Self(address.0))
+                .ok_or(NoConnection),
+        )
+    }
+}
+
+/// The refusal of a request that came over no connection: `503`, never
+/// stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoConnection;
+
+impl axum::response::IntoResponse for NoConnection {
+    fn into_response(self) -> axum::response::Response {
+        tracing::error!("a request came over no connection, so it cannot be recorded");
+        let mut response = http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+        response.headers_mut().insert(
+            http::header::CACHE_CONTROL,
+            http::HeaderValue::from_static("no-store"),
+        );
+        response
     }
 }

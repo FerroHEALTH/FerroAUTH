@@ -2538,8 +2538,33 @@ discovery and token shapes for the two SaaS providers.
   `since` and `until` as a FHIR `searchset` Bundle, with a bearer token
   FerroSMART issued for its own issuer with `system/AuditEvent.rs`
   (Regulation (EU) 2025/327 Art 9 has the logs accessible; the parameters
-  are our own design). Neither event is an access to personal electronic
-  health data, so neither is an access record of Annex II 3.2; the patient
+  are our own design).
+
+  The other writes FerroSMART makes for a person or a client each commit
+  with a record of their own in one transaction, through the store's
+  `Transaction`, whose commit refuses a write with no record (#554). An
+  upstream session ended by a back-channel logout is DICOM User
+  Authentication with `110123` Logout (DICOM PS3.15 A.5.3.12). The rest
+  have no IHE or BALP pattern (BALP's `IHE.BasicAudit.AuthZconsent` needs
+  a patient and the requesting organisation, which an app's authorization
+  consent does not have), so their form is our own design: DICOM `110114`
+  User Authentication or `110113` Security Alert, with a subtype from
+  FerroSMART's code system `urn:ferrosmart:audit-event`:
+
+  | Write | `type` | subtypes | `action` |
+  |---|---|---|---|
+  | a code issued | `110114` | `authorization-code` | `C` |
+  | a consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
+  | a consent withdrawn, with what it covered | `110113` | `110137`, `consent-withdrawn` | `D` |
+  | an access token revoked (RFC 7009) | `110113` | `token-revoked` | `D` |
+  | a grant revoked by its refresh token (RFC 7009 §2.1) | `110113` | `grant-revoked` | `D` |
+  | a refresh token rotated | `110114` | `refresh-rotated` | `E` |
+  | a rotated refresh token reused, its grant revoked | `110113` | `refresh-reused` | `E` |
+  | a code redeemed again, its tokens revoked | `110113` | `code-reused` | `E` |
+  | an upstream session ended | `110114` | `110123` Logout, `session-ended` | `E` |
+
+  None of these events is an access to personal electronic health data,
+  so none is an access record of Annex II 3.2; the patient
   picker (#516), which reads Patient resources, writes that record through
   `ehds-logging`.
 - **The family stack.** It is built on `ferrohealth-server`,
@@ -2573,7 +2598,8 @@ the Inferno SMART App Launch test kit at release 1.0.3
 (`docs/specs/inferno-smart-test-kit/`). Citation keys follow the document's
 convention, plus: `oauth21 §4.1.3` is section 4.1.3 of the draft, which is a
 work in progress and is cited beside RFC 6749, 6750 and 9700, never in
-their place; `oidc core §3.1.2.1` is OpenID Connect Core 1.0; `smart
+their place; `oidc core §3.1.2.1` is OpenID Connect Core 1.0; `backchannel §2.6` is
+OpenID Connect Back-Channel Logout 1.0; `smart
 app-launch`, `smart scopes-and-launch-context`, `smart backend-services`,
 `smart client-confidential-asymmetric`, `smart token-introspection` and
 `smart conformance` are the page sources under
@@ -2614,7 +2640,7 @@ publisher of a Brand Bundle, which FerroSMART is not, and the
 | `authorization_response_iss_parameter_supported` is `true` and every authorization response carries `iss` | MUST (when advertised) | `rfc9207 §2`, `§3` | 3 |
 | Each listed capability is supported: `launch-ehr`, `launch-standalone`, `authorize-post`, `client-public`, `client-confidential-symmetric`, `client-confidential-asymmetric`, `sso-openid-connect`, `context-banner`, `context-style`, `context-ehr-patient`, `context-ehr-encounter`, `context-standalone-patient`, `context-standalone-encounter`, `permission-offline`, `permission-online`, `permission-patient`, `permission-user`, `permission-v1`, `permission-v2` | SHALL (per listed capability) | `smart conformance`, Capabilities | 2 to 6 |
 | The four capability sets (patient and clinician, standalone and EHR launch) | SHOULD support one or more | `smart conformance`, Capability Sets | 3, 5 |
-| CORS on the discovery documents for any origin, and on the token endpoint for a client's registered origins | SHALL (browser apps) | `smart app-launch`, Considerations for CORS support; `rfc7009 §2.3` | 2, 3 |
+| CORS on the discovery documents for any origin, and on the token endpoint for a client's registered origins | SHALL (browser apps) | `smart app-launch`, Considerations for CORS support; `rfc7009 §2.3` | 2, 3 (13.6 item 12) |
 
 **Client registration and authentication**
 
@@ -2892,9 +2918,17 @@ specification governs.
    design.
 7. **`online_access`.** "As long as the end-user remains online" has no
    mechanism in SMART. FerroSMART ties an online refresh token to the
-   upstream login session: it ends at upstream logout (an OpenID Connect
-   back-channel or front-channel logout, or the upstream ID token's session
-   expiring) and after the configured idle time. Our own design.
+   upstream login session: it ends at upstream logout and after the
+   configured idle time (`online_idle`). The callback records each login as
+   an `upstream_session` with the provider's `sid`; a Logout Token posted to
+   `/backchannel-logout` (Back-Channel Logout 1.0 §2.6) ends the session it
+   names, or every session of its `sub` without a `sid`, and revokes the
+   `online_access` grants in them ("SHOULD be revoked", §2.7), never an
+   `offline_access` one ("SHOULD NOT"). Logging out is idempotent, so the
+   optional `jti` check of §2.6 is not made. The upstream ID Token's `exp`
+   is the token's lifetime, not the session's (`oidc core §2`), so it ends
+   nothing. Front-channel logout needs the browser and is not taken. Our
+   own design.
 8. **Introspection access.** `smart token-introspection` lets the endpoint
    take a SMART bearer token; FerroSMART takes a client authenticated as at
    the token endpoint, or a bearer token FerroSMART issued carrying the
@@ -2931,10 +2965,15 @@ specification governs.
     under it (`oauth21 §4.3.1`). The new token keeps the grant's whole
     scope (`oauth21 §4.3.3`) and lapses after `refresh_idle`
     (`offline_access`) or `online_idle` (`online_access`) unused. A
-    refresh request's `scope` may equal the grant's: SMART's "strict
-    sub-set" is read with `oauth21 §4.3.1`, which forbids only a scope
-    "not originally granted", since an absent `scope` already means the
-    same set. Our own reading. A client receives a refresh token when its
+    refresh request's `scope` may equal the grant's (owner, 2026-11-16).
+    `smart app-launch`, Refresh access token, Request, asks for "a strict
+    sub-set of the scopes granted in the original launch (no new
+    permissions can be obtained at refresh time)". `rfc6749 §6`, which
+    SMART profiles, has "The requested scope MUST NOT include any scope not
+    originally granted by the resource owner" (and `oauth21 §4.3.1` the
+    same). A request equal to the original adds no permission, which is the
+    intent SMART's parenthetical states. FerroHEALTH/FerroAUTH#550 is the
+    upstream report. A client receives a refresh token when its
     ceiling lists `offline_access` or `online_access` and it registers the
     `refresh_token` grant; only then does the consent page offer either
     (`smart app-launch`, Refresh access token: "A server can decide which
@@ -2943,6 +2982,15 @@ specification governs.
     issued under, with the launch context and the upstream session the
     person logged in under; withdrawing a remembered consent revokes the
     grants it covered with every token under them.
+12. **A client's registered origins.** `smart app-launch`, Considerations
+    for CORS support, has the token endpoint readable "for requests from a
+    client's registered origin(s)" and says nothing of how an origin is
+    registered. A client's registered origins are the origins (`rfc6454
+    §4`) of its registered redirect URIs, where a browser app receives its
+    code. A token response to a request whose `Origin` is one of them
+    carries `Access-Control-Allow-Origin` with it and `Vary: Origin`; any
+    other origin, `null` included, gets no CORS header. Our own design
+    (#560).
 
 ### 13.7 The crate layout
 
@@ -2988,6 +3036,7 @@ differently.
 | `GET /jwks` | the public signing keys, bare JWKs | `rfc7517 §5`; `smart scopes-and-launch-context` |
 | `GET`, `POST /authorize` | the authorization endpoint | `smart app-launch`; `rfc6749 §3.1` |
 | `GET /callback` | the upstream provider's redirect back | `oidc core §3.1.2.5` |
+| `POST /backchannel-logout` | the back-channel logout URI registered at the upstream provider, which ends the `online_access` grants of a login | `backchannel §2.5` to `§2.8` |
 | `GET`, `POST /consent`, `/picker` | the consent and picker pages | our own design |
 | `POST /token` | the token endpoint | `rfc6749 §3.2` |
 | `POST /introspect` | RFC 7662 | `rfc7662 §2` |
