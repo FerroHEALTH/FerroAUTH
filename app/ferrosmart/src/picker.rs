@@ -44,7 +44,8 @@ use serde_json::Value;
 use url::Url;
 
 use crate::audit::{self, Connected, Event, Happening};
-use crate::authorize::{Back, logged_in, onward, see_other};
+use crate::authorize::callback::onward;
+use crate::authorize::{Back, logged_in, see_other};
 use crate::form::Params;
 use crate::launch::context::Context;
 use crate::pages::{self, Fault};
