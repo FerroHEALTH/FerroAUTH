@@ -26,8 +26,9 @@
 #   chmod 0644 secrets/database_url secrets/signing_key.pem
 #
 # The signing key signs every access token under RS256 and is published,
-# public half only, at the `jwks_uri` of the SMART configuration. Rotation adds a next and a
-# previous key ([ferrosmart.keys] in the configuration below).
+# public half only, at the `jwks_uri` of the SMART configuration. Rotation
+# adds a next and a previous key ([ferrosmart.keys], in the configuration
+# file below).
 #
 # CONFIGURATION. The environment below sets what the quickstart needs, and
 # every key of the configuration tree is reachable the same way, as
