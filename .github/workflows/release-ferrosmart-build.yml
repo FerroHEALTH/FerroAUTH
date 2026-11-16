@@ -1,0 +1,250 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# The FerroSMART release build, as a REUSABLE workflow: the SLSA v1.2 Build
+# Level 3 lane, once per target.
+#
+# It is its own file because Build L3 requires that the secret material
+# authenticating the provenance is not accessible to the environment running
+# the user-defined build steps (https://slsa.dev/spec/v1.2/build-requirements).
+# Every step of a job shares one runner VM, so an `actions/attest-*` step in an
+# ordinary job would be in reach of the build. A reusable workflow runs on its
+# own VM and a caller cannot add steps to it, so GitHub documents moving the
+# build AND its attestation into one
+# (https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-and-reusable-workflows-to-achieve-slsa-v1-build-level-3).
+# The Fulcio certificate then names THIS workflow as the signer, which a
+# consumer can demand:
+#
+#   gh attestation verify ferrosmart-<version>-<target>.tar.gz \
+#     --repo FerroHEALTH/FerroAUTH \
+#     --signer-workflow FerroHEALTH/FerroAUTH/.github/workflows/release-ferrosmart-build.yml
+name: Release FerroSMART build (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The ferrosmart-vX.Y.Z tag being built.
+        required: true
+        type: string
+      version:
+        description: The version the tag names, which names every asset.
+        required: true
+        type: string
+      target:
+        description: The Rust target triple to build.
+        required: true
+        type: string
+      runner:
+        description: The runner label whose architecture matches the target.
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: write # attach the per-target assets to the draft release
+      id-token: write # Sigstore, for the provenance and SBOM attestations
+      attestations: write # store them against this repository
+    steps:
+      # The `github` context of a called workflow is the CALLER's, so
+      # github.sha is the commit the tag points at, and the caller's plan job
+      # has already refused a dispatch that is not at its tag
+      # (https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      # No cache: a cache an untrusted run could poison must never feed a
+      # release.
+      - uses: ./.github/actions/setup-rust
+        with:
+          target: ${{ inputs.target }}
+          cache: "false"
+
+      # musl needs its C toolchain for the link step and for aws-lc-sys. Every
+      # target builds on a runner of its own architecture, so there is no
+      # cross toolchain and no emulation.
+      - name: Install the musl toolchain
+        if: ${{ contains(inputs.target, 'musl') }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools
+
+      # cargo-auditable embeds the compressed dependency list in the binary's
+      # own `.dep-v0` section, so the shipped binary describes itself to syft
+      # and trivy even when no SBOM travelled with it
+      # (https://github.com/rust-secure-code/cargo-auditable).
+      - name: Install cargo-auditable
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: cargo-auditable@0.7.5
+
+      - name: Build the server
+        env:
+          TARGET: ${{ inputs.target }}
+        run: cargo auditable build --release --locked -p ferrosmart --target "$TARGET"
+
+      - name: Package the binary with its licence, notice and readme
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          asset="ferrosmart-${VERSION}-${TARGET}.tar.gz"
+          mkdir -p pkg
+          cp "target/${TARGET}/release/ferrosmart" pkg/ferrosmart
+          cp LICENSE NOTICE README.md pkg/
+          strip pkg/ferrosmart
+          # A flat archive: the image lane extracts the one member it needs by
+          # name, and an operator drops the binary where they want it.
+          tar -C pkg -czf "$asset" ferrosmart LICENSE NOTICE README.md
+          # A plain checksum beside the tarball, for an operator with neither
+          # `gh` nor a path to Sigstore. It detects a corrupt download and is
+          # no signature; only the Sigstore bundle says who built it.
+          sha256sum "$asset" > "${asset}.sha256sum"
+          cat "${asset}.sha256sum"
+          {
+            echo "ASSET=$asset"
+            echo "CHECKSUM=${asset}.sha256sum"
+          } >> "$GITHUB_ENV"
+
+      # Two SBOMs: CycloneDX from the source graph records the direct and
+      # transitive edges, and the syft document below reads what the shipped
+      # binary carries.
+      - name: Install cargo-cyclonedx
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: cargo-cyclonedx@0.5.9
+      - name: Generate the dependency SBOM
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          # `--describe binaries` makes the document describe the one binary
+          # and its graph. `--spec-version 1.5` is the highest cargo-cyclonedx
+          # emits; its default is 1.3.
+          cargo cyclonedx \
+            --manifest-path app/ferrosmart/Cargo.toml \
+            --format json --describe binaries --spec-version 1.5
+          # One document beside the manifest is the invariant: the crate
+          # declares one [[bin]], so a second file would make the upload a
+          # guess.
+          sbom="ferrosmart-${VERSION}-${TARGET}.cdx.json"
+          matches="$(find app/ferrosmart -maxdepth 1 -name '*.cdx.json' | sort)"
+          count="$(printf '%s' "$matches" | grep -c . || true)"
+          if [ "$count" != "1" ]; then
+            echo "::error::expected one .cdx.json beside app/ferrosmart/Cargo.toml, found ${count}" >&2
+            exit 1
+          fi
+          mv "$matches" "$sbom"
+          echo "SBOM=$sbom" >> "$GITHUB_ENV"
+
+      - name: Install syft
+        uses: taiki-e/install-action@682ce6c3c696a4cd5168a05f98e51aa02b877941 # v2.89.1
+        with:
+          tool: syft@1.51.1
+      - name: Generate the build SBOM from the shipped binary
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          build_sbom="ferrosmart-${VERSION}-${TARGET}.spdx.json"
+          syft scan "file:pkg/ferrosmart" -o "spdx-json=${build_sbom}"
+          # A `pkg:cargo/` purl comes only from syft's rust-audit cataloger,
+          # which reads the `.dep-v0` section cargo-auditable wrote. None means
+          # the build lost `cargo auditable`, and the release fails.
+          if ! jq -e '[.packages[].externalRefs[]? | select(.referenceLocator | startswith("pkg:cargo/"))] | length > 0' "$build_sbom" > /dev/null; then
+            echo "::error::${build_sbom} carries no pkg:cargo purl; was the binary built with cargo auditable?" >&2
+            exit 1
+          fi
+          echo "BUILD_SBOM=$build_sbom" >> "$GITHUB_ENV"
+
+      - name: Attest the build provenance
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ env.ASSET }}
+      - name: Attest the dependency SBOM
+        id: sbom-attestation
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: ${{ env.ASSET }}
+          sbom-path: ${{ env.SBOM }}
+      - name: Attest the build SBOM
+        id: build-sbom-attestation
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: ${{ env.ASSET }}
+          sbom-path: ${{ env.BUILD_SBOM }}
+
+      # The attestations live in GitHub's attestations API, which `gh
+      # attestation verify` reads. As release assets they also verify offline,
+      # and OpenSSF Scorecard's signed-releases check reads the `.sigstore.json`
+      # and `.intoto.jsonl` suffixes
+      # (https://github.com/ossf/scorecard/blob/main/docs/checks.md#signed-releases).
+      - name: Publish the attestations as release assets
+        env:
+          ASSET_NAME: ${{ env.ASSET }}
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom-attestation.outputs.bundle-path }}
+          BUILD_SBOM_BUNDLE: ${{ steps.build-sbom-attestation.outputs.bundle-path }}
+        run: |
+          set -euo pipefail
+          cp "$PROVENANCE_BUNDLE" "${ASSET_NAME}.sigstore.json"
+          cp "$SBOM_BUNDLE" "${ASSET_NAME}.sbom.sigstore.json"
+          cp "$BUILD_SBOM_BUNDLE" "${ASSET_NAME}.build-sbom.sigstore.json"
+          # The bundle's DSSE-wrapped in-toto statement, one envelope per line.
+          jq -c '.dsseEnvelope' "$PROVENANCE_BUNDLE" > "${ASSET_NAME}.intoto.jsonl"
+          payload_type="$(jq -r '.payloadType' "${ASSET_NAME}.intoto.jsonl")"
+          if [ "$payload_type" != "application/vnd.in-toto+json" ]; then
+            echo "::error::the provenance envelope is not in-toto (payloadType=${payload_type})" >&2
+            exit 1
+          fi
+          predicate="$(jq -r '.payload' "${ASSET_NAME}.intoto.jsonl" | base64 -d | jq -r '.predicateType')"
+          if [ "$predicate" != "https://slsa.dev/provenance/v1" ]; then
+            echo "::error::the provenance predicate is not SLSA v1 (${predicate})" >&2
+            exit 1
+          fi
+          echo "provenance: ${predicate}"
+
+      # The image lane takes the musl tarballs from this run's artifacts, bound
+      # to this run, and verifies each against this workflow's signer identity
+      # before it extracts the binary.
+      - name: Hand the tarball to the image lane
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ferrosmart-${{ inputs.version }}-${{ inputs.target }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+          retention-days: 1
+
+      # The release stays a DRAFT here: the caller's finalize job publishes it
+      # once every target attached its assets, since a published release is
+      # immutable.
+      - name: Attach every asset to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+          ASSET_NAME: ${{ env.ASSET }}
+          CHECKSUM_NAME: ${{ env.CHECKSUM }}
+          SBOM_NAME: ${{ env.SBOM }}
+          BUILD_SBOM_NAME: ${{ env.BUILD_SBOM }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "$ASSET_NAME" \
+            "$CHECKSUM_NAME" \
+            "$SBOM_NAME" \
+            "$BUILD_SBOM_NAME" \
+            "${ASSET_NAME}.sigstore.json" \
+            "${ASSET_NAME}.sbom.sigstore.json" \
+            "${ASSET_NAME}.build-sbom.sigstore.json" \
+            "${ASSET_NAME}.intoto.jsonl"

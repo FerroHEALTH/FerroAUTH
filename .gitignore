@@ -21,3 +21,6 @@
 # The release notes scripts/release/plan.sh checks writes by default; the
 # release workflow publishes them, and they are never committed.
 /release-notes.md
+
+# The binaries the release lane stages for the image build.
+/dist/

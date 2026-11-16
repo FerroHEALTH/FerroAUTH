@@ -1,0 +1,120 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# The FerroSMART image gate and the tag application, as a reusable workflow
+# release-ferrosmart.yml calls once the image is pushed and the vulnerability
+# record has passed.
+#
+# The order is the point: release-ferrosmart-image.yml pushes by digest and
+# applies no tag, this workflow scans that digest, and only a passing scan
+# makes it referencable, so a HIGH or CRITICAL finding with a fix never
+# becomes a tag. No specification governs this: our own design
+# (docs/release.md), the scan-before-tag gate FerroEHR and FerroBRIDGE run.
+#
+# The gate reads trivy.yaml (HIGH and CRITICAL, fixed findings only,
+# .trivyignore.yaml). VEX is not passed here: Trivy matches a `pkg:oci/<image>`
+# product only against a published reference, and the digest carries no tag
+# yet. The release record (release-ferrosmart.yml `vulnerability-record`)
+# judges every finding against the VEX documents before this runs.
+name: Release FerroSMART scan and tag (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      digest:
+        description: The ferrosmart image's pushed index digest.
+        required: true
+        type: string
+      tags:
+        description: The newline-separated tag list to apply to the digest.
+        required: true
+        type: string
+
+permissions: {}
+
+env:
+  # The one Trivy version of the release lane, pinned in docs/VERSIONS.md.
+  TRIVY_VERSION: "0.73.0"
+  IMAGE: ghcr.io/ferrohealth/ferrosmart
+
+jobs:
+  image-scan:
+    name: image vulnerability scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read # pull the digest the caller pushed
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      # No cache: this job decides whether a published artifact is safe.
+      - name: Install Trivy from its GitHub release, checked by sha256
+        run: bash scripts/release/install-trivy.sh "$TRIVY_VERSION" "$RUNNER_TEMP/trivy-bin"
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      # The index holds two platforms and trivy reads one per invocation.
+      - name: Scan the image on both platforms
+        env:
+          DIGEST: ${{ inputs.digest }}
+        run: |
+          set -euo pipefail
+          case "$DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::no pushed digest for ferrosmart" >&2; exit 1 ;;
+          esac
+          fail=0
+          for platform in linux/amd64 linux/arm64; do
+            echo "::group::ferrosmart ${platform} (${DIGEST})"
+            if ! trivy image --config trivy.yaml --scanners vuln --exit-code 1 \
+              --platform "$platform" "${IMAGE}@${DIGEST}"; then
+              echo "::error::ferrosmart ${platform} carries a fixable HIGH or CRITICAL finding" >&2
+              fail=1
+            fi
+            echo "::endgroup::"
+          done
+          exit "$fail"
+
+  # `imagetools create` over a single source re-tags the SAME digest, so the
+  # attestations bound to it stay valid.
+  apply-tags:
+    name: apply image tags (after the scan gate)
+    needs: image-scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # the attestations API, to verify the tagged image
+      packages: write # tag the digest the caller pushed
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Tag the image and verify each tag as a consumer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ inputs.digest }}
+          TAGS: ${{ inputs.tags }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r t; do [ -n "$t" ] && args+=(-t "$t"); done <<< "$TAGS"
+          [ "${#args[@]}" -gt 0 ] || { echo "::error::no tags for ${IMAGE}" >&2; exit 1; }
+          docker buildx imagetools create "${args[@]}" "${IMAGE}@${DIGEST}"
+          while IFS= read -r t; do
+            [ -n "$t" ] || continue
+            gh attestation verify "oci://${t}" --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-ferrosmart-image.yml"
+            echo "tagged ${t} -> ${DIGEST}" >> "$GITHUB_STEP_SUMMARY"
+          done <<< "$TAGS"

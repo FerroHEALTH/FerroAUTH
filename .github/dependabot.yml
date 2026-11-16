@@ -69,3 +69,21 @@ updates:
         update-types: ["minor", "patch"]
     commit-message:
       prefix: "deps"
+
+  - package-ecosystem: "docker"
+    # The FerroSMART image's distroless base, pinned by index digest in
+    # docker/ferrosmart/Dockerfile and in its docs/VERSIONS.md row, which
+    # scripts/checks/versions.sh holds equal, so a bump moves the row too.
+    # compose.yaml is not this ecosystem's subject: its FerroSMART tag is the
+    # server's version, which the release plan guards, and its PostgreSQL pin
+    # is the row the store cases share.
+    directory: "/docker/ferrosmart"
+    labels:
+      - "dependencies"
+    schedule:
+      interval: "weekly"
+    # A bump is a change of digest, so only the default cooldown applies.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "build"
