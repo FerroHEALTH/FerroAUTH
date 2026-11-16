@@ -24,17 +24,22 @@ path = "src/main.rs"
 
 [dependencies]
 axum = { workspace = true, features = ["tokio", "http1", "json"] }
+# The audit outbox the ihe-atna forwarder delivers from.
+async-trait.workspace = true
 clap.workspace = true
 # The configuration loader, the duration type and the `_file` secrets the
 # family shares.
 ferrohealth-config.workspace = true
+# The BALP AuditEvent of each login and each token, stored in a spool and
+# sent over the ITI-20 ATX: FHIR Feed (docs/architecture.md 13.2).
+ihe-atna = { workspace = true, features = ["balp", "smart"] }
 ferrohealth-health = { workspace = true, features = ["registry"] }
 ferrohealth-secret.workspace = true
 # The run path, the subcommands, the stack, the health routes and the drain.
 ferrohealth-server.workspace = true
 # The signing key ring with its rotation and JWK Set, and the SMART
 # discovery document builder the resource servers use too (13.7).
-ferrohealth-smart = { workspace = true, features = ["fetch", "oidc"] }
+ferrohealth-smart = { workspace = true, features = ["fetch", "oidc", "server-tls"] }
 ferrohealth-telemetry.workspace = true
 http.workspace = true
 # The consent page, the picker and the error pages, drawn on the server with

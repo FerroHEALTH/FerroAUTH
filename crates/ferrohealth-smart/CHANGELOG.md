@@ -19,6 +19,15 @@ and this project adheres to
   `{"<role>": {"<orgId>": "<orgDomain>"}}` (its `retrieve-user-roles.mdx` at
   v4.20.3, vendored under `docs/specs/zitadel/`). Before, such a value
   carried no role. Name the claim in the issuer's `role_claims` (#523).
+- `oidc::RelyingParty::logout_token` checks the Logout Token of OpenID
+  Connect Back-Channel Logout 1.0 as §2.6 has a relying party check it: the
+  provider's signature under an algorithm accepted for ID Tokens, `iss`,
+  `aud` (this client alone), `iat` and `exp`, `sub` or `sid` or both, the
+  back-channel logout event, and no `nonce`. It returns
+  `oidc::logout::LogoutClaims` (issuer, subject, session, `jti`, `iat`,
+  `exp`); the new `OidcError::LogoutToken` and `OidcError::LogoutClaims`
+  name a failed check. The specification is vendored under
+  `docs/specs/openid-connect-backchannel/` (#518).
 
 ## [0.28.0] - 2026-11-16
 

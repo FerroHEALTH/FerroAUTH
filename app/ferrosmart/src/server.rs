@@ -25,6 +25,7 @@ use ferrohealth_server::stack::{Stack, StackPolicy};
 use http::{HeaderValue, StatusCode, header};
 use serde_json::Value;
 
+use crate::audit::Audit;
 use crate::authorize::{self, AUTHORIZE_ROUTE, CALLBACK_ROUTE, CONSENT_ROUTE, MANAGE_ROUTE};
 use crate::client_keys::ClientKeySets;
 use crate::config::settings::Settings;
@@ -59,12 +60,15 @@ pub struct AppState {
     client_keys: ClientKeySets,
     /// The relying party of the upstream login, when people log in.
     relying_party: Option<RelyingParty>,
+    /// The audit lane every login and token is recorded in.
+    audit: Audit,
 }
 
 impl AppState {
-    /// Returns the state of the server `settings` describe over `store`.
+    /// Returns the state of the server `settings` describe over `store`,
+    /// recording in `audit`.
     #[must_use]
-    pub fn new(settings: Settings, store: Store) -> Self {
+    pub fn new(settings: Settings, store: Store, audit: Audit) -> Self {
         let metadata = discovery::metadata(&settings, false);
         let smart = discovery::smart_configuration(&metadata, false);
         Self {
@@ -76,6 +80,7 @@ impl AppState {
             store,
             client_keys: ClientKeySets::new(reqwest::Client::new()),
             relying_party: None,
+            audit,
         }
     }
 
@@ -101,6 +106,12 @@ impl AppState {
     #[must_use]
     pub const fn client_keys(&self) -> &ClientKeySets {
         &self.client_keys
+    }
+
+    /// Returns the audit lane.
+    #[must_use]
+    pub const fn audit(&self) -> &Audit {
+        &self.audit
     }
 
     /// Returns the store.
@@ -131,6 +142,11 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(SMART_CONFIGURATION_ROUTE, get(smart_configuration))
         .route(JWKS_ROUTE, get(jwks))
         .route(TOKEN_ROUTE, post(crate::token::token))
+        .route(crate::launch::LAUNCH_ROUTE, post(crate::launch::launch))
+        .route(
+            crate::audit_log::AUDIT_ROUTE,
+            get(crate::audit_log::audit_log),
+        )
         .route(INTROSPECT_ROUTE, post(crate::introspect::introspect))
         .route(REVOKE_ROUTE, post(crate::revoke::revoke))
         .route(OPENID_CONFIGURATION_ROUTE, get(openid_configuration))

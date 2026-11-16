@@ -1,0 +1,38 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# FerroEHR as the Inferno lane's resource server (#520): the CDR serves the
+# SMART document at its REST root, built from FerroSMART's metadata, and
+# trusts FerroSMART's tokens. The lane passes the database URL and the CA
+# file through the FERROEHR__ environment.
+
+[deployment]
+profile = "sandbox"
+
+[server]
+listen = "127.0.0.1:9443"
+
+[record]
+subject_index = "local"
+
+# An example provider id under the OID arc 2.999, which ITU-T X.660 reserves
+# for examples.
+[authz.party_binding]
+provider = { issuer = "urn:oid:2.999.7.9", id = "inferno-lane" }
+
+[auth]
+enabled = true
+
+[[auth.issuer]]
+issuer = "https://smart.localhost:8443"
+kind = "machines"
+audience = ["https://ehr.localhost:9443/ferroehr/rest"]
+
+[auth.smart]
+discovery = true
+public_base_url = "https://ehr.localhost:9443"
+
+# SMART App Launch 2.2.0, Considerations for CORS support: the discovery
+# endpoints answer any origin; the lane's one origin is Inferno's.
+[api.cors]
+allow_origins = ["http://localhost:4567"]

@@ -13,14 +13,15 @@ use http_body_util::BodyExt as _;
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 
-use crate::support::{Keys, config, rsa_key};
+use crate::support::{Keys, audit, config, rsa_key};
 
 /// Answers `GET path` on the server `text` configures over `keys`, with the
 /// status, the headers and the JSON body.
 async fn get(text: &str, keys: &Keys, path: &str) -> (StatusCode, http::HeaderMap, Value) {
     let settings = config(text, keys).resolve().expect("resolves");
     let store = Store::connect_lazy(&settings.database_url, 1).expect("the URL parses");
-    let app = router(Arc::new(AppState::new(settings, store)));
+    let audit = audit(&settings);
+    let app = router(Arc::new(AppState::new(settings, store, audit)));
     let request = Request::get(path)
         .header(header::ACCEPT, "text/html")
         .body(Body::empty())

@@ -24,7 +24,7 @@ use tower::ServiceExt as _;
 use url::Url;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers};
 
-use crate::support::{Database, Keys, RESOURCE, config};
+use crate::support::{Database, Keys, RESOURCE, audit, config, from_client, iua_71, records};
 
 /// FerroSMART's issuer in every case.
 const ISSUER: &str = "https://smart.example.org";
@@ -168,7 +168,8 @@ impl Smart {
             .relying_party(callback)
             .await
             .expect("the provider is discovered");
-        let state = AppState::new(settings, store.clone()).with_login(party);
+        let audit = audit(&settings);
+        let state = AppState::new(settings, store.clone(), audit).with_login(party);
         Self {
             app: router(Arc::new(state)),
             provider,
@@ -180,7 +181,12 @@ impl Smart {
 
     /// Sends `request` and returns the status, the headers and the body.
     async fn send(&self, request: Request<Body>) -> (StatusCode, http::HeaderMap, String) {
-        let response = self.app.clone().oneshot(request).await.expect("an answer");
+        let response = self
+            .app
+            .clone()
+            .oneshot(from_client(request))
+            .await
+            .expect("an answer");
         let status = response.status();
         let headers = response.headers().clone();
         let bytes = response
@@ -294,6 +300,45 @@ fn set_cookie(headers: &http::HeaderMap) -> String {
         .and_then(|pair| pair.split_once('='))
         .map(|(_, value)| value.to_owned())
         .expect("a value")
+}
+
+/// Checks that the store of `smart` holds the login and the token of the
+/// person `claims` names, under their pairwise subject.
+async fn login_and_token_recorded(smart: &Smart, claims: &Value, access: &Value) {
+    // NOTE: DICOM PS3.15 A.5.3.12 and IHE IUA ITI TF-2 3.71.5.1, the login and
+    // the token, each recorded for the person under their pairwise subject.
+    let stored = records(&smart.store).await;
+    let of = |code: &str| {
+        stored
+            .iter()
+            .find(|record| record.pointer("/subtype/0/code") == Some(&json!(code)))
+            .map(Value::to_string)
+    };
+    let subject = claims.get("sub").and_then(Value::as_str).expect("a sub");
+    let login = of("110122").expect("the login is recorded");
+    assert!(
+        login.contains("\"outcome\":\"0\""),
+        "a login that held: {login}"
+    );
+    assert!(login.contains(subject), "the pairwise subject: {login}");
+    assert!(
+        !login.contains("synthetic-person"),
+        "no upstream sub: {login}"
+    );
+    let token_record = stored
+        .iter()
+        .find(|record| record.pointer("/subtype/0/code") == Some(&json!("ITI-71")))
+        .expect("the token is recorded");
+    // NOTE: BALP 1.1.4 IHE.IUA.71, with the person as agent:user.
+    let verdict = iua_71(token_record);
+    assert!(
+        verdict.is_ok(),
+        "the token record breaks IHE.IUA.71: {verdict:?}"
+    );
+    let issued = of("ITI-71").expect("the token is recorded");
+    let jti = access.get("jti").and_then(Value::as_str).expect("a jti");
+    assert!(issued.contains(jti), "the token's jti: {issued}");
+    assert!(issued.contains(subject), "the person: {issued}");
 }
 
 /// Runs the flow to the consent page and returns the cookie and the form
@@ -446,6 +491,8 @@ async fn a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens() {
         "no offline_access or online_access, no refresh token"
     );
 
+    login_and_token_recorded(&smart, &claims, &access).await;
+
     // NOTE: OAuth 2.1 draft §4.1.3, a second use is refused and revokes.
     let (status, _, body) = smart.post("/token", &exchange, None).await;
     assert_eq!(StatusCode::BAD_REQUEST, status);
@@ -529,7 +576,11 @@ async fn a_request_that_breaks_the_profile_is_sent_back_with_its_error() {
             &[("response_type", "token")][..],
             "unsupported_response_type",
         ),
-        (&[("launch", "synthetic-launch")][..], "invalid_request"),
+        (
+            &[("launch", "synthetic-launch"), ("scope", "openid launch")][..],
+            "invalid_request",
+        ),
+        (&[("launch", "synthetic-launch")][..], "invalid_scope"),
         (&[("scope", "")][..], "invalid_scope"),
     ] {
         let (status, headers, _) = smart.get(&authorize_path(overrides), None).await;
@@ -543,6 +594,32 @@ async fn a_request_that_breaks_the_profile_is_sent_back_with_its_error() {
         );
         assert_eq!(Some(String::from(ISSUER)), param(&back, "iss"));
     }
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_login_declined_at_the_provider_is_recorded_and_sent_back() {
+    let smart = Smart::start().await;
+    let (_, headers, _) = smart.get(&authorize_path(&[]), None).await;
+    let cookie = set_cookie(&headers);
+    let upstream = location(&headers);
+    let callback = format!(
+        "/callback?error=access_denied&state={}",
+        param(&upstream, "state").expect("a state")
+    );
+    let (status, headers, _) = smart.get(&callback, Some(&cookie)).await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    assert_eq!(
+        Some(String::from("access_denied")),
+        param(&location(&headers), "error")
+    );
+    let stored = records(&smart.store).await;
+    assert_eq!(1, stored.len(), "{stored:?}");
+    let login = stored.first().expect("the login");
+    // NOTE: DICOM PS3.15 A.5.3.12, a failed User Authentication is recorded too.
+    assert_eq!(json!("110114"), login["type"]["code"]);
+    assert_eq!(json!("110122"), login["subtype"][0]["code"]);
+    assert_eq!(json!("4"), login["outcome"]);
     smart.stop().await;
 }
 
@@ -686,20 +763,27 @@ fn the_consent_page_offers_what_the_ceiling_and_the_roles_allow() {
     let requested = "openid fhirUser user/Observation.rs user/Patient.rs system/Patient.rs offline_access user/Observation.rs";
     assert_eq!(
         vec!["openid", "fhirUser", "user/Observation.rs"],
-        offer(requested, &client, &held, &roles, true)
+        offer(requested, &client, &held, &roles, true, None)
     );
     assert_eq!(
         vec!["openid", "user/Observation.rs"],
-        offer(requested, &client, &held, &roles, false),
+        offer(requested, &client, &held, &roles, false, None),
         "no fhirUser to give"
     );
     assert_eq!(
         vec!["user/Observation.rs"],
-        offer("fhirUser user/Observation.rs", &client, &held, &roles, true),
+        offer(
+            "fhirUser user/Observation.rs",
+            &client,
+            &held,
+            &roles,
+            true,
+            None
+        ),
         "fhirUser rides on openid"
     );
     assert!(
-        offer(requested, &client, &[], &roles, true)
+        offer(requested, &client, &[], &roles, true, None)
             .iter()
             .all(|scope| !scope.starts_with("user/")),
         "no role, no user scope"
@@ -969,7 +1053,8 @@ fn offline_and_online_access_are_offered_to_a_client_that_refreshes() {
             &client,
             &[],
             &roles,
-            false
+            false,
+            None,
         )
     );
 }

@@ -112,8 +112,7 @@ pub(crate) async fn refresh(state: &AppState, form: &Params) -> Result<Issued, R
             under: Some(&grant.id),
             context: &context,
         },
-    )
-    .await?;
+    )?;
     tracing::info!(
         target: "ferrosmart::audit",
         event = "refresh.rotated",
@@ -160,6 +159,25 @@ pub(crate) async fn open(
             String::from("smart_style_url"),
             Value::String(settings.branding.smart_style_url.clone()),
         );
+    }
+    // NOTE: SMART App Launch 2.2.0, Launch context arrives with your access_token:
+    // an EHR launch's context joins the response (docs/architecture.md §13.6 item 3).
+    if let Some(launch) = &code.launch_context {
+        match serde_json::to_value(launch) {
+            Ok(Value::Object(members)) => context.extend(members),
+            Ok(_) => {
+                return Err(Refusal {
+                    error: "server_error",
+                    description: "the launch context is no JSON object",
+                });
+            }
+            Err(error) => {
+                return Err(server_error(
+                    "the launch context could not be written",
+                    &error,
+                ));
+            }
+        }
     }
     let refreshes = client.grant_types.contains(&GrantType::RefreshToken);
     let access = if !refreshes {

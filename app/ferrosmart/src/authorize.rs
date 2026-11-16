@@ -22,8 +22,11 @@ use ferrohealth_smart::oidc::{Callback, PendingSignIn};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use url::Url;
 
+use crate::audit;
 use crate::clients::{Client, GrantType};
 use crate::form::Params;
+use crate::launch::Unresolved;
+use crate::launch::context::Context;
 use crate::pages::{self, Fault};
 use crate::server::AppState;
 use crate::store::{Code, Login, Pending, Purpose, StoreError};
@@ -180,15 +183,26 @@ async fn begin(
         .ok_or(Stop::Deny(Denial::request(
             "the aud is not a server this issuer serves",
         )))?;
-    if params.get("launch").is_some() {
-        return Err(Stop::Deny(Denial::request(
-            "an EHR launch is not supported",
-        )));
-    }
     let scope = params.get("scope").ok_or(Stop::Deny(Denial {
         error: "invalid_scope",
         description: "the request names no scope",
     }))?;
+    let launch_context = match params.get("launch") {
+        Some(launch) => {
+            match crate::launch::redeem(state, &client.client_id, launch, audience, scope).await {
+                Ok(context) => Some(context),
+                Err(Unresolved::NoLaunchScope) => {
+                    return Err(Stop::Deny(Denial {
+                        error: "invalid_scope",
+                        description: "a launch needs the launch scope",
+                    }));
+                }
+                Err(Unresolved::Refused(rule)) => return Err(Stop::Deny(Denial::request(rule))),
+                Err(Unresolved::Store(error)) => return Err(fail(error)),
+            }
+        }
+        None => None,
+    };
     let party = state
         .relying_party()
         .ok_or(Stop::Deny(Denial::request("no login is configured")))?;
@@ -214,6 +228,7 @@ async fn begin(
         auth_time: None,
         expires_at: now().saturating_add(REQUEST_SECONDS),
         purpose: Purpose::Authorize,
+        launch_context,
         upstream_session: None,
     };
     state
@@ -262,13 +277,20 @@ pub async fn callback(
     );
     let signed_in = match party.exchange(&sign_in, &answer).await {
         Ok(signed_in) => signed_in,
-        Err(error) if pending.purpose == Purpose::Manage => {
-            forget(&state, &pending).await;
-            tracing::warn!(error = %ferrohealth_server::run::chain(&error), "the upstream login failed");
-            return pages::fault(&state, Fault::Lapsed);
-        }
         Err(error) => {
             forget(&state, &pending).await;
+            tracing::warn!(error = %ferrohealth_server::run::chain(&error), "the upstream login failed");
+            let reason = if answer.error.is_some() {
+                "the person declined at the provider"
+            } else {
+                "the login could not be completed"
+            };
+            if let Err(response) = record_login(&state, Err(reason)).await {
+                return *response;
+            }
+            if pending.purpose == Purpose::Manage {
+                return pages::fault(&state, Fault::Lapsed);
+            }
             // NOTE: RFC 6749 §4.1.2.1, a person who declined at the provider is
             // access_denied; any other failure is the server's.
             if answer.error.is_some() {
@@ -277,7 +299,6 @@ pub async fn callback(
                     description: "the login was declined",
                 });
             }
-            tracing::warn!(error = %ferrohealth_server::run::chain(&error), "the upstream login failed");
             return back.deny(Denial {
                 error: "server_error",
                 description: "the login could not be completed",
@@ -321,14 +342,15 @@ async fn proceed(
         auth_time: now(),
         upstream_session,
     };
-    tracing::info!(
-        target: "ferrosmart::audit",
-        event = "login",
-        subject = %login.subject,
-        client_id = ?pending.client_id,
-        manage = pending.purpose == Purpose::Manage,
-        "a person logged in at the upstream provider"
-    );
+    let person = audit::Person {
+        issuer: &state.settings().issuer,
+        subject: &login.subject,
+        name: login.display_name.as_deref(),
+        client_id: pending.client_id.as_deref(),
+    };
+    if let Err(response) = record_login(state, Ok(person)).await {
+        return *response;
+    }
     if pending.purpose == Purpose::Manage {
         if let Err(error) = state.store().logged_in(&pending.id, &login).await {
             return pages::server_error(state, &error);
@@ -345,6 +367,7 @@ async fn proceed(
         &held,
         &state.settings().roles,
         login.fhir_user.is_some(),
+        pending.launch_context.as_ref(),
     );
     if offered.is_empty() {
         forget(state, pending).await;
@@ -435,10 +458,14 @@ fn read_callback(query: &str) -> Result<Callback, crate::form::Repeated> {
 /// provider carries the person's `fhirUser`, without which "it cannot
 /// support the `fhirUser` scope", SMART App Launch 2.2.0, Scopes for
 /// requesting identity data), and each `user/` scope the client may ask
-/// for and one of the person's roles grants (13.6 item 5). Scopes that need
-/// a patient in context, a refresh token or an EHR launch join with the
-/// steps that bring them (#516, #517, #518). Matching a scope as written
-/// is our own design.
+/// for and one of the person's roles grants (13.6 item 5). An EHR launch's
+/// `context` adds `launch`, the `launch/patient` and `launch/encounter`
+/// hints its context answers, and the `patient/` scopes the ceiling and a
+/// role allow once the launch put a patient in context (SMART App Launch
+/// 2.2.0, Scopes and Launch Context, Apps that launch from the EHR). Scopes
+/// that need a standalone patient or a refresh token join with the steps
+/// that bring them (#516, #518). Matching a scope as written is our own
+/// design.
 #[must_use]
 pub fn offer(
     requested: &str,
@@ -446,7 +473,10 @@ pub fn offer(
     held: &[String],
     roles: &std::collections::BTreeMap<String, Vec<String>>,
     has_fhir_user: bool,
+    context: Option<&Context>,
 ) -> Vec<String> {
+    let patient = context.is_some_and(|context| context.patient.is_some());
+    let encounter = context.is_some_and(|context| context.encounter.is_some());
     let ceiling = |scope: &str| client.scopes.iter().any(|allowed| allowed == scope);
     let granted_by_role = |scope: &str| {
         held.iter()
@@ -459,6 +489,12 @@ pub fn offer(
             "openid" => ceiling(scope),
             "fhirUser" => ceiling(scope) && has_fhir_user,
             user if user.starts_with("user/") => ceiling(user) && granted_by_role(user),
+            "launch" => ceiling(scope) && context.is_some(),
+            "launch/patient" => ceiling(scope) && patient,
+            "launch/encounter" => ceiling(scope) && encounter,
+            single if single.starts_with("patient/") => {
+                patient && ceiling(single) && granted_by_role(single)
+            }
             // NOTE: SMART App Launch 2.2.0, Refresh access token, the server decides
             // which clients get a refresh token: those whose ceiling and grants name it.
             "offline_access" | "online_access" => {
@@ -550,6 +586,15 @@ async fn approve(
     if !granted.contains(&"openid") {
         granted.retain(|scope| *scope != "fhirUser");
     }
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, the context comes
+    // under `launch`, and a granted `patient/` scope needs its patient.
+    let launch_context = pending
+        .launch_context
+        .as_ref()
+        .filter(|_| granted.contains(&"launch"));
+    if launch_context.is_none() {
+        granted.retain(|scope| !scope.starts_with("patient/") && !scope.starts_with("launch/"));
+    }
     if granted.is_empty() {
         return back.deny(Denial {
             error: "access_denied",
@@ -579,6 +624,7 @@ async fn approve(
         nonce: pending.nonce.clone(),
         auth_time,
         expires_at: now().saturating_add(CODE_SECONDS),
+        launch_context: launch_context.cloned(),
         upstream_session: pending.upstream_session.clone(),
     };
     if let Err(error) = state.store().issue_code(&hash, &grant).await {
@@ -604,6 +650,37 @@ async fn approve(
         "an authorization code was issued"
     );
     back.grant(&code)
+}
+
+/// Records the login `answer` at the upstream provider, or returns the page
+/// of a login that could not be recorded: a login whose record is not
+/// stored does not go on (no specification governs this: our own design).
+async fn record_login(
+    state: &AppState,
+    answer: Result<audit::Person<'_>, &str>,
+) -> Result<(), Box<Response>> {
+    let Some(upstream) = &state.settings().upstream else {
+        return Err(Box::new(pages::fault(state, Fault::BadRequest)));
+    };
+    let provider = Url::parse(&upstream.issuer)
+        .map_err(|error| Box::new(pages::server_error(state, &error)))?;
+    let (subject, client_id) = answer.ok().map_or((None, None), |person| {
+        (Some(person.subject), person.client_id)
+    });
+    let recorded = state
+        .audit()
+        .row(
+            &audit::login(&provider, answer),
+            "login",
+            subject,
+            client_id,
+        )
+        .map_err(|error| Box::new(pages::server_error(state, &error)))?;
+    state
+        .audit()
+        .record(state.store(), &recorded)
+        .await
+        .map_err(|error| Box::new(pages::server_error(state, &error)))
 }
 
 /// Returns the request a store lookup `looked` found, or the page that says
@@ -811,6 +888,7 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
         auth_time: None,
         expires_at: now().saturating_add(REQUEST_SECONDS),
         purpose: Purpose::Manage,
+        launch_context: None,
         upstream_session: None,
     };
     if let Err(error) = state.store().begin_authorization(&pending).await {

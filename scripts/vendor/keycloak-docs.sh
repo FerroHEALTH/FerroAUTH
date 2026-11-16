@@ -12,7 +12,9 @@
 # guide's container chapter the live Keycloak case starts the image by, and
 # the two sources that name the audience mapper's provider id and config
 # keys, and the user profile chapter with the default configuration it
-# describes (#239), with the repository's LICENSE.txt,
+# describes (#239), the user attribute and realm role mappers and the realm
+# import chapter of FerroSMART's Keycloak example (#522), with the
+# repository's LICENSE.txt,
 # from keycloak/keycloak at the release tag the "Keycloak documentation" row
 # of docs/VERSIONS.md pins. A tag is mutable, so the script resolves it to a
 # commit and records the commit. The repository is large, so each file is
@@ -52,11 +54,20 @@ paths=(
   "$admin/clients/con-protocol-mappers.adoc"
   "$admin/clients/proc-creating-mappers.adoc"
   "$admin/clients/oidc/con-audience.adoc"
+  "$admin/clients/oidc/proc-creating-oidc-client.adoc"
+  "$admin/clients/oidc/con-basic-settings.adoc"
+  "$admin/clients/oidc/con-advanced-settings.adoc"
+  "$admin/clients/oidc/con-confidential-client-credentials.adoc"
+  "$admin/roles-groups/proc-creating-realm-roles.adoc"
   "$admin/users/user-profile.adoc"
   "$admin/identity-broker.adoc"
   "$admin/identity-broker/"
   "$mappers/AudienceProtocolMapper.java"
   "$mappers/OIDCAttributeMapperHelper.java"
+  "$mappers/UserAttributeMapper.java"
+  "$mappers/UserRealmRoleMappingMapper.java"
+  services/src/main/java/org/keycloak/protocol/ProtocolMapperUtils.java
+  docs/guides/server/importExport.adoc
   services/src/main/java/org/keycloak/protocol/oidc/TokenManager.java
   services/src/main/java/org/keycloak/protocol/oidc/OIDCLoginProtocolFactory.java
   services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json
@@ -160,6 +171,23 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   \`services/src/main/resources/org/keycloak/userprofile/config/keycloak-default-user-profile.json\`,
   the default configuration it names, in which \`email\`, \`firstName\` and
   \`lastName\` are required for the \`user\` role.
+
+- \`$mappers/UserAttributeMapper.java\`, \`$mappers/UserRealmRoleMappingMapper.java\` and
+  \`services/src/main/java/org/keycloak/protocol/ProtocolMapperUtils.java\`: the
+  provider ids of the user attribute and realm role mappers
+  (\`oidc-usermodel-attribute-mapper\`, \`oidc-usermodel-realm-role-mapper\`)
+  and their \`user.attribute\` and \`multivalued\` keys, which FerroSMART's
+  Keycloak example (#522) configures.
+- \`$admin/clients/oidc/proc-creating-oidc-client.adoc\`,
+  \`con-basic-settings.adoc\`, \`con-advanced-settings.adoc\` and
+  \`con-confidential-client-credentials.adoc\`, and
+  \`$admin/roles-groups/proc-creating-realm-roles.adoc\`: the OIDC client
+  settings (client authentication, the standard flow, valid redirect URIs,
+  the PKCE method) and realm roles of the example's realm.
+- \`docs/guides/server/importExport.adoc\`: "Importing and exporting
+  realms", whose section "Using Environment Variables within the Realm
+  Configuration Files" the example's realm placeholders rely on, and
+  \`--import-realm\`.
 
 The guides' images, and the other chapters the \`include::\` lines of an
 index name, are not taken.

@@ -11,7 +11,8 @@
 #      every feature set and cargo-deny over one build cache.
 #   3. `nextest (core and axum)` runs the tests, the doctests and, where a
 #      change reaches the profiles or the resource server, the live Keycloak
-#      case.
+#      case, and where it reaches FerroSMART, the standalone launch through
+#      Keycloak and the Inferno SMART App Launch lane.
 #   4. `cargo-semver-checks` runs on a pull request only.
 #
 # Every job starts at once and pays one runner queue wait: the hosted runner
@@ -104,6 +105,9 @@ jobs:
       - name: The FerroSMART quickstart is a valid compose file
         if: ${{ !cancelled() }}
         run: docker compose -f compose.yaml config --quiet
+      - name: The Keycloak overlay of the quickstart is a valid compose file
+        if: ${{ !cancelled() }}
+        run: docker compose -f compose.yaml -f compose.keycloak.yaml config --quiet
       - name: The changelog Security check passes and refuses what it claims to
         if: ${{ !cancelled() }}
         run: bash scripts/checks/changelog-security.sh --self-test
@@ -269,9 +273,11 @@ jobs:
   test:
     name: nextest (core and axum)
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 50
     permissions:
       contents: read
+      # The Inferno lane lists each pending group with the state of its issues.
+      issues: read
     # FerroSMART's store cases create a database each on this server
     # (app/ferrosmart/tests/it/store.rs), the image docs/VERSIONS.md pins.
     services:
@@ -342,6 +348,107 @@ jobs:
         env:
           FERROHEALTH_KEYCLOAK_E2E: "1"
         run: cargo nextest run -p ferrohealth-smart --locked --no-tests=fail -E 'test(/^keycloak_live::/)'
+      # FerroSMART with Keycloak upstream (#522): a SMART standalone launch
+      # through the example's realm to a token with the mapped fhirUser
+      # (scripts/idp/keycloak-launch.sh).
+      - id: upstream
+        name: Does the change reach FerroSMART's upstream login
+        if: github.event_name != 'merge_group'
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          run=false
+          while IFS= read -r path; do
+            case "$path" in
+              app/ferrosmart/* | scripts/idp/* | crates/ferrohealth-smart/src/* | \
+                .github/workflows/ci.yml | docs/VERSIONS.md | Cargo.lock)
+                echo "reaches the upstream login: $path"
+                run=true
+                ;;
+              *) ;;
+            esac
+          done < <(git diff --name-only "$BASE...$HEAD")
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+      - if: steps.upstream.outputs.run == 'true'
+        name: A standalone launch through Keycloak
+        env:
+          LANE_DIR: ${{ runner.temp }}/keycloak-launch
+          LANE_PG: postgres://ferrosmart:ferrosmart@localhost:5432
+        run: |
+          cargo build -p ferrosmart --locked
+          scripts/idp/keycloak-launch.sh
+      - if: failure() && steps.upstream.outputs.run == 'true'
+        name: Keep the Keycloak launch's logs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: keycloak-launch
+          path: ${{ runner.temp }}/keycloak-launch/*.log
+          if-no-files-found: ignore
+      # The Inferno SMART App Launch lane (#520): the kit's STU 2.2 suite
+      # against FerroSMART, with FerroEHR as the resource server
+      # (scripts/inferno/lane.sh). The kit and its runtime are the pins of
+      # docs/VERSIONS.md.
+      - id: inferno
+        name: Does the change reach FerroSMART
+        if: github.event_name != 'merge_group'
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          run=false
+          while IFS= read -r path; do
+            case "$path" in
+              app/ferrosmart/* | scripts/inferno/* | crates/ferrohealth-smart/src/* | \
+                .github/workflows/ci.yml | docs/VERSIONS.md | Cargo.lock)
+                echo "reaches the Inferno lane: $path"
+                run=true
+                ;;
+              *) ;;
+            esac
+          done < <(git diff --name-only "$BASE...$HEAD")
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+      - if: steps.inferno.outputs.run == 'true'
+        name: Check out the Inferno SMART App Launch test kit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: inferno-framework/smart-app-launch-test-kit
+          ref: 980e54e4ed632b28267d797013399a8588772174
+          path: .inferno-kit
+          persist-credentials: false
+      - if: steps.inferno.outputs.run == 'true'
+        name: The Inferno lane
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INFERNO_KIT: ${{ github.workspace }}/.inferno-kit
+          LANE_DIR: ${{ runner.temp }}/inferno-lane
+          LANE_PG: postgres://ferrosmart:ferrosmart@localhost:5432
+        run: |
+          cargo build -p ferrosmart --locked
+          scripts/inferno/lane.sh run
+      - if: failure() && steps.inferno.outputs.run == 'true'
+        name: Keep the Inferno lane's logs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: inferno-lane
+          path: |
+            ${{ runner.temp }}/inferno-lane/*.log
+            ${{ runner.temp }}/inferno-lane/results.json
+            app/ferrosmart/inferno/*_actual_results_*.json
+            app/ferrosmart/inferno/*_compared_results_*.csv
+          if-no-files-found: ignore
 
   # Every crate's public API against its newest version on crates.io, on a
   # pull request and in the merge queue: a break, or a public dependency

@@ -1,0 +1,13 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# Every group of the smart_stu2_2 suite (Inferno SMART App Launch test kit
+# 1.0.3) and what the lane does with it (#520, docs/architecture.md §13.13):
+# `run` runs it through smart_stu2_2.yaml; `pending` names the FerroSMART
+# issues it waits on, and scripts/inferno/lane.sh lists it in every run and
+# warns once those issues are closed. Columns: short id, group id, state,
+# issues (FerroHEALTH/FerroAUTH), what the group needs.
+1	smart_full_standalone_launch	pending	515,516	the authorization code flow with upstream login and consent, and the patient picker
+2	smart_full_ehr_launch	pending	515,517	the EHR launch API on top of the authorization code flow
+3	smart_backend_services	run	-	the client credentials grant with private_key_jwt (#514, merged)
+4	smart_token_introspection_stu2_2	pending	515,518	a standalone launch for its token, then the introspection endpoint

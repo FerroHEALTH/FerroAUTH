@@ -1,0 +1,79 @@
+{
+  "id": "ferrosmart",
+  "realm": "ferrosmart",
+  "enabled": true,
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": false,
+  "roles": {
+    "realm": [
+      { "id": "3f0b2c1e-6d1a-4b8e-9b7a-1c2d3e4f5a01", "name": "clinician", "description": "A clinician, whom FerroSMART's [[ferrosmart.role]] table grants user/ scopes" }
+    ]
+  },
+  "users": [
+    {
+      "id": "3f0b2c1e-6d1a-4b8e-9b7a-1c2d3e4f5a10",
+      "username": "clinician",
+      "enabled": true,
+      "email": "clinician@example.org",
+      "emailVerified": true,
+      "firstName": "Example",
+      "lastName": "Clinician",
+      "attributes": { "fhir_user": ["${FERROSMART_KEYCLOAK_FHIR_USER}"] },
+      "credentials": [
+        { "type": "password", "value": "${FERROSMART_KEYCLOAK_USER_PASSWORD}", "temporary": false }
+      ],
+      "realmRoles": ["clinician"]
+    }
+  ],
+  "clients": [
+    {
+      "id": "3f0b2c1e-6d1a-4b8e-9b7a-1c2d3e4f5a20",
+      "clientId": "ferrosmart",
+      "name": "FerroSMART",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${FERROSMART_KEYCLOAK_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": ["${FERROSMART_KEYCLOAK_REDIRECT_URI}"],
+      "attributes": { "pkce.code.challenge.method": "S256" },
+      "fullScopeAllowed": true,
+      "protocolMappers": [
+        {
+          "id": "3f0b2c1e-6d1a-4b8e-9b7a-1c2d3e4f5a30",
+          "name": "fhir_user",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "config": {
+            "user.attribute": "fhir_user",
+            "claim.name": "fhir_user",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "false"
+          }
+        },
+        {
+          "id": "3f0b2c1e-6d1a-4b8e-9b7a-1c2d3e4f5a31",
+          "name": "roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "multivalued": "true",
+            "jsonType.label": "String",
+            "id.token.claim": "true",
+            "access.token.claim": "false",
+            "userinfo.token.claim": "false",
+            "introspection.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ]
+}
