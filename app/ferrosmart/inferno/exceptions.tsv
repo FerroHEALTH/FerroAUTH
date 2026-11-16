@@ -7,10 +7,13 @@
 # the issue of a `pending` row is closed. Columns: test id, kind (`pending`:
 # a FerroSMART step will make it pass; `downstream`: the test reads the
 # resource server, never FerroSMART), issue or `-`, reason.
-smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_well_known_endpoint	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/.well-known/smart-configuration` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
-smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_metadata_request	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/metadata` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
 smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_discovery_stu2_2-smart_cors_well_known_endpoint	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/.well-known/smart-configuration` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
 smart_stu2_2-smart_token_introspection_stu2_2-smart_token_introspection_access_token_group_stu2_2-smart_discovery_stu2_2-smart_cors_metadata_request	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/metadata` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
+smart_stu2_2-smart_full_standalone_launch-smart_discovery_stu2_2-smart_cors_well_known_endpoint	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/.well-known/smart-configuration` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
+smart_stu2_2-smart_full_standalone_launch-smart_discovery_stu2_2-smart_cors_metadata_request	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/metadata` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
+smart_stu2_2-smart_full_standalone_launch-smart_openid_connect_stu2_2-smart_cors_openid_fhir_user_claim	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/Practitioner/<id>` from the app's origin with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
 smart_stu2_2-smart_full_ehr_launch-smart_discovery_stu2_2-smart_cors_well_known_endpoint	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/.well-known/smart-configuration` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
 smart_stu2_2-smart_full_ehr_launch-smart_discovery_stu2_2-smart_cors_metadata_request	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/metadata` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
 smart_stu2_2-smart_full_ehr_launch-smart_openid_connect_stu2_2-smart_cors_openid_fhir_user_claim	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/Practitioner/<id>` from the app's origin with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
+smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_well_known_endpoint	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/.well-known/smart-configuration` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE
+smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_metadata_request	downstream	-	FerroBRIDGE 0.0.26 answers `GET /fhir/metadata` with no `Access-Control-Allow-Origin`; reported to FerroBRIDGE

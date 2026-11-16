@@ -173,7 +173,7 @@ lane_token() {
 
 run() {
   : "${INFERNO_KIT:?the kit checkout}" "${LANE_PG:?the PostgreSQL URL}" "${LANE_DIR:?the lane directory}"
-  local vendored="$root/docs/specs/ferrobridge-practitioner" cdr=http://127.0.0.1:9080/ferroehr/rest/openehr/v1
+  local vendored="$root/docs/specs/ferrobridge-party" cdr=http://127.0.0.1:9080/ferroehr/rest/openehr/v1
   local password person practitioner status session
   mkdir -p "$LANE_DIR/mappings"
   check
@@ -182,7 +182,8 @@ run() {
   echo '127.0.0.1 smart.localhost bridge.localhost' | sudo tee -a /etc/hosts > /dev/null
   psql "$LANE_PG/postgres" -qc 'CREATE DATABASE ferrosmart' -c 'CREATE DATABASE ferroehr'
 
-  # 1. FerroEHR, holding the PERSON the facade serves as the Practitioner.
+  # 1. FerroEHR, holding the PERSONs the facade serves as the person's
+  #    Practitioner and as the Patient the picker finds.
   docker run -d --name inferno-lane-ferroehr --network host \
     -v "$lane/ferroehr.toml:/etc/ferroehr/ferroehr.toml:ro" \
     -e FERROEHR_CONFIG=/etc/ferroehr/ferroehr.toml \
@@ -196,6 +197,8 @@ run() {
     --data-binary "@$lane/practitioner-person.json" "$cdr/demographic/person" |
     grep -i '^etag:' | grep -oE '[0-9a-f-]{36}' | head -1)
   [ -n "$person" ] || { echo "lane: FerroEHR stored no PERSON" >&2; return 1; }
+  curl -fsS -o /dev/null -X POST -H 'Content-Type: application/json' -H 'Prefer: return=minimal' \
+    --data-binary "@$lane/patient-person.json" "$cdr/demographic/person"
   practitioner="https://bridge.localhost:9443/fhir/Practitioner/$person"
 
   # 2. Keycloak, the upstream login, whose person's fhirUser names it.
@@ -210,7 +213,10 @@ run() {
     "$(pinned_image 'Keycloak test image')" start-dev --import-realm > /dev/null
   wait_for Keycloak http://localhost:8180/realms/ferrosmart/.well-known/openid-configuration
 
-  # 3. FerroSMART.
+  # 3. FerroSMART, trusting the lane's CA beside the system roots for the
+  #    picker's search at FerroBRIDGE.
+  cat /etc/ssl/certs/ca-certificates.crt "$LANE_DIR/ca.crt" > "$LANE_DIR/trust.pem"
+  SSL_CERT_FILE="$LANE_DIR/trust.pem" \
   "$root/target/debug/ferrosmart" --config "$lane/ferrosmart.toml" \
     --set "server.tls.certificate_file=$LANE_DIR/smart.crt" \
     --set "server.tls.key_file=$LANE_DIR/smart.key" \
@@ -246,7 +252,7 @@ run() {
   docker run -d --name inferno-lane-kit --network host \
     -v "$INFERNO_KIT:/kit" -v "$lane:/script" -v "$LANE_DIR:/lane:ro" -v "$root/scripts:/repo/scripts:ro" -w /kit \
     -e APP_ENV=development -e SSL_CERT_FILE=/tmp/trust.pem -e CURL_CA_BUNDLE=/tmp/trust.pem \
-    -e LAUNCH_USER=clinician -e "LAUNCH_PASSWORD=$password" \
+    -e LAUNCH_USER=clinician -e "LAUNCH_PASSWORD=$password" -e LAUNCH_PATIENT_NAME=Lane \
     -e LANE_KEY=/lane/lane-client.pem -e SMART_ISSUER=https://smart.localhost:8443 -e LAUNCH_APP=inferno-standalone \
     --add-host smart.localhost:127.0.0.1 --add-host bridge.localhost:127.0.0.1 \
     "$(pinned_image 'Inferno runtime')" sh -c '
