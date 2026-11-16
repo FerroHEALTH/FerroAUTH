@@ -1,0 +1,12 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# Every test of a run group that smart_stu2_2_expected.json does not expect
+# to pass, with why (#520). scripts/inferno/lane.sh fails a run whose
+# expected results hold any other test to anything but `pass`, and warns once
+# the issue of a `pending` row is closed. Columns: test id, kind (`pending`:
+# a FerroSMART step will make it pass; `downstream`: the test reads the
+# resource server, never FerroSMART), issue (FerroHEALTH/FerroAUTH) or `-`,
+# reason.
+smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-well_known_capabilities_stu2	pending	515	the kit requires `authorization_endpoint` and the `authorization_code` grant in every discovery document, which FerroSMART advertises once its authorization endpoint exists
+smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_metadata_request	downstream	-	`GET [base]/metadata` is the FHIR server's CapabilityStatement; FerroEHR 5.7.0 is an openEHR CDR and answers 404

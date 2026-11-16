@@ -74,6 +74,13 @@ pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
     metadata
 }
 
+/// The capabilities of the EHR launch (`docs/architecture.md` §13.6 item 3).
+const EHR_LAUNCH: [&str; 4] = [
+    "launch-ehr",
+    "context-ehr-patient",
+    "context-ehr-encounter",
+    "context-banner",
+];
 /// Returns the RFC 8414 document of `metadata`: its members with how the
 /// introspection and revocation endpoints authenticate a client, which
 /// RFC 8414 §2 has default to `client_secret_basic` when absent.
@@ -122,8 +129,9 @@ pub fn metadata_document(metadata: &ServerMetadata) -> Value {
 /// 2.2.0, Backend Services, Retrieve `.well-known/smart-configuration`);
 /// with it, the App Launch document, whose capabilities the builder derives
 /// from the metadata (`client-public`, `client-confidential-asymmetric`,
-/// `launch-standalone`), with `sso-openid-connect` and the user-level v2
-/// scopes FerroSMART grants (`permission-user`, `permission-v2`).
+/// `launch-standalone`), with `sso-openid-connect`, the EHR launch and its
+/// context, and the v2 scopes FerroSMART grants (`permission-patient`,
+/// `permission-user`, `permission-v2`).
 #[must_use]
 pub fn smart_configuration(metadata: &ServerMetadata, login: bool) -> Value {
     let mut document = smart_document(metadata, login);
@@ -146,9 +154,19 @@ fn smart_document(metadata: &ServerMetadata, login: bool) -> Value {
         SmartOptions {
             purpose: Purpose::AppLaunch,
             openid_connect: OpenIdConnect::Advertised,
-            permissions: [PermissionCapability::User, PermissionCapability::V2]
-                .into_iter()
+            // NOTE: SMART App Launch 2.2.0, Conformance, Capabilities: the EHR launch
+            // with its patient, encounter and banner context, and patient/ scopes.
+            capabilities: EHR_LAUNCH
+                .iter()
+                .map(|&capability| capability.to_owned())
                 .collect(),
+            permissions: [
+                PermissionCapability::Patient,
+                PermissionCapability::User,
+                PermissionCapability::V2,
+            ]
+            .into_iter()
+            .collect(),
             ..SmartOptions::default()
         }
     } else {

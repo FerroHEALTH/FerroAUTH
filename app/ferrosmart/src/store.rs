@@ -10,15 +10,18 @@
 
 pub mod audit;
 pub mod grant;
+pub mod launch;
 
 use std::time::Duration;
 
 use secrecy::ExposeSecret as _;
 use serde_json::Value;
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::types::Json;
 use sqlx::{Postgres, Row as _, Transaction};
 
 use crate::clients::{Client, ClientKeys, ClientKind, GrantType};
+use crate::launch::context::Context;
 
 /// How long a request waits for a connection before the store answers that
 /// it is unavailable. No specification governs the value: our own design.
@@ -162,8 +165,8 @@ impl Store {
         sqlx::query(
             "INSERT INTO pending_authorization (id, client_id, redirect_uri, scope, state, nonce, \
              code_challenge, audience, upstream_state, upstream_nonce, upstream_verifier, form_token, \
-             expires_at, purpose) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
-             to_timestamp($13), $14)",
+             expires_at, purpose, launch_context) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
+             to_timestamp($13), $14, $15)",
         )
         .bind(&pending.id)
         .bind(&pending.client_id)
@@ -179,6 +182,7 @@ impl Store {
         .bind(&pending.form_token)
         .bind(pending.expires_at)
         .bind(pending.purpose.as_str())
+        .bind(pending.launch_context.as_ref().map(Json))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -249,7 +253,7 @@ impl Store {
              RETURNING id, client_id, redirect_uri, scope, state, nonce, code_challenge, audience, \
              upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
              display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
-             upstream_session",
+             upstream_session, launch_context",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -265,8 +269,9 @@ impl Store {
     pub async fn issue_code(&self, hash: &str, code: &Code) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO authorization_code (code_hash, client_id, redirect_uri, code_challenge, \
-             audience, subject, fhir_user, scope, nonce, auth_time, expires_at, upstream_session) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11), $12)",
+             audience, subject, fhir_user, scope, nonce, auth_time, expires_at, upstream_session, \
+             launch_context) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11), $12, $13)",
         )
         .bind(hash)
         .bind(&code.client_id)
@@ -280,6 +285,7 @@ impl Store {
         .bind(code.auth_time)
         .bind(code.expires_at)
         .bind(&code.upstream_session)
+        .bind(code.launch_context.as_ref().map(Json))
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -294,7 +300,7 @@ impl Store {
         let row = sqlx::query(
             "SELECT client_id, redirect_uri, code_challenge, audience, subject, fhir_user, scope, \
              nonce, auth_time, extract(epoch FROM expires_at)::bigint AS expires, upstream_session, \
-             redeemed_at IS NOT NULL AS redeemed FROM authorization_code \
+             redeemed_at IS NOT NULL AS redeemed, launch_context FROM authorization_code \
              WHERE code_hash = $1 AND expires_at > now()",
         )
         .bind(hash)
@@ -314,6 +320,7 @@ impl Store {
                     auth_time: row.try_get("auth_time")?,
                     expires_at: row.try_get("expires")?,
                     upstream_session: row.try_get("upstream_session")?,
+                    launch_context: launch_context(&row)?,
                 },
                 row.try_get("redeemed")?,
             ))
@@ -479,8 +486,9 @@ impl Store {
         insert_token(&self.pool, token).await
     }
 
-    /// Deletes the assertion ids and the access and refresh tokens past
-    /// their expiry, and the grants an hour old with no token left.
+    /// Deletes the assertion ids, the access and refresh tokens and the
+    /// launches past their expiry, and the grants an hour old with no token
+    /// left.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when a statement fails.
@@ -507,6 +515,9 @@ impl Store {
             .execute(&self.pool)
             .await?;
         sqlx::query("DELETE FROM authorization_code WHERE expires_at < now()")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM launch WHERE expires_at < now()")
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -621,7 +632,7 @@ pub struct IssuedToken<'a> {
 const PENDING: &str = "SELECT id, client_id, redirect_uri, scope, state, nonce, code_challenge, \
     audience, upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
     display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
-    upstream_session FROM pending_authorization";
+    upstream_session, launch_context FROM pending_authorization";
 
 /// An authorization request between the authorization endpoint and the
 /// code.
@@ -667,6 +678,8 @@ pub struct Pending {
     pub purpose: Purpose,
     /// The upstream session the person logged in under.
     pub upstream_session: Option<String>,
+    /// The launch context of an EHR launch.
+    pub launch_context: Option<Context>,
 }
 
 /// What a login is for.
@@ -744,6 +757,8 @@ pub struct Code {
     /// The upstream session the person logged in under, which an
     /// `online_access` grant ends with.
     pub upstream_session: Option<String>,
+    /// The launch context of an EHR launch.
+    pub launch_context: Option<Context>,
 }
 
 /// Reads a pending authorization row.
@@ -775,7 +790,15 @@ fn read_pending(row: &sqlx::postgres::PgRow) -> Result<Pending, StoreError> {
         expires_at: row.try_get("expires")?,
         purpose,
         upstream_session: row.try_get("upstream_session")?,
+        launch_context: launch_context(row)?,
     })
+}
+
+/// Reads the `launch_context` column of `row`.
+fn launch_context(row: &sqlx::postgres::PgRow) -> Result<Option<Context>, StoreError> {
+    Ok(row
+        .try_get::<Option<Json<Context>>, _>("launch_context")?
+        .map(|context| context.0))
 }
 
 /// Inserts the access token `token` through `executor`, a pool or a

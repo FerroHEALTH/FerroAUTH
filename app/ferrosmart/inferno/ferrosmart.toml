@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# FerroSMART as the Inferno lane runs it (#520, docs/architecture.md §13.13).
+# scripts/inferno/lane.sh passes the files it generates for each run with
+# `--set`: the server certificate and key, the signing key, the Inferno
+# client's JWK Set and the database URL. Nothing here is a secret.
+
+[server]
+listen = "127.0.0.1:8443"
+
+[ferrosmart]
+# The host name resolves to the loopback address (RFC 6761 §6.3); the lane's
+# development CA signs its certificate, and Inferno and FerroEHR trust that CA.
+issuer = "https://smart.localhost:8443"
+
+[ferrosmart.database]
+max_connections = 4
+
+# The one resource server: FerroEHR's REST root, where its SMART document is
+# served (SMART on openEHR master04, Service Discovery).
+[[ferrosmart.resource]]
+base = "https://ehr.localhost:9443/ferroehr/rest"
+kind = "openehr"
+
+# Inferno as a Backend Services client. Its public keys are registered by
+# value, taken from the test kit's own key set at the pinned commit; SMART
+# App Launch 2.2.0, Client Authentication: Asymmetric, Registering a client.
+[[ferrosmart.client]]
+client_id = "inferno-backend-services"
+name = "Inferno SMART App Launch test kit"
+kind = "confidential_asymmetric"
+scopes = ["system/composition-*.r"]
+grant_types = ["client_credentials"]

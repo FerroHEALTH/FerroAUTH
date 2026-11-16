@@ -597,7 +597,11 @@ async fn a_request_that_breaks_the_profile_is_sent_back_with_its_error() {
             &[("response_type", "token")][..],
             "unsupported_response_type",
         ),
-        (&[("launch", "synthetic-launch")][..], "invalid_request"),
+        (
+            &[("launch", "synthetic-launch"), ("scope", "openid launch")][..],
+            "invalid_request",
+        ),
+        (&[("launch", "synthetic-launch")][..], "invalid_scope"),
         (&[("scope", "")][..], "invalid_scope"),
     ] {
         let (status, headers, _) = smart.get(&authorize_path(overrides), None).await;
@@ -780,20 +784,27 @@ fn the_consent_page_offers_what_the_ceiling_and_the_roles_allow() {
     let requested = "openid fhirUser user/Observation.rs user/Patient.rs system/Patient.rs offline_access user/Observation.rs";
     assert_eq!(
         vec!["openid", "fhirUser", "user/Observation.rs"],
-        offer(requested, &client, &held, &roles, true)
+        offer(requested, &client, &held, &roles, true, None)
     );
     assert_eq!(
         vec!["openid", "user/Observation.rs"],
-        offer(requested, &client, &held, &roles, false),
+        offer(requested, &client, &held, &roles, false, None),
         "no fhirUser to give"
     );
     assert_eq!(
         vec!["user/Observation.rs"],
-        offer("fhirUser user/Observation.rs", &client, &held, &roles, true),
+        offer(
+            "fhirUser user/Observation.rs",
+            &client,
+            &held,
+            &roles,
+            true,
+            None
+        ),
         "fhirUser rides on openid"
     );
     assert!(
-        offer(requested, &client, &[], &roles, true)
+        offer(requested, &client, &[], &roles, true, None)
             .iter()
             .all(|scope| !scope.starts_with("user/")),
         "no role, no user scope"
@@ -1063,7 +1074,8 @@ fn offline_and_online_access_are_offered_to_a_client_that_refreshes() {
             &client,
             &[],
             &roles,
-            false
+            false,
+            None,
         )
     );
 }
