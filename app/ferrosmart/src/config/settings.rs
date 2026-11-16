@@ -55,6 +55,8 @@ pub struct Settings {
     pub resources: Vec<String>,
     /// The base URLs among them that serve openEHR.
     pub openehr_resources: Vec<String>,
+    /// The subject namespace of each openEHR base that names one.
+    pub subject_namespaces: BTreeMap<String, String>,
     /// The upstream provider, when people log in.
     pub upstream: Option<Upstream>,
     /// The scopes each role may be granted.
@@ -171,6 +173,7 @@ impl Config {
                 .filter(|resource| resource.kind == crate::config::ResourceKind::Openehr)
                 .map(|resource| resource.base.clone())
                 .collect(),
+            subject_namespaces: subject_namespaces(&section.resource)?,
             upstream: section.upstream.as_ref().map(upstream).transpose()?,
             roles: roles(&section.role)?,
             branding: branding(&section.branding)?,
@@ -280,6 +283,33 @@ fn resources(sections: &[crate::config::ResourceSection]) -> Result<Vec<String>,
         bases.push(section.base.clone());
     }
     Ok(bases)
+}
+
+/// Returns the subject namespace of each openEHR base in `sections` that
+/// names one.
+fn subject_namespaces(
+    sections: &[crate::config::ResourceSection],
+) -> Result<BTreeMap<String, String>, Error> {
+    let mut namespaces = BTreeMap::new();
+    for section in sections {
+        let Some(namespace) = &section.subject_namespace else {
+            continue;
+        };
+        // NOTE: openEHR ITS-REST 1.1.0, ehr_get_by_subject, the namespace is matched
+        // against `EHR_STATUS.subject`, which only an openEHR server holds.
+        if section.kind != crate::config::ResourceKind::Openehr {
+            return Err(Error::Resource {
+                rule: "a `subject_namespace` is for an openEHR base",
+            });
+        }
+        if namespace.trim().is_empty() {
+            return Err(Error::Resource {
+                rule: "a `subject_namespace` is not empty",
+            });
+        }
+        namespaces.insert(section.base.clone(), namespace.clone());
+    }
+    Ok(namespaces)
 }
 
 /// Returns the upstream provider `section` names.

@@ -2905,9 +2905,30 @@ specification governs.
    the grant's context map, the token response's `patient` and the access
    token's claim. Every search and read is an access record of Regulation
    (EU) 2025/327 Annex II 3.2 through `ehds-logging`. A failed search is an
-   error page, never an empty context. An openEHR resource server's EHR
-   selection is not this picker's. The search call and the page are our
+   error page, never an empty context. The search call and the page are our
    own design.
+
+   At an openEHR resource server `launch/patient` asks for "both FHIR
+   `Patient` resource and corresponding openEHR `EHR` instance", and "For
+   Standalone Launch, the user should be prompted to select the openEHR
+   `EHR`" (`soe master07`, Context Selection). The same picker does that
+   (#571) for an openEHR base whose `[[ferrosmart.resource]]` table names
+   its `subject_namespace`, the namespace its EHRs name their subjects in;
+   a base without one offers no `launch/patient`. The person enters the
+   patient's identifier, and FerroSMART looks the EHR up with `GET
+   [base]/ehr?subject_id=…&subject_namespace=…` (openEHR ITS-REST 1.1.0,
+   `ehr_get_by_subject`), under the same guard: a token of the person's own
+   for the one base, living 30 seconds, revoked after the one request, with
+   the scope `user/composition-*.r`, since the EHR has no scope family and
+   is held to the `composition-` family over every template (3.9). A `404`
+   is "no EHR you may see"; any other failure is an error page. The chosen
+   EHR is looked up again as the person before its `ehrId` enters the
+   launch context, and each lookup is an access record naming the patient
+   by the identifier and namespace and the EHR it reached, with the
+   operation id in the `urn:openehr:its-rest:operation` system. No FHIR
+   `Patient` id is known at an openEHR base, so the context carries
+   `ehrId` and no `patient`. The form and the single namespace per base
+   are our own design.
 5. **Scope narrowing.** The granted scope is the intersection of the
    request, the client's registered ceiling, the user's roles mapped to
    scopes by configuration, and the consent the user gave; SMART allows the
@@ -3125,6 +3146,7 @@ previous_key_overlap = "1h"                   # "0s": published while it is conf
 [[ferrosmart.resource]]                       # each base an `aud` may name; at least one
 base = "https://ehr.example.org/fhir"
 kind = "fhir"                                 # or "openehr"
+# subject_namespace = "examples"              # openEHR only: the EHR subjects' namespace the picker looks up in
 
 [ferrosmart.upstream]                         # any OpenID Connect provider, discovered at start
 issuer = "https://idp.example.org/realms/hospital"
@@ -3203,7 +3225,7 @@ Every secret is a `_file` key read through `ferrohealth-secret`; the
 | Scope escalation | narrowing on every grant, refresh never widens, policy as content checked at load | `smart app-launch`, Refresh access token |
 | A forged, replayed or stolen EHR launch | a launch value bound to an authenticated EHR client, the app and the `aud`, single use and five minutes long, stored hashed; or a launch JWT checked like a client assertion, its `jti` used once | our own design (13.6 item 3) |
 | An upstream IdP that is compromised or misconfigured | one configured issuer per upstream, its ID Token checked by `oidc core §3.1.3.7`, claims mapped explicitly, nothing taken from unlisted claims | `oidc core §3.1.3.7` |
-| Patient data on the picker page | the search runs with the user's own delegated access at the FHIR server; the page shows only display fields | our own design |
+| Patient data on the picker page | the search, or at an openEHR server the EHR lookup, runs with the user's own delegated access; the page shows only display fields and the one EHR id | our own design |
 | Credential leakage in logs | no token, code, secret or assertion in a log line or `Debug`, as the library crates already hold | `CLAUDE.md` hard rule |
 | Request flooding | per-client and per-address rate limits on `/token` and `/authorize`, the body ceiling of `ferrohealth-server` | `rfc6819 §4.4.1.11` |
 

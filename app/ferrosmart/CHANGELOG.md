@@ -13,6 +13,15 @@ and this project adheres to
 
 ### Added
 
+- The patient picker at an openEHR resource server: for a standalone launch
+  with `launch/patient` at an openEHR base whose `[[ferrosmart.resource]]`
+  table names a `subject_namespace`, the signed-in person enters the
+  patient's identifier and FerroSMART looks the EHR up through ITS-REST
+  (`GET [base]/ehr?subject_id=…&subject_namespace=…`) with a token of the
+  person's own, living 30 seconds and revoked after use. The chosen EHR is
+  looked up again before its `ehrId` enters the launch context, the token
+  response and the access token, and every lookup writes the EHDS access
+  record (#571).
 - Microsoft Entra ID and Okta as the upstream login, each with an example
   configuration under `examples/` and no provider code. Entra ID: a
   single-tenant app registration's v2.0 authority, the app roles in `roles`
