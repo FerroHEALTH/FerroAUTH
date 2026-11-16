@@ -140,6 +140,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route(CALLBACK_ROUTE, get(authorize::callback))
         .route(
+            crate::logout::BACKCHANNEL_LOGOUT_ROUTE,
+            post(crate::logout::backchannel_logout),
+        )
+        .route(
             CONSENT_ROUTE,
             get(authorize::consent_get).post(authorize::consent_post),
         )

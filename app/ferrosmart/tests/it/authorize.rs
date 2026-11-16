@@ -111,6 +111,27 @@ impl Provider {
     }
 }
 
+impl Provider {
+    /// Returns a Logout Token for FerroSMART's client naming the person
+    /// `subject`, with `claims` over the valid set (OpenID Connect
+    /// Back-Channel Logout 1.0 §2.4).
+    fn logout_token(&self, claims: &Value) -> String {
+        let now = jiff::Timestamp::now().as_second();
+        let mut body = json!({
+            "iss": self.server.uri(), "aud": UPSTREAM_CLIENT, "sub": "synthetic-person",
+            "iat": now, "exp": now + 120, "jti": "synthetic-logout",
+            "events": { "http://schemas.openid.net/event/backchannel-logout": {} }
+        });
+        if let (Some(base), Some(over)) = (body.as_object_mut(), claims.as_object()) {
+            base.extend(over.clone());
+        }
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(String::from("op-1"));
+        header.typ = Some(String::from("logout+jwt"));
+        jsonwebtoken::encode(&header, &body, &self.encoding).expect("signs")
+    }
+}
+
 /// FerroSMART with a login upstream, over a fresh database.
 struct Smart {
     /// The application.
@@ -972,4 +993,91 @@ fn offline_and_online_access_are_offered_to_a_client_that_refreshes() {
             false
         )
     );
+}
+
+/// Posts the Logout Token `token` to the back-channel logout URI and
+/// returns the status, the headers and the body.
+async fn log_out(smart: &Smart, token: &str) -> (StatusCode, http::HeaderMap, String) {
+    smart
+        .post("/backchannel-logout", &[("logout_token", token)], None)
+        .await
+}
+
+#[tokio::test]
+async fn a_back_channel_logout_ends_the_online_access_grants_of_the_login() {
+    let (smart, body) = launch_with("online_access").await;
+    let token = body["refresh_token"].as_str().expect("a refresh token");
+    let access: Value = jsonwebtoken::dangerous::insecure_decode_claims(
+        body["access_token"].as_str().expect("a token"),
+    )
+    .expect("claims");
+    let logout = smart.provider.logout_token(&json!({}));
+    // NOTE: Back-Channel Logout 1.0 §2.8, a 200 that is never cached.
+    let (status, headers, _) = log_out(&smart, &logout).await;
+    assert_eq!(StatusCode::OK, status, "the logout succeeds");
+    assert_eq!(
+        Some("no-store"),
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok()),
+        "Back-Channel Logout 1.0 §2.8, SHOULD include no-store"
+    );
+    // NOTE: Back-Channel Logout 1.0 §2.7, a refresh token without offline_access
+    // SHOULD be revoked; docs/architecture.md §13.6 item 7.
+    let (status, refused) = refresh(&smart, token).await;
+    assert_eq!(StatusCode::BAD_REQUEST, status, "{refused}");
+    assert_eq!(json!("invalid_grant"), refused["error"]);
+    let jti = access["jti"].as_str().expect("a jti");
+    assert!(
+        smart.store.revoked(jti).await.expect("read"),
+        "the grant's access token is revoked with it"
+    );
+    let (status, _, _) = log_out(&smart, &logout).await;
+    assert_eq!(StatusCode::OK, status, "a second logout ends nothing more");
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_back_channel_logout_leaves_an_offline_access_grant() {
+    let (smart, body) = launch_with("offline_access").await;
+    let token = body["refresh_token"].as_str().expect("a refresh token");
+    let logout = smart.provider.logout_token(&json!({}));
+    let (status, _, _) = log_out(&smart, &logout).await;
+    assert_eq!(StatusCode::OK, status, "the logout succeeds");
+    // NOTE: Back-Channel Logout 1.0 §2.7, offline_access SHOULD NOT be revoked.
+    let (status, renewed) = refresh(&smart, token).await;
+    assert_eq!(StatusCode::OK, status, "{renewed}");
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_logout_token_that_does_not_check_is_a_400() {
+    let (smart, body) = launch_with("online_access").await;
+    let token = body["refresh_token"].as_str().expect("a refresh token");
+    let cases = [
+        smart
+            .provider
+            .logout_token(&json!({"aud": "another-client"})),
+        smart.provider.logout_token(&json!({"events": {}})),
+        smart.provider.logout_token(&json!({"nonce": "n-1"})),
+        String::from("not-a-token"),
+    ];
+    for logout in &cases {
+        let (status, headers, refused) = log_out(&smart, logout).await;
+        // NOTE: Back-Channel Logout 1.0 §2.6 and §2.8, a 400 with an error body.
+        assert_eq!(StatusCode::BAD_REQUEST, status, "{refused}");
+        assert!(refused.contains("invalid_request"), "{refused}");
+        assert_eq!(
+            Some("no-store"),
+            headers
+                .get(header::CACHE_CONTROL)
+                .and_then(|v| v.to_str().ok()),
+            "never cached"
+        );
+    }
+    let (status, _, _) = smart.post("/backchannel-logout", &[], None).await;
+    assert_eq!(StatusCode::BAD_REQUEST, status, "no logout_token");
+    let (status, renewed) = refresh(&smart, token).await;
+    assert_eq!(StatusCode::OK, status, "the login lives on: {renewed}");
+    smart.stop().await;
 }

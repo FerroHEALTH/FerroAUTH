@@ -2547,7 +2547,8 @@ the Inferno SMART App Launch test kit at release 1.0.3
 (`docs/specs/inferno-smart-test-kit/`). Citation keys follow the document's
 convention, plus: `oauth21 §4.1.3` is section 4.1.3 of the draft, which is a
 work in progress and is cited beside RFC 6749, 6750 and 9700, never in
-their place; `oidc core §3.1.2.1` is OpenID Connect Core 1.0; `smart
+their place; `oidc core §3.1.2.1` is OpenID Connect Core 1.0; `backchannel §2.6` is
+OpenID Connect Back-Channel Logout 1.0; `smart
 app-launch`, `smart scopes-and-launch-context`, `smart backend-services`,
 `smart client-confidential-asymmetric`, `smart token-introspection` and
 `smart conformance` are the page sources under
@@ -2813,9 +2814,17 @@ specification governs.
    design.
 7. **`online_access`.** "As long as the end-user remains online" has no
    mechanism in SMART. FerroSMART ties an online refresh token to the
-   upstream login session: it ends at upstream logout (an OpenID Connect
-   back-channel or front-channel logout, or the upstream ID token's session
-   expiring) and after the configured idle time. Our own design.
+   upstream login session: it ends at upstream logout and after the
+   configured idle time (`online_idle`). The callback records each login as
+   an `upstream_session` with the provider's `sid`; a Logout Token posted to
+   `/backchannel-logout` (Back-Channel Logout 1.0 §2.6) ends the session it
+   names, or every session of its `sub` without a `sid`, and revokes the
+   `online_access` grants in them ("SHOULD be revoked", §2.7), never an
+   `offline_access` one ("SHOULD NOT"). Logging out is idempotent, so the
+   optional `jti` check of §2.6 is not made. The upstream ID Token's `exp`
+   is the token's lifetime, not the session's (`oidc core §2`), so it ends
+   nothing. Front-channel logout needs the browser and is not taken. Our
+   own design.
 8. **Introspection access.** `smart token-introspection` lets the endpoint
    take a SMART bearer token; FerroSMART takes a client authenticated as at
    the token endpoint, or a bearer token FerroSMART issued carrying the
@@ -2909,6 +2918,7 @@ differently.
 | `GET /jwks` | the public signing keys, bare JWKs | `rfc7517 §5`; `smart scopes-and-launch-context` |
 | `GET`, `POST /authorize` | the authorization endpoint | `smart app-launch`; `rfc6749 §3.1` |
 | `GET /callback` | the upstream provider's redirect back | `oidc core §3.1.2.5` |
+| `POST /backchannel-logout` | the back-channel logout URI registered at the upstream provider, which ends the `online_access` grants of a login | `backchannel §2.5` to `§2.8` |
 | `GET`, `POST /consent`, `/picker` | the consent and picker pages | our own design |
 | `POST /token` | the token endpoint | `rfc6749 §3.2` |
 | `POST /introspect` | RFC 7662 | `rfc7662 §2` |
