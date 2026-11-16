@@ -23,7 +23,7 @@
 # never checked retroactively.
 #
 # Usage:
-#   scripts/checks/changelog-security.sh [--section <X.Y.Z|Unreleased>]          every crates/*/CHANGELOG.md
+#   scripts/checks/changelog-security.sh [--section <X.Y.Z|Unreleased>]          every crates/*/ and app/*/CHANGELOG.md
 #   scripts/checks/changelog-security.sh [--section <X.Y.Z|Unreleased>] <file>   the file named
 #   scripts/checks/changelog-security.sh --self-test
 #
@@ -188,14 +188,14 @@ report() {
   return "$rc"
 }
 
-# check_workspace ROOT SECTION: reports every crates/*/CHANGELOG.md under
-# ROOT, each even after a refusal, with VEX paths resolved against ROOT
+# check_workspace ROOT SECTION: reports every crates/*/ and app/*/CHANGELOG.md
+# under ROOT, each even after a refusal, with VEX paths resolved against ROOT
 # unless VEX_ROOT says otherwise; returns the highest code, and 2 when no
 # crate has a changelog.
 check_workspace() {
   local root="$1" section="$2" files=() file rc worst=0
   shopt -s nullglob
-  files=("$root"/crates/*/CHANGELOG.md)
+  files=("$root"/crates/*/CHANGELOG.md "$root"/app/*/CHANGELOG.md)
   shopt -u nullglob
   if [[ "${#files[@]}" -eq 0 ]]; then
     echo "error: $0: no crates/*/CHANGELOG.md under $root" >&2
