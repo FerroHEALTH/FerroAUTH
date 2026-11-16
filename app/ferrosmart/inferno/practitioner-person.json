@@ -1,0 +1,44 @@
+{
+  "_type": "PERSON",
+  "name": { "_type": "DV_TEXT", "value": "Example clinician" },
+  "archetype_node_id": "openEHR-DEMOGRAPHIC-PERSON.ferrobridge_person.v1",
+  "archetype_details": {
+    "_type": "ARCHETYPED",
+    "archetype_id": { "_type": "ARCHETYPE_ID", "value": "openEHR-DEMOGRAPHIC-PERSON.ferrobridge_person.v1" },
+    "template_id": { "_type": "TEMPLATE_ID", "value": "ferrobridge.person.v1" },
+    "rm_version": "1.1.0"
+  },
+  "identities": [
+    {
+      "_type": "PARTY_IDENTITY",
+      "name": { "_type": "DV_TEXT", "value": "Identity" },
+      "archetype_node_id": "at0003",
+      "details": {
+        "_type": "ITEM_TREE",
+        "name": { "_type": "DV_TEXT", "value": "Identity details" },
+        "archetype_node_id": "at0004",
+        "items": [
+          {
+            "_type": "ELEMENT",
+            "name": { "_type": "DV_TEXT", "value": "Name" },
+            "archetype_node_id": "at0005",
+            "value": { "_type": "DV_TEXT", "value": "Example Clinician" }
+          }
+        ]
+      }
+    }
+  ],
+  "details": {
+    "_type": "ITEM_TREE",
+    "name": { "_type": "DV_TEXT", "value": "Details" },
+    "archetype_node_id": "at0001",
+    "items": [
+      {
+        "_type": "ELEMENT",
+        "name": { "_type": "DV_TEXT", "value": "Identifier" },
+        "archetype_node_id": "at0002",
+        "value": { "_type": "DV_IDENTIFIER", "issuer": "urn:example:inferno-lane", "id": "clinician" }
+      }
+    ]
+  }
+}

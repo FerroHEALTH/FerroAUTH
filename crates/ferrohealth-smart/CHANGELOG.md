@@ -13,6 +13,14 @@ and this project adheres to
 
 ### Added
 
+- A claim path reads a claim whose name contains a dot. OpenID Connect
+  Core 1.0 §5.1.2 lets a claim name be any string, and Microsoft Entra ID
+  writes a directory extension attribute into a JWT as `extn.<name>`
+  (`optional-claims.md`, vendored under `docs/specs/entra-docs/`). At each
+  level of the path the member named by the longest run of the remaining
+  steps is taken first; a path that names no such member reads as before.
+  This holds for `role_claims`, the assurance claim, the patient claim and
+  every other claim path (#562).
 - A role claim whose value is a JSON object carries each member name as a
   role, for an issuer that keys what it knows of each role by the role:
   ZITADEL writes `urn:zitadel:iam:org:project:{projectId}:roles` as
