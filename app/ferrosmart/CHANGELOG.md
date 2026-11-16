@@ -17,3 +17,8 @@ and this project adheres to
   family's stack, the `[ferrosmart]` configuration with its issuer and
   `RS256` signing key ring (current, previous and next key), the RFC 8414
   metadata, the SMART configuration and the JWK Set (#514).
+- The PostgreSQL store with its embedded migrations, run under the
+  advisory lock of `sqlx` at start, and its readiness indicator; the client
+  registry of `[[ferrosmart.client]]` tables, each checked against SMART's
+  registration rules (a JWK Set by URL or by value, with `kty`, `kid` and
+  bare public members) and written to the store at every start (#514).

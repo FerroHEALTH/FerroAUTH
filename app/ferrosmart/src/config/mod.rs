@@ -23,6 +23,17 @@
 //! [ferrosmart.keys]
 //! private_key_file = "/run/secrets/ferrosmart-rs256.pem"
 //! next_private_key_file = "/run/secrets/ferrosmart-rs256-next.pem"
+//!
+//! [ferrosmart.database]
+//! url_file = "/run/secrets/ferrosmart-database-url"
+//!
+//! [[ferrosmart.client]]
+//! client_id = "bulk-export"
+//! name = "Bulk export"
+//! kind = "confidential_asymmetric"
+//! jwks_uri = "https://export.example.org/jwks.json"
+//! scopes = ["system/Patient.rs", "system/Observation.rs"]
+//! grant_types = ["client_credentials"]
 //! ```
 
 pub mod error;
@@ -104,6 +115,10 @@ pub struct FerroSmartSection {
     pub access_token_lifetime: Span,
     /// `[ferrosmart.keys]`: the key ring that signs every token.
     pub keys: KeysSection,
+    /// `[ferrosmart.database]`: the PostgreSQL database of the state.
+    pub database: DatabaseSection,
+    /// `[[ferrosmart.client]]`: the registered clients.
+    pub client: Vec<crate::clients::ClientSection>,
 }
 
 impl Default for FerroSmartSection {
@@ -112,6 +127,8 @@ impl Default for FerroSmartSection {
             issuer: String::new(),
             access_token_lifetime: Span::from_mins(5),
             keys: KeysSection::default(),
+            database: DatabaseSection::default(),
+            client: Vec::new(),
         }
     }
 }
@@ -146,6 +163,29 @@ impl Default for KeysSection {
             previous_private_key_file: None,
             previous_key_overlap: Span::from_secs(0),
             next_private_key_file: None,
+        }
+    }
+}
+
+/// `[ferrosmart.database]`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DatabaseSection {
+    /// The PostgreSQL connection URL, a secret; exclusive with `url_file`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<ferrohealth_secret::secret::Secret>,
+    /// The file holding the connection URL.
+    pub url_file: Option<PathBuf>,
+    /// The most connections one replica holds.
+    pub max_connections: u32,
+}
+
+impl Default for DatabaseSection {
+    fn default() -> Self {
+        Self {
+            url: None,
+            url_file: None,
+            max_connections: 16,
         }
     }
 }

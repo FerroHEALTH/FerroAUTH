@@ -18,6 +18,7 @@ use crate::cli::Cli;
 use crate::config::Config;
 use crate::config::settings::Settings;
 use crate::server::AppState;
+use crate::store::Store;
 
 /// How long `healthcheck` waits for the readiness answer, shorter than the
 /// five seconds a container `HEALTHCHECK` commonly allows.
@@ -114,7 +115,18 @@ async fn serve(settings: Settings, section: TelemetrySection) -> Result<ExitCode
 async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
     let listen = settings.server.listen;
     let section = settings.server.clone();
-    let state = Arc::new(AppState::new(settings));
+    let store = Store::connect(&settings.database_url, settings.max_connections)
+        .await
+        .map_err(|error| Failure::not_up(error).with_context("cannot reach the database"))?;
+    store
+        .migrate()
+        .await
+        .map_err(|error| Failure::not_up(error).with_context("cannot migrate the database"))?;
+    store
+        .register(&settings.clients)
+        .await
+        .map_err(|error| Failure::not_up(error).with_context("cannot register the clients"))?;
+    let state = Arc::new(AppState::new(settings, store));
     let listener = tokio::net::TcpListener::bind(listen)
         .await
         .map_err(|error| Failure::from(error).with_context("cannot bind the listen address"))?;

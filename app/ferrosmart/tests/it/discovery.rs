@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 use axum::body::Body;
 use ferrosmart::server::{AppState, JWKS_CACHE_CONTROL, router};
+use ferrosmart::store::Store;
 use http::{Request, StatusCode, header};
 use http_body_util::BodyExt as _;
 use serde_json::{Value, json};
@@ -18,7 +19,8 @@ use crate::support::{Keys, config, rsa_key};
 /// status, the headers and the JSON body.
 async fn get(text: &str, keys: &Keys, path: &str) -> (StatusCode, http::HeaderMap, Value) {
     let settings = config(text, keys).resolve().expect("resolves");
-    let app = router(Arc::new(AppState::new(settings)));
+    let store = Store::connect_lazy(&settings.database_url, 1).expect("the URL parses");
+    let app = router(Arc::new(AppState::new(settings, store)));
     let request = Request::get(path)
         .header(header::ACCEPT, "text/html")
         .body(Body::empty())

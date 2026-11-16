@@ -56,6 +56,12 @@ pub enum Error {
         #[source]
         source: ferrohealth_smart::client::assertion::AssertionError,
     },
+    /// A secret is set twice, or its `_file` sibling cannot be read.
+    #[error(transparent)]
+    Secret(#[from] ferrohealth_secret::file::SecretError),
+    /// A client table breaks a rule of the registry.
+    #[error(transparent)]
+    Client(#[from] crate::clients::ClientError),
     /// The keys of the ring repeat one another.
     #[error("`ferrosmart.keys` names one key twice")]
     KeyRing {

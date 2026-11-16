@@ -41,6 +41,9 @@ http.workspace = true
 jsonwebtoken.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# The store: the client registry and every piece of state (13.9).
+sqlx.workspace = true
+secrecy.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 tracing.workspace = true
@@ -52,6 +55,10 @@ aws-lc-rs.workspace = true
 base64.workspace = true
 http-body-util.workspace = true
 tempfile.workspace = true
+# The per-case database of the store cases.
+sqlx.workspace = true
+url.workspace = true
+secrecy.workspace = true
 tower = { workspace = true, features = ["util"] }
 
 [lints]

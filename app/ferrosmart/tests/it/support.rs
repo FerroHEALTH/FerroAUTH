@@ -64,16 +64,25 @@ impl Keys {
     }
 }
 
+/// The database URL a case that never reaches the database configures.
+pub(crate) const UNREACHED_DATABASE: &str = "postgres://ferrosmart@127.0.0.1:1/unreached";
+
 /// Returns the configuration `text` holds, with `[ferrosmart.keys]` naming
-/// `keys`' current key unless `text` names one.
+/// `keys`' current key unless `text` names one, and
+/// [`UNREACHED_DATABASE`] as the database unless `text` names one.
 pub(crate) fn config(text: &str, keys: &Keys) -> Config {
-    let text = if text.contains("private_key_file") {
-        text.to_owned()
-    } else {
-        format!(
-            "{text}\n[ferrosmart.keys]\nprivate_key_file = {:?}\n",
-            keys.current.display().to_string()
-        )
-    };
-    Config::from_sources(Some(&text), &BTreeMap::new()).expect("the configuration reads")
+    let mut environment = BTreeMap::new();
+    if !text.contains("[ferrosmart.database]") {
+        environment.insert(
+            String::from("FERROSMART__FERROSMART__DATABASE__URL"),
+            String::from(UNREACHED_DATABASE),
+        );
+    }
+    if !text.contains("private_key_file") {
+        environment.insert(
+            String::from("FERROSMART__FERROSMART__KEYS__PRIVATE_KEY_FILE"),
+            keys.current.display().to_string(),
+        );
+    }
+    Config::from_sources(Some(text), &environment).expect("the configuration reads")
 }
