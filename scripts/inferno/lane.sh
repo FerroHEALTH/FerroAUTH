@@ -14,7 +14,7 @@
 #
 # `run` expects, as the `nextest (core and axum)` job of ci.yml provides
 # them: a built `target/debug/ferrosmart`; the kit checked out at the
-# pinned commit in INFERNO_KIT with its bundle installed; PostgreSQL at
+# pinned commit in INFERNO_KIT; PostgreSQL at
 # LANE_PG (a superuser URL without a database); docker, openssl, psql, jq
 # and curl; and sudo for the two /etc/hosts names. It writes its files and
 # the logs to LANE_DIR.
@@ -176,25 +176,29 @@ run() {
     "$(pinned_image 'FerroEHR resource server image')" > /dev/null
   wait_for FerroEHR https://ehr.localhost:9443/ferroehr/rest/.well-known/smart-configuration
 
-  # Inferno trusts the lane's CA beside the system roots.
-  cat /etc/ssl/certs/ca-certificates.crt "$LANE_DIR/ca.crt" > "$LANE_DIR/trust.pem"
-  (
-    cd "$INFERNO_KIT"
-    export SSL_CERT_FILE="$LANE_DIR/trust.pem" APP_ENV=development
-    bundle exec inferno migrate > "$LANE_DIR/inferno-migrate.log" 2>&1
-    bundle exec puma > "$LANE_DIR/inferno-web.log" 2>&1 &
-    bundle exec sidekiq -r ./worker.rb > "$LANE_DIR/inferno-worker.log" 2>&1 &
-    for _ in $(seq 1 60); do
-      curl -fsS -o /dev/null http://localhost:4567 && break
-      sleep 2
-    done
-    bundle exec inferno execute_script "$lane/smart_stu2_2.yaml" 2> "$LANE_DIR/execute.log"
-  ) && status=0 || status=$?
+  # The kit runs in the Ruby image docs/VERSIONS.md pins, on the gems its
+  # Gemfile.lock locks, trusting the lane's CA beside the system roots.
+  docker run -d --name inferno-lane-kit --network host \
+    -v "$INFERNO_KIT:/kit" -v "$lane:/script" -v "$LANE_DIR:/lane:ro" -w /kit \
+    -e APP_ENV=development -e SSL_CERT_FILE=/tmp/trust.pem \
+    --add-host smart.localhost:127.0.0.1 --add-host ehr.localhost:127.0.0.1 \
+    "$(pinned_image 'Inferno runtime')" sh -c '
+      cat /etc/ssl/certs/ca-certificates.crt /lane/ca.crt > /tmp/trust.pem &&
+      bundle install --quiet && bundle exec inferno migrate &&
+      { bundle exec sidekiq -r ./worker.rb > /tmp/worker.log 2>&1 & } &&
+      exec bundle exec puma' > /dev/null
+  for _ in $(seq 1 150); do
+    curl -fsS -o /dev/null http://localhost:4567 && break
+    sleep 2
+  done
+  docker exec inferno-lane-kit bundle exec inferno execute_script /script/smart_stu2_2.yaml \
+    2> "$LANE_DIR/execute.log" && status=0 || status=$?
   cat "$LANE_DIR/execute.log"
+  docker logs inferno-lane-kit > "$LANE_DIR/inferno.log" 2>&1
   local session
-  session=$(grep -oE 'Session created: [0-9a-f-]+' "$LANE_DIR/execute.log" | head -1 | cut -d' ' -f3 || true)
+  session=$(grep -oE 'Session created: [A-Za-z0-9_-]+' "$LANE_DIR/execute.log" | head -1 | cut -d' ' -f3 || true)
   if [ -n "$session" ]; then
-    (cd "$INFERNO_KIT" && bundle exec inferno session results "$session") > "$LANE_DIR/results.json"
+    docker exec inferno-lane-kit bundle exec inferno session results "$session" > "$LANE_DIR/results.json"
     record "$LANE_DIR/results.json"
   fi
   pending

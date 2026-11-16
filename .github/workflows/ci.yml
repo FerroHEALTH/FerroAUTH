@@ -368,11 +368,6 @@ jobs:
           path: .inferno-kit
           persist-credentials: false
       - if: steps.inferno.outputs.run == 'true'
-        uses: ruby/setup-ruby@b3aaceaef7e0ee231b499e7b5f49c03fc1d32199 # v1.338.0
-        with:
-          working-directory: .inferno-kit
-          bundler-cache: true
-      - if: steps.inferno.outputs.run == 'true'
         name: The Inferno lane
         env:
           GH_TOKEN: ${{ github.token }}
