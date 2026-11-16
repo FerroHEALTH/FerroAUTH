@@ -34,3 +34,20 @@ and this project adheres to
   `RS256`, recorded in the store and answered with `no-store`. Each refusal
   is its RFC 6749 §5.2 error, and every issue and refusal writes an audit
   line (#514).
+- The introspection endpoint, `POST /introspect` (RFC 7662 with SMART App
+  Launch 2.2.0, Token Introspection): a client whose ceiling lists
+  `system/introspect` authenticates by its assertion or presents a bearer
+  token FerroSMART issued for its own issuer with that scope, and may
+  introspect any client's token. An active token answers `scope`,
+  `client_id`, `exp`, `iat`, `sub`, `aud`, `iss`, the grant's launch
+  context and `fhirUser`; an expired, revoked, forged or unknown token
+  answers `{"active": false}` alone (#518).
+- The revocation endpoint, `POST /revoke` (RFC 7009): a confidential client
+  by its assertion, a public client by `client_id`, each only for its own
+  tokens. Revoking a refresh token revokes its grant with every token under
+  it; an unknown token answers `200` (#518).
+- Migration 0005: the grants, the refresh tokens stored as their SHA-256,
+  the upstream sessions an `online_access` grant ends with, and the grant
+  of each access token, so revocation reaches every replica at once. The
+  RFC 8414 metadata names both endpoints and their client authentication
+  methods (#518).

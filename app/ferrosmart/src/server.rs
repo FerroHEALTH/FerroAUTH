@@ -22,13 +22,14 @@ use ferrohealth_health::lifecycle::Lifecycle;
 use ferrohealth_health::registry::{Check, HealthIndicator, Outcome, Registry};
 use ferrohealth_server::health::Health;
 use ferrohealth_server::stack::{Stack, StackPolicy};
-use ferrohealth_smart::metadata::ServerMetadata;
 use http::{HeaderValue, header};
 use serde_json::Value;
 
 use crate::client_keys::ClientKeySets;
 use crate::config::settings::Settings;
-use crate::discovery::{self, JWKS_ROUTE, SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE};
+use crate::discovery::{
+    self, INTROSPECT_ROUTE, JWKS_ROUTE, REVOKE_ROUTE, SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE,
+};
 use crate::store::Store;
 
 /// The `Cache-Control` of the JWK Set: an hour, and a next key is published
@@ -41,8 +42,8 @@ pub const JWKS_CACHE_CONTROL: &str = "public, max-age=3600";
 pub struct AppState {
     /// The settings the server runs on.
     settings: Settings,
-    /// The RFC 8414 metadata, built once.
-    metadata: ServerMetadata,
+    /// The RFC 8414 metadata document, built once.
+    metadata: Value,
     /// The SMART configuration, built once.
     smart: Value,
     /// The process's phase, which the drain moves.
@@ -60,8 +61,8 @@ impl AppState {
         let metadata = discovery::metadata(&settings);
         let smart = discovery::smart_configuration(&metadata);
         Self {
+            metadata: discovery::metadata_document(&metadata),
             settings,
-            metadata,
             smart,
             lifecycle: Lifecycle::default(),
             store,
@@ -103,6 +104,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(SMART_CONFIGURATION_ROUTE, get(smart_configuration))
         .route(JWKS_ROUTE, get(jwks))
         .route(TOKEN_ROUTE, post(crate::token::token))
+        .route(INTROSPECT_ROUTE, post(crate::introspect::introspect))
+        .route(REVOKE_ROUTE, post(crate::revoke::revoke))
         .with_state(Arc::clone(&state));
     let beside = Router::new()
         .route(&state.settings.metadata_path(), get(metadata))

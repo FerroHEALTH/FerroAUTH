@@ -8,6 +8,8 @@
 //! PostgreSQL advisory lock around them, so replicas starting together
 //! migrate once. No specification governs the storage: our own design.
 
+pub mod grant;
+
 use std::time::Duration;
 
 use secrecy::ExposeSecret as _;
@@ -31,7 +33,7 @@ pub enum StoreError {
     #[error("the database could not be migrated")]
     Migrate(#[from] sqlx::migrate::MigrateError),
     /// A stored row holds a value the server never writes.
-    #[error("the stored client `{client_id}` holds a value the server never writes")]
+    #[error("the stored row `{client_id}` holds a value the server never writes")]
     Corrupt {
         /// The client.
         client_id: String,
@@ -157,8 +159,8 @@ impl Store {
     /// Returns [`StoreError::Database`] when the statement fails.
     pub async fn record_token(&self, token: &IssuedToken<'_>) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO access_token (jti, client_id, subject, audience, scope, issued_at, expires_at) \
-             VALUES ($1, $2, $3, $4, $5, to_timestamp($6), to_timestamp($7))",
+            "INSERT INTO access_token (jti, client_id, subject, audience, scope, issued_at, expires_at, grant_id) \
+             VALUES ($1, $2, $3, $4, $5, to_timestamp($6), to_timestamp($7), $8)",
         )
         .bind(token.jti)
         .bind(token.client_id)
@@ -167,12 +169,14 @@ impl Store {
         .bind(token.scope)
         .bind(token.issued_at)
         .bind(token.expires_at)
+        .bind(token.grant_id)
         .execute(&self.pool)
         .await?;
         Ok(())
     }
 
-    /// Deletes the assertion ids and the access tokens past their expiry.
+    /// Deletes the assertion ids and the access and refresh tokens past
+    /// their expiry, and the grants an hour old with no token left.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when a statement fails.
@@ -183,6 +187,18 @@ impl Store {
         sqlx::query("DELETE FROM access_token WHERE expires_at < now()")
             .execute(&self.pool)
             .await?;
+        sqlx::query("DELETE FROM refresh_token WHERE expires_at < now()")
+            .execute(&self.pool)
+            .await?;
+        // NOTE: no specification governs this: our own design, an hour's margin so
+        // a grant recorded just before its first token is never swept between them.
+        sqlx::query(
+            "DELETE FROM authorization_grant g WHERE g.created_at < now() - interval '1 hour' \
+             AND NOT EXISTS (SELECT 1 FROM refresh_token r WHERE r.grant_id = g.id) \
+             AND NOT EXISTS (SELECT 1 FROM access_token t WHERE t.grant_id = g.id)",
+        )
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 
@@ -285,4 +301,6 @@ pub struct IssuedToken<'a> {
     pub issued_at: i64,
     /// Its `exp`, in seconds since the epoch.
     pub expires_at: i64,
+    /// The grant it was issued under; none for a client credentials token.
+    pub grant_id: Option<&'a str>,
 }

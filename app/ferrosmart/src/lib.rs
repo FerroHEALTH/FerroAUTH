@@ -15,6 +15,8 @@ pub mod clients;
 pub mod command;
 pub mod config;
 pub mod discovery;
+pub mod introspect;
+pub mod revoke;
 pub mod server;
 pub mod store;
 pub mod token;
