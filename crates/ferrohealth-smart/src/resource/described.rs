@@ -360,10 +360,7 @@ pub fn describe<T>(
     } else {
         (Candidate::is_backend_eligible, Purpose::BackendServices)
     };
-    let mut chosen: Vec<Candidate<T>> = candidates
-        .into_iter()
-        .filter(eligible)
-        .collect();
+    let mut chosen: Vec<Candidate<T>> = candidates.into_iter().filter(eligible).collect();
     if chosen.len() > 1 {
         let mut issuers: Vec<SecretUrl> = chosen
             .iter()

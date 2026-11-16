@@ -258,13 +258,6 @@ pub fn document(metadata: &ServerMetadata, options: &SmartOptions) -> Value {
     if options.purpose == Purpose::BackendServices {
         return backend_services(metadata, options);
     }
-    let mut document = Map::new();
-    let mut put = |name: &str, value: Option<Value>| {
-        if let Some(value) = value {
-            document.insert(String::from(name), value);
-        }
-    };
-    let text = |value: &Option<String>| value.clone().map(Value::String);
     let list = |items: &[String]| Value::from(items.iter().map(String::as_str).collect::<Vec<_>>());
     let keep = |advertised: &[String], allowed: &[&str]| -> Vec<String> {
         allowed
@@ -276,59 +269,43 @@ pub fn document(metadata: &ServerMetadata, options: &SmartOptions) -> Value {
     let grant_types = keep(&metadata.grant_types(), &GRANT_TYPES);
     let auth_methods = keep(&metadata.token_endpoint_auth_methods(), &AUTH_METHODS);
     let sso = openid_connect(metadata, options);
+    let mut document = Members::default();
     if sso {
-        put("issuer", Some(Value::String(metadata.issuer.clone())));
+        document.put("issuer", Some(Value::String(metadata.issuer.clone())));
     }
-    put("jwks_uri", text(&metadata.jwks_uri));
-    put(
+    document.url("jwks_uri", metadata.jwks_uri.as_ref());
+    document.url(
         "authorization_endpoint",
-        text(&metadata.authorization_endpoint),
+        metadata.authorization_endpoint.as_ref(),
     );
-    put("token_endpoint", text(&metadata.token_endpoint));
-    put(
+    document.url("token_endpoint", metadata.token_endpoint.as_ref());
+    document.put(
         "token_endpoint_auth_methods_supported",
         Some(list(&auth_methods)),
     );
-    put("grant_types_supported", Some(list(&grant_types)));
-    put(
-        "registration_endpoint",
-        text(&metadata.registration_endpoint),
-    );
-    if !options.scopes_supported.is_empty() {
-        put("scopes_supported", Some(list(&options.scopes_supported)));
-    }
-    if !options.services.is_empty() {
-        put(
-            "services",
-            Some(Value::Object(
-                options
-                    .services
-                    .iter()
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect(),
-            )),
-        );
-    }
-    put(
+    document.put("grant_types_supported", Some(list(&grant_types)));
+    let scopes: Vec<&str> = options
+        .scopes_supported
+        .iter()
+        .map(String::as_str)
+        .collect();
+    document.declared(metadata, &scopes, options);
+    document.put(
         "response_types_supported",
         metadata.response_types_supported.as_deref().map(list),
     );
-    put(
-        "introspection_endpoint",
-        text(&metadata.introspection_endpoint),
-    );
-    put("revocation_endpoint", text(&metadata.revocation_endpoint));
+    document.endpoints(metadata);
     let mut challenge: Vec<&str> = vec!["S256"];
     for method in metadata.code_challenge_methods_supported.iter().flatten() {
         if method != "plain" && !challenge.contains(&method.as_str()) {
             challenge.push(method);
         }
     }
-    put(
+    document.put(
         "code_challenge_methods_supported",
         Some(Value::from(challenge)),
     );
-    put(
+    document.put(
         "capabilities",
         Some(Value::from(capabilities(
             metadata,
@@ -338,7 +315,60 @@ pub fn document(metadata: &ServerMetadata, options: &SmartOptions) -> Value {
             sso,
         ))),
     );
-    Value::Object(document)
+    document.into_value()
+}
+
+/// A discovery document being written, member by member.
+#[derive(Default)]
+struct Members(Map<String, Value>);
+
+impl Members {
+    /// Writes `value` as the member `name`, when there is one.
+    fn put(&mut self, name: &str, value: Option<Value>) {
+        if let Some(value) = value {
+            self.0.insert(String::from(name), value);
+        }
+    }
+
+    /// Writes the URL `value` as the member `name`, when there is one.
+    fn url(&mut self, name: &str, value: Option<&String>) {
+        self.put(name, value.cloned().map(Value::String));
+    }
+
+    /// Writes the issuer's `registration_endpoint`, then `scopes` as
+    /// `scopes_supported` and the product's `services`, each when not empty.
+    fn declared(&mut self, metadata: &ServerMetadata, scopes: &[&str], options: &SmartOptions) {
+        self.url(
+            "registration_endpoint",
+            metadata.registration_endpoint.as_ref(),
+        );
+        if !scopes.is_empty() {
+            self.put("scopes_supported", Some(Value::from(scopes.to_vec())));
+        }
+        if !options.services.is_empty() {
+            let services = options
+                .services
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect();
+            self.put("services", Some(Value::Object(services)));
+        }
+    }
+
+    /// Writes the issuer's `introspection_endpoint` and
+    /// `revocation_endpoint`, each when it names one.
+    fn endpoints(&mut self, metadata: &ServerMetadata) {
+        self.url(
+            "introspection_endpoint",
+            metadata.introspection_endpoint.as_ref(),
+        );
+        self.url("revocation_endpoint", metadata.revocation_endpoint.as_ref());
+    }
+
+    /// Returns the document.
+    fn into_value(self) -> Value {
+        Value::Object(self.0)
+    }
 }
 
 /// The capabilities a Backend Services document lists of its own: the
@@ -375,33 +405,23 @@ const SYSTEM_SCOPE_PREFIX: &str = "system/";
 /// requires of every document.
 #[must_use]
 pub fn backend_services(metadata: &ServerMetadata, options: &SmartOptions) -> Value {
-    let mut document = Map::new();
-    let mut put = |name: &str, value: Option<Value>| {
-        if let Some(value) = value {
-            document.insert(String::from(name), value);
-        }
-    };
-    let text = |value: &Option<String>| value.clone().map(Value::String);
-    put("jwks_uri", text(&metadata.jwks_uri));
-    put("token_endpoint", text(&metadata.token_endpoint));
-    put(
+    let mut document = Members::default();
+    document.url("jwks_uri", metadata.jwks_uri.as_ref());
+    document.url("token_endpoint", metadata.token_endpoint.as_ref());
+    document.put(
         "token_endpoint_auth_methods_supported",
         Some(serde_json::json!(["private_key_jwt"])),
     );
-    put(
+    document.put(
         "token_endpoint_auth_signing_alg_values_supported",
         metadata
             .token_endpoint_auth_signing_alg_values_supported
             .clone()
             .map(Value::from),
     );
-    put(
+    document.put(
         "grant_types_supported",
         Some(serde_json::json!(["client_credentials"])),
-    );
-    put(
-        "registration_endpoint",
-        text(&metadata.registration_endpoint),
     );
     let scopes: Vec<&str> = options
         .scopes_supported
@@ -409,27 +429,9 @@ pub fn backend_services(metadata: &ServerMetadata, options: &SmartOptions) -> Va
         .map(String::as_str)
         .filter(|scope| scope.starts_with(SYSTEM_SCOPE_PREFIX))
         .collect();
-    if !scopes.is_empty() {
-        put("scopes_supported", Some(Value::from(scopes)));
-    }
-    if !options.services.is_empty() {
-        put(
-            "services",
-            Some(Value::Object(
-                options
-                    .services
-                    .iter()
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect(),
-            )),
-        );
-    }
-    put(
-        "introspection_endpoint",
-        text(&metadata.introspection_endpoint),
-    );
-    put("revocation_endpoint", text(&metadata.revocation_endpoint));
-    put(
+    document.declared(metadata, &scopes, options);
+    document.endpoints(metadata);
+    document.put(
         "code_challenge_methods_supported",
         Some(serde_json::json!(["S256"])),
     );
@@ -446,8 +448,8 @@ pub fn backend_services(metadata: &ServerMetadata, options: &SmartOptions) -> Va
             capabilities.push(capability);
         }
     }
-    put("capabilities", Some(Value::from(capabilities)));
-    Value::Object(document)
+    document.put("capabilities", Some(Value::from(capabilities)));
+    document.into_value()
 }
 
 /// Returns whether the document advertises `sso-openid-connect` under
