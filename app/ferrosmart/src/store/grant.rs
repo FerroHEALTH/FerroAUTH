@@ -379,6 +379,47 @@ impl Store {
         Ok(ended.rows_affected() == 1)
     }
 
+    /// Ends the live upstream sessions of the provider `issuer` that a
+    /// Logout Token names: the one whose `sid` is `sid`, or with no `sid`
+    /// every session of the person `subject` there (OpenID Connect
+    /// Back-Channel Logout 1.0 §2.4, §2.7). It revokes the `online_access`
+    /// grants in them with every token under them, in one transaction, and
+    /// returns how many sessions ended.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when a statement fails; nothing is
+    /// changed then.
+    pub async fn log_out(
+        &self,
+        issuer: &str,
+        subject: Option<&str>,
+        sid: Option<&str>,
+    ) -> Result<usize, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let ended: Vec<String> = sqlx::query_scalar(
+            "UPDATE upstream_session SET ended_at = now() WHERE issuer = $1 AND ended_at IS NULL \
+             AND (($3::text IS NOT NULL AND sid = $3) OR ($3::text IS NULL AND subject = $2)) \
+             RETURNING id",
+        )
+        .bind(issuer)
+        .bind(subject)
+        .bind(sid)
+        .fetch_all(&mut *tx)
+        .await?;
+        let grants: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM authorization_grant WHERE access = 'online' AND revoked_at IS NULL \
+             AND upstream_session = ANY($1)",
+        )
+        .bind(&ended)
+        .fetch_all(&mut *tx)
+        .await?;
+        for grant in &grants {
+            revoke_in(&mut tx, grant).await?;
+        }
+        tx.commit().await?;
+        Ok(ended.len())
+    }
+
     /// Revokes the access token `jti` alone, and returns whether it was
     /// unrevoked.
     ///
