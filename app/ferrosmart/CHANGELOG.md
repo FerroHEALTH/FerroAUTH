@@ -119,3 +119,9 @@ and this project adheres to
   forwards the records to an Audit Record Repository over the ITI-20 ATX:
   FHIR Feed, and `GET /audit` reads them by subject and time with a token
   carrying `system/AuditEvent.rs` (#534).
+- The Inferno SMART App Launch test kit lane: the kit's STU 2.2 suite runs
+  in CI against FerroSMART with FerroEHR as the resource server, every
+  exchange over TLS, and fails on any result that differs from the expected
+  results, which hold each test to `pass` outside a listed exception. Group
+  3, Backend Services, runs; the groups whose steps have not landed are
+  listed as pending in every run (#520).

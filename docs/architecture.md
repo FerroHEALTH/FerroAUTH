@@ -3098,6 +3098,42 @@ test reads the user's resource from it.
 The suite drives a browser through the authorization page, so the lane
 runs the test provider with a scripted login.
 
+The lane is steps of CI's `nextest (core and axum)` job, so its result is
+part of the `conclusion` check; `scripts/inferno/lane.sh` runs it. It puts
+FerroSMART, FerroEHR (the release `docs/VERSIONS.md` pins) as the resource
+server and the kit (its pinned commit, on the Ruby and gems that commit
+locks) on the runner's host network, with a development CA made for the run
+that signs `smart.localhost` and `ehr.localhost`, so every exchange is TLS.
+FerroEHR's REST root is the `url` the kit is given: it serves the SMART
+document there (SMART on openEHR master04, Service Discovery), built from
+FerroSMART's metadata. `inferno execute_script` runs
+`app/ferrosmart/inferno/smart_stu2_2.yaml` and fails unless every result
+matches `smart_stu2_2_expected.json`. The lane's own files hold the rest,
+and the lane refuses a change that lets one drift:
+
+- `groups.tsv` marks each group `run` or `pending` with the issues it waits
+  on. Every run lists the pending groups in the log and the job summary,
+  and warns once their issues are closed. Group 3 runs; groups 1, 2 and 4
+  wait on #515 with #516, #517 and #518 respectively.
+- `exceptions.tsv` lists each test of a run group that the expected results
+  do not hold to `pass`, with its reason; any other test expected to be
+  anything but `pass` fails the run. Two rows stand. The kit's
+  `well_known_capabilities_stu2` requires `authorization_endpoint` and the
+  `authorization_code` grant in every discovery document, which FerroSMART
+  advertises once #515 lands; SMART itself requires `authorization_endpoint`
+  only with a launch capability (`smart conformance`, Metadata).
+  `smart_cors_metadata_request` reads `GET [base]/metadata`, the FHIR
+  server's CapabilityStatement, which FerroEHR, an openEHR CDR, does not
+  serve.
+- Each result is recorded in the job summary against the SMART App Launch
+  2.2.0 requirements the kit's coverage map ties its test to.
+
+Group 3 at the first run: every test of SMART Backend Services
+Authorization passes (TLS 1.2 or newer, `smart backend-services`; the
+invalid grant type, the invalid client assertion and the invalid JWT
+refused; the success response and its body), and of Discovery the
+well-known endpoint and its CORS answer pass beside the two exceptions.
+
 ### 13.14 The build order
 
 Step 1 (#513) is this section. Steps 2 to 9 are the sub-issues of #512 in
