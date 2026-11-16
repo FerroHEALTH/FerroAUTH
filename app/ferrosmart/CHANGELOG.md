@@ -13,6 +13,15 @@ and this project adheres to
 
 ### Added
 
+- The patient picker at an openEHR resource server: for a standalone launch
+  with `launch/patient` at an openEHR base whose `[[ferrosmart.resource]]`
+  table names a `subject_namespace`, the signed-in person enters the
+  patient's identifier and FerroSMART looks the EHR up through ITS-REST
+  (`GET [base]/ehr?subject_id=…&subject_namespace=…`) with a token of the
+  person's own, living 30 seconds and revoked after use. The chosen EHR is
+  looked up again before its `ehrId` enters the launch context, the token
+  response and the access token, and every lookup writes the EHDS access
+  record (#571).
 - The Inferno lane runs its FHIR server on the family's own stack: FerroBRIDGE's
   facade, with FerroEHR as its CDR, serves the person's `fhirUser` as a
   Practitioner, and Keycloak is the upstream login. Group 4, Token
