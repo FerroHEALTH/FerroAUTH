@@ -34,3 +34,9 @@ and this project adheres to
   `RS256`, recorded in the store and answered with `no-store`. Each refusal
   is its RFC 6749 §5.2 error, and every issue and refusal writes an audit
   line (#514).
+- The Inferno SMART App Launch test kit lane: the kit's STU 2.2 suite runs
+  in CI against FerroSMART with FerroEHR as the resource server, every
+  exchange over TLS, and fails on any result that differs from the expected
+  results, which hold each test to `pass` outside a listed exception. Group
+  3, Backend Services, runs; the groups whose steps have not landed are
+  listed as pending in every run (#520).

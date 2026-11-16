@@ -1,0 +1,82 @@
+[
+  {
+    "test_id": "smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-well_known_endpoint",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-well_known_capabilities_stu2",
+    "result": "fail",
+    "result_message": "Well-known configuration does not include `authorization_endpoint`"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_well_known_endpoint",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_backend_services-smart_discovery_stu2_2-smart_cors_metadata_request",
+    "result": "fail",
+    "result_message": "Unexpected response status: expected 200, but received 404"
+  },
+  {
+    "test_group_id": "smart_stu2_2-smart_backend_services-smart_discovery_stu2_2",
+    "result": "fail"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_backend_services-backend_services_authorization-smart_backend_services_token_tls_version",
+    "result": "pass",
+    "messages": [
+      {
+        "message": "https://smart.localhost:8443/token correctly denied SSL 2.0 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/token correctly denied SSL 3.0 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/token correctly denied TLS 1.0 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/token correctly denied TLS 1.1 connection as required.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/token denied TLS 1.2 connection.",
+        "type": "info"
+      },
+      {
+        "message": "https://smart.localhost:8443/token accepted TLS 1.3 connection.",
+        "type": "info"
+      }
+    ]
+  },
+  {
+    "test_id": "smart_stu2_2-smart_backend_services-backend_services_authorization-smart_backend_services_invalid_grant_type",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_backend_services-backend_services_authorization-smart_backend_services_invalid_client_assertion",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_backend_services-backend_services_authorization-smart_backend_services_invalid_jwt",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_backend_services-backend_services_authorization-smart_backend_services_auth_request_success",
+    "result": "pass"
+  },
+  {
+    "test_id": "smart_stu2_2-smart_backend_services-backend_services_authorization-smart_backend_services_auth_response_body",
+    "result": "pass"
+  },
+  {
+    "test_group_id": "smart_stu2_2-smart_backend_services-backend_services_authorization",
+    "result": "pass"
+  },
+  {
+    "test_group_id": "smart_stu2_2-smart_backend_services",
+    "result": "fail"
+  }
+]

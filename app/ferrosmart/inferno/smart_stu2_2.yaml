@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# The Inferno execution script of the lane (#520): `inferno execute_script`
+# (inferno_core 1.4.3) creates one `smart_stu2_2` session and runs each group
+# groups.tsv marks `run`. A group marked `pending` gets its step here when the
+# FerroSMART step it waits on has merged. The run fails unless every result
+# matches smart_stu2_2_expected.json, which scripts/inferno/lane.sh holds to
+# `pass` for every test outside not-applicable.tsv.
+
+sessions:
+  - suite: smart_stu2_2
+
+comparison_config:
+  expected_results_file: smart_stu2_2_expected.json
+
+steps:
+  - state_description: Session created
+    status: created
+    start_run:
+      runnable: "3"
+      inputs:
+        url: https://ehr.localhost:9443/ferroehr/rest
+        backend_services_smart_auth_info:
+          auth_type: backend_services
+          use_discovery: "true"
+          client_id: inferno-backend-services
+          requested_scopes: system/composition-*.r
+          encryption_algorithm: ES384
+    action_description: Run group 3, Backend Services
+
+  - state_description: Group 3 Backend Services finished
+    status: done
+    last_completed: "3"
+    action: END_SCRIPT
+    action_description: End the script
