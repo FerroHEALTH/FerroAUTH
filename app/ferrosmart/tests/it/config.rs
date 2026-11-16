@@ -256,3 +256,37 @@ fn a_missing_database_url_is_refused() {
         Err(Error::Secret(_))
     ));
 }
+
+// NOTE: openEHR ITS-REST 1.1.0, ehr_get_by_subject, the namespace an EHR is looked
+// up by is matched against `EHR_STATUS.subject`, which only an openEHR server holds.
+#[test]
+fn a_subject_namespace_belongs_to_an_openehr_base_and_is_never_empty() {
+    let keys = Keys::new();
+    let with = |kind: &str, namespace: &str| {
+        config(
+            &format!(
+                "[ferrosmart]\nissuer = \"https://smart.example.org\"\n\
+                 [[ferrosmart.resource]]\nbase = \"https://ehr.example.org/openehr/v1\"\n\
+                 kind = {kind:?}\nsubject_namespace = {namespace:?}"
+            ),
+            &keys,
+        )
+        .resolve()
+        .map_err(Box::new)
+    };
+    let settings = with("openehr", "examples").expect("resolves");
+    assert_eq!(
+        Some("examples"),
+        settings
+            .subject_namespaces
+            .get("https://ehr.example.org/openehr/v1")
+            .map(String::as_str)
+    );
+    for (kind, namespace) in [("fhir", "examples"), ("openehr", " ")] {
+        let refused = with(kind, namespace).map(|_| ()).map_err(|error| *error);
+        assert!(
+            matches!(refused, Err(Error::Resource { .. })),
+            "{kind} {namespace:?}"
+        );
+    }
+}

@@ -51,6 +51,8 @@ use crate::pages::{self, Fault};
 use crate::server::AppState;
 use crate::store::{IssuedToken, Pending};
 
+pub mod openehr;
+
 /// The route of the picker under the issuer.
 pub const PICKER_ROUTE: &str = "/picker";
 
@@ -68,17 +70,37 @@ pub const MAX_RESULTS: usize = 20;
 /// How long one search or read may take.
 const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Returns whether the picker can search `audience`: a FHIR resource server
-/// the configuration names. An openEHR server's EHR selection is not this
-/// picker's.
+/// Returns whether the picker can choose a patient at `audience`: a FHIR
+/// resource server the configuration names, or an openEHR one with a
+/// subject namespace to look an EHR up in.
 #[must_use]
 pub fn searchable(state: &AppState, audience: &str) -> bool {
     let settings = state.settings();
+    if settings
+        .openehr_resources
+        .iter()
+        .any(|base| base == audience)
+    {
+        return settings.subject_namespaces.contains_key(audience);
+    }
     settings.resources.iter().any(|base| base == audience)
-        && !settings
-            .openehr_resources
-            .iter()
-            .any(|base| base == audience)
+}
+
+/// Returns the subject namespace of `audience` when it is an openEHR
+/// resource server the picker looks EHRs up at.
+fn openehr_namespace<'a>(state: &'a AppState, audience: &str) -> Option<&'a str> {
+    let settings = state.settings();
+    settings
+        .openehr_resources
+        .iter()
+        .any(|base| base == audience)
+        .then(|| {
+            settings
+                .subject_namespaces
+                .get(audience)
+                .map(String::as_str)
+        })
+        .flatten()
 }
 
 /// A patient the search returned, as the page shows them: the id and the
@@ -112,9 +134,12 @@ pub enum PickerError {
     /// The resource server refused the search or the read.
     #[error("the resource server answered {0}")]
     Refused(http::StatusCode),
-    /// The answer was no Bundle or Patient.
-    #[error("the resource server's answer is no FHIR resource")]
+    /// The answer was no Bundle, Patient or EHR.
+    #[error("the resource server's answer is not the resource asked for")]
     Unreadable,
+    /// The resource server's URL could not be built from its base.
+    #[error("the resource server's URL could not be built")]
+    Url(#[source] url::ParseError),
     /// No id could be drawn.
     #[error("no token id could be drawn")]
     Random(#[source] aws_lc_rs::error::Unspecified),
@@ -135,6 +160,9 @@ pub async fn picker_get(
     let Ok(params) = Params::parse(query.unwrap_or_default().as_bytes(), &[]) else {
         return pages::fault(&state, Fault::BadRequest);
     };
+    if let Some(namespace) = openehr_namespace(&state, &pending.audience) {
+        return openehr::look_up(&state, &headers, &pending, from, namespace, &params).await;
+    }
     let name = params
         .get("name")
         .map(str::trim)
@@ -160,7 +188,14 @@ pub async fn picker_get(
         }
         pairs.append_pair("_count", &MAX_RESULTS.to_string());
     }
-    match as_person(&state, &pending, from, &url, Action::Query).await {
+    match as_person(
+        &state,
+        &pending,
+        from,
+        &fhir_ask(&url, &pending.audience, Action::Query),
+    )
+    .await
+    {
         Ok(Value::Object(bundle)) if bundle.get("resourceType") == Some(&Value::from("Bundle")) => {
             let found = patients(&Value::Object(bundle));
             pages::picker(
@@ -195,6 +230,13 @@ pub async fn picker_post(
     if !crate::authorize::constant_eq(sent.as_bytes(), pending.form_token.as_bytes()) {
         return pages::fault(&state, Fault::BadRequest);
     }
+    if let Some(namespace) = openehr_namespace(&state, &pending.audience) {
+        let context = match openehr::choose(&state, &pending, from, namespace, &form).await {
+            Ok(context) => context,
+            Err(response) => return *response,
+        };
+        return enter(&state, &pending, &context, from).await;
+    }
     let Some(id) = form.get("patient").filter(|id| is_fhir_id(id)) else {
         return pages::fault(&state, Fault::BadRequest);
     };
@@ -204,7 +246,14 @@ pub async fn picker_post(
     };
     // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `patient` is the
     // id of a patient the person may see, so the choice is read again as them.
-    match as_person(&state, &pending, from, &url, Action::Read).await {
+    match as_person(
+        &state,
+        &pending,
+        from,
+        &fhir_ask(&url, &pending.audience, Action::Read),
+    )
+    .await
+    {
         Ok(resource) if resource.get("id").and_then(Value::as_str) == Some(id) => {}
         Ok(_) => return pages::server_error(&state, &PickerError::Unreadable),
         Err(PickerError::Refused(_)) => return pages::fault(&state, Fault::BadRequest),
@@ -214,24 +263,26 @@ pub async fn picker_post(
         patient: Some(id.to_owned()),
         ..Context::default()
     };
-    if let Err(error) = state
-        .store()
-        .set_launch_context(&pending.id, &context)
-        .await
-    {
-        return pages::server_error(&state, &error);
+    enter(&state, &pending, &context, from).await
+}
+
+/// Puts the chosen `context` into the launch of `pending` and sends the
+/// browser on to the consent.
+async fn enter(state: &AppState, pending: &Pending, context: &Context, from: IpAddr) -> Response {
+    if let Err(error) = state.store().set_launch_context(&pending.id, context).await {
+        return pages::server_error(state, &error);
     }
     let (Some(subject), Some(client_id)) = (&pending.subject, &pending.client_id) else {
-        return pages::fault(&state, Fault::Lapsed);
+        return pages::fault(state, Fault::Lapsed);
     };
     let offered = pending.offered_scope.clone().unwrap_or_default();
     let offered: Vec<&str> = offered
         .split(' ')
         .filter(|scope| !scope.is_empty())
         .collect();
-    let back = Back::of(&state, &pending);
+    let back = Back::of(state, pending);
     onward(
-        &state,
+        state,
         &pending.id,
         subject,
         client_id,
@@ -299,22 +350,101 @@ struct PickerClaims<'a> {
     jti: &'a str,
     /// FerroSMART itself, the client the token is issued to.
     client_id: &'a str,
-    /// [`PICKER_SCOPE`].
+    /// [`PICKER_SCOPE`], or [`openehr::EHR_SCOPE`] at an openEHR server.
     scope: &'a str,
     /// The person's `fhirUser`.
     #[serde(rename = "fhirUser", skip_serializing_if = "Option::is_none")]
     fhir_user: Option<&'a str>,
 }
 
-/// Fetches `url` as the signed-in person of `pending` with a token issued
-/// for this request alone, records the access, revokes the token and
-/// returns the resource.
+/// One request the picker sends as the signed-in person: where, with
+/// which scope, what it accepts, and how its access is recorded.
+struct Ask<'a> {
+    /// The URL asked.
+    url: &'a Url,
+    /// The one scope the token carries.
+    scope: &'static str,
+    /// The media type asked for.
+    accept: &'static str,
+    /// The access the answer makes, for its record.
+    describe: Describe<'a>,
+}
+
+/// How an [`Ask`] describes the access its answer made.
+type Describe<'a> = Box<dyn Fn(&Result<Value, PickerError>) -> Access + Send + Sync + 'a>;
+
+/// What an access record says of one request beyond who asked: the action,
+/// what it delivered, whose data and the request itself (Regulation (EU)
+/// 2025/327 Annex II 3.2).
+struct Access {
+    /// The action.
+    action: Action,
+    /// The resources delivered, when the request was answered.
+    delivered: Option<usize>,
+    /// Whose data it was.
+    subject: DataSubject,
+    /// The request.
+    request: Request,
+}
+
+/// Returns the FHIR search or read of `url` at the base `audience`.
+fn fhir_ask<'a>(url: &'a Url, audience: &'a str, action: Action) -> Ask<'a> {
+    Ask {
+        url,
+        scope: PICKER_SCOPE,
+        accept: "application/fhir+json",
+        describe: Box::new(move |fetched| {
+            let delivered = match fetched {
+                Ok(Value::Object(bundle)) if action == Action::Query => {
+                    Some(patients(&Value::Object(bundle.clone())).len())
+                }
+                Ok(_) => Some(1),
+                Err(_) => None,
+            };
+            let patient = (action == Action::Read)
+                .then(|| {
+                    url.path_segments()
+                        .and_then(|mut segments| segments.next_back())
+                })
+                .flatten()
+                .map(|id| PatientIdentifier {
+                    namespace: Some(audience.to_owned()),
+                    value: SecretString::from(id.to_owned()),
+                });
+            Access {
+                action,
+                delivered,
+                subject: DataSubject {
+                    patient,
+                    ..DataSubject::default()
+                },
+                request: Request {
+                    id: None,
+                    operation: String::from(if action == Action::Read {
+                        "read"
+                    } else {
+                        "search-type"
+                    }),
+                    operation_system: Some(String::from("http://hl7.org/fhir/restful-interaction")),
+                    resource: Some(String::from("Patient")),
+                    query: Some(ihe_atna::balp::request_text(url)),
+                    stored_query: None,
+                    client_address: None,
+                    correlation: None,
+                },
+            }
+        }),
+    }
+}
+
+/// Sends `ask` as the signed-in person of `pending` with a token issued for
+/// this request alone, records the access, revokes the token and returns
+/// the answer.
 async fn as_person(
     state: &AppState,
     pending: &Pending,
     from: IpAddr,
-    url: &Url,
-    action: Action,
+    ask: &Ask<'_>,
 ) -> Result<Value, PickerError> {
     let Some(subject) = pending.subject.as_deref() else {
         return Err(PickerError::Unreadable);
@@ -331,7 +461,7 @@ async fn as_person(
         iat: issued_at,
         jti: &jti,
         client_id: &settings.issuer,
-        scope: PICKER_SCOPE,
+        scope: ask.scope,
         fhir_user: pending.fhir_user.as_deref(),
     };
     // NOTE: RFC 9068 §2.1, typ at+jwt.
@@ -360,7 +490,7 @@ async fn as_person(
         client_id: &settings.issuer,
         subject,
         audience: &pending.audience,
-        scope: PICKER_SCOPE,
+        scope: ask.scope,
         issued_at,
         expires_at,
         grant_id: None,
@@ -376,8 +506,8 @@ async fn as_person(
         )
         .await
         .map_err(PickerError::Record)?;
-    let fetched = fetch(state, url, &token).await;
-    let recorded = record_access(state, pending, subject, from, url, action, &fetched).await;
+    let fetched = fetch(state, ask, &token).await;
+    let recorded = record_access(state, pending, subject, from, (ask.describe)(&fetched)).await;
     let revoked = revoke(
         state,
         &jti,
@@ -389,13 +519,13 @@ async fn as_person(
     fetched
 }
 
-/// Fetches `url` with the bearer `token`.
-async fn fetch(state: &AppState, url: &Url, token: &str) -> Result<Value, PickerError> {
+/// Sends `ask` with the bearer `token`.
+async fn fetch(state: &AppState, ask: &Ask<'_>, token: &str) -> Result<Value, PickerError> {
     let answer = state
         .fhir()
-        .get(url.clone())
+        .get(ask.url.clone())
         .bearer_auth(token)
-        .header(http::header::ACCEPT, "application/fhir+json")
+        .header(http::header::ACCEPT, ask.accept)
         .timeout(REQUEST_TIMEOUT)
         .send()
         .await
@@ -424,21 +554,19 @@ async fn revoke(state: &AppState, jti: &str, happening: Happening<'_>) -> Result
         .map_err(PickerError::Record)
 }
 
-/// Stores the access record of the search or read `url` answered with
-/// `fetched` (Regulation (EU) 2025/327 Annex II 3.2).
+/// Stores the access record of one request the picker sent, as `access`
+/// describes it (Regulation (EU) 2025/327 Annex II 3.2).
 async fn record_access(
     state: &AppState,
     pending: &Pending,
     subject: &str,
     from: IpAddr,
-    url: &Url,
-    action: Action,
-    fetched: &Result<Value, PickerError>,
+    access: Access,
 ) -> Result<(), PickerError> {
     let settings = state.settings();
     let recorded = jiff::Timestamp::now();
-    // NOTE: Regulation (EU) 2025/327 Art 14(1), a Patient's demographics are none
-    // of the priority categories, so the access is recorded as of no category.
+    // NOTE: Regulation (EU) 2025/327 Art 14(1), a Patient's demographics and an
+    // EHR's id are none of the priority categories, so the access has no category.
     let categories = CategoryMap::default().classify(&Evidence::no_category());
     let origins = vec![Origin {
         endpoint: Some(pending.audience.clone()),
@@ -453,54 +581,25 @@ async fn record_access(
     let keys = || origins.iter().filter_map(Origin::key);
     let retention = RetentionPolicy::default().retain(recorded, &categories, keys());
     let labels = LabelPolicy::default().label(&categories, keys());
-    let delivered = match fetched {
-        Ok(Value::Object(bundle)) if action == Action::Query => {
-            Some(patients(&Value::Object(bundle.clone())).len())
-        }
-        Ok(_) => Some(1),
-        Err(_) => None,
+    let outcome = if access.delivered.is_some() {
+        Outcome::Success
+    } else {
+        Outcome::MinorFailure
     };
-    let patient = (action == Action::Read)
-        .then(|| {
-            url.path_segments()
-                .and_then(|mut segments| segments.next_back())
-        })
-        .flatten()
-        .map(|id| PatientIdentifier {
-            namespace: Some(pending.audience.clone()),
-            value: SecretString::from(id.to_owned()),
-        });
     let record = AccessRecord {
-        action,
+        action: access.action,
         recorded,
-        outcome: if fetched.is_ok() {
-            Outcome::Success
-        } else {
-            Outcome::MinorFailure
-        },
+        outcome,
         outcome_description: None,
         accessor: accessor(&settings.issuer, pending, subject),
-        subject: DataSubject {
-            patient,
-            ..DataSubject::default()
-        },
+        subject: access.subject,
         categories,
-        delivered,
+        delivered: access.delivered,
         origins,
         origin_count: None,
         request: Request {
-            id: None,
-            operation: String::from(if action == Action::Read {
-                "read"
-            } else {
-                "search-type"
-            }),
-            operation_system: Some(String::from("http://hl7.org/fhir/restful-interaction")),
-            resource: Some(String::from("Patient")),
-            query: Some(ihe_atna::balp::request_text(url)),
-            stored_query: None,
             client_address: Some(from),
-            correlation: None,
+            ..access.request
         },
         retention,
         labels,

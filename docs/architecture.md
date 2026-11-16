@@ -2905,9 +2905,30 @@ specification governs.
    the grant's context map, the token response's `patient` and the access
    token's claim. Every search and read is an access record of Regulation
    (EU) 2025/327 Annex II 3.2 through `ehds-logging`. A failed search is an
-   error page, never an empty context. An openEHR resource server's EHR
-   selection is not this picker's. The search call and the page are our
+   error page, never an empty context. The search call and the page are our
    own design.
+
+   At an openEHR resource server `launch/patient` asks for "both FHIR
+   `Patient` resource and corresponding openEHR `EHR` instance", and "For
+   Standalone Launch, the user should be prompted to select the openEHR
+   `EHR`" (`soe master07`, Context Selection). The same picker does that
+   (#571) for an openEHR base whose `[[ferrosmart.resource]]` table names
+   its `subject_namespace`, the namespace its EHRs name their subjects in;
+   a base without one offers no `launch/patient`. The person enters the
+   patient's identifier, and FerroSMART looks the EHR up with `GET
+   [base]/ehr?subject_id=…&subject_namespace=…` (openEHR ITS-REST 1.1.0,
+   `ehr_get_by_subject`), under the same guard: a token of the person's own
+   for the one base, living 30 seconds, revoked after the one request, with
+   the scope `user/composition-*.r`, since the EHR has no scope family and
+   is held to the `composition-` family over every template (3.9). A `404`
+   is "no EHR you may see"; any other failure is an error page. The chosen
+   EHR is looked up again as the person before its `ehrId` enters the
+   launch context, and each lookup is an access record naming the patient
+   by the identifier and namespace and the EHR it reached, with the
+   operation id in the `urn:openehr:its-rest:operation` system. No FHIR
+   `Patient` id is known at an openEHR base, so the context carries
+   `ehrId` and no `patient`. The form and the single namespace per base
+   are our own design.
 5. **Scope narrowing.** The granted scope is the intersection of the
    request, the client's registered ceiling, the user's roles mapped to
    scopes by configuration, and the consent the user gave; SMART allows the
@@ -3125,6 +3146,7 @@ previous_key_overlap = "1h"                   # "0s": published while it is conf
 [[ferrosmart.resource]]                       # each base an `aud` may name; at least one
 base = "https://ehr.example.org/fhir"
 kind = "fhir"                                 # or "openehr"
+# subject_namespace = "examples"              # openEHR only: the EHR subjects' namespace the picker looks up in
 
 [ferrosmart.upstream]                         # any OpenID Connect provider, discovered at start
 issuer = "https://idp.example.org/realms/hospital"
@@ -3203,7 +3225,7 @@ Every secret is a `_file` key read through `ferrohealth-secret`; the
 | Scope escalation | narrowing on every grant, refresh never widens, policy as content checked at load | `smart app-launch`, Refresh access token |
 | A forged, replayed or stolen EHR launch | a launch value bound to an authenticated EHR client, the app and the `aud`, single use and five minutes long, stored hashed; or a launch JWT checked like a client assertion, its `jti` used once | our own design (13.6 item 3) |
 | An upstream IdP that is compromised or misconfigured | one configured issuer per upstream, its ID Token checked by `oidc core §3.1.3.7`, claims mapped explicitly, nothing taken from unlisted claims | `oidc core §3.1.3.7` |
-| Patient data on the picker page | the search runs with the user's own delegated access at the FHIR server; the page shows only display fields | our own design |
+| Patient data on the picker page | the search, or at an openEHR server the EHR lookup, runs with the user's own delegated access; the page shows only display fields and the one EHR id | our own design |
 | Credential leakage in logs | no token, code, secret or assertion in a log line or `Debug`, as the library crates already hold | `CLAUDE.md` hard rule |
 | Request flooding | per-client and per-address rate limits on `/token` and `/authorize`, the body ceiling of `ferrohealth-server` | `rfc6819 §4.4.1.11` |
 
@@ -3447,3 +3469,153 @@ the rest is FerroSMART's own API of 13.6 item 3.
    (13.6 item 6), and the token response carries the context the EHR
    registered. A launch the app does not redeem within five minutes, or
    redeems for another app or base, fails, and the EHR launches again.
+
+### 13.18 Upstream providers: Microsoft Entra ID
+
+Entra ID runs upstream of FerroSMART for login only (#524). It is a hosted
+service, so no example runs it: `app/ferrosmart/examples/entra/ferrosmart.toml`
+is FerroSMART's side, and the contract tests of
+`app/ferrosmart/tests/it/upstream_vendors.rs` run that file against a stub
+serving the discovery document, key set and token answer Entra ID publishes,
+at its own paths, through a standalone launch to a token whose ID Token
+carries the mapped `fhirUser`. Citations are to `docs/specs/entra-docs/`,
+`docs/identity-platform/`.
+
+| Setting | Value | Ground |
+|---|---|---|
+| App registration | Supported account types: single tenant only | `quickstart-register-app.md`, Register an application |
+| Authority | `https://login.microsoftonline.com/{tenant id}/v2.0`, FerroSMART's `upstream.issuer`; its metadata is at `/.well-known/openid-configuration` under it | `v2-protocols-oidc.md`, Find your app's OpenID configuration document URI; `oidc discovery §4` |
+| Platform and redirect URI | Web, FerroSMART's `{issuer}/callback`, `https` | `how-to-add-redirect-uri.md`, Add a redirect URI; `reply-url.md`, What are the restrictions of redirect URIs; `rfc9700 §2.1` |
+| Client credential | a client secret, which FerroSMART sends as HTTP Basic | `how-to-add-credentials.md`, Add a client secret; `v2-oauth2-auth-code-flow.md`, Request an access token with a client_secret ("The Basic auth pattern ... is also supported"); `oidc core §9` |
+| PKCE | `S256` on every request, which the code flow takes | `v2-oauth2-auth-code-flow.md`, Request an authorization code (`code_challenge_method`); `rfc7636 §4.2` |
+| Scopes | `openid profile`; `profile` brings `name`, `preferred_username` and `oid` | `id-token-claims-reference.md`, Payload claims |
+| App role | `clinician`: allowed member types Users/Groups, value `clinician`, assigned to people under Enterprise applications; the ID Token carries it in `roles` | `howto-add-app-roles-in-apps.md`, Declare roles for an application, Usage scenario of app roles |
+| `fhirUser` | a directory extension attribute `fhirUser` registered on the application through Microsoft Graph, set per user, and the ID Token optional claim `extension_<appid>_fhirUser`, which Entra ID emits as `extn.fhirUser` | `schema-extensions.md`, Register and use directory extensions, Emit claims using Graph or PowerShell; `optional-claims.md`, Configure directory extension optional claims, Directory extension formatting |
+
+On FerroSMART's side, `[ferrosmart.upstream]` names the tenant authority and
+the Application (client) ID, `fhir_user_claim = "extn.fhirUser"` and
+`role_claims = ["roles"]`. A claim name holding a dot is read whole before a
+dotted path steps into an object (`ferrohealth_smart::roles`, #562), which is
+what reads `extn.fhirUser`; no code knows Entra ID. Three readings of the
+vendored text are decisions:
+
+1. **The person is keyed by `sub`.** Entra ID's `sub` is immutable and
+   pairwise per application, and `oid` is the same person across the
+   tenant's applications (`id-token-claims-reference.md`, Use claims to
+   reliably identify a user). FerroSMART derives its pairwise `sub` from the
+   issuer and `sub` (13.6 item 9); `oid` and `tid` are not read, and the
+   tenant is fixed by the authority, so `tid` adds nothing.
+2. **Roles come from app roles, never groups.** A person in more groups than
+   the token holds gets the `_claim_names` and `_claim_sources` overage
+   instead of `groups` (`id-token-claims-reference.md`, Groups overage
+   claim), which points at Microsoft Graph and which FerroSMART does not
+   follow. App roles belong to the application, so their values hold in
+   every tenant where group ids and names differ
+   (`howto-add-app-roles-in-apps.md`, App roles vs. groups), and a group
+   assigned to an app role gives its members that role in `roles`.
+3. **The multitenant authorities are refused.** `/common` and
+   `/organizations` are no issuer: the issuer in a token is the person's
+   tenant (`howto-convert-app-to-be-multi-tenant.md`, Update your code to
+   send requests to `/common`), so their metadata names an issuer other than
+   the URL it was read under, which `oidc discovery §4.3` has a relying party
+   refuse. FerroSMART fails discovery with `IssuerMismatch` and serves no
+   login; one FerroSMART logs in the people of one tenant.
+
+Entra ID advises a certificate over a client secret in production
+(`how-to-add-credentials.md`, Add a client secret). That is `private_key_jwt`
+client authentication at the provider (`oidc core §9`, `rfc7523`), which
+FerroSMART's relying party does not send: it would be one generic mechanism
+for every provider, and until it exists the setup uses a client secret.
+
+### 13.19 Upstream providers: Okta
+
+Okta runs upstream of FerroSMART for login only (#525). It is a hosted
+service, so no example runs it: `app/ferrosmart/examples/okta/ferrosmart.toml`
+is FerroSMART's side, run by the same contract tests against a stub of the
+discovery documents, key set and token answer Okta publishes. Okta's pages
+are "All rights reserved", so `scripts/vendor/okta.sh` pins them by URL and
+sha256 into the git-ignored `.vendor-cache/okta/` and the table cites them by
+page and section; none of their text is in the tree
+(`docs/specs/okta/PROVENANCE.md`).
+
+| Setting | Value | Ground |
+|---|---|---|
+| Authorization server | the custom authorization server `default`, issuer `https://{Okta domain}/oauth2/default`; its RFC 8414 metadata is at `/.well-known/oauth-authorization-server/oauth2/default` | Authorization servers: Issuer - custom authorization server, Discovery endpoints - default custom authorization server; Custom Authorization Servers, Retrieve the OAuth 2.0 metadata; `rfc8414 §3` |
+| App integration | a Web Application: the Authorization Code grant, which a web app always has | Implement the Authorization Code grant (Set up your app) |
+| Redirect URI | FerroSMART's `{issuer}/callback` as the one Sign-in redirect URI | Implement the Authorization Code grant (Sign-in redirect URIs); `rfc9700 §2.1` |
+| Client authentication | the client secret as HTTP Basic, Okta's default method | OpenID Connect & OAuth 2.0 API, Client authentication; `oidc core §9` |
+| PKCE | `S256` on every request; the metadata names `S256` in `code_challenge_methods_supported` | Custom Authorization Servers, Retrieve the OAuth 2.0 metadata; `rfc7636 §4.2` |
+| `fhir_user` claim | a custom claim on the authorization server: include in the ID Token, Always, value type Expression reading the person's `fhirUser` profile attribute | Customize tokens returned from Okta, Add a custom claim to a token |
+| `groups` claim | a groups claim on the authorization server: include in the ID Token, Always, a Groups filter matching FerroSMART's role groups | Customize tokens with a groups claim, Add a groups claim for a custom authorization server |
+| Group | `clinician`, assigned to the app integration, which `[[ferrosmart.role]]` maps to `user/` scopes | Overview, Subtle behavior (a user is assigned to the client); 13.6 item 5 |
+
+On FerroSMART's side, `[ferrosmart.upstream]` names the authorization server
+and the client, `fhir_user_claim = "fhir_user"` and `role_claims =
+["groups"]`. No code knows Okta. Three readings are decisions:
+
+1. **The custom authorization server, never the org one.** Okta's pages
+   disagree on whether the org authorization server takes a custom claim in
+   the ID Token: Authorization servers (Which authorization server should
+   you use) says it does, Customize tokens returned from Okta (Add a custom
+   claim to a token) says only a custom authorization server does. The
+   procedure that is written down is the custom one, so FerroSMART's setup
+   uses it.
+2. **The groups filter is narrow.** The groups claim holds at most 100
+   groups, and a request matching more fails (Overview, ID token claims), so
+   the filter names FerroSMART's role groups, never every group.
+3. **`nonce` is in the ID Token.** The sample ID Token payload of the
+   Overview carries none, while the custom claim guide's carries the one
+   its request sent. OpenID Connect Core 1.0 §2 has a provider include the
+   `nonce` the request sent; FerroSMART sends one on every request and
+   refuses an ID Token without it (`oidc core §3.1.3.7` item 11), so the
+   stub follows the specification.
+
+### 13.20 Upstream providers: ZITADEL
+
+ZITADEL v4.20.3 (the release the ZITADEL documentation pin names, run
+unmodified) runs upstream of FerroSMART for login only (#523). The example
+is `compose.zitadel.yaml`, an override of the quickstart, and
+`scripts/idp/zitadel-launch.sh` runs the same pieces in CI: a SMART
+standalone launch through ZITADEL to a token response whose ID Token and
+access token carry the person's `fhirUser`, with a `user/` scope a ZITADEL
+role grants. Citations are to `docs/specs/zitadel/`, ZITADEL's
+`apps/docs/content/` unless named otherwise.
+
+`app/ferrosmart/examples/zitadel/bootstrap.sh` makes everything through
+ZITADEL's v2 APIs, with the IAM_OWNER token the first instance writes
+(`cmd/setup/steps.yaml`, FirstInstance). Every id it can choose is fixed;
+ZITADEL generates the OIDC client id, the client secret and the target's
+signing key, so the script writes them out with the FerroSMART
+configuration that names them.
+
+| Setting | Value | Ground |
+|---|---|---|
+| Project | `ferrosmart`, role assertion on, the role `clinician` | `proto/zitadel/project/v2/project_service.proto` (CreateProject, AddProjectRole); `guides/integrate/retrieve-user-roles.mdx` |
+| Application | `ferrosmart-login`: an OIDC web app, the code flow, `client_secret_basic`, one redirect URI `{issuer}/callback`, roles and userinfo asserted into the ID Token | `proto/zitadel/application/v2/application_service.proto` (CreateApplication, CreateOIDCApplicationRequest); `oidc core §9`; `rfc9700 §2.1` |
+| PKCE | `S256` on every request FerroSMART sends; ZITADEL applies it to a web app that sends it | `rfc7636 §4.2`; `apis/openidoauth/endpoints.mdx` |
+| User | `clinician`, its role granted, the metadata `fhir_user` | `proto/zitadel/user/v2/user_service.proto` (AddHumanUser, SetUserMetadata); `proto/zitadel/authorization/v2/authorization_service.proto` |
+| `fhirUser` | an Actions v2 execution on the `preuserinfo` function calls the example's target, `tools/zitadel-fhir-user`, which checks the `ZITADEL-Signature` and answers `append_claims` with `fhirUser` from the metadata | `guides/integrate/actions/usage.mdx` (PreUserinfo, Content Signing); `pkg/actions/signing.go`; `proto/zitadel/action/v2/` |
+| Target address | ZITADEL refuses a target on a private address by default; the example lifts `localhost`, `127.0.0.0/8` and `::1/128` from the deny list, where its target listens beside ZITADEL, and keeps the rest | `cmd/defaults.yaml`, HTTPClient.DenyList |
+| Roles | `urn:zitadel:iam:org:project:ferrosmart:roles`, an object whose member names are the roles, read by `ferrohealth_smart::roles` (3.4, #543) | `guides/integrate/retrieve-user-roles.mdx` |
+| Audience | ZITADEL names the project beside the client in every ID Token's `aud`, so `trusted_audiences = ["ferrosmart"]` | `oidc core §3.1.3.7` items 3 and 4 |
+
+On FerroSMART's side `[ferrosmart.upstream]` names ZITADEL's issuer and
+the generated client, `fhir_user_claim = "fhirUser"`, the role claim and
+the trusted audience. No code knows ZITADEL: `trusted_audiences` is
+`ferrohealth_smart::oidc::RelyingParty::with_trusted_audiences`, the item 3
+rule ("additional audiences not trusted by the Client") for any provider,
+and an ID Token with several audiences must then carry an `azp` naming the
+client (item 4).
+
+The role claim's shape was checked against a live v4.20.3: the server
+writes the object `retrieve-user-roles.mdx` shows
+(`{"clinician": {"<orgId>": "<orgDomain>"}}`), and the array
+`apis/openidoauth/claims.mdx` shows does not occur. FerroHEALTH/FerroAUTH#565
+is the upstream report.
+
+ZITADEL has no password grant (`apis/openidoauth/grant-types.mdx`), so the
+CI launch logs in with ZITADEL's custom login flow
+(`guides/integrate/login-ui/oidc-standard.mdx`): a session with a password
+check, then the callback of the auth request, with the login client's
+token (`scripts/idp/authorize.sh`). A person uses the Login v2 UI the
+example runs at `http://localhost:3000/ui/v2/login`.

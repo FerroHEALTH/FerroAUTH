@@ -98,7 +98,10 @@ impl RelyingParty {
         let claims = jsonwebtoken::decode::<LogoutClaims>(token, &key, &validation)
             .map_err(|source| OidcError::LogoutToken { source })?
             .claims;
-        if !claims.audience.is_only(&self.client_id) {
+        if !claims
+            .audience
+            .is_trusted(&self.client_id, &self.trusted_audiences)
+        {
             return Err(OidcError::Audience);
         }
         let rule = |rule| OidcError::LogoutClaims { rule };

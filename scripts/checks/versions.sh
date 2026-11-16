@@ -351,6 +351,12 @@ grep -qF "@$want" compose.yaml ||
 want="$(grep -oE 'sha256:[0-9a-f]{64}' <<< "$(corpus_pin_cell "Keycloak test image")" | head -n1)"
 grep -qF "@$want" compose.keycloak.yaml ||
   fail "compose.keycloak.yaml does not run the Keycloak image $want"
+for item in "ZITADEL image" "ZITADEL Login image" "curl image" "Rust build image" "PostgreSQL test image"; do
+  want="$(grep -oE 'sha256:[0-9a-f]{64}' <<< "$(corpus_pin_cell "$item")" | head -n1)"
+  [ -n "$want" ] || fail "docs/VERSIONS.md pins no digest for the $item"
+  grep -qF "@$want" compose.zitadel.yaml ||
+    fail "compose.zitadel.yaml does not run the $item $want"
+done
 want="$(grep -oE 'sha256:[0-9a-f]{64}' <<< "$(corpus_pin_cell "FerroSMART image base")" | head -n1)"
 [ -n "$want" ] || fail "docs/VERSIONS.md pins no FerroSMART image base digest"
 grep -qF "@$want" docker/ferrosmart/Dockerfile ||

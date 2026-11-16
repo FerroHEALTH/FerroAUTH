@@ -10,8 +10,8 @@
 #
 #   scripts/idp/standalone-launch.sh LOGIN <issuer> <client_id> <redirect_uri> <aud> <scope>
 #
-# LOGIN names how the provider's login form is answered: `keycloak` posts the
-# username and password to the form `kc-form-login` names. The person is
+# LOGIN names how the provider's login is answered, `keycloak` or `zitadel`
+# (scripts/idp/authorize.sh). The person is
 # read from LAUNCH_USER and LAUNCH_PASSWORD. It prints the token response
 # and fails on any step that does not answer as the specification says.
 set -euo pipefail
