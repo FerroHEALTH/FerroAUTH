@@ -62,6 +62,9 @@ pub struct AppState {
     relying_party: Option<RelyingParty>,
     /// The audit lane every login and token is recorded in.
     audit: Audit,
+    /// The HTTP client the patient picker searches the resource servers
+    /// with.
+    fhir: reqwest::Client,
 }
 
 impl AppState {
@@ -81,6 +84,7 @@ impl AppState {
             client_keys: ClientKeySets::new(reqwest::Client::new()),
             relying_party: None,
             audit,
+            fhir: reqwest::Client::new(),
         }
     }
 
@@ -106,6 +110,12 @@ impl AppState {
     #[must_use]
     pub const fn client_keys(&self) -> &ClientKeySets {
         &self.client_keys
+    }
+
+    /// Returns the HTTP client of the patient picker.
+    #[must_use]
+    pub const fn fhir(&self) -> &reqwest::Client {
+        &self.fhir
     }
 
     /// Returns the audit lane.
@@ -162,6 +172,10 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             CONSENT_ROUTE,
             get(authorize::consent_get).post(authorize::consent_post),
+        )
+        .route(
+            crate::picker::PICKER_ROUTE,
+            get(crate::picker::picker_get).post(crate::picker::picker_post),
         )
         .route(
             MANAGE_ROUTE,

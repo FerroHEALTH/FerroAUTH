@@ -158,3 +158,13 @@ and this project adheres to
   codes are in `urn:ferrosmart:audit-event`, our own design where no IHE or
   BALP pattern exists, and a write whose record cannot be committed does
   not happen (#554).
+- The patient picker of a standalone launch: a client that may ask for
+  `launch/patient` at a FHIR resource server is shown, after the login and
+  before the consent, a page that searches `Patient` by name or identifier
+  as the signed-in person, with a token of FerroSMART's own carrying their
+  pairwise `sub` and `fhirUser`, scope `user/Patient.rs`, living 30 seconds
+  and revoked after the request. The chosen patient is read again as them,
+  enters the launch context, and reaches the token response and the access
+  token as an EHR launch's does. Every search and read writes the access
+  record of Regulation (EU) 2025/327 Annex II 3.2 through `ehds-logging`,
+  and a failed search is an error page (#516).

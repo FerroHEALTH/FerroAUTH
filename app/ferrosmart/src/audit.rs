@@ -537,6 +537,9 @@ pub enum Event {
     /// An upstream session ended by a back-channel logout, with the grants
     /// under it (OpenID Connect Back-Channel Logout 1.0 §2.7).
     SessionEnded,
+    /// The short-lived token the patient picker searches with, issued for
+    /// the signed-in person (`docs/architecture.md` §13.6 item 4).
+    PickerToken,
 }
 
 impl Event {
@@ -554,6 +557,7 @@ impl Event {
             Self::RefreshReused => "refresh-reused",
             Self::CodeReused => "code-reused",
             Self::SessionEnded => "session-ended",
+            Self::PickerToken => "picker-token",
         }
     }
 
@@ -569,6 +573,7 @@ impl Event {
             Self::RefreshReused => "Refresh token reused",
             Self::CodeReused => "Authorization code reused",
             Self::SessionEnded => "Upstream session ended",
+            Self::PickerToken => "Patient picker token issued",
         }
     }
 
@@ -580,7 +585,7 @@ impl Event {
         let own = Coded::fixed(OWN_EVENTS, self.code(), self.display());
         match self {
             Self::SessionEnded => (USER_AUTHENTICATION, vec![LOGOUT, own], "E"),
-            Self::CodeIssued => (USER_AUTHENTICATION, vec![own], "C"),
+            Self::CodeIssued | Self::PickerToken => (USER_AUTHENTICATION, vec![own], "C"),
             Self::RefreshRotated => (USER_AUTHENTICATION, vec![own], "E"),
             Self::ConsentRemembered => {
                 (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "C")

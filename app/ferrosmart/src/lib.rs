@@ -23,6 +23,7 @@ pub mod introspect;
 pub mod launch;
 pub mod logout;
 pub mod pages;
+pub mod picker;
 pub mod refresh;
 pub mod revoke;
 pub mod server;
