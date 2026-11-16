@@ -24,7 +24,9 @@ use tower::ServiceExt as _;
 use url::Url;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers};
 
-use crate::support::{Database, Keys, RESOURCE, audit, config, from_client, iua_71, records};
+use crate::support::{
+    Database, Keys, RESOURCE, audit, commit, config, events, from_client, iua_71, records,
+};
 
 /// FerroSMART's issuer in every case.
 const ISSUER: &str = "https://smart.example.org";
@@ -496,6 +498,10 @@ async fn a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens() {
     // NOTE: OAuth 2.1 draft §4.1.3, a second use is refused and revokes.
     let (status, _, body) = smart.post("/token", &exchange, None).await;
     assert_eq!(StatusCode::BAD_REQUEST, status);
+    assert!(
+        events(&records(&smart.store).await).contains(&String::from("code-reused")),
+        "the reuse is recorded"
+    );
     assert!(body.contains("invalid_grant"));
     let jti = access["jti"].as_str().expect("a jti");
     assert!(
@@ -876,6 +882,19 @@ async fn a_remembered_consent_answers_again_until_it_is_withdrawn() {
     );
     let (_, headers, _) = smart.get(&callback, Some(&cookie)).await;
     assert_eq!("/consent", location(&headers).path(), "asked again");
+    // NOTE: docs/architecture.md §13.2, each code and each consent change commits
+    // with its record.
+    let happened = events(&records(&smart.store).await);
+    for event in [
+        "authorization-code",
+        "consent-remembered",
+        "consent-withdrawn",
+    ] {
+        assert!(
+            happened.contains(&String::from(event)),
+            "{event}: {happened:?}"
+        );
+    }
     smart.stop().await;
 }
 
@@ -989,7 +1008,9 @@ async fn an_online_access_launch_ends_with_its_upstream_login() {
             .await
             .expect("the grant names its session")
     };
-    assert!(smart.store.end_session(&session).await.expect("ended"));
+    let mut tx = smart.store.begin().await.expect("begins");
+    assert!(tx.end_session(&session).await.expect("ended"));
+    commit(tx).await;
     // NOTE: docs/architecture.md §13.6 item 7, online_access ends with the upstream login.
     let next = renewed["refresh_token"].as_str().expect("rotated");
     let (status, refused) = refresh(&smart, next).await;
@@ -1007,11 +1028,9 @@ async fn withdrawing_a_consent_revokes_the_grants_it_covered() {
     )
     .expect("claims");
     let subject = access["sub"].as_str().expect("a sub");
-    smart
-        .store
-        .revoke_consent(subject, "app")
-        .await
-        .expect("withdrawn");
+    let mut tx = smart.store.begin().await.expect("begins");
+    tx.revoke_consent(subject, "app").await.expect("withdrawn");
+    commit(tx).await;
     // NOTE: docs/architecture.md §13.6 item 6, revoking a consent revokes its grants.
     let (status, refused) = refresh(&smart, token).await;
     assert_eq!(StatusCode::BAD_REQUEST, status);

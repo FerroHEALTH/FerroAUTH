@@ -11,7 +11,7 @@
 use serde_json::Value;
 use sqlx::Row as _;
 
-use crate::store::{Store, StoreError};
+use crate::store::{Store, StoreError, Transaction};
 
 /// How long a grant's refresh tokens may outlive the person's presence
 /// (SMART App Launch 2.2.0, Scopes for requesting a refresh token).
@@ -260,85 +260,6 @@ impl Store {
         .transpose()
     }
 
-    /// Redeems the refresh token whose SHA-256 is `hash` for `client_id`,
-    /// in one transaction that holds the token's row: a live token is
-    /// marked used and its successor `successor` (a SHA-256 too) recorded
-    /// under the same grant, lapsing as `idle` says; a token used before
-    /// revokes its grant (RFC 9700 §4.14.2; OAuth 2.1 draft §4.3.1).
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Database`] when a statement fails; nothing is
-    /// changed then, and [`StoreError::Corrupt`] for a row the server never
-    /// writes.
-    pub async fn rotate(
-        &self,
-        hash: &str,
-        client_id: &str,
-        successor: &str,
-        idle: IdleUntil,
-    ) -> Result<Rotation, StoreError> {
-        let mut tx = self.pool.begin().await?;
-        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "SELECT r.used_at IS NOT NULL AS used, ({LIVE_REFRESH}) AS active, {GRANT_COLUMNS} \
-             FROM refresh_token r JOIN authorization_grant g ON g.id = r.grant_id \
-             LEFT JOIN upstream_session s ON s.id = g.upstream_session \
-             WHERE r.token_hash = $1 FOR UPDATE OF r"
-        )))
-        .bind(hash)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let Some(row) = row else {
-            return Ok(Rotation::Invalid);
-        };
-        let grant = read_grant(&row)?;
-        if grant.client_id != client_id {
-            return Ok(Rotation::OtherClient);
-        }
-        if row.try_get::<bool, _>("used")? {
-            revoke_in(&mut tx, &grant.id).await?;
-            tx.commit().await?;
-            return Ok(Rotation::Reused { grant_id: grant.id });
-        }
-        let expires_at = match grant.access {
-            Some(Access::Offline) => idle.offline,
-            Some(Access::Online) => idle.online,
-            None => return Ok(Rotation::Invalid),
-        };
-        if !row.try_get::<bool, _>("active")? {
-            return Ok(Rotation::Invalid);
-        }
-        sqlx::query("UPDATE refresh_token SET used_at = now() WHERE token_hash = $1")
-            .bind(hash)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(
-            "INSERT INTO refresh_token (token_hash, grant_id, predecessor, expires_at) \
-             VALUES ($1, $2, $3, to_timestamp($4))",
-        )
-        .bind(successor)
-        .bind(&grant.id)
-        .bind(hash)
-        .bind(expires_at)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(Rotation::Rotated(grant))
-    }
-
-    /// Revokes the grant `grant_id` with every refresh and access token
-    /// issued under it, in one transaction, and returns whether the grant
-    /// was live.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Database`] when a statement fails; nothing is
-    /// changed then.
-    pub async fn revoke_grant(&self, grant_id: &str) -> Result<bool, StoreError> {
-        let mut tx = self.pool.begin().await?;
-        let revoked = revoke_in(&mut tx, grant_id).await?;
-        tx.commit().await?;
-        Ok(revoked)
-    }
-
     /// Records the upstream login `session` of the person `subject` at the
     /// provider `issuer`, with the provider's session id `sid` when its ID
     /// Token carried one.
@@ -362,36 +283,6 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(())
-    }
-
-    /// Ends the upstream session `session`, and returns whether it was
-    /// live; the `online_access` grants in it refresh no more.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Database`] when the statement fails.
-    pub async fn end_session(&self, session: &str) -> Result<bool, StoreError> {
-        let ended = sqlx::query(
-            "UPDATE upstream_session SET ended_at = now() WHERE id = $1 AND ended_at IS NULL",
-        )
-        .bind(session)
-        .execute(&self.pool)
-        .await?;
-        Ok(ended.rows_affected() == 1)
-    }
-
-    /// Revokes the access token `jti` alone, and returns whether it was
-    /// unrevoked.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Database`] when the statement fails.
-    pub async fn revoke_access_token(&self, jti: &str) -> Result<bool, StoreError> {
-        let revoked = sqlx::query(
-            "UPDATE access_token SET revoked_at = now() WHERE jti = $1 AND revoked_at IS NULL",
-        )
-        .bind(jti)
-        .execute(&self.pool)
-        .await?;
-        Ok(revoked.rows_affected() == 1)
     }
 }
 
@@ -451,4 +342,107 @@ async fn revoke_in(
     .execute(&mut **tx)
     .await?;
     Ok(revoked.rows_affected() == 1)
+}
+
+impl Transaction {
+    /// Redeems the refresh token whose SHA-256 is `hash` for `client_id`,
+    /// in one transaction that holds the token's row: a live token is
+    /// marked used and its successor `successor` (a SHA-256 too) recorded
+    /// under the same grant, lapsing as `idle` says; a token used before
+    /// revokes its grant (RFC 9700 §4.14.2; OAuth 2.1 draft §4.3.1).
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when a statement fails; nothing is
+    /// changed then, and [`StoreError::Corrupt`] for a row the server never
+    /// writes.
+    pub async fn rotate(
+        &mut self,
+        hash: &str,
+        client_id: &str,
+        successor: &str,
+        idle: IdleUntil,
+    ) -> Result<Rotation, StoreError> {
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT r.used_at IS NOT NULL AS used, ({LIVE_REFRESH}) AS active, {GRANT_COLUMNS} \
+             FROM refresh_token r JOIN authorization_grant g ON g.id = r.grant_id \
+             LEFT JOIN upstream_session s ON s.id = g.upstream_session \
+             WHERE r.token_hash = $1 FOR UPDATE OF r"
+        )))
+        .bind(hash)
+        .fetch_optional(&mut *self.tx)
+        .await?;
+        let Some(row) = row else {
+            return Ok(Rotation::Invalid);
+        };
+        let grant = read_grant(&row)?;
+        if grant.client_id != client_id {
+            return Ok(Rotation::OtherClient);
+        }
+        if row.try_get::<bool, _>("used")? {
+            revoke_in(&mut self.tx, &grant.id).await?;
+            return Ok(Rotation::Reused { grant_id: grant.id });
+        }
+        let expires_at = match grant.access {
+            Some(Access::Offline) => idle.offline,
+            Some(Access::Online) => idle.online,
+            None => return Ok(Rotation::Invalid),
+        };
+        if !row.try_get::<bool, _>("active")? {
+            return Ok(Rotation::Invalid);
+        }
+        sqlx::query("UPDATE refresh_token SET used_at = now() WHERE token_hash = $1")
+            .bind(hash)
+            .execute(&mut *self.tx)
+            .await?;
+        sqlx::query(
+            "INSERT INTO refresh_token (token_hash, grant_id, predecessor, expires_at) \
+             VALUES ($1, $2, $3, to_timestamp($4))",
+        )
+        .bind(successor)
+        .bind(&grant.id)
+        .bind(hash)
+        .bind(expires_at)
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(Rotation::Rotated(grant))
+    }
+    /// Revokes the grant `grant_id` with every refresh and access token
+    /// issued under it, in one transaction, and returns whether the grant
+    /// was live.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when a statement fails; nothing is
+    /// changed then.
+    pub async fn revoke_grant(&mut self, grant_id: &str) -> Result<bool, StoreError> {
+        let revoked = revoke_in(&mut self.tx, grant_id).await?;
+        Ok(revoked)
+    }
+    /// Ends the upstream session `session`, and returns whether it was
+    /// live; the `online_access` grants in it refresh no more.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn end_session(&mut self, session: &str) -> Result<bool, StoreError> {
+        let ended = sqlx::query(
+            "UPDATE upstream_session SET ended_at = now() WHERE id = $1 AND ended_at IS NULL",
+        )
+        .bind(session)
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(ended.rows_affected() == 1)
+    }
+    /// Revokes the access token `jti` alone, and returns whether it was
+    /// unrevoked.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn revoke_access_token(&mut self, jti: &str) -> Result<bool, StoreError> {
+        let revoked = sqlx::query(
+            "UPDATE access_token SET revoked_at = now() WHERE jti = $1 AND revoked_at IS NULL",
+        )
+        .bind(jti)
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(revoked.rows_affected() == 1)
+    }
 }

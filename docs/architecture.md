@@ -2532,7 +2532,30 @@ discovery and token shapes for the two SaaS providers.
   `since` and `until` as a FHIR `searchset` Bundle, with a bearer token
   FerroSMART issued for its own issuer with `system/AuditEvent.rs`
   (Regulation (EU) 2025/327 Art 9 has the logs accessible; the parameters
-  are our own design). Neither event is an access to personal electronic
+  are our own design).
+  The other writes FerroSMART makes for a person or a client each commit
+  with a record of their own in one transaction, through the store's
+  `Transaction`, whose commit refuses a write with no record (#554). An
+  upstream session ended by a back-channel logout is DICOM User
+  Authentication with `110123` Logout (DICOM PS3.15 A.5.3.12). The rest
+  have no IHE or BALP pattern (BALP's `IHE.BasicAudit.AuthZconsent` needs
+  a patient and the requesting organisation, which an app's authorization
+  consent does not have), so their form is our own design: DICOM `110114`
+  User Authentication or `110113` Security Alert, with a subtype from
+  FerroSMART's code system `urn:ferrosmart:audit-event`:
+
+  | Write | `type` | subtypes | `action` |
+  |---|---|---|---|
+  | a code issued | `110114` | `authorization-code` | `C` |
+  | a consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
+  | a consent withdrawn, with what it covered | `110113` | `110137`, `consent-withdrawn` | `D` |
+  | an access token revoked (RFC 7009) | `110113` | `token-revoked` | `D` |
+  | a grant revoked by its refresh token (RFC 7009 §2.1) | `110113` | `grant-revoked` | `D` |
+  | a refresh token rotated | `110114` | `refresh-rotated` | `E` |
+  | a rotated refresh token reused, its grant revoked | `110113` | `refresh-reused` | `E` |
+  | a code redeemed again, its tokens revoked | `110113` | `code-reused` | `E` |
+  | an upstream session ended | `110114` | `110123` Logout, `session-ended` | `E` |
+ Neither event is an access to personal electronic
   health data, so neither is an access record of Annex II 3.2; the patient
   picker (#516), which reads Patient resources, writes that record through
   `ehds-logging`.

@@ -104,7 +104,7 @@ pub async fn token(
         tracing::error!("a token request came over no connection, so it cannot be recorded");
         return unrecorded();
     };
-    let answer = issue(&state, &headers, &body).await;
+    let answer = issue(&state, &headers, &body, from).await;
     // NOTE: a form that cannot be read names no client; the record then says so.
     let form = Params::parse(&body, &[]).ok();
     let endpoint = state.settings().endpoint_url(TOKEN_ROUTE);
@@ -148,19 +148,22 @@ async fn commit(
                     subject: issued.person.as_deref(),
                 }),
             );
-            let row = lane.row(
+            let mut tx = state
+                .store()
+                .begin()
+                .await
+                .map_err(audit::RecordFailure::Store)?;
+            tx.insert_token(&issued.record())
+                .await
+                .map_err(audit::RecordFailure::Store)?;
+            lane.commit(
+                tx,
                 &exchange,
                 "token",
                 issued.person.as_deref(),
                 Some(&issued.client_id),
-            )?;
-            state
-                .store()
-                .record_token_audited(&issued.record(), &row)
-                .await
-                .map_err(audit::RecordFailure::Store)?;
-            lane.committed();
-            Ok(())
+            )
+            .await
         }
         Err(refusal) => {
             let exchange = audit::token_request(request, Err(refusal.error));
@@ -258,12 +261,17 @@ impl Issued {
 }
 
 /// Answers the token request `body`.
-async fn issue(state: &AppState, headers: &HeaderMap, body: &[u8]) -> Result<Issued, Refusal> {
+async fn issue(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: &[u8],
+    from: std::net::IpAddr,
+) -> Result<Issued, Refusal> {
     let form = read_form(headers, body)?;
     match form.get("grant_type") {
         Some("client_credentials") => client_credentials(state, &form).await,
-        Some("authorization_code") => authorization_code(state, &form).await,
-        Some("refresh_token") => crate::refresh::refresh(state, &form).await,
+        Some("authorization_code") => authorization_code(state, &form, from).await,
+        Some("refresh_token") => crate::refresh::refresh(state, &form, from).await,
         Some(_) => Err(Refusal {
             error: "unsupported_grant_type",
             description: "the grant type is not supported",
@@ -327,7 +335,11 @@ async fn client_credentials(state: &AppState, form: &Params) -> Result<Issued, R
 /// §4.6). A second use of a code is refused and revokes the tokens the
 /// first issued, once the rest of the request holds (OAuth 2.1 draft
 /// §4.1.3, §7.5.3).
-async fn authorization_code(state: &AppState, form: &Params) -> Result<Issued, Refusal> {
+async fn authorization_code(
+    state: &AppState,
+    form: &Params,
+    from: std::net::IpAddr,
+) -> Result<Issued, Refusal> {
     let client = identify(state, form).await?;
     if !client.grant_types.contains(&GrantType::AuthorizationCode) {
         return Err(Refusal {
@@ -375,12 +387,32 @@ async fn authorization_code(state: &AppState, form: &Params) -> Result<Issued, R
             .await
             .map_err(|error| server_error("the code cannot be redeemed", &error))?;
     if !first {
-        let revoked = state
+        let mut tx = state
             .store()
+            .begin()
+            .await
+            .map_err(|error| server_error("the code's tokens cannot be revoked", &error))?;
+        let revoked = tx
             .revoke_code(&hash)
             .await
             .map_err(|error| server_error("the code's tokens cannot be revoked", &error))?;
-        tracing::warn!(target: "ferrosmart::audit", event = "code.reused", client_id = %client.client_id, revoked, "an authorization code was used twice");
+        let endpoint = state.settings().endpoint_url(TOKEN_ROUTE);
+        state
+            .audit()
+            .commit_happening(
+                tx,
+                &audit::Happening {
+                    event: audit::Event::CodeReused,
+                    issuer: &state.settings().issuer,
+                    client_id: Some(&client.client_id),
+                    subject: Some(&grant.subject),
+                    from,
+                    endpoint: &endpoint,
+                    details: vec![("revoked", revoked.to_string())],
+                },
+            )
+            .await
+            .map_err(|error| server_error("the code's tokens cannot be revoked", &error))?;
         return Err(invalid("the code was used before"));
     }
     let openid = grant.scope.split(' ').any(|scope| scope == "openid");

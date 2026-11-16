@@ -16,7 +16,7 @@ use std::time::Duration;
 use secrecy::ExposeSecret as _;
 use serde_json::Value;
 use sqlx::postgres::{PgPool, PgPoolOptions};
-use sqlx::{Postgres, Row as _, Transaction};
+use sqlx::{Postgres, Row as _};
 
 use crate::clients::{Client, ClientKeys, ClientKind, GrantType};
 
@@ -33,6 +33,9 @@ pub enum StoreError {
     /// A migration failed.
     #[error("the database could not be migrated")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+    /// An audited write was to commit without its audit record.
+    #[error("an audited write has no audit record")]
+    Unrecorded,
     /// A stored row holds a value the server never writes.
     #[error("the stored row `{client_id}` holds a value the server never writes")]
     Corrupt {
@@ -257,34 +260,6 @@ impl Store {
         row.map(|row| read_pending(&row)).transpose()
     }
 
-    /// Records the authorization code `code`, by the SHA-256 `hash` of its
-    /// value.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Database`] when the statement fails.
-    pub async fn issue_code(&self, hash: &str, code: &Code) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO authorization_code (code_hash, client_id, redirect_uri, code_challenge, \
-             audience, subject, fhir_user, scope, nonce, auth_time, expires_at, upstream_session) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11), $12)",
-        )
-        .bind(hash)
-        .bind(&code.client_id)
-        .bind(&code.redirect_uri)
-        .bind(&code.code_challenge)
-        .bind(&code.audience)
-        .bind(&code.subject)
-        .bind(&code.fhir_user)
-        .bind(&code.scope)
-        .bind(&code.nonce)
-        .bind(code.auth_time)
-        .bind(code.expires_at)
-        .bind(&code.upstream_session)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
     /// Returns the code whose SHA-256 is `hash`, with whether it was
     /// redeemed before, while it lives.
     ///
@@ -337,23 +312,6 @@ impl Store {
         Ok(done.rows_affected() == 1)
     }
 
-    /// Revokes every access token issued for the code whose SHA-256 is
-    /// `hash` ("SHOULD revoke (when possible) all access tokens and refresh
-    /// tokens previously issued based on that authorization code", OAuth 2.1
-    /// draft §4.1.3).
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Database`] when the statement fails.
-    pub async fn revoke_code(&self, hash: &str) -> Result<u64, StoreError> {
-        let done = sqlx::query(
-            "UPDATE access_token SET revoked_at = now() WHERE code_hash = $1 AND revoked_at IS NULL",
-        )
-        .bind(hash)
-        .execute(&self.pool)
-        .await?;
-        Ok(done.rows_affected())
-    }
-
     /// Returns the scopes `subject` chose to remember for `client_id`.
     ///
     /// # Errors
@@ -372,28 +330,6 @@ impl Store {
             .transpose()
     }
 
-    /// Remembers that `subject` gave `client_id` the scopes `scope`.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Database`] when the statement fails.
-    pub async fn remember(
-        &self,
-        subject: &str,
-        client_id: &str,
-        scope: &str,
-    ) -> Result<(), StoreError> {
-        sqlx::query(
-            "INSERT INTO consent (subject, client_id, scope) VALUES ($1, $2, $3) \
-             ON CONFLICT (subject, client_id) DO UPDATE SET scope = $3, granted_at = now()",
-        )
-        .bind(subject)
-        .bind(client_id)
-        .bind(scope)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
     /// Returns every consent `subject` remembered, by client.
     ///
     /// # Errors
@@ -408,50 +344,6 @@ impl Store {
         rows.iter()
             .map(|row| Ok((row.try_get("client_id")?, row.try_get("scope")?)))
             .collect()
-    }
-
-    /// Forgets the consent `subject` gave `client_id` and revokes the
-    /// grants, refresh tokens and access tokens issued to the client about
-    /// them ("revoking it revokes the grants it covered",
-    /// `docs/architecture.md` §13.6 item 6), and returns whether there was
-    /// one.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Database`] when a statement fails; nothing is
-    /// changed then.
-    pub async fn revoke_consent(&self, subject: &str, client_id: &str) -> Result<bool, StoreError> {
-        let mut tx = self.pool.begin().await?;
-        let forgotten = sqlx::query("DELETE FROM consent WHERE subject = $1 AND client_id = $2")
-            .bind(subject)
-            .bind(client_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(
-            "UPDATE access_token SET revoked_at = now() \
-             WHERE subject = $1 AND client_id = $2 AND revoked_at IS NULL",
-        )
-        .bind(subject)
-        .bind(client_id)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "UPDATE refresh_token SET revoked_at = now() WHERE revoked_at IS NULL AND grant_id IN \
-             (SELECT id FROM authorization_grant WHERE subject = $1 AND client_id = $2)",
-        )
-        .bind(subject)
-        .bind(client_id)
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query(
-            "UPDATE authorization_grant SET revoked_at = now() \
-             WHERE subject = $1 AND client_id = $2 AND revoked_at IS NULL",
-        )
-        .bind(subject)
-        .bind(client_id)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(forgotten.rows_affected() == 1)
     }
 
     /// Returns whether the access token `jti` was revoked.
@@ -523,7 +415,10 @@ impl Store {
 }
 
 /// Writes `client` as a configured client.
-async fn upsert(tx: &mut Transaction<'_, Postgres>, client: &Client) -> Result<(), StoreError> {
+async fn upsert(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    client: &Client,
+) -> Result<(), StoreError> {
     let (jwks_uri, jwks) = match &client.keys {
         Some(ClientKeys::Uri(url)) => (Some(url.as_str().to_owned()), None),
         Some(ClientKeys::Set(set)) => (None, Some(set.clone())),
@@ -800,4 +695,174 @@ pub(crate) async fn insert_token<'e, E: sqlx::PgExecutor<'e>>(
     .execute(executor)
     .await?;
     Ok(())
+}
+
+/// One transaction of the store: an audited write and its audit record,
+/// committed together or not at all.
+///
+/// [`Transaction::commit`] refuses a transaction that wrote no record, so
+/// no audited write commits without one. No specification governs this:
+/// our own design (`docs/architecture.md` §13.2).
+#[derive(Debug)]
+pub struct Transaction {
+    /// The open transaction.
+    tx: sqlx::Transaction<'static, Postgres>,
+    /// Whether an audit record was written in it.
+    recorded: bool,
+}
+
+impl Store {
+    /// Opens a transaction for an audited write.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when no connection can be had.
+    pub async fn begin(&self) -> Result<Transaction, StoreError> {
+        Ok(Transaction {
+            tx: self.pool.begin().await?,
+            recorded: false,
+        })
+    }
+}
+
+impl Transaction {
+    /// Writes the audit record `row` in this transaction.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn record(&mut self, row: &audit::AuditRow) -> Result<(), StoreError> {
+        audit::insert(&mut self.tx, row).await?;
+        self.recorded = true;
+        Ok(())
+    }
+
+    /// Commits the write with its record.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Unrecorded`] when no record was written, and
+    /// [`StoreError::Database`] when the commit fails; nothing is kept then.
+    pub async fn commit(self) -> Result<(), StoreError> {
+        if !self.recorded {
+            return Err(StoreError::Unrecorded);
+        }
+        self.tx.commit().await?;
+        Ok(())
+    }
+
+    /// Records the access token `token`.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn insert_token(&mut self, token: &IssuedToken<'_>) -> Result<(), StoreError> {
+        insert_token(&mut *self.tx, token).await
+    }
+
+    /// Records the authorization code `code`, by the SHA-256 `hash` of its
+    /// value.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn issue_code(&mut self, hash: &str, code: &Code) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO authorization_code (code_hash, client_id, redirect_uri, code_challenge, \
+             audience, subject, fhir_user, scope, nonce, auth_time, expires_at, upstream_session) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11), $12)",
+        )
+        .bind(hash)
+        .bind(&code.client_id)
+        .bind(&code.redirect_uri)
+        .bind(&code.code_challenge)
+        .bind(&code.audience)
+        .bind(&code.subject)
+        .bind(&code.fhir_user)
+        .bind(&code.scope)
+        .bind(&code.nonce)
+        .bind(code.auth_time)
+        .bind(code.expires_at)
+        .bind(&code.upstream_session)
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(())
+    }
+    /// Revokes every access token issued for the code whose SHA-256 is
+    /// `hash` ("SHOULD revoke (when possible) all access tokens and refresh
+    /// tokens previously issued based on that authorization code", OAuth 2.1
+    /// draft §4.1.3).
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn revoke_code(&mut self, hash: &str) -> Result<u64, StoreError> {
+        let done = sqlx::query(
+            "UPDATE access_token SET revoked_at = now() WHERE code_hash = $1 AND revoked_at IS NULL",
+        )
+        .bind(hash)
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(done.rows_affected())
+    }
+    /// Remembers that `subject` gave `client_id` the scopes `scope`.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn remember(
+        &mut self,
+        subject: &str,
+        client_id: &str,
+        scope: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO consent (subject, client_id, scope) VALUES ($1, $2, $3) \
+             ON CONFLICT (subject, client_id) DO UPDATE SET scope = $3, granted_at = now()",
+        )
+        .bind(subject)
+        .bind(client_id)
+        .bind(scope)
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(())
+    }
+    /// Forgets the consent `subject` gave `client_id` and revokes the
+    /// grants, refresh tokens and access tokens issued to the client about
+    /// them ("revoking it revokes the grants it covered",
+    /// `docs/architecture.md` §13.6 item 6), and returns whether there was
+    /// one.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when a statement fails; nothing is
+    /// changed then.
+    pub async fn revoke_consent(
+        &mut self,
+        subject: &str,
+        client_id: &str,
+    ) -> Result<bool, StoreError> {
+        let forgotten = sqlx::query("DELETE FROM consent WHERE subject = $1 AND client_id = $2")
+            .bind(subject)
+            .bind(client_id)
+            .execute(&mut *self.tx)
+            .await?;
+        sqlx::query(
+            "UPDATE access_token SET revoked_at = now() \
+             WHERE subject = $1 AND client_id = $2 AND revoked_at IS NULL",
+        )
+        .bind(subject)
+        .bind(client_id)
+        .execute(&mut *self.tx)
+        .await?;
+        sqlx::query(
+            "UPDATE refresh_token SET revoked_at = now() WHERE revoked_at IS NULL AND grant_id IN \
+             (SELECT id FROM authorization_grant WHERE subject = $1 AND client_id = $2)",
+        )
+        .bind(subject)
+        .bind(client_id)
+        .execute(&mut *self.tx)
+        .await?;
+        sqlx::query(
+            "UPDATE authorization_grant SET revoked_at = now() \
+             WHERE subject = $1 AND client_id = $2 AND revoked_at IS NULL",
+        )
+        .bind(subject)
+        .bind(client_id)
+        .execute(&mut *self.tx)
+        .await?;
+        Ok(forgotten.rows_affected() == 1)
+    }
 }

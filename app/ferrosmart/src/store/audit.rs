@@ -8,7 +8,7 @@
 use serde_json::Value;
 use sqlx::Row as _;
 
-use crate::store::{IssuedToken, Store, StoreError};
+use crate::store::{Store, StoreError};
 
 /// One audit record to store.
 #[derive(Debug, Clone)]
@@ -47,23 +47,6 @@ impl Store {
     /// Returns [`StoreError::Database`] when the statement fails.
     pub async fn record_audit(&self, row: &AuditRow) -> Result<(), StoreError> {
         let mut tx = self.pool.begin().await?;
-        insert(&mut tx, row).await?;
-        tx.commit().await?;
-        Ok(())
-    }
-
-    /// Records the access token `token` and its audit record `row` in one
-    /// transaction, so neither is kept without the other.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Database`] when a statement fails.
-    pub async fn record_token_audited(
-        &self,
-        token: &IssuedToken<'_>,
-        row: &AuditRow,
-    ) -> Result<(), StoreError> {
-        let mut tx = self.pool.begin().await?;
-        crate::store::insert_token(&mut *tx, token).await?;
         insert(&mut tx, row).await?;
         tx.commit().await?;
         Ok(())
@@ -157,7 +140,7 @@ impl Store {
 }
 
 /// Inserts `row` in `tx`.
-async fn insert(
+pub(crate) async fn insert(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     row: &AuditRow,
 ) -> Result<(), StoreError> {

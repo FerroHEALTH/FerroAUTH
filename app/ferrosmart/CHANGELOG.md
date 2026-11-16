@@ -109,3 +109,10 @@ and this project adheres to
   forwards the records to an Audit Record Repository over the ITI-20 ATX:
   FHIR Feed, and `GET /audit` reads them by subject and time with a token
   carrying `system/AuditEvent.rs` (#534).
+- Every other write FerroSMART makes for a person or a client commits with
+  its audit record in one transaction: a code issued, a consent remembered
+  or withdrawn, a token or a grant revoked, a refresh token rotated or
+  reused, a code reused, and an upstream session ended (DICOM Logout). Their
+  codes are in `urn:ferrosmart:audit-event`, our own design where no IHE or
+  BALP pattern exists, and a write whose record cannot be committed does
+  not happen (#554).
