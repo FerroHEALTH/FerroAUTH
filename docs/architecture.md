@@ -3182,29 +3182,36 @@ change that lets one drift:
 
 - `groups.tsv` marks each group `run` or `pending` with the issues it waits
   on. Every run lists the pending groups in the log and the job summary,
-  and warns once their issues are closed. Groups 3 and 4 run. Group 1
-  waits on the patient picker (#516) for `launch/patient`; group 2 waits on
-  the lane's EHR, which registers a launch at `POST /launch` (#545).
+  and warns once their issues are closed. Groups 2, 3 and 4 run; group 1
+  waits on the patient picker (#516) for `launch/patient`. Group 2's EHR
+  is the lane itself: `scripts/inferno/ehr-launch.sh` registers each launch
+  at `POST /launch` as the lane's client (13.6 item 3) and opens the kit's
+  launch URI with `iss` and `launch`.
 - `exceptions.tsv` lists each test of a run group that the expected results
   do not hold to `pass`, with its reason; any other test expected to be
-  anything but `pass` fails the run. Four rows stand, all FerroBRIDGE's:
-  `smart_cors_well_known_endpoint` and `smart_cors_metadata_request` in the
-  discovery of groups 3 and 4, because FerroBRIDGE 0.0.26 answers its SMART
-  document and its CapabilityStatement with no `Access-Control-Allow-Origin`
-  (`smart app-launch`, Considerations for CORS support, item 1).
+  anything but `pass` fails the run. Seven rows stand, all FerroBRIDGE's
+  missing CORS headers (`smart app-launch`, Considerations for CORS
+  support): `smart_cors_well_known_endpoint` and
+  `smart_cors_metadata_request` in the discovery of groups 2, 3 and 4 (its
+  SMART document and its CapabilityStatement, item 1), and
+  `smart_cors_openid_fhir_user_claim` in group 2 (the `Practitioner` read
+  from the app's origin, item 2).
 - Each result is recorded in the job summary against the SMART App Launch
   2.2.0 requirements the kit's coverage map ties its test to.
 
 Group 4 introspects with a bearer token of the lane's own client, which
 holds `system/introspect` (13.6 item 8) and asks for FerroSMART's issuer as
-its audience. Every test of groups 3 and 4 outside those four passes: SMART
-Backend Services Authorization (TLS 1.2 or newer, the invalid grant type,
-the invalid client assertion and the invalid JWT refused, the success
+its audience. Every test of groups 2, 3 and 4 outside those seven passes:
+SMART Backend Services Authorization (TLS 1.2 or newer, the invalid grant
+type, the invalid client assertion and the invalid JWT refused, the success
 response and its body); the standalone launch of group 4 (TLS on the
 authorization and token endpoints, the redirect, the code, the token
 exchange with its response body and headers, CORS on the token endpoint
-(13.6 item 12)); and the introspection of an active and an invalid token
-with both responses.
+(13.6 item 12)); the introspection of an active and an invalid token with
+both responses; and group 2's EHR launch with the same exchange, OpenID
+Connect (the ID Token, the configuration, the key set and the `fhirUser`
+claim, whose `Practitioner` FerroBRIDGE serves) and the refresh with and
+without `scope`.
 
 ### 13.14 The build order
 

@@ -128,9 +128,6 @@ wait_for() {
   return 1
 }
 
-# base64url without padding (RFC 7515 §2), of standard input.
-b64url() { openssl base64 -A | tr '+/' '-_' | tr -d '='; }
-
 # The development CA, the server certificates of FerroSMART and FerroBRIDGE,
 # FerroSMART's signing key and the lane client's key, made for this run and
 # never kept, with the JWK Sets FerroSMART registers.
@@ -148,7 +145,8 @@ make_keys() {
   rm -f "$dir/ca.key"
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$dir/signing.pem" 2> /dev/null
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$dir/lane-client.pem" 2> /dev/null
-  modulus=$(openssl rsa -in "$dir/lane-client.pem" -noout -modulus | cut -d= -f2 | xxd -r -p | b64url)
+  modulus=$(openssl rsa -in "$dir/lane-client.pem" -noout -modulus | cut -d= -f2 | xxd -r -p |
+    openssl base64 -A | tr '+/' '-_' | tr -d '=')
   jq -n --arg n "$modulus" '{keys: [{kty: "RSA", kid: "lane", alg: "RS384", n: $n, e: "AQAB"}]}' \
     > "$dir/lane-client.jwks.json"
   # The public half of the kit's verification keys, its registered JWK Set.
@@ -162,20 +160,15 @@ make_keys() {
 # An access token of the lane's own client for `scope` with the audience
 # `resource`, by the client credentials grant with a private_key_jwt
 # assertion (RFC 7523 §2.2; SMART App Launch 2.2.0, Client Authentication:
-# Asymmetric) signed RS384 here.
+# Asymmetric), signed by scripts/inferno/assertion.sh.
 lane_token() {
-  local scope=$1 resource=$2 now header claims signature
-  now=$(date +%s)
-  header=$(printf '{"alg":"RS384","typ":"JWT","kid":"lane"}' | b64url)
-  claims=$(jq -nc --argjson now "$now" --arg jti "$(openssl rand -hex 16)" \
-    '{iss: "inferno-lane", sub: "inferno-lane", aud: "https://smart.localhost:8443/token",
-      iat: $now, exp: ($now + 240), jti: $jti}' | b64url)
-  signature=$(printf '%s.%s' "$header" "$claims" | openssl dgst -sha384 -sign "$LANE_DIR/lane-client.pem" | b64url)
+  local scope=$1 resource=$2 assertion
+  assertion=$("$root/scripts/inferno/assertion.sh" "$LANE_DIR/lane-client.pem" https://smart.localhost:8443/token)
   curl -fsS --cacert "$LANE_DIR/ca.crt" https://smart.localhost:8443/token \
     --data-urlencode grant_type=client_credentials --data-urlencode "scope=$scope" \
     --data-urlencode "resource=$resource" \
     --data-urlencode client_assertion_type=urn:ietf:params:oauth:client-assertion-type:jwt-bearer \
-    --data-urlencode "client_assertion=$header.$claims.$signature" | jq -r .access_token
+    --data-urlencode "client_assertion=$assertion" | jq -r .access_token
 }
 
 run() {
@@ -245,7 +238,8 @@ run() {
 
   # 5. The kit, in the Ruby image docs/VERSIONS.md pins, on the gems its
   #    Gemfile.lock locks, trusting the lane's CA beside the system roots.
-  #    Group 4 introspects with the lane client's token.
+  #    Group 4 introspects with the lane client's token; group 2's EHR
+  #    launches as the lane client (scripts/inferno/ehr-launch.sh).
   printf 'Authorization: Bearer %s' "$(lane_token system/introspect https://smart.localhost:8443)" \
     > "$LANE_DIR/introspection-header.txt"
   docker run -d --name inferno-lane-redis --network host "$(pinned_image 'Redis test image')" > /dev/null
@@ -253,6 +247,7 @@ run() {
     -v "$INFERNO_KIT:/kit" -v "$lane:/script" -v "$LANE_DIR:/lane:ro" -v "$root/scripts:/repo/scripts:ro" -w /kit \
     -e APP_ENV=development -e SSL_CERT_FILE=/tmp/trust.pem -e CURL_CA_BUNDLE=/tmp/trust.pem \
     -e LAUNCH_USER=clinician -e "LAUNCH_PASSWORD=$password" \
+    -e LANE_KEY=/lane/lane-client.pem -e SMART_ISSUER=https://smart.localhost:8443 -e LAUNCH_APP=inferno-standalone \
     --add-host smart.localhost:127.0.0.1 --add-host bridge.localhost:127.0.0.1 \
     "$(pinned_image 'Inferno runtime')" sh -c '
       cat /etc/ssl/certs/ca-certificates.crt /lane/ca.crt > /tmp/trust.pem &&

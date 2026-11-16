@@ -8,6 +8,6 @@
 # warns once those issues are closed. Columns: short id, group id, state,
 # issues (FerroHEALTH/FerroAUTH), what the group needs.
 1	smart_full_standalone_launch	pending	516	the patient picker, for the launch/patient a standalone launch asks for
-2	smart_full_ehr_launch	pending	520	the lane's EHR, which registers a launch at POST /launch and opens the kit's launch URI (#545 merged)
+2	smart_full_ehr_launch	run	-	the EHR launch API (#545, merged); the lane's EHR registers each launch at POST /launch (scripts/inferno/ehr-launch.sh)
 3	smart_backend_services	run	-	the client credentials grant with private_key_jwt (#514, merged)
 4	smart_token_introspection_stu2_2	run	-	a standalone launch through Keycloak, then the introspection endpoint (#515, #518, merged)

@@ -47,22 +47,24 @@ kind = "confidential_asymmetric"
 scopes = ["system/Practitioner.rs"]
 grant_types = ["client_credentials"]
 
-# Inferno as a standalone app: a public client with PKCE (SMART App Launch
-# 2.2.0, Client Types, client-public), redirected to the kit's own route.
+# Inferno as an app, launched standalone and from the lane's EHR: a public
+# client with PKCE (SMART App Launch 2.2.0, Client Types, client-public),
+# redirected to the kit's own route, that may refresh offline.
 [[ferrosmart.client]]
 client_id = "inferno-standalone"
 name = "Inferno SMART App Launch test kit"
 kind = "public"
 redirect_uris = ["http://localhost:4567/custom/smart_stu2_2/redirect"]
-scopes = ["openid", "fhirUser", "user/Practitioner.rs"]
-grant_types = ["authorization_code"]
+scopes = ["openid", "fhirUser", "launch", "offline_access", "user/Practitioner.rs"]
+grant_types = ["authorization_code", "refresh_token"]
 
-# The lane itself: it holds the bearer token the kit introspects with
-# (docs/architecture.md §13.6 item 8, the `system/introspect` scope), for
-# the audience of FerroSMART's own issuer.
+# The lane itself: the EHR that registers each EHR launch (docs/architecture.md
+# §13.6 item 3, the `system/launch.c` scope), and the holder of the bearer
+# token the kit introspects with, for FerroSMART's own issuer as its
+# audience (item 8, the `system/introspect` scope).
 [[ferrosmart.client]]
 client_id = "inferno-lane"
 name = "The Inferno lane"
 kind = "confidential_asymmetric"
-scopes = ["system/introspect"]
+scopes = ["system/introspect", "system/launch.c"]
 grant_types = ["client_credentials"]

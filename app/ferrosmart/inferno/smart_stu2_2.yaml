@@ -20,6 +20,8 @@ comparison_config:
       pattern: /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
     - replacement: code_challenge=<CODE_CHALLENGE>
       pattern: /code_challenge=[A-Za-z0-9+\/=_-]{43}/
+    - replacement: launch=<LAUNCH>
+      pattern: /launch=[A-Za-z0-9_-]{43}/
 
 steps:
   - state_description: Session created
@@ -48,6 +50,35 @@ steps:
   - state_description: Group 4 Token Introspection finished
     status: done
     last_completed: "4"
+    start_run:
+      runnable: "2"
+      inputs:
+        url: https://bridge.localhost:9443/fhir
+        ehr_smart_auth_info:
+          auth_type: public
+          use_discovery: "true"
+          client_id: inferno-standalone
+          requested_scopes: launch openid fhirUser offline_access user/Practitioner.rs
+          pkce_support: enabled
+          pkce_code_challenge_method: S256
+          auth_request_method: GET
+    action_description: Run group 2, EHR Launch
+
+  - state_description: Waiting at 2.2.01, the EHR opens the app's launch URI
+    status: waiting
+    last_completed: "2.2.01"
+    command: /repo/scripts/inferno/ehr-launch.sh '{wait_outputs.launch_uri}' '{wait_outputs.target_iss}'
+    action_description: Register a launch at FerroSMART as the lane's EHR and open the kit's launch URI with it
+
+  - state_description: Waiting at 2.2.04, the authorization server redirects the browser to the app
+    status: waiting
+    last_completed: "2.2.04"
+    command: /repo/scripts/idp/authorize.sh keycloak '{wait_outputs.authorization_url}' --follow
+    action_description: Log in at Keycloak as the lane's clinician and approve every scope offered
+
+  - state_description: Group 2 EHR Launch finished
+    status: done
+    last_completed: "2"
     start_run:
       runnable: "3"
       inputs:
