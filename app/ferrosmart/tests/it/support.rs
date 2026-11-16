@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! What the cases share: generated keys written to PEM files, and a
-//! configuration over them.
+//! What the cases share: generated keys written to PEM files, a
+//! configuration over them, the audit lane and the records it stored.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -11,9 +11,17 @@ use aws_lc_rs::encoding::AsDer as _;
 use aws_lc_rs::rsa::KeySize;
 use aws_lc_rs::signature::{ECDSA_P384_SHA384_FIXED_SIGNING, EcdsaKeyPair, RsaKeyPair};
 use base64::Engine as _;
+use std::net::SocketAddr;
+
+use axum::body::Body;
+use axum::extract::ConnectInfo;
+use ferrosmart::audit::Audit;
 use ferrosmart::config::Config;
+use ferrosmart::config::settings::Settings;
 use ferrosmart::store::Store;
+use http::Request;
 use secrecy::SecretString;
+use serde_json::Value;
 use sqlx::Connection as _;
 use tempfile::TempDir;
 
@@ -70,12 +78,21 @@ impl Keys {
 /// The resource server a case configures unless it names its own.
 pub(crate) const RESOURCE: &str = "https://ehr.example.org/fhir";
 
+/// The Audit Record Repository a case configures unless it names its own;
+/// no case delivers to it.
+pub(crate) const AUDIT_FEED: &str = "https://audit.example.org/fhir";
+
+/// The address every case's requests come from (RFC 5737).
+pub(crate) const CLIENT_ADDRESS: &str = "192.0.2.10";
+
 /// The database URL a case that never reaches the database configures.
 pub(crate) const UNREACHED_DATABASE: &str = "postgres://ferrosmart@127.0.0.1:1/unreached";
 
 /// Returns the configuration `text` holds, with `[ferrosmart.keys]` naming
 /// `keys`' current key unless `text` names one, and
-/// [`UNREACHED_DATABASE`] as the database unless `text` names one.
+/// [`UNREACHED_DATABASE`] as the database unless `text` names one, and an
+/// audit spool in the keys' directory with [`AUDIT_FEED`] unless `text`
+/// names `[ferrosmart.audit]`.
 pub(crate) fn config(text: &str, keys: &Keys) -> Config {
     let mut environment = BTreeMap::new();
     if !text.contains("[ferrosmart.database]") {
@@ -90,6 +107,16 @@ pub(crate) fn config(text: &str, keys: &Keys) -> Config {
             format!("[{{ base = {RESOURCE:?} }}]"),
         );
     }
+    if !text.contains("[ferrosmart.audit]") {
+        environment.insert(
+            String::from("FERROSMART__FERROSMART__AUDIT__SPOOL_DIR"),
+            spool(keys).display().to_string(),
+        );
+        environment.insert(
+            String::from("FERROSMART__FERROSMART__AUDIT__FEED__URL"),
+            String::from(AUDIT_FEED),
+        );
+    }
     if !text.contains("private_key_file") {
         environment.insert(
             String::from("FERROSMART__FERROSMART__KEYS__PRIVATE_KEY_FILE"),
@@ -97,6 +124,44 @@ pub(crate) fn config(text: &str, keys: &Keys) -> Config {
         );
     }
     Config::from_sources(Some(text), &environment).expect("the configuration reads")
+}
+
+/// Returns the audit lane `settings` describe, its forwarder never started,
+/// so every record stays in the spool for [`records`] to read.
+pub(crate) fn audit(settings: &Settings) -> Audit {
+    Audit::open(&settings.audit).expect("the audit spool opens")
+}
+
+/// Returns the spool directory [`config`] gives a case over `keys`.
+pub(crate) fn spool(keys: &Keys) -> PathBuf {
+    keys.dir.path().join("audit")
+}
+
+/// Returns every `AuditEvent` the spool in `dir` holds, oldest first.
+pub(crate) fn records(dir: &Path) -> Vec<Value> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .expect("the spool reads")
+        .map(|entry| entry.expect("an entry").path())
+        .filter(|path| path.is_file())
+        .collect();
+    files.sort();
+    files
+        .iter()
+        .map(|path| {
+            serde_json::from_slice(&std::fs::read(path).expect("the record reads"))
+                .expect("the record is JSON")
+        })
+        .collect()
+}
+
+/// Returns `request` as if it came over a connection from
+/// [`CLIENT_ADDRESS`], which the stack names the client by.
+pub(crate) fn from_client(mut request: Request<Body>) -> Request<Body> {
+    let peer: SocketAddr = format!("{CLIENT_ADDRESS}:49152")
+        .parse()
+        .expect("an address");
+    request.extensions_mut().insert(ConnectInfo(peer));
+    request
 }
 
 /// The variable naming the test server.

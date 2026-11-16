@@ -9,6 +9,7 @@
 //! login. This crate is the server: its command line, its configuration,
 //! its signing keys and the documents that describe it.
 
+pub mod audit;
 pub mod authorize;
 pub mod cli;
 pub mod client_keys;

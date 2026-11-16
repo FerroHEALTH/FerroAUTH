@@ -46,7 +46,7 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, Failure> {
         Common::Healthcheck => healthcheck(&settings).await,
         Common::Config {
             command: ConfigCommand::Check,
-        } => config_check(&loaded),
+        } => config_check(&loaded, &settings),
         Common::Serve => {
             let telemetry = loaded.settings().telemetry.clone();
             Box::pin(serve(settings, telemetry)).await
@@ -60,8 +60,11 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, Failure> {
     clippy::print_stdout,
     reason = "the job's one answer goes to standard output"
 )]
-fn config_check(loaded: &Loaded<Config>) -> Result<ExitCode, Failure> {
+fn config_check(loaded: &Loaded<Config>, settings: &Settings) -> Result<ExitCode, Failure> {
     ferrohealth_server::run::config_check(loaded)?;
+    ihe_atna::atna::spool::Spool::inspect(&settings.audit.spool_dir).map_err(|error| {
+        Failure::refused_configuration(error).with_context("the audit spool would not open")
+    })?;
     println!("ferrosmart: the configuration is valid");
     Ok(ExitCode::SUCCESS)
 }
@@ -126,6 +129,9 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
         .register(&settings.clients)
         .await
         .map_err(|error| Failure::not_up(error).with_context("cannot register the clients"))?;
+    let audit = crate::audit::Audit::open(&settings.audit)
+        .map_err(|error| Failure::not_up(error).with_context("cannot open the audit spool"))?;
+    let forwarder = audit.spawn();
     let sweeper = tokio::spawn(sweep(store.clone()));
     let callback = settings.endpoint(crate::authorize::CALLBACK_ROUTE);
     let party = match &settings.upstream {
@@ -139,7 +145,7 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
         }
         None => None,
     };
-    let state = AppState::new(settings, store);
+    let state = AppState::new(settings, store, audit.clone());
     let state = Arc::new(match party {
         Some(party) => state.with_login(party),
         None => state,
@@ -153,6 +159,12 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
     let stop = ferrohealth_server::serve::shutdown_signal();
     let served = ferrohealth_server::serve::run(listener, app, &section, lifecycle, stop).await;
     sweeper.abort();
+    // NOTE: ITI TF-2 §3.20.4.1.1, a record not yet delivered stays in the spool
+    // and the next start sends it.
+    audit.stop();
+    if let Err(error) = forwarder.await {
+        tracing::warn!(error = %chain(&error), "the audit forwarder did not end cleanly");
+    }
     match served {
         Ok(_drained) => Ok(ExitCode::SUCCESS),
         Err(error) => {

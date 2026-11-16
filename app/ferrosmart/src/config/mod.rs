@@ -38,6 +38,12 @@
 //! jwks_uri = "https://export.example.org/jwks.json"
 //! scopes = ["system/Patient.rs", "system/Observation.rs"]
 //! grant_types = ["client_credentials"]
+//!
+//! [ferrosmart.audit]
+//! spool_dir = "/var/spool/ferrosmart/audit"
+//!
+//! [ferrosmart.audit.feed]
+//! url = "https://audit.example.org/fhir"
 //! ```
 
 pub mod error;
@@ -136,6 +142,8 @@ pub struct FerroSmartSection {
     /// `[ferrosmart.branding]`: the deployment's name and words on the
     /// pages, content and never code (13.15).
     pub branding: BrandingSection,
+    /// `[ferrosmart.audit]`: where every login and token is recorded.
+    pub audit: AuditSection,
 }
 
 /// `[ferrosmart.branding]`.
@@ -158,6 +166,48 @@ impl Default for BrandingSection {
             name: String::from("FerroSMART"),
             consent_text: String::new(),
             smart_style_url: String::new(),
+        }
+    }
+}
+
+/// `[ferrosmart.audit]`: the spool the audit records wait in and the Audit
+/// Record Repository they go to over the ITI-20 ATX: FHIR Feed. No
+/// specification governs the section's shape: our own design.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuditSection {
+    /// The directory records are stored in until the repository takes them;
+    /// required.
+    pub spool_dir: Option<PathBuf>,
+    /// The most records the spool holds at once.
+    pub max_records: usize,
+    /// The most bytes the spool holds at once.
+    pub max_bytes: u64,
+    /// The longest storing one record may take.
+    pub write_timeout: Span,
+    /// How FerroSMART names itself as the recording system
+    /// (`AuditEvent.source.observer`); empty takes the issuer's host.
+    pub source_id: String,
+    /// The site FerroSMART runs at (`AuditEvent.source.site`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub site: Option<String>,
+    /// `[ferrosmart.audit.feed]`: the repository's FHIR base, an `https`
+    /// URL records are created under as `[base]/AuditEvent`, with its
+    /// timeouts, TLS and credentials; required.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feed: Option<ferrohealth_smart::config::endpoint::EndpointSection>,
+}
+
+impl Default for AuditSection {
+    fn default() -> Self {
+        Self {
+            spool_dir: None,
+            max_records: 10_000,
+            max_bytes: 64 << 20,
+            write_timeout: Span::from_secs(2),
+            source_id: String::new(),
+            site: None,
+            feed: None,
         }
     }
 }
@@ -208,6 +258,7 @@ impl Default for FerroSmartSection {
             upstream: None,
             role: Vec::new(),
             branding: BrandingSection::default(),
+            audit: AuditSection::default(),
         }
     }
 }

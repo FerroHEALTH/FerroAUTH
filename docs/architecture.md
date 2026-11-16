@@ -2507,8 +2507,20 @@ discovery and token shapes for the two SaaS providers.
 - **Stateless replicas.** Authorization codes, refresh tokens, launch
   contexts and consents live in PostgreSQL, so any replica answers any
   request; signing keys rotate, with a KMS or HSM as an option.
-- **Its own audit.** Every login and every issued token is an audit record
-  in the family's BALP and EHDS forms.
+- **Its own audit.** Every login and every token request is an audit
+  record, written as a FHIR R4 `AuditEvent` through `ihe-atna`, stored in a
+  spool and sent over the ITI-20 ATX: FHIR Feed (#534). A token request is
+  the authorization server's ITI-71 event (`iua` ITI TF-2 3.71.5.1:
+  `110114` User Authentication, EventTypeCode `ITI-71` User Authorization,
+  the client as the source application, the token as a security resource
+  named by its `jti`); a login at the upstream provider is a DICOM User
+  Authentication event of type `110122` Login (DICOM PS3.15 A.5.3.12). The
+  `AuditEvent` rendering of both DICOM events is our own design. A step
+  whose record cannot be stored does not happen: the token endpoint answers
+  `503` with no token, and a login goes no further. Neither event is an
+  access to personal electronic health data, so neither is an access record
+  of Regulation (EU) 2025/327 Annex II 3.2; the patient picker (#516), which
+  reads Patient resources, writes that record through `ehds-logging`.
 - **The family stack.** It is built on `ferrohealth-server`,
   `ferrohealth-telemetry`, `ferrohealth-config` and `ferrohealth-health`,
   and reuses `ferrohealth-smart` (the scope grammar, token and assertion
@@ -2950,6 +2962,18 @@ grant_types = ["client_credentials"]
 name = "Example Hospital"                     # the name the pages carry
 smart_style_url = "https://ehr.example.org/smart-style.json"  # an app's token response carries it
 consent_text = "We log every access in your record's audit trail."  # the deployment's own words
+
+[ferrosmart.audit]                             # every login and token request (13.2)
+spool_dir = "/var/spool/ferrosmart/audit"      # records wait here until the repository takes them
+max_records = 10000
+max_bytes = 67108864
+write_timeout = "2s"
+source_id = "smart.example.org"               # AuditEvent.source.observer; empty: the issuer's host
+site = "Example Hospital"
+
+[ferrosmart.audit.feed]                        # the Audit Record Repository, ITI-20 ATX: FHIR Feed
+url = "https://audit.example.org/fhir"         # https only: a record names people
+credentials = { user = "ferrosmart", password_file = "/run/secrets/audit-password" }   # or [ferrosmart.audit.feed.credentials.oauth]
 ```
 
 Every secret is a `_file` key read through `ferrohealth-secret`; the
@@ -3046,7 +3070,10 @@ the git tag of the pin, the way FerroBRIDGE's console does. The pages work
 without script wherever FerroUI allows it: every action is a form post the
 server answers with the next page. The CSP is `default-src 'none';
 script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self';
-form-action 'self'; frame-ancestors 'none'` (`rfc9700 §4.16`).
+form-action 'self'; frame-ancestors 'none'; base-uri 'none'` (`rfc9700
+§4.16`), and the consent page adds to `form-action` the origin of that
+request's registered redirect URI alone, since CSP Level 3 §6.4.2 applies
+`form-action` to the redirect that follows the post.
 
 A component, pattern or locale the screens need and FerroUI lacks is
 added in FerroUI as a general component, through FerroUI's own tracker and

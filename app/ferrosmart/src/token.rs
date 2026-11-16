@@ -13,15 +13,18 @@
 
 use std::sync::Arc;
 
+use axum::Extension;
 use axum::Json;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
+use ferrohealth_server::client_address::ClientAddress;
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, jwk::Jwk};
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::audit;
 use crate::clients::{Client, ClientKeys, ClientKind, GrantType};
 use crate::discovery::TOKEN_ROUTE;
 use crate::form::Params;
@@ -86,34 +89,65 @@ impl IntoResponse for Refusal {
 }
 
 /// `POST {issuer}/token`.
+///
+/// Each request is recorded before its answer is returned, and a request
+/// whose record could not be stored is answered `503` with no token: the
+/// record is part of the transaction (IHE IUA, ITI TF-2 3.71.5.1; no
+/// specification governs the refusal: our own design).
 pub async fn token(
     State(state): State<Arc<AppState>>,
+    client: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    match issue(&state, &headers, &body).await {
-        Ok(answer) => {
-            tracing::info!(
-                target: "ferrosmart::audit",
-                event = "token.issued",
-                client_id = %answer.client_id,
-                jti = %answer.jti,
-                aud = %answer.audience,
-                scope = %answer.response.scope,
-                "an access token was issued"
-            );
-            no_store(Json(answer.response).into_response())
+    let Some(Extension(ClientAddress(from))) = client else {
+        tracing::error!("a token request came over no connection, so it cannot be recorded");
+        return unrecorded();
+    };
+    let place = match state.audit().reserve() {
+        Ok(place) => place,
+        Err(error) => {
+            tracing::error!(error = %ferrohealth_server::run::chain(&error), "a token request has no place in the audit spool");
+            return unrecorded();
         }
-        Err(refusal) => {
-            tracing::info!(
-                target: "ferrosmart::audit",
-                event = "token.refused",
-                error = refusal.error,
-                "a token request was refused"
-            );
-            refusal.into_response()
-        }
+    };
+    let answer = issue(&state, &headers, &body).await;
+    // NOTE: a form that cannot be read names no client; the record then says so.
+    let form = Params::parse(&body, &[]).ok();
+    let endpoint = state.settings().endpoint_url(TOKEN_ROUTE);
+    let request = audit::TokenRequest {
+        client_id: form.as_ref().and_then(|form| form.get("client_id")),
+        from,
+        endpoint: &endpoint,
+    };
+    let our_issuer = state.settings().issuer.as_str();
+    let recorded = match &answer {
+        Ok(issued) => audit::token_request(
+            request,
+            Ok(audit::Token {
+                issuer: our_issuer,
+                jti: &issued.jti,
+                client_id: &issued.client_id,
+                audience: &issued.audience,
+                scope: &issued.response.scope,
+                subject: issued.person.as_deref(),
+            }),
+        ),
+        Err(refusal) => audit::token_request(request, Err(refusal.error)),
+    };
+    if let Err(error) = place.record(&recorded).await {
+        tracing::error!(error = %ferrohealth_server::run::chain(&error), "a token request could not be recorded");
+        return unrecorded();
     }
+    match answer {
+        Ok(issued) => no_store(Json(issued.response).into_response()),
+        Err(refusal) => refusal.into_response(),
+    }
+}
+
+/// The answer to a token request that could not be recorded.
+fn unrecorded() -> Response {
+    no_store(StatusCode::SERVICE_UNAVAILABLE.into_response())
 }
 
 /// Returns `response` with the headers every token response carries: "The
@@ -162,6 +196,8 @@ struct Issued {
     jti: String,
     /// The token's `aud`.
     audience: String,
+    /// The person the token was issued for, when one logged in.
+    person: Option<String>,
 }
 
 /// Answers the token request `body`.
@@ -667,6 +703,7 @@ async fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Iss
         client_id: client.client_id.clone(),
         jti,
         audience: grant.audience.to_owned(),
+        person: grant.launch.then(|| grant.subject.to_owned()),
     })
 }
 

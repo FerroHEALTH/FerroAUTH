@@ -22,7 +22,10 @@ use tower::ServiceExt as _;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-use crate::support::{Database, Keys, RESOURCE, config, ec_key, rsa_key};
+use crate::support::{
+    AUDIT_FEED, CLIENT_ADDRESS, Database, Keys, RESOURCE, audit, config, ec_key, from_client,
+    records, rsa_key, spool,
+};
 
 /// The issuer every case configures.
 const ISSUER: &str = "https://smart.example.org";
@@ -40,7 +43,7 @@ struct Server {
     /// The client's key in PEM form.
     pem: Vec<u8>,
     /// The keys and the database, kept for the case's length.
-    _keys: Keys,
+    keys: Keys,
     /// The database.
     database: Option<Database>,
     /// The store.
@@ -51,7 +54,24 @@ impl Server {
     /// Starts a server whose client `export` registers its key by value
     /// (`jwks_uri` empty) or at `jwks_uri`.
     async fn start(jwks_uri: Option<&str>, algorithm: Algorithm) -> Self {
+        Self::start_with(jwks_uri, algorithm, None).await
+    }
+
+    /// Starts the server of [`Server::start`] whose audit spool holds at
+    /// most `max_records` records, when it names a limit.
+    async fn start_with(
+        jwks_uri: Option<&str>,
+        algorithm: Algorithm,
+        max_records: Option<usize>,
+    ) -> Self {
         let keys = Keys::new();
+        let audit_section = max_records.map_or_else(String::new, |max| {
+            format!(
+                "[ferrosmart.audit]\nspool_dir = {:?}\nmax_records = {max}\n\
+                 [ferrosmart.audit.feed]\nurl = {AUDIT_FEED:?}\n",
+                spool(&keys).display().to_string()
+            )
+        });
         let pem_path = if algorithm == Algorithm::ES384 {
             ec_key(keys.dir.path(), "client.pem")
         } else {
@@ -71,7 +91,7 @@ impl Server {
         );
         let database = Database::create().await;
         let text = format!(
-            "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
+            "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n{audit_section}\
              [[ferrosmart.client]]\nclient_id = \"export\"\nkind = \"confidential_asymmetric\"\n{registration}\n\
              scopes = [\"system/Patient.rs\", \"system/Observation.rs\"]\ngrant_types = [\"client_credentials\"]\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\
@@ -84,12 +104,13 @@ impl Server {
             .expect("connects");
         store.migrate().await.expect("migrates");
         store.register(&settings.clients).await.expect("registered");
-        let app = router(Arc::new(AppState::new(settings, store.clone())));
+        let audit = audit(&settings);
+        let app = router(Arc::new(AppState::new(settings, store.clone(), audit)));
         Self {
             app,
             key,
             pem,
-            _keys: keys,
+            keys,
             database: Some(database),
             store,
         }
@@ -115,7 +136,12 @@ impl Server {
             .header(header::CONTENT_TYPE, content_type)
             .body(Body::from(body))
             .expect("a request");
-        let response = self.app.clone().oneshot(request).await.expect("an answer");
+        let response = self
+            .app
+            .clone()
+            .oneshot(from_client(request))
+            .await
+            .expect("an answer");
         let status = response.status();
         let headers = response.headers().clone();
         let bytes = response
@@ -484,4 +510,85 @@ async fn a_jwk_set_url_is_read_and_cached_as_the_client_allows() {
     }
     server.stop().await;
     jwks.verify().await;
+}
+
+/// Returns the agent of `record` whose network address is `address`.
+fn agent_at<'a>(record: &'a Value, address: &str) -> Option<&'a Value> {
+    record["agent"].as_array().and_then(|agents| {
+        agents
+            .iter()
+            .find(|agent| agent.pointer("/network/address") == Some(&json!(address)))
+    })
+}
+
+#[tokio::test]
+async fn each_token_request_is_recorded_as_iti_71_naming_no_secret() {
+    let server = Server::start(None, Algorithm::ES384).await;
+    let assertion = server.assertion("JWT", &valid_claims());
+    let (status, _, body) = server
+        .post(&form(&assertion, "system/Observation.rs"))
+        .await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let token = body["access_token"].as_str().expect("a token").to_owned();
+    let claims: Value = jsonwebtoken::dangerous::insecure_decode_claims(&token).expect("claims");
+    let replayed = server
+        .post(&form(&assertion, "system/Observation.rs"))
+        .await;
+    let error = refused(&replayed);
+
+    let stored = records(&spool(&server.keys));
+    assert_eq!(2, stored.len(), "one record per request");
+    let issued = stored.first().expect("the issue");
+    // NOTE: IHE IUA, ITI TF-2 3.71.5.1, the ITI-71 audit event.
+    assert_eq!(json!("AuditEvent"), issued["resourceType"]);
+    assert_eq!(json!("110114"), issued["type"]["code"]);
+    assert_eq!(json!("ITI-71"), issued["subtype"][0]["code"]);
+    assert_eq!(json!("E"), issued["action"]);
+    assert_eq!(json!("0"), issued["outcome"]);
+    let client = agent_at(issued, CLIENT_ADDRESS).expect("the client is the source");
+    assert_eq!(json!("export"), client["who"]["display"]);
+    assert_eq!(json!("110150"), client["type"]["coding"][0]["code"]);
+    let entity = &issued["entity"][0];
+    assert_eq!(json!("13"), entity["role"]["code"], "a security resource");
+    assert_eq!(claims["jti"], entity["what"]["identifier"]["value"]);
+    let details = entity["detail"].to_string();
+    assert!(
+        details.contains("system/Observation.rs") && details.contains(RESOURCE),
+        "{details}"
+    );
+
+    let refusal = stored.get(1).expect("the refusal");
+    assert_eq!(json!("4"), refusal["outcome"]);
+    assert_eq!(json!(error), refusal["outcomeDesc"]);
+    assert_eq!(Value::Null, refusal["entity"], "a refusal names no token");
+    for record in &stored {
+        let text = record.to_string();
+        assert!(!text.contains(&token), "no token in a record");
+        assert!(!text.contains(&assertion), "no assertion in a record");
+    }
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn a_token_request_that_cannot_be_recorded_gets_no_token() {
+    let server = Server::start_with(None, Algorithm::ES384, Some(1)).await;
+    let first = server.assertion("JWT", &valid_claims());
+    let (status, _, _) = server.post(&form(&first, "system/Observation.rs")).await;
+    assert_eq!(StatusCode::OK, status, "the spool holds one record");
+    let second = server.assertion("JWT", &valid_claims());
+    let (status, headers, body) = server.post(&form(&second, "system/Observation.rs")).await;
+    assert_eq!(StatusCode::SERVICE_UNAVAILABLE, status, "{body}");
+    assert_eq!(Value::Null, body, "no token");
+    assert_eq!(
+        Some("no-store"),
+        headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok())
+    );
+    assert_eq!(
+        1,
+        records(&spool(&server.keys)).len(),
+        "the full spool keeps one record"
+    );
+    server.stop().await;
 }

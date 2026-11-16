@@ -51,3 +51,14 @@ and this project adheres to
   the remembered choices and withdraws one, and the OpenID Connect
   discovery document and the App Launch SMART configuration describe the
   login once it is configured (#515).
+- The audit records, behind the required `[ferrosmart.audit]`: every token
+  request, issued or refused, is the authorization server's ITI-71 event
+  (IHE IUA, ITI TF-2 3.71.5.1) and every login at the upstream provider a
+  DICOM User Authentication event of type Login, each a FHIR R4
+  `AuditEvent` written through `ihe-atna`, stored in a spool on disk and
+  sent to the Audit Record Repository over the ITI-20 ATX: FHIR Feed. A
+  record names the client, the pairwise subject, the token's `jti`, the
+  audience and the scope, never a token, an assertion or a secret. A token
+  request whose record cannot be stored is answered `503` with no token,
+  and a login whose record cannot be stored goes no further. `config check`
+  checks that the spool would open (#534).
