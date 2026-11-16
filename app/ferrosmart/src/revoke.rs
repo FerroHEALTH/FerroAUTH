@@ -15,14 +15,12 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use axum::Extension;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use ferrohealth_server::client_address::ClientAddress;
 use http::{HeaderMap, StatusCode};
 
-use crate::audit::{Event, Happening};
+use crate::audit::{Connected, Event, Happening};
 use crate::discovery::REVOKE_ROUTE;
 use crate::introspect::{Found, find};
 use crate::server::AppState;
@@ -31,14 +29,10 @@ use crate::token::{Refusal, identify, no_store, read_form, server_error};
 /// `POST {issuer}/revoke`.
 pub async fn revoke(
     State(state): State<Arc<AppState>>,
-    client: Option<Extension<ClientAddress>>,
+    Connected(from): Connected,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let Some(Extension(ClientAddress(from))) = client else {
-        tracing::error!("a revocation came over no connection, so it cannot be recorded");
-        return no_store(StatusCode::SERVICE_UNAVAILABLE.into_response());
-    };
     match revoked(&state, &headers, &body, from).await {
         Ok(()) => no_store(StatusCode::OK.into_response()),
         Err(refusal) => {

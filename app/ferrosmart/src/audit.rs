@@ -681,3 +681,45 @@ pub const SECURITY_RESOURCE: Coded = Coded::fixed(
     "13",
     "Security Resource",
 );
+
+/// The address the stack names a request's client by.
+///
+/// Every audited request has one. A request that came over no connection,
+/// which no record could name, is refused `503` before it writes anything
+/// (no specification governs the refusal: our own design).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Connected(pub std::net::IpAddr);
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for Connected {
+    type Rejection = NoConnection;
+
+    fn from_request_parts(
+        parts: &mut http::request::Parts,
+        _state: &S,
+    ) -> impl Future<Output = Result<Self, Self::Rejection>> + Send {
+        std::future::ready(
+            parts
+                .extensions
+                .get::<ferrohealth_server::client_address::ClientAddress>()
+                .map(|address| Self(address.0))
+                .ok_or(NoConnection),
+        )
+    }
+}
+
+/// The refusal of a request that came over no connection: `503`, never
+/// stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NoConnection;
+
+impl axum::response::IntoResponse for NoConnection {
+    fn into_response(self) -> axum::response::Response {
+        tracing::error!("a request came over no connection, so it cannot be recorded");
+        let mut response = http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+        response.headers_mut().insert(
+            http::header::CACHE_CONTROL,
+            http::HeaderValue::from_static("no-store"),
+        );
+        response
+    }
+}

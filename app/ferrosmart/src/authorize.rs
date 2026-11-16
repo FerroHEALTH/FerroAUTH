@@ -14,18 +14,16 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use axum::Extension;
 use axum::body::Bytes;
 use axum::extract::{RawQuery, State};
 use axum::response::{IntoResponse, Response};
 use base64::Engine as _;
 use ferrohealth_secret::secret::Secret;
-use ferrohealth_server::client_address::ClientAddress;
 use ferrohealth_smart::oidc::{Callback, PendingSignIn};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use url::Url;
 
-use crate::audit;
+use crate::audit::{self, Connected};
 use crate::clients::{Client, GrantType};
 use crate::form::Params;
 use crate::pages::{self, Fault};
@@ -234,14 +232,10 @@ async fn begin(
 /// back.
 pub async fn callback(
     State(state): State<Arc<AppState>>,
-    client: Option<Extension<ClientAddress>>,
+    Connected(from): Connected,
     headers: HeaderMap,
     RawQuery(query): RawQuery,
 ) -> Response {
-    let from = match client_address(&state, client) {
-        Ok(from) => from,
-        Err(response) => return *response,
-    };
     let query = query.unwrap_or_default();
     let Ok(answer) = read_callback(&query) else {
         return pages::fault(&state, Fault::BadRequest);
@@ -511,14 +505,10 @@ pub async fn consent_get(State(state): State<Arc<AppState>>, headers: HeaderMap)
 /// `POST {issuer}/consent`: the person's decision.
 pub async fn consent_post(
     State(state): State<Arc<AppState>>,
-    client: Option<Extension<ClientAddress>>,
+    Connected(from): Connected,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let from = match client_address(&state, client) {
-        Ok(from) => from,
-        Err(response) => return *response,
-    };
     let Ok(form) = Params::parse(&body, &["scope"]) else {
         return pages::fault(&state, Fault::BadRequest);
     };
@@ -667,21 +657,6 @@ async fn issue_code(
         ),
     )
     .await
-}
-
-/// Returns the address the stack names the request's client by, or the
-/// page of a request that came over no connection, which cannot be
-/// recorded.
-fn client_address(
-    state: &AppState,
-    client: Option<Extension<ClientAddress>>,
-) -> Result<IpAddr, Box<Response>> {
-    client
-        .map(|Extension(ClientAddress(from))| from)
-        .ok_or_else(|| {
-            tracing::error!("a request came over no connection, so it cannot be recorded");
-            Box::new(pages::fault(state, Fault::Server))
-        })
 }
 
 /// Records the login `answer` at the upstream provider, or returns the page
@@ -934,14 +909,10 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
 /// the client's tokens about the person.
 pub async fn manage_post(
     State(state): State<Arc<AppState>>,
-    client: Option<Extension<ClientAddress>>,
     headers: HeaderMap,
+    Connected(from): Connected,
     body: Bytes,
 ) -> Response {
-    let from = match client_address(&state, client) {
-        Ok(from) => from,
-        Err(response) => return *response,
-    };
     let Ok(form) = Params::parse(&body, &[]) else {
         return pages::fault(&state, Fault::BadRequest);
     };

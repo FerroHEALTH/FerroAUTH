@@ -13,18 +13,16 @@
 
 use std::sync::Arc;
 
-use axum::Extension;
 use axum::Json;
 use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
-use ferrohealth_server::client_address::ClientAddress;
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use jsonwebtoken::{Algorithm, DecodingKey, Validation, jwk::Jwk};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
-use crate::audit;
+use crate::audit::{self, Connected};
 use crate::clients::{Client, ClientKeys, ClientKind, GrantType};
 use crate::discovery::TOKEN_ROUTE;
 use crate::form::Params;
@@ -96,14 +94,10 @@ impl IntoResponse for Refusal {
 /// governs the refusal: our own design).
 pub async fn token(
     State(state): State<Arc<AppState>>,
-    client: Option<Extension<ClientAddress>>,
+    Connected(from): Connected,
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let Some(Extension(ClientAddress(from))) = client else {
-        tracing::error!("a token request came over no connection, so it cannot be recorded");
-        return unrecorded();
-    };
     let answer = issue(&state, &headers, &body, from).await;
     // NOTE: a form that cannot be read names no client; the record then says so.
     let form = Params::parse(&body, &[]).ok();
@@ -270,7 +264,7 @@ async fn issue(
     let form = read_form(headers, body)?;
     match form.get("grant_type") {
         Some("client_credentials") => client_credentials(state, &form).await,
-        Some("authorization_code") => authorization_code(state, &form, from).await,
+        Some("authorization_code") => authorization_code(from, state, &form).await,
         Some("refresh_token") => crate::refresh::refresh(state, &form, from).await,
         Some(_) => Err(Refusal {
             error: "unsupported_grant_type",
@@ -336,9 +330,9 @@ async fn client_credentials(state: &AppState, form: &Params) -> Result<Issued, R
 /// first issued, once the rest of the request holds (OAuth 2.1 draft
 /// §4.1.3, §7.5.3).
 async fn authorization_code(
+    from: std::net::IpAddr,
     state: &AppState,
     form: &Params,
-    from: std::net::IpAddr,
 ) -> Result<Issued, Refusal> {
     let client = identify(state, form).await?;
     if !client.grant_types.contains(&GrantType::AuthorizationCode) {
