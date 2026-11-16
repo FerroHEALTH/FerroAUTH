@@ -139,11 +139,13 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   `cookies`, `return_path`, `paths`, and `routes` behind `axum`),
   `tests/it/` (the four routes of a synthetic console against a test OpenID
   Provider, a `wiremock` stub with a key generated when the case runs).
-- FerroSMART, the authorization server: being built (its tracker issue
-  carries the steps); `docs/architecture.md` §13 fixes its crate layout,
-  storage, endpoints and configuration.
+- `app/ferrosmart`: FerroSMART, the authorization server, being built
+  (#512 carries the steps); `docs/architecture.md` §13 fixes its
+  requirements, crate layout, storage, endpoints, configuration, keys and
+  threat model.
 - `docs/`: `architecture.md`, `VERSIONS.md`, `release.md`, `specs/` (the
-  vendored SMART App Launch, RFC, OpenID Connect Discovery, Core and
+  vendored SMART App Launch, RFC, OAuth 2.1 draft, Inferno SMART App
+  Launch test kit, OpenID Connect Discovery, Core and
   RP-Initiated Logout, FAPI 2.0 Security Profile, NIST SP 800-162 and Cedar language corpora, the
   IHE IUA supplement, the IHE BALP content page, Nuts RFC021, and the
   Microsoft Entra, SCIM workload identity and Keycloak documents the issuer
@@ -180,7 +182,9 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   upstream), RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725,
   9068, 9700, 8707, 7638, 8705, 9449, 9470, 8259, 6454, 7636, 7009, 7521,
   7522, 8693 and 3986, OpenID Connect Discovery 1.0, Core 1.0 and RP-Initiated
-  Logout 1.0, the FAPI 2.0 Security Profile for a client grant held to it,
+  Logout 1.0, and for FerroSMART also RFC 6819, 7518, 7591, 8252, 9126,
+  9207, 9864 and 10070 and the OAuth 2.1 draft (cited beside the RFCs it
+  consolidates), the FAPI 2.0 Security Profile for a client grant held to it,
   and IHE IUA and Nuts RFC021 for federation tokens, as
   vendored under `docs/specs/`. Cite the section in every `// NOTE:`; never resolve a
   question from memory or from another implementation's behaviour. Where

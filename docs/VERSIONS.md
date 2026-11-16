@@ -24,6 +24,7 @@ records why the value is what it is.
 | FAPI 2.0 Security Profile | Final Specification (2025-02-22) | `docs/architecture.md` §2, `docs/specs/fapi-security-profile/PROVENANCE.md` |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | `docs/architecture.md` §2, `docs/specs/openid-connect-core/PROVENANCE.md` |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | `docs/architecture.md` §2, `docs/specs/openid-connect-rpinitiated/PROVENANCE.md` |
+| OAuth 2.1 Authorization Framework | draft-ietf-oauth-v2-1-17 (2026-10-31, an Internet-Draft, cited beside RFC 6749, 6750 and 9700 and never in their place) | `docs/architecture.md` §2 and §13, `docs/specs/oauth-v2-1/PROVENANCE.md` |
 | SMART on openEHR | DEVELOPMENT (the ITS-REST draft at its amendment record 1.1.0, 2025-05-20, pinned by commit below; never a release) | `docs/architecture.md` §2 and §3.9, `docs/specs/smart-on-openehr/PROVENANCE.md` |
 
 ## Corpora and machine-readable inputs
@@ -47,6 +48,8 @@ hashes the vendored bytes again, failing when either disagrees with its row.
 | Cedar language documentation | `cedar-policy/cedar-docs` commit `5d8a02fda9ddf629b9989b0e0e2fb16215d394e4` (the default branch head on 2026-10-25) paths `docs/collections/_policies`, `_auth` and `_schema` | `scripts/vendor/cedar-docs.sh`, `docs/specs/cedar-docs/PROVENANCE.md` |
 | IHE IUA supplement | `IHE/ITI.IUA` tag `2.5` commit `a8e20c92928b7560ee07a410922187757248c8b9`, the Revision 2.5 Trial Implementation supplement text (ITI-71, ITI-72, ITI-102, ITI-103) and its figures, the edition FerroHEALTH/FerroFED vendors (CC-BY-4.0) | `scripts/vendor/ihe-iua.sh`, `docs/specs/ihe-iua/PROVENANCE.md` |
 | IHE BALP narrative pages | pin-set digest `3fd80aafc7ddc31d12ca5c4a3d1a2cee9ee863b42da5731d07de146eff70c8b4` over the Volume 3 content page (3:5.7) of Basic Audit Log Patterns 1.1.4, pinned by URL and sha256 as profiles.ihe.net renders it, the bytes FerroHEALTH/FerroFED vendors (CC-BY-4.0) | `scripts/vendor/ihe-balp-pages.sh`, `docs/specs/ihe-balp-pages/PROVENANCE.md` |
+| OAuth 2.1 Authorization Framework draft | pin-set digest `ceae881690dd894a6e6565186ef7e0e8496da39445293565188449f523163429` over `draft-ietf-oauth-v2-1-17.txt`, pinned by its IETF archive URL and sha256 `5762f86fef656f4d5afd1d2fbd3bb79cbd25bbcba8c856dc7e0ad4851437b2a7` (BCP 78, the IETF Trust Legal Provisions) | `scripts/vendor/oauth-v2-1.sh`, `docs/specs/oauth-v2-1/PROVENANCE.md` |
+| Inferno SMART App Launch test kit | `inferno-framework/smart-app-launch-test-kit` tag `v1.0.3` commit `980e54e4ed632b28267d797013399a8588772174` (the latest release on 2026-11-16, gem version 1.0.3 on `inferno_core` 1.4.3), the STU 2.2 server suite, its test groups and the kit's requirement extraction for SMART App Launch 2.2.0 (Apache-2.0) | `scripts/vendor/inferno-smart-test-kit.sh`, `docs/specs/inferno-smart-test-kit/PROVENANCE.md` |
 | Nuts RFC021 | `nuts-foundation/nuts-specification` commit `7c0de533b8cce537812b6647542e5719c93433a8`, RFC021 (VP Token Grant Type), the commit FerroHEALTH/FerroFED vendors (CC-BY-SA-4.0, per the document's Copyright Notice) | `scripts/vendor/nuts-rfc.sh`, `docs/specs/nuts-rfc/PROVENANCE.md` |
 | Microsoft Entra documentation | `MicrosoftDocs/entra-docs` commit `219d8d57b01779e72e6d5449dc9341334c1fb906` (the default branch head on 2026-11-05), the access token claims reference, the optional claims reference and the on-behalf-of flow (CC-BY-4.0 per the README, MIT per the LICENSE file) | `scripts/vendor/entra-docs.sh`, `docs/specs/entra-docs/PROVENANCE.md` |
 | SCIM workload identity federation guide | `AzureAD/SCIMReferenceCode` commit `21b92c8f28383e30f8c304908b126682af2370d7` (the default branch head on 2026-11-05), `Workload-Identity-Federation-for-SCIM-Provisioning.md` and its figures (MIT) | `scripts/vendor/scim-workload-identity.sh`, `docs/specs/scim-workload-identity/PROVENANCE.md` |
@@ -95,6 +98,14 @@ RFC Editor reports obsoleted, and records what updates it.
 | RFC 7522 | Security Assertion Markup Language (SAML) 2.0 Profile for OAuth 2.0 Client Authentication and Authorization Grants, sha256 `87656a015c74b2cce4ed74fdf785ea2cf824e8d13cc53860d40fac3e57569afd` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 8693 | OAuth 2.0 Token Exchange, sha256 `358d658014738bf4dc56c8aae2094ce716ede23b6d5a80488a7dc8e8d72da609` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 3986 | Uniform Resource Identifier (URI): Generic Syntax, sha256 `3102dae4b68cebe40337730312fcb612297b8928547267e8b3d1ee6002b2d683` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 6819 | OAuth 2.0 Threat Model and Security Considerations, sha256 `7130b62c2861e8f8a7a28aa1af9d12b6dd49e9f1353f51a84314026fbcf9dd08` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 7518 | JSON Web Algorithms (JWA), sha256 `9a9ae524b09ea700ad3f189bac115df95ba69af84b26ffdbe3cdfb8d2152b1fc` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 7591 | OAuth 2.0 Dynamic Client Registration Protocol, sha256 `f9cd8b8eefdb2d1b1bd5734310f246926db0abb4ec1b2f933f358d58327964e3` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 8252 | OAuth 2.0 for Native Apps, sha256 `4233c0650ec7e7918c20e0fde2dc565f85e2aa2d4c18123e3cd834295c2f68d0` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 9126 | OAuth 2.0 Pushed Authorization Requests, sha256 `a79d0e30fcc24a22b79c8e18aa82362f6e63a7b8a5d58b480e746360e97388db` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 9207 | OAuth 2.0 Authorization Server Issuer Identification, sha256 `c9c17b9824315aca9bda5c0b5e3627cb24aa28d54324292f3761006209b705fd` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 9864 | Fully-Specified Algorithms for JSON Object Signing and Encryption (JOSE) and CBOR Object Signing and Encryption (COSE), sha256 `0f9b6dd26b3285fd9fe7f7e0a82e684d06512dee642703d51c6f88a7b0edaa2b` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 10070 | Updates to OAuth 2.0 JSON Web Token (JWT) Client Authentication and Assertion-Based Authorization Grants, sha256 `bca193c44b10f864396706e29192a091256d9c15a66c1549b01e75866165e163` | `docs/specs/rfc/PROVENANCE.md` |
 
 ## Licence
 
@@ -119,7 +130,9 @@ public domain of a United States Government work for NIST SP 800-162, CC BY
 4.0 for the IHE IUA supplement and the IHE BALP content page, CC BY-SA 4.0
 for Nuts RFC021, the README's CC BY 4.0 grant and the LICENSE file's MIT
 text for the Microsoft Entra documents, MIT for the SCIM workload identity
-federation guide and Apache License 2.0 for the Keycloak documentation,
+federation guide, Apache License 2.0 for the Keycloak documentation
+and the Inferno SMART App Launch test kit, the IETF Trust Legal
+Provisions for the OAuth 2.1 draft,
 and CC BY-SA 3.0 Unported for the openEHR RM Common chapter. The Okta API
 reference states
 "All rights reserved" and grants no licence, so `scripts/vendor/okta.sh`

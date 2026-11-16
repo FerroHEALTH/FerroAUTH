@@ -66,6 +66,7 @@ label machine-auth 0e8a16 "HTTP Basic and the client credentials grant."
 label audit 006b75 "The audit line."
 label session 1f883d "The console sign-in and session (ferrohealth-session)."
 label "spec:SMART" fbca04 "SMART App Launch, the specification."
+label ferrosmart 5ebeff "FerroSMART, the SMART App Launch authorization server."
 label "spec:OAuth" d93f0b "The OAuth 2.0, JWT and Basic RFCs and OpenID Connect Discovery."
 
 echo "== workflow labels =="
@@ -73,5 +74,8 @@ label dependencies 0366d6 "Dependency updates (used by Dependabot)."
 label security ee0701 "Security fix or hardening."
 label blocked-upstream 6f42c1 "Waiting on an upstream specification or tool release."
 label no-changelog bfdadc "PR escape hatch: the change has no effect a product sees."
+
+echo "== outbound labels =="
+label upstream-report c5def5 "A defect, contradiction or silence in a published specification, reported here."
 
 echo "done."
