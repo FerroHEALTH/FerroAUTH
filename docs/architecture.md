@@ -2562,6 +2562,7 @@ discovery and token shapes for the two SaaS providers.
   | a rotated refresh token reused, its grant revoked | `110113` | `refresh-reused` | `E` |
   | a code redeemed again, its tokens revoked | `110113` | `code-reused` | `E` |
   | an upstream session ended | `110114` | `110123` Logout, `session-ended` | `E` |
+  | the patient picker's own token issued (13.6 item 4) | `110114` | `picker-token` | `C` |
 
   None of these events is an access to personal electronic health data,
   so none is an access record of Annex II 3.2; the patient
@@ -2886,15 +2887,27 @@ specification governs.
    (`smart app-launch`, Obtain authorization code). SMART defines no
    protocol for handing the choice to a picker elsewhere and back, so an
    external picker URL would be a hand-off of our own invention with its
-   own threat surface. FerroSMART draws the picker itself (#516): a
-   server-rendered form, part of the `/authorize` flow, over a FHIR Patient
-   search (`GET [base]/Patient?name=…` and `identifier=…`) at the configured
-   base with a short-lived token FerroSMART issues to itself for the
-   signed-in user, `aud` the base and scope `user/Patient.rs`, so the FHIR
-   server's own access rules decide which patients the user sees; for an
-   openEHR `aud`, the EHR id comes from `GET
-   [base]/ehr?subject_id=…&subject_namespace=…` (ITS-REST) under the same
-   rule. The search call and the page are our own design.
+   own threat surface. FerroSMART draws the picker itself (#516), between
+   the login and the consent, for a standalone launch whose client may ask
+   for `launch/patient` at a FHIR resource server: a server-rendered form
+   over a FHIR R4 search (`GET [base]/Patient?name=…&identifier=…`). The
+   search runs as the signed-in person, never as a system: FerroSMART
+   issues itself a token whose `sub` is the person's pairwise subject and
+   whose `fhirUser` is theirs, `aud` the one base, scope `user/Patient.rs`
+   alone, living 30 seconds and revoked once the request is answered, each
+   step committed with its record (13.2). The FHIR server's own access
+   rules for that person decide which patients they see: a `user/` scope
+   is "relative to the user's underlying permissions. If the underlying
+   user has limited permissions, the client will face these same
+   limitations" (`smart scopes-and-launch-context`). The chosen id is read again as them before it enters
+   the launch context, so a patient they may not see is never chosen. The
+   choice travels as an EHR launch's does: in the code's launch context,
+   the grant's context map, the token response's `patient` and the access
+   token's claim. Every search and read is an access record of Regulation
+   (EU) 2025/327 Annex II 3.2 through `ehds-logging`. A failed search is an
+   error page, never an empty context. An openEHR resource server's EHR
+   selection is not this picker's. The search call and the page are our
+   own design.
 5. **Scope narrowing.** The granted scope is the intersection of the
    request, the client's registered ceiling, the user's roles mapped to
    scopes by configuration, and the consent the user gave; SMART allows the

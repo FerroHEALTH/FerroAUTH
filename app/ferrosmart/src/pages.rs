@@ -17,7 +17,7 @@ use ferrohealth_ui::style::Brand;
 use ferrohealth_ui::theme::Preferences;
 use ferrohealth_ui::view::button::{Variant, label};
 use ferrohealth_ui::view::error_page::{ErrorPage, Status, error_page};
-use ferrohealth_ui::view::form::{check, check_field, fieldset};
+use ferrohealth_ui::view::form::{check, check_field, field, fieldset};
 use ferrohealth_ui::view::scope::{ScopeGrant, scope_grants};
 use ferrohealth_ui::view::shell::{Document, Footer, centred, document, lockup_plain, mark};
 use ferrohealth_ui::view::surface::{card, page_card};
@@ -220,6 +220,90 @@ pub fn consent(
         page,
         &origin.into_iter().collect::<Vec<_>>(),
     )
+}
+
+/// Returns the patient picker page of `pending`: the search form, filled
+/// with `asked`, and the patients `found` when a search ran.
+#[must_use]
+pub fn picker(
+    state: &AppState,
+    headers: &HeaderMap,
+    pending: &Pending,
+    asked: Option<(Option<&str>, Option<&str>)>,
+    found: Option<&[crate::picker::Found]>,
+) -> Response {
+    let locale = negotiated(headers);
+    let words = |id: &str| locale.lookup(&*CATALOG, id);
+    let action = state.settings().endpoint(crate::picker::PICKER_ROUTE);
+    let (name, identifier) = asked.unwrap_or_default();
+    let input = |id: &'static str, value: Option<&str>| {
+        Html::raw(format!(
+            "<input type=\"search\" id=\"{id}\" name=\"{id}\" value=\"{}\" class=\"fui-input\">",
+            Html::text(value.unwrap_or_default())
+        ))
+    };
+    let search = Html::raw(format!(
+        "<form method=\"get\" action=\"{action}\" role=\"search\" class=\"fui-stack\">{name}{identifier}\
+         <div class=\"fui-cluster\"><button type=\"submit\" class=\"{primary}\">{label}</button></div></form>",
+        action = Html::text(&action),
+        name = field("name", words("picker-name"), None, input("name", name)),
+        identifier = field(
+            "identifier",
+            words("picker-identifier"),
+            None,
+            input("identifier", identifier)
+        ),
+        primary = Variant::Primary.class(),
+        label = label(Some(Glyph::SEARCH), words("picker-search")),
+    ));
+    let results = match found {
+        None => Html::empty(),
+        Some([]) => Html::raw(format!("<p>{}</p>", Html::text(words("picker-none")))),
+        Some(found) => {
+            let choices = Html::join(found.iter().enumerate().map(|(index, patient)| {
+                let id = format!("patient-{index}");
+                let radio = Html::raw(format!(
+                    "<input type=\"radio\" id=\"{id}\" name=\"patient\" value=\"{}\" required>",
+                    Html::text(&patient.id)
+                ));
+                let mut words_of = vec![patient.name.clone()];
+                if let Some(date) = &patient.birth_date {
+                    words_of.push(locale.lookup_with(
+                        &*CATALOG,
+                        "picker-born",
+                        &[("date", Arg::from(date.as_str()))],
+                    ));
+                }
+                words_of.extend(patient.gender.clone());
+                words_of.extend(patient.identifier.clone());
+                check(&id, words_of.join(", "), radio)
+            }));
+            Html::raw(format!(
+                "<form method=\"post\" action=\"{action}\" class=\"fui-stack\">\
+                 <input type=\"hidden\" name=\"form_token\" value=\"{token}\">{fields}\
+                 <div class=\"fui-cluster\"><button type=\"submit\" class=\"{primary}\">{choose}</button></div></form>",
+                action = Html::text(&action),
+                token = Html::text(&pending.form_token),
+                fields = fieldset(words("picker-results"), choices),
+                primary = Variant::Primary.class(),
+                choose = label(Some(Glyph::CHECK), words("picker-choose")),
+            ))
+        }
+    };
+    let deployment = &state.settings().branding;
+    let body = Html::join([
+        Html::raw(format!("<p>{}</p>", Html::text(words("picker-intro")))),
+        search,
+        results,
+    ]);
+    let lockup = lockup_plain(
+        mark(Glyph::KEY_ROUND),
+        &deployment.name,
+        words("product-word"),
+    );
+    let title = words("picker-title");
+    let page = page_card(Some(lockup), title.clone(), body);
+    respond(state, StatusCode::OK, &locale, title, page, &[])
 }
 
 /// A consent the person remembered, as the management page lists it.
