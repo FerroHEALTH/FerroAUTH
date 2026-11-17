@@ -1546,6 +1546,33 @@ async fn a_standalone_launch_picks_a_patient_the_person_may_see() {
     smart.stop().await;
 }
 
+// NOTE: FerroHEALTH/FerroUI#686: FerroSMART's own mark, the shield with the
+// keyhole, drawn by FerroUI on the consent, picker and error pages.
+#[tokio::test]
+async fn every_page_draws_the_ferrosmart_mark() {
+    let mark = "fui-mark fui-mark-ferrosmart";
+    let smart = Smart::start().await;
+    let (cookie, _) = to_consent(&smart, &["clinician"]).await;
+    let (_, _, consent) = smart.get("/consent", Some(&cookie)).await;
+    assert!(consent.contains(mark), "the consent page: {consent}");
+    let (status, _, fault) = smart.get("/consent", None).await;
+    assert!(status.is_client_error(), "{status}");
+    assert!(fault.contains(mark), "an error page: {fault}");
+    smart.stop().await;
+    let (smart, fhir, _seen) = picker_launch().await;
+    let base = format!("{}/fhir", fhir.uri());
+    let cookie = to_picker(
+        &smart,
+        &base,
+        "synthetic-person",
+        "Practitioner/synthetic-1",
+    )
+    .await;
+    let (_, _, picker) = smart.get("/picker", Some(&cookie)).await;
+    assert!(picker.contains(mark), "the picker: {picker}");
+    smart.stop().await;
+}
+
 #[tokio::test]
 async fn a_person_never_sees_or_picks_a_patient_they_may_not_see() {
     let (smart, fhir, _seen) = picker_launch().await;
