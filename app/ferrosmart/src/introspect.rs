@@ -26,7 +26,8 @@ use serde_json::{Map, Value, json};
 use crate::form::Params;
 use crate::server::AppState;
 use crate::store::grant::{AccessRecord, GrantRecord, RefreshRecord};
-use crate::token::{Refusal, authenticate, no_store, read_form, server_error};
+use crate::token::assertion::authenticate;
+use crate::token::{Refusal, no_store, read_form, server_error};
 
 /// The scope that lets a caller introspect (`docs/architecture.md` §13.6
 /// item 8).

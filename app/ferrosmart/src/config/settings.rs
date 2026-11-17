@@ -190,7 +190,14 @@ fn audit(section: &AuditSection, issuer: &Url) -> Result<AuditSettings, Error> {
         .map(|endpoint| {
             let client = OutboundClient::build(endpoint, "ferrosmart.audit.feed", &ServerTls)
                 .map_err(|source| Error::AuditFeed { source })?;
-            FeedRepository::new(client).map_err(|source| Error::AuditBase { source })
+            let base = client.url().clone();
+            let between_rounds = Duration::from(client.retry().max_backoff);
+            FeedRepository::new(
+                &base,
+                Arc::new(crate::audit_feed::OutboundFeed(client)),
+                between_rounds,
+            )
+            .map_err(|source| Error::AuditBase { source })
         })
         .transpose()?;
     let host = issuer.host_str().unwrap_or_default().to_owned();

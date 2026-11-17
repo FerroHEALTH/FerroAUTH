@@ -32,7 +32,7 @@ clap.workspace = true
 ferrohealth-config.workspace = true
 # The BALP AuditEvent of each login and each token, stored in a spool and
 # sent over the ITI-20 ATX: FHIR Feed (docs/architecture.md 13.2).
-ihe-atna = { workspace = true, features = ["balp", "smart"] }
+ihe-atna = { workspace = true, features = ["balp", "feed"] }
 # The access record of Regulation (EU) 2025/327 Annex II 3.2 the patient
 # picker writes for each search and read (#516).
 ehds-logging = { workspace = true, features = ["balp"] }
