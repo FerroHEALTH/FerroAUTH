@@ -179,7 +179,7 @@ pub fn metadata_document(metadata: &ServerMetadata) -> Value {
 /// with it, the App Launch document, whose capabilities the builder derives
 /// from the metadata (`client-public`, `client-confidential-asymmetric`,
 /// `launch-standalone`), with `sso-openid-connect`, the capabilities of
-/// [`configured_capabilities`], the refresh tokens FerroSMART issues
+/// the configuration (the picker, the style document), the refresh tokens FerroSMART issues
 /// (`permission-offline`, `permission-online`) and the v2 scopes it grants
 /// (`permission-patient`, `permission-user`, `permission-v2`).
 #[must_use]
