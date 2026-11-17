@@ -3369,7 +3369,12 @@ upstream of FerroSMART for login only (#522). The realm is
 is `ferrosmart.toml` beside it, and `scripts/idp/keycloak-launch.sh` runs both
 in CI: a SMART standalone launch through Keycloak's login form and
 FerroSMART's consent page, to a token response whose ID Token and access
-token carry the person's mapped `fhirUser`. The realm's ids are fixed in the
+token carry the person's mapped `fhirUser`. The quickstart takes the same
+path in CI (#519): the `quickstart` job builds the image from a static
+binary with `docker/ferrosmart/Dockerfile`, brings up `compose.yaml` with
+`compose.keycloak.yaml` on it with secrets made as their comments make them,
+and runs the same launch through them (`scripts/idp/compose-launch.sh`).
+The realm's ids are fixed in the
 file, so an import is reproducible; its secrets are placeholders the
 environment fills at import, so none is in the tree. Citations are to
 `docs/specs/keycloak-docs/`, server administration guide `topics/` unless

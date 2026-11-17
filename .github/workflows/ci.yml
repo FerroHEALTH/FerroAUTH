@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: Cadasto B.V.
 # SPDX-License-Identifier: BUSL-1.1
 
-# CI in four jobs and the conclusion (no specification governs this: our own
+# CI in five jobs and the conclusion (no specification governs this: our own
 # design).
 #
 #   1. `guards` runs the workflow, shell and repository guards, the
@@ -14,6 +14,9 @@
 #      case, and where it reaches FerroSMART, the standalone launch through
 #      Keycloak and the Inferno SMART App Launch lane.
 #   4. `cargo-semver-checks` runs on a pull request only.
+#   5. `quickstart` builds the FerroSMART image from a static binary and runs
+#      a standalone launch through `compose.yaml` with `compose.keycloak.yaml`,
+#      where a change reaches the image or the quickstart.
 #
 # Every job starts at once and pays one runner queue wait: the hosted runner
 # pool is shared across the organisation, so each job pays the wait for a
@@ -505,6 +508,75 @@ jobs:
   # ---- The single required check --------------------------------------------
   # It needs every other job and runs on always(), so it reports even when a
   # gated tier is skipped; it fails when a needed job failed or was cancelled.
+  quickstart:
+    name: quickstart
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: reach
+        name: Does the change reach the image or the quickstart
+        if: github.event_name != 'merge_group'
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != pull_request ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          run=false
+          while IFS= read -r path; do
+            case "$path" in
+              app/ferrosmart/* | crates/ferrohealth-smart/src/* | docker/ferrosmart/* | .dockerignore | \
+                compose.yaml | compose.keycloak.yaml | scripts/idp/* | .github/workflows/ci.yml | \
+                docs/VERSIONS.md | Cargo.lock)
+                echo "reaches the quickstart: $path"
+                run=true
+                ;;
+              *) ;;
+            esac
+          done < <(git diff --name-only "$BASE...$HEAD")
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+      - if: steps.reach.outputs.run == 'true'
+        uses: ./.github/actions/setup-rust
+        with:
+          target: x86_64-unknown-linux-musl
+          cache-save-if: ${{ github.ref == 'refs/heads/main' }}
+      # musl needs its C toolchain for the link step and for aws-lc-sys, as in
+      # the release build (release-ferrosmart-build.yml).
+      - if: steps.reach.outputs.run == 'true'
+        name: Install the musl toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends musl-tools
+      - if: steps.reach.outputs.run == 'true'
+        name: Build the static binary the image copies
+        run: cargo build -p ferrosmart --locked --target x86_64-unknown-linux-musl
+      # The quickstart end to end (#519): the image built from that binary,
+      # compose.yaml with compose.keycloak.yaml on it, and a standalone launch
+      # through them (scripts/idp/compose-launch.sh).
+      - if: steps.reach.outputs.run == 'true'
+        name: A standalone launch through the quickstart
+        env:
+          LANE_DIR: ${{ runner.temp }}/compose-launch
+          FERROSMART_BINARY: target/x86_64-unknown-linux-musl/debug/ferrosmart
+        run: scripts/idp/compose-launch.sh
+      - if: failure() && steps.reach.outputs.run == 'true'
+        name: Keep the quickstart's logs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: compose-launch
+          path: ${{ runner.temp }}/compose-launch/*.log
+          if-no-files-found: ignore
+
   conclusion:
     name: conclusion
     needs:
@@ -512,6 +584,7 @@ jobs:
       - lint
       - test
       - semver
+      - quickstart
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
