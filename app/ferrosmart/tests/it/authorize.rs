@@ -190,9 +190,10 @@ impl Smart {
         let provider = Provider::start().await;
         let keys = Keys::new();
         let database = Database::create().await;
+        let assertion = crate::support::upstream_assertion(keys.dir.path());
         let text = format!(
             "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
-             [ferrosmart.upstream]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\nfhir_user_claim = \"fhir_user\"\n\
+             [ferrosmart.upstream]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\nfhir_user_claim = \"fhir_user\"\n{assertion}\
              [ferrosmart.branding]\nsmart_style_url = {STYLE:?}\n{resource}\
              [[ferrosmart.role]]\nname = \"clinician\"\nscopes = {role}\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nname = \"Synthetic App\"\nkind = \"public\"\n\

@@ -367,24 +367,12 @@ fn upstream(section: &UpstreamSection, keys: &KeyRing) -> Result<Upstream, Error
             rule: "`issuer` and `client_id` are set",
         });
     }
-    let client_secret = ferrohealth_secret::file::read_secret(
-        "ferrosmart.upstream.client_secret",
-        section
-            .client_secret
-            .as_ref()
-            .map(ferrohealth_secret::secret::Secret::to_secret_string),
-        section.client_secret_file.as_deref(),
-    )?;
-    let authentication = match (client_secret, &section.private_key_jwt) {
-        (Some(_), Some(_)) => {
-            return Err(Error::Upstream {
-                rule: "a client secret and `private_key_jwt` are not both set",
-            });
-        }
-        (Some(secret), None) => Authentication::Secret(secret),
-        (None, Some(jwt)) => assertion_keys(jwt, keys)?,
-        (None, None) => Authentication::Public,
+    let Some(jwt) = &section.private_key_jwt else {
+        return Err(Error::Upstream {
+            rule: "`[ferrosmart.upstream.private_key_jwt]` is set: FerroSMART authenticates to the provider by `private_key_jwt` alone",
+        });
     };
+    let authentication = assertion_keys(jwt, keys)?;
     let named = |claim: &String| !claim.is_empty();
     Ok(Upstream {
         issuer: section.issuer.clone(),
@@ -435,7 +423,7 @@ fn assertion_keys(
             .with_certificate(&pem)
             .map_err(|source| Error::Key { key: KEY, source })?;
     }
-    Ok(Authentication::PrivateKeyJwt {
+    Ok(Authentication {
         signer: Box::new(key),
         ring: Arc::new(ring),
     })

@@ -50,6 +50,28 @@ The server is being built in this repository (its design is
 image beside the crates. Its book, for operators and integrators, is at
 <https://ferrosmart.eu/docs/>.
 
+#### Identity providers
+
+People log in at your identity provider, and FerroSMART authenticates to
+it with `private_key_jwt` alone (OpenID Connect Core 1.0 §9). Each
+assertion names the provider's issuer as its only audience (RFC 10070 §4).
+No code in FerroSMART knows a vendor; four providers have a documented,
+tested setup:
+
+| Provider | Login | Client authentication | `fhirUser` | Roles | Tested by |
+|---|---|---|---|---|---|
+| Keycloak | the realm's login form | Signed JWT, reading FerroSMART's `{issuer}/upstream-jwks` | a user attribute mapper | a realm role mapper | a launch in CI, and the compose quickstart |
+| ZITADEL | the Login v2 UI | Private Key JWT, with a key ZITADEL generates | an Actions v2 target, from user metadata | the project role claim | a launch in CI |
+| Microsoft Entra ID | one tenant's sign-in | a certificate credential | a directory extension attribute | app roles | a contract test against Entra ID's documents |
+| Okta | the `default` custom authorization server | a public key on the integration | a custom claim | a groups claim | a contract test against Okta's documents |
+
+Keycloak and ZITADEL accept the issuer audience by their source code.
+Entra ID and Okta document the token endpoint instead, and rely on
+RFC 10070 §6 until a live tenant confirms them (#620). The setup of each
+is in the book's
+[identity providers](https://ferrosmart.eu/docs/install/upstream.html) page
+and in `docs/architecture.md` §13.16 to §13.22.
+
 ### The libraries
 
 The libraries run no login page and issue no tokens. Each FerroHEALTH

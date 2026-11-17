@@ -106,20 +106,20 @@ logs in and FerroSMART answers Backend Services alone.
 |---|---|
 | `issuer` | The provider's issuer, whose discovery document FerroSMART reads at start |
 | `client_id` | The client FerroSMART is registered as at the provider |
-| `client_secret_file`, `client_secret` | The client secret, sent as HTTP Basic; unset with no `private_key_jwt`, a public client with PKCE |
 | `scopes` | The scopes FerroSMART asks for, `openid` among them |
 | `fhir_user_claim` | The ID Token claim holding the person's `fhirUser`; empty for none |
 | `role_claims` | The ID Token claims holding the person's roles, each a dotted path; a claim name with a dot is read whole first |
 | `trusted_audiences` | Audiences an ID Token may carry beside the client id, such as a project the provider adds; empty trusts none |
 
-`[ferrosmart.upstream.private_key_jwt]` authenticates with a signed
-assertion in place of a secret:
+`[ferrosmart.upstream.private_key_jwt]` is required: FerroSMART
+authenticates to the provider with a signed assertion (`private_key_jwt`)
+and takes no client secret.
 
 | Key | What it is |
 |---|---|
 | `algorithm` | The JWS algorithm the provider's registration names; `RS256` by default |
 | `certificate_file` | The X.509 certificate of the current assertion key, for a provider that knows the key by its certificate; each assertion then names it by `x5t#S256` |
-| `[ferrosmart.upstream.private_key_jwt.keys]` | The assertion ring, with the same keys as `[ferrosmart.keys]`; it may share no key with the token ring |
+| `[ferrosmart.upstream.private_key_jwt.keys]` | The assertion ring, with the same keys as `[ferrosmart.keys]`; it may share no key with the token ring. Its `kid` is the id the provider knows the key by, such as ZITADEL's key id |
 
 ## `[[ferrosmart.role]]` and `[[ferrosmart.client]]`
 
@@ -166,10 +166,14 @@ kind = "fhir"
 [ferrosmart.upstream]
 issuer = "https://idp.example.org/realms/hospital"
 client_id = "ferrosmart"
-client_secret_file = "/run/secrets/upstream-secret"
 scopes = ["openid", "profile"]
 fhir_user_claim = "fhir_user"
 role_claims = ["roles"]
+
+[ferrosmart.upstream.private_key_jwt]
+
+[ferrosmart.upstream.private_key_jwt.keys]
+private_key_file = "/run/secrets/upstream-assertion.pem"
 
 [[ferrosmart.role]]
 name = "clinician"

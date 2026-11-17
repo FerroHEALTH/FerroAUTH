@@ -258,6 +258,19 @@ and this project adheres to
 
 - `access_token_lifetime` above one hour is refused at load, as SMART App
   Launch 2.2.0, App Launch has access tokens live no longer (#604).
+- FerroSMART authenticates to every upstream identity provider with
+  `private_key_jwt` alone (OpenID Connect Core 1.0 §9).
+  `[ferrosmart.upstream.private_key_jwt]` is required, and the keys
+  `client_secret` and `client_secret_file` are gone from
+  `[ferrosmart.upstream]`, so a configuration that names one is refused at
+  load, as is a public upstream client. Each assertion names the provider's
+  issuer as its sole `aud` and is typed `client-authentication+jwt`
+  (RFC 10070 §4). The Okta example moves to a public key on the
+  integration, the ZITADEL bootstrap to Private Key JWT with the
+  application key ZITADEL generates, held under its key id, and the README,
+  the architecture and the book describe all four providers in one shape:
+  login, client authentication, `fhirUser`, roles and how each is tested
+  (#619).
 - The Keycloak example authenticates FerroSMART with `private_key_jwt`: the
   realm's client takes the `client-jwt` authenticator and reads
   FerroSMART's `{issuer}/upstream-jwks`, so `compose.keycloak.yaml` and the

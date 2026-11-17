@@ -332,18 +332,35 @@ fn private_key_jwt(keys: &Keys, extra: &str) -> String {
     )
 }
 
-// NOTE: OpenID Connect Core 1.0 §9: a client authenticates by one method.
+// NOTE: OpenID Connect Core 1.0 §9: FerroSMART authenticates upstream by private_key_jwt alone.
 #[test]
-fn private_key_jwt_and_a_client_secret_together_are_refused() {
+fn an_upstream_client_secret_is_refused_when_the_file_loads() {
     let keys = Keys::new();
-    let text = private_key_jwt(&keys, "").replace(
-        "client_id = \"ferrosmart\"\n",
-        "client_id = \"ferrosmart\"\nclient_secret = \"synthetic\"\n",
-    );
+    for secret in [
+        "client_secret = \"synthetic\"\n",
+        "client_secret_file = \"/run/secrets/upstream\"\n",
+    ] {
+        let text = private_key_jwt(&keys, "").replace(
+            "client_id = \"ferrosmart\"\n",
+            &format!("client_id = \"ferrosmart\"\n{secret}"),
+        );
+        let refused = ferrosmart::config::Config::from_sources(
+            Some(&text),
+            &std::collections::BTreeMap::new(),
+        );
+        assert!(matches!(refused, Err(Error::Load(_))), "{secret}");
+    }
+}
+
+// NOTE: OpenID Connect Core 1.0 §9: no public client, no secret, private_key_jwt alone.
+#[test]
+fn an_upstream_without_private_key_jwt_is_refused() {
+    let keys = Keys::new();
     assert!(matches!(
-        config(&text, &keys).resolve(),
+        config(&upstream(&keys, ""), &keys).resolve(),
         Err(Error::Upstream { .. })
     ));
+    assert!(config(&private_key_jwt(&keys, ""), &keys).resolve().is_ok());
 }
 
 // NOTE: RFC 7518 §3.1: the ring holds RSA keys, which sign RS* and PS* alone.

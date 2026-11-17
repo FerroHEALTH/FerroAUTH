@@ -13,6 +13,14 @@ and this project adheres to
 
 ### Changed
 
+- `oidc::RelyingParty` under `with_private_key_jwt` sends a client assertion
+  whose `aud` is the provider's issuer identifier as its sole value and
+  whose `typ` is `client-authentication+jwt`, as RFC 10070 §4 requires.
+  Before, it sent the token endpoint URL typed `JWT`, which OpenID Connect
+  Core 1.0 §9 recommends and which ZITADEL refuses. RFC 10070 §6 has such a
+  client work with providers of either rule. The public API is unchanged,
+  and `with_client_secret` stays for `ferrohealth-session`
+  (FerroHEALTH/FerroSMART#619).
 - The repository is FerroSMART again, at
   <https://github.com/FerroHEALTH/FerroSMART>, and the crate's `repository`
   and `homepage` point there (owner decision 2026-11-17). The FerroAUTH
