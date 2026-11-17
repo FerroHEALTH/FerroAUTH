@@ -13,9 +13,11 @@
 # A person's `sub` is stable across every client (§13.6 item 9), so `iss`
 # with `sub` names one person, as the `rfc9068` default has it. A client
 # credentials token's `sub` is its `client_id` (RFC 9068 §2.2 and §5), the
-# default app-only marker. A SMART app acts for the signed-in person, so a
-# resource server lists the apps it admits in `delegates` by `client_id`
-# and reads their callers as delegated; the preset lists none, since the
+# default app-only marker. A resource server trusts FerroSMART in one
+# `kind = "persons"` table, which reads those app-only tokens as the system
+# too; a second table for the same issuer is refused at load. A SMART app
+# acts for the signed-in person, so that table lists the apps it admits in
+# `delegates` by `client_id` and reads their callers as delegated; the preset lists none, since the
 # apps are each deployment's. FerroSMART grants no token exchange, so a
 # deployment that uses the onward grants sets them for another issuer.
 

@@ -1314,8 +1314,9 @@ access tokens with no Ferro-specific claim, so the preset keeps every
 FerroSMART writes (`rfc9068 §2.1`), and `required_claims` adds `scope`,
 which every FerroSMART token carries (SMART App Launch 2.2.0, Obtain access
 token, Response). The launch context claims (`patient`, `encounter`,
-`fhirUser`, `ehrId`, §13.6 item 2) need no key. A client credentials token
-reads as `System`, since its `sub` is its `client_id` (`rfc9068 §2.2`). A
+`fhirUser`, `ehrId`, §13.6 item 2) need no key. A product trusts FerroSMART
+in one `persons` table, which also reads a client credentials token as
+`System`, since its `sub` is its `client_id` (`rfc9068 §2.2`). A
 SMART app acts for the signed-in person, so a product lists the apps it
 admits in `delegates` and reads their callers as `Delegated`. The preset
 lists none, because the apps belong to each deployment. FerroSMART grants
@@ -3683,11 +3684,14 @@ adoption issue tracks its own side (#521).
    subject_namespace = "examples"                # openEHR only: the picker's EHR lookup (13.6 item 4)
    ```
 
-2. **The product trusts FerroSMART** as an issuer under the `ferrosmart`
-   preset (3.3, the profile section). The preset keeps every `rfc9068`
-   default except two: `typ` is `at+jwt` alone, and `scope` is required.
-   The product lists the SMART apps it admits for a person in `delegates`.
-   A Backend Services client reads as `System` under a `machines` issuer.
+2. **The product trusts FerroSMART** in one `persons` issuer table under
+   the `ferrosmart` preset (3.3, the profile section). The preset keeps
+   every `rfc9068` default except two: `typ` is `at+jwt` alone, and `scope`
+   is required. The product lists the SMART apps it admits for a person in
+   `delegates`. The same table reads a Backend Services token as `System`,
+   because its `sub` is its `client_id` (`rfc9068 §2.2`), and a `persons`
+   issuer reads the app-only tokens of its machines too. One issuer takes one
+   table: `AuthSection::resolve` refuses a second table naming it (#591).
 
    ```toml
    [[auth.issuer]]
@@ -3696,12 +3700,6 @@ adoption issue tracks its own side (#521).
    profile = "ferrosmart"
    audience = ["https://ehr.example.org/openehr/v1"]
    delegates = [{ client = "growth-chart" }]
-
-   [[auth.issuer]]
-   issuer = "https://smart.example.org"
-   kind = "machines"
-   profile = "ferrosmart"
-   audience = ["https://ehr.example.org/openehr/v1"]
    ```
 
 3. **The product's discovery document describes FerroSMART.** The

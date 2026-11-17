@@ -453,3 +453,16 @@ pub(crate) async fn read_under_preset(
         .expect("the resource server starts");
     server.authenticate(token).await
 }
+
+/// The profile keys of `docs/architecture.md` §13.21's one `persons` table
+/// for FerroSMART: the `ferrosmart` preset with the SMART app `app` listed
+/// as a delegate, which reads a person through `app` as delegated and a
+/// Backend Services token as the system.
+pub(crate) fn one_table(app: &str) -> ferrohealth_smart::profile::ProfileKeys {
+    ferrohealth_smart::profile::ProfileKeys {
+        delegates: Some(vec![ferrohealth_smart::profile::Delegate::Client(
+            app.to_owned(),
+        )]),
+        ..ferrohealth_smart::profile::ProfileKeys::default()
+    }
+}

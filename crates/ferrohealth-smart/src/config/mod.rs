@@ -357,6 +357,25 @@ pub enum ConfigError {
         /// The issuer the entry names.
         issuer: String,
     },
+    // NOTE: cargo-semver-checks enum_no_repr_variant_discriminant_changed, a new
+    // variant goes last, so no earlier variant's implicit discriminant moves.
+    /// Two `[[auth.issuer]]` tables name one issuer, JWT or introspected
+    /// alike; a token is checked under one table per issuer, so the later
+    /// table would replace the earlier.
+    #[error(
+        "the {key} tables {first} and {second} both name the issuer {issuer:?}; \
+         one issuer takes one table"
+    )]
+    DuplicateIssuer {
+        /// The key of the tables.
+        key: &'static str,
+        /// The issuer, with any userinfo masked.
+        issuer: String,
+        /// The index of the first table naming it.
+        first: usize,
+        /// The index of the second.
+        second: usize,
+    },
 }
 
 /// The `[auth]` section: the surface's `[[auth.issuer]]` tables, the
