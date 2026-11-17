@@ -35,14 +35,6 @@ and this project adheres to
   load. The Entra ID example uses it with a certificate
   credential and `PS256`, and its contract test verifies the assertion the
   stub receives (#569).
-
-### Changed
-
-- The Keycloak example authenticates FerroSMART with `private_key_jwt`: the
-  realm's client takes the `client-jwt` authenticator and reads
-  FerroSMART's `{issuer}/upstream-jwks`, so `compose.keycloak.yaml` and the
-  CI lanes make an `upstream_assertion_key` in place of a
-  `keycloak_client_secret` (#569).
 - Microsoft Entra ID and Okta as the upstream login, each with an example
   configuration under `examples/` and no provider code. Entra ID: a
   single-tenant app registration's v2.0 authority, the app roles in `roles`
@@ -238,6 +230,11 @@ and this project adheres to
 
 ### Changed
 
+- The Keycloak example authenticates FerroSMART with `private_key_jwt`: the
+  realm's client takes the `client-jwt` authenticator and reads
+  FerroSMART's `{issuer}/upstream-jwks`, so `compose.keycloak.yaml` and the
+  CI lanes make an `upstream_assertion_key` in place of a
+  `keycloak_client_secret` (#569).
 - The audit lane takes `ihe-atna` and `ehds-logging` 0.23. Their FHIR Feed
   sends through FerroSMART's own outbound client as a `FeedClient`
   (`audit_feed`), so FerroSMART links one copy of `ferrohealth-smart` with no
