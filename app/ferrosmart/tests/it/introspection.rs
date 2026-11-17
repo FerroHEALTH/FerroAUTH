@@ -12,6 +12,7 @@ use axum::Router;
 use axum::body::Body;
 use ferrohealth_smart::client::assertion::AssertionKey;
 use ferrosmart::authorize::sha256;
+use ferrosmart::config::settings::Settings;
 use ferrosmart::server::{AppState, router};
 use ferrosmart::store::grant::{Access, NewGrant};
 use ferrosmart::store::{IssuedToken, Store};
@@ -45,9 +46,11 @@ pub(crate) struct Server {
     client_key: AssertionKey,
     /// The server's own signing key, for tokens a case issues under a grant.
     signing_key: AssertionKey,
-    /// The keys, kept for the case's length.
-    _keys: Keys,
-    /// The database.
+    /// The keys, kept for the case's length by every replica.
+    keys: Arc<Keys>,
+    /// The settings, which a replica starts on as well.
+    settings: Settings,
+    /// The database, owned by the first replica alone.
     database: Option<Database>,
     /// The store.
     pub(crate) store: Store,
@@ -90,13 +93,46 @@ impl Server {
         store.migrate().await.expect("migrates");
         store.register(&settings.clients).await.expect("registered");
         let audit = audit(&settings);
-        let app = router(Arc::new(AppState::new(settings, store.clone(), audit)));
+        let app = router(Arc::new(AppState::new(
+            settings.clone(),
+            store.clone(),
+            audit,
+        )));
         Self {
             app,
             client_key,
             signing_key,
-            _keys: keys,
+            keys: Arc::new(keys),
+            settings,
             database: Some(database),
+            store,
+        }
+    }
+
+    /// Starts a second replica of the server: the same settings and keys,
+    /// its own connection pool and application state, over the same
+    /// database, as `docs/architecture.md` §13.9 runs replicas.
+    pub(crate) async fn replica(&self) -> Self {
+        let store = Store::connect(&self.settings.database_url, 2)
+            .await
+            .expect("connects");
+        store
+            .register(&self.settings.clients)
+            .await
+            .expect("registered");
+        let audit = audit(&self.settings);
+        let app = router(Arc::new(AppState::new(
+            self.settings.clone(),
+            store.clone(),
+            audit,
+        )));
+        Self {
+            app,
+            client_key: self.client_key.clone(),
+            signing_key: self.signing_key.clone(),
+            keys: Arc::clone(&self.keys),
+            settings: self.settings.clone(),
+            database: None,
             store,
         }
     }
