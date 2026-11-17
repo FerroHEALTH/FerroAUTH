@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# The `ferrosmart` issuer profile: access tokens of FerroSMART, the family's
+# SMART App Launch 2.x authorization server (docs/architecture.md §13). They
+# are plain RFC 9068 tokens with no Ferro-specific claim, so every key stays
+# at its `rfc9068` default but the two FerroSMART fixes. Every key can be set
+# on the issuer table, which wins over this file.
+#
+# The launch context rides beside the RFC 9068 set as `patient`, `encounter`,
+# `fhirUser` and, for an openEHR audience, `ehrId` (RFC 9068 §2.2.2,
+# docs/architecture.md §13.6 item 2), which the crate reads without a key.
+# A person's `sub` is stable across every client (§13.6 item 9), so `iss`
+# with `sub` names one person, as the `rfc9068` default has it. A client
+# credentials token's `sub` is its `client_id` (RFC 9068 §2.2 and §5), the
+# default app-only marker. A SMART app acts for the signed-in person, so a
+# resource server lists the apps it admits in `delegates` by `client_id`
+# and reads their callers as delegated; the preset lists none, since the
+# apps are each deployment's. FerroSMART grants no token exchange, so a
+# deployment that uses the onward grants sets them for another issuer.
+
+# RFC 9068 §2.1: FerroSMART writes `typ` `at+jwt` and never the long form.
+token_types = ["at+jwt"]
+# RFC 9068 §2.2 and SMART App Launch 2.2.0, Obtain access token, Response:
+# FerroSMART writes the granted `scope` into every token.
+required_claims = ["iss", "exp", "aud", "sub", "client_id", "iat", "jti", "scope"]

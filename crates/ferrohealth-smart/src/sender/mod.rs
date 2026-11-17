@@ -42,6 +42,7 @@ use serde_json::Value;
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum SenderConstraint {
     /// A token may be a bearer token; one that carries `cnf` is still held
     /// to it.
@@ -54,6 +55,7 @@ pub enum SenderConstraint {
 
 /// The authentication scheme an access token arrived under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Scheme {
     /// `Bearer` (RFC 6750 §2.1), which a certificate-bound token also uses
     /// (RFC 8705 §3).

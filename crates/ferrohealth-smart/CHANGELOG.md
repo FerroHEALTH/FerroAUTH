@@ -11,8 +11,23 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.29.0] - Unreleased
+
+`Preset` gains `Ferrosmart`, and the configuration enums likely to grow are
+now `#[non_exhaustive]`, so a later preset, onward grant or credential form
+is an additive change. A `match` over one of them in a product takes a
+wildcard arm.
+
 ### Added
 
+- The `ferrosmart` issuer profile preset (`profile = "ferrosmart"`,
+  `profiles/ferrosmart.toml`) reads the access tokens of FerroSMART, the
+  family's SMART App Launch 2.x authorization server, as plain RFC 9068: every
+  `rfc9068` default but `token_types = ["at+jwt"]` (RFC 9068 §2.1) and a
+  `scope` among the required claims. A client credentials token reads as
+  `System`, and a SMART app the resource server lists in `delegates` reads as
+  `Delegated`. FerroSMART's own tests read the tokens it issues under it
+  (#521).
 - `oidc::RelyingParty::with_trusted_audiences` trusts named audiences beside
   the client in an ID Token's or a logout token's `aud`: OpenID Connect Core
   1.0 §3.1.3.7 item 3 refuses only "additional audiences not trusted by the
@@ -54,6 +69,15 @@ and this project adheres to
   `exp`); the new `OidcError::LogoutToken` and `OidcError::LogoutClaims`
   name a failed check. The specification is vendored under
   `docs/specs/openid-connect-backchannel/` (#518).
+
+### Changed
+
+- Breaking: `profile::Preset`, `profile::Marker`, `profile::onward::OnwardGrant`,
+  `profile::onward::OnwardIndicator`, `client::ClientAuth`,
+  `config::AuthMode`, `config::credentials::Outbound`,
+  `resource::introspection::IntrospectionAuth`, `sender::Scheme` and
+  `sender::SenderConstraint` are `#[non_exhaustive]`; a `match` over one
+  takes a wildcard arm (#521).
 
 ## [0.28.0] - 2026-11-16
 

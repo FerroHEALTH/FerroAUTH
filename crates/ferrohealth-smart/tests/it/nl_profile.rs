@@ -364,6 +364,7 @@ fn the_shipped_file_carries_the_annex_values() -> Outcome {
         Preset::Entra,
         Preset::Keycloak,
         Preset::Okta,
+        Preset::Ferrosmart,
     ] {
         assert!(preset.federation()?.is_none(), "{preset:?}");
     }

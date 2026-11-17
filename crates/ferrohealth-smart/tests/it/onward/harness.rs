@@ -230,6 +230,7 @@ impl Flavor {
                 "token_type": "Bearer", "scope": "Data.Read", "expires_in": 300,
                 "ext_expires_in": 0, "access_token": token
             }),
+            other => panic!("the stub answers no {other:?}"),
         }
     }
 }
@@ -403,6 +404,7 @@ impl Endpoint {
                     }
                 }
             }
+            other => return Err(format!("the stub checks no {other:?}")),
         }
         if self.flavor == Flavor::Keycloak {
             let expected = format!(
