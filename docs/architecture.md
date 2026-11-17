@@ -3964,7 +3964,7 @@ The Inferno lane runs a symmetric client in group 2 (13.13).
 | §5 Token Introspection | in audit |
 | §7 Best Practices | in audit |
 | §8 User-access Brands and Endpoints | to build |
-| §9 Examples | to build as test vectors |
+| §9 Examples | test vectors in `app/ferrosmart/tests/it/ig_examples.rs`: the worked RS384 and ES384 assertions and the app launch and Backend Services ES384 assertions verify against their published keys through the token endpoint (each refused only as expired), the symmetric example's Basic credentials authenticate, and the worked ID Token verifies with the page's key and reads as shown; the sandbox's HS256 codes and tokens and the logins are not replayable, and the file says why (#609) |
 
 **App State** (`smart app-state`, Discovery). An EHR advertises
 `smart-app-state` "in the capabilities array of their FHIR server's
