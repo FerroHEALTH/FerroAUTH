@@ -453,8 +453,11 @@ impl RelyingParty {
     ///
     /// Each request to the token or revocation endpoint carries a fresh
     /// assertion (RFC 7523 §2.2, §3): `iss` and `sub` the client id, `aud`
-    /// the token endpoint URL, which §9 names, and the type `JWT`, the rule
-    /// of a plain grant (`crate::client::assertion`).
+    /// the provider's issuer identifier as its sole value and the type
+    /// `client-authentication+jwt` (RFC 10070 §4, which updates RFC 7523
+    /// and supersedes the token endpoint URL OpenID Connect Core 1.0 §9
+    /// recommends; §6 has such a client work with a provider of either
+    /// rule).
     #[must_use]
     pub fn with_private_key_jwt(mut self, key: AssertionKey) -> Self {
         self.auth = ClientAuth::PrivateKeyJwt(Box::new(key));
@@ -776,13 +779,13 @@ impl RelyingParty {
                 }
                 ClientAuth::SecretBasic(_) => {}
                 ClientAuth::PrivateKeyJwt(key) => {
-                    // NOTE: OpenID Connect Core 1.0 §9, `aud` the token endpoint URL;
+                    // NOTE: RFC 10070 §4: the issuer identifier is the sole `aud`;
                     // RFC 7521 §4.2 lets the client name itself beside the assertion.
                     let assertion = key
                         .assertion(
                             &self.client_id,
-                            self.provider.token_endpoint.as_str(),
-                            "JWT",
+                            &self.provider.issuer,
+                            crate::client::CLIENT_AUTHENTICATION_TYP,
                         )
                         .map_err(|source| OidcError::Assertion { source })?;
                     encoded

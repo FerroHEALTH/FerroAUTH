@@ -662,7 +662,7 @@ async fn forms(issuer: &Issuer, path: &str) -> Vec<BTreeMap<String, String>> {
         .collect()
 }
 
-// NOTE: OpenID Connect Core 1.0 §9, private_key_jwt; RFC 7523 §3; RFC 7515 §4.1.8.
+// NOTE: OpenID Connect Core 1.0 §9, private_key_jwt; RFC 10070 §4; RFC 7515 §4.1.8.
 #[tokio::test]
 async fn a_private_key_jwt_client_sends_a_fresh_assertion_at_every_call() {
     let key = ec_key("op-1", Algorithm::ES256);
@@ -711,7 +711,6 @@ async fn a_private_key_jwt_client_sends_a_fresh_assertion_at_every_call() {
         .await
         .expect("the provider revokes the token");
 
-    let token_endpoint = format!("{}{TOKEN_PATH}", issuer.uri());
     let sent: Vec<_> = forms(&issuer, TOKEN_PATH)
         .await
         .into_iter()
@@ -723,7 +722,7 @@ async fn a_private_key_jwt_client_sends_a_fresh_assertion_at_every_call() {
         assert_eq!(Some(CLIENT), form.get("client_id").map(String::as_str));
         let assertion = form.get("client_assertion").expect("an assertion");
         let header = jsonwebtoken::decode_header(assertion).expect("a header");
-        assert_eq!(Some("JWT"), header.typ.as_deref());
+        assert_eq!(Some("client-authentication+jwt"), header.typ.as_deref());
         let thumbprint = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, certificate.der());
         assert_eq!(
             Some(base64::Engine::encode(
@@ -733,12 +732,17 @@ async fn a_private_key_jwt_client_sends_a_fresh_assertion_at_every_call() {
             header.x5t_s256
         );
         let mut validation = Validation::new(Algorithm::ES256);
-        validation.set_audience(&[token_endpoint.as_str()]);
+        validation.set_audience(&[issuer.uri()]);
         validation.set_issuer(&[CLIENT]);
         validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
         let claims = jsonwebtoken::decode::<serde_json::Value>(assertion, &public, &validation)
-            .expect("the assertion verifies, for the token endpoint")
+            .expect("the assertion verifies, for the issuer")
             .claims;
+        assert_eq!(
+            serde_json::json!(issuer.uri()),
+            claims["aud"],
+            "the issuer identifier as the sole audience, a string"
+        );
         assert_eq!(serde_json::json!(CLIENT), claims["sub"]);
         ids.push(claims["jti"].as_str().expect("a jti").to_owned());
     }

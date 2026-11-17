@@ -24,18 +24,30 @@ At the provider, register FerroSMART as a confidential web client:
   logout URI, so a logout at the provider ends the person's
   `online_access` grants.
 
-FerroSMART authenticates to the provider in one of three ways:
-
-| `[ferrosmart.upstream]` | How FerroSMART authenticates | Use it for |
-|---|---|---|
-| neither key below | A public client with PKCE alone | A provider that allows it |
-| `client_secret_file` | The client secret as HTTP Basic (RFC 6749 §2.3.1) | Okta, ZITADEL |
-| `[ferrosmart.upstream.private_key_jwt]` | A JWT signed by FerroSMART's assertion key (OpenID Connect Core 1.0 §9) | Keycloak, Microsoft Entra ID |
-
-A secret and `private_key_jwt` together are refused at start. The
-assertion key is a key of its own, never a token signing key, and FerroSMART
-publishes it at `{issuer}/upstream-jwks` for a provider that reads a key set
+FerroSMART authenticates to every provider with `private_key_jwt` (OpenID
+Connect Core 1.0 §9): a JWT signed by its assertion key, configured under
+`[ferrosmart.upstream.private_key_jwt]`. That table is required, and a
+client secret is refused at start. The assertion key is a key of its own,
+never a token signing key, and FerroSMART publishes it at
+`{issuer}/upstream-jwks` for a provider that reads a key set
 ([keys and rotation](../operate/keys.md#the-assertion-keys)).
+
+Each assertion names the provider's issuer as its only audience (`aud`)
+and has the type `client-authentication+jwt`, as RFC 10070 §4 requires.
+Keycloak and ZITADEL accept this by their source code. Entra ID and Okta
+document the token endpoint URL as `aud`; RFC 10070 §6 says a client that
+follows the update works with them too. Verify it on your tenant before
+production.
+
+Every provider below is described in the same shape: login, client
+authentication, `fhirUser`, roles, and how the setup is tested.
+
+| Provider | Login | Client authentication | `fhirUser` | Roles | Tested by |
+|---|---|---|---|---|---|
+| Keycloak | the realm's login form | Signed JWT, reading `{issuer}/upstream-jwks` | a user attribute mapper | a realm role mapper, `roles` | a live launch in CI, and the compose quickstart |
+| ZITADEL | the Login v2 UI | Private Key JWT, with a key ZITADEL generates | an Actions v2 target, from user metadata | the project role claim | a live launch in CI |
+| Microsoft Entra ID | the tenant's sign-in | a certificate of the assertion key | a directory extension attribute | app roles, `roles` | a contract test against Entra ID's documents |
+| Okta | the org's sign-in, `default` authorization server | Public key / Private key, the JWK of `{issuer}/upstream-jwks` | a custom claim | a groups claim, `groups` | a contract test against Okta's documents |
 
 FerroSMART checks the provider's ID Token by OpenID Connect Core 1.0
 §3.1.3.7, refuses one without the `nonce` it sent, and reads only the
@@ -60,13 +72,11 @@ deployment serves both over TLS on their own names.
 
 | At Keycloak | Value |
 |---|---|
-| Client `ferrosmart` | confidential, client authenticator `client-jwt` with a JWKS URL: FerroSMART's `{issuer}/upstream-jwks`, signed `RS256` |
-| Flows | the standard flow on; implicit and direct access grants off |
-| PKCE | `S256` |
-| Redirect URI | `{issuer}/callback` |
-| `fhir_user` | a user attribute mapper into the ID Token |
-| `roles` | a realm role mapper, multivalued, into the ID Token |
-| Realm role | `clinician` |
+| Login | the client `ferrosmart`, the standard flow with PKCE `S256`, implicit and direct access grants off, redirect URI `{issuer}/callback` |
+| Client authentication | confidential, client authenticator `client-jwt` with a JWKS URL: FerroSMART's `{issuer}/upstream-jwks`, signed `RS256` |
+| `fhirUser` | a user attribute mapper writes the attribute `fhir_user` into the ID Token |
+| Roles | a realm role mapper, multivalued, writes `roles` into the ID Token; the realm role `clinician` |
+| Tested by | a standalone launch in CI through Keycloak's login form, and the compose quickstart lane |
 
 ```toml
 [ferrosmart.upstream]
@@ -100,21 +110,28 @@ with the client id ZITADEL generated. Log in at
 
 | At ZITADEL | Value |
 |---|---|
-| Project | `ferrosmart`, role assertion on, the role `clinician` |
-| Application | an OIDC web app, the code flow, `client_secret_basic`, one redirect URI `{issuer}/callback`, roles and user info in the ID Token |
+| Login | the OIDC web app `ferrosmart-login`, the code flow with PKCE `S256`, one redirect URI `{issuer}/callback`, roles and user info in the ID Token |
+| Client authentication | Private Key JWT, with an application key ZITADEL generates; FerroSMART signs with it under ZITADEL's key id |
 | `fhirUser` | an Actions v2 execution on `preuserinfo` that adds `fhirUser` from the user's metadata |
-| Roles | the claim `urn:zitadel:iam:org:project:ferrosmart:roles`, an object whose member names are the roles |
-| Audience | ZITADEL adds the project to `aud`, so FerroSMART trusts it |
+| Roles | the project `ferrosmart` with role assertion on and the role `clinician`, in the claim `urn:zitadel:iam:org:project:ferrosmart:roles`, an object whose member names are the roles |
+| Tested by | a standalone launch in CI through ZITADEL |
+| Audience | ZITADEL adds the project to the ID Token's `aud`, so FerroSMART trusts it |
 
 ```toml
 [ferrosmart.upstream]
 issuer = "https://zitadel.example.org"
 client_id = "<the generated client id>"
-client_secret_file = "/run/secrets/zitadel_client_secret"
 scopes = ["openid", "profile"]
 fhir_user_claim = "fhirUser"
 role_claims = ["urn:zitadel:iam:org:project:ferrosmart:roles"]
 trusted_audiences = ["ferrosmart"]
+
+[ferrosmart.upstream.private_key_jwt]
+algorithm = "RS256"
+
+[ferrosmart.upstream.private_key_jwt.keys]
+private_key_file = "/run/secrets/zitadel-application-key.pem"
+kid = "<the key id ZITADEL gave the key>"
 ```
 
 `trusted_audiences` names the audiences beside FerroSMART's client id that
@@ -129,12 +146,11 @@ the discovery document, key set and token answer Entra ID publishes.
 
 | At Entra ID | Value |
 |---|---|
-| App registration | single tenant |
-| Authority | `https://login.microsoftonline.com/<tenant id>/v2.0`, the `issuer` |
-| Redirect URI | platform Web, `{issuer}/callback` |
-| Credential | a certificate of FerroSMART's current assertion key |
-| App role | `clinician`, assigned to people under Enterprise applications; the ID Token carries it in `roles` |
+| Login | a single-tenant app registration, the authority `https://login.microsoftonline.com/<tenant id>/v2.0` as the `issuer`, platform Web with the redirect URI `{issuer}/callback`, the code flow with PKCE `S256` |
+| Client authentication | a certificate of FerroSMART's current assertion key, uploaded to the registration; each assertion names it by `x5t#S256`, signed `PS256` |
 | `fhirUser` | a directory extension attribute `fhirUser`, set per user, as an ID Token optional claim, which Entra ID emits as `extn.fhirUser` |
+| Roles | the app role `clinician`, assigned to people under Enterprise applications; the ID Token carries it in `roles` |
+| Tested by | a contract test that runs the example against Entra ID's discovery document, key set and token answer |
 
 ```toml
 [ferrosmart.upstream]
@@ -156,9 +172,8 @@ Three choices hold here. Roles come from app roles, never groups, because a
 person in many groups gets an overage pointer instead of the groups. The
 multitenant authorities `/common` and `/organizations` are refused, since
 their metadata names an issuer other than the one it was read under: one
-FerroSMART logs in the people of one tenant. A client secret works as well,
-but Entra ID advises a certificate in production. To rotate, upload the
-next key's certificate before the ring makes it current.
+FerroSMART logs in the people of one tenant. To rotate, upload the next
+key's certificate before the ring makes it current.
 
 ## Okta
 
@@ -168,24 +183,28 @@ publishes.
 
 | At Okta | Value |
 |---|---|
-| Authorization server | the custom authorization server `default`, issuer `https://<your Okta domain>/oauth2/default` |
-| App integration | a Web Application with the authorization code grant |
-| Redirect URI | `{issuer}/callback` as the one sign-in redirect URI |
-| Client authentication | the client secret, as HTTP Basic |
-| `fhir_user` | a custom claim in the ID Token, always, reading the person's `fhirUser` profile attribute |
-| `groups` | a groups claim in the ID Token, always, filtered to FerroSMART's role groups |
-| Group | `clinician`, assigned to the app integration |
+| Login | a Web Application integration with the authorization code grant and PKCE `S256`, `{issuer}/callback` as the one sign-in redirect URI, at the custom authorization server `default`, issuer `https://<your Okta domain>/oauth2/default` |
+| Client authentication | Public key / Private key: add the JWK FerroSMART publishes at `{issuer}/upstream-jwks` to the integration's public keys; assertions are signed `RS256` |
+| `fhirUser` | a custom claim `fhir_user` in the ID Token, always, reading the person's `fhirUser` profile attribute |
+| Roles | a groups claim `groups` in the ID Token, always, filtered to FerroSMART's role groups; the group `clinician`, assigned to the app integration |
+| Tested by | a contract test that runs the example against the documents Okta publishes |
 
 ```toml
 [ferrosmart.upstream]
 issuer = "https://example.okta.com/oauth2/default"
 client_id = "<the client id>"
-client_secret_file = "/run/secrets/okta_client_secret"
 scopes = ["openid", "profile"]
 fhir_user_claim = "fhir_user"
 role_claims = ["groups"]
+
+[ferrosmart.upstream.private_key_jwt]
+algorithm = "RS256"
+
+[ferrosmart.upstream.private_key_jwt.keys]
+private_key_file = "/run/secrets/upstream-assertion.pem"
 ```
 
 Use the custom authorization server, since only that one takes a custom
 claim in the ID Token by Okta's written procedure, and keep the groups
-filter narrow: a groups claim holds at most 100 groups.
+filter narrow: a groups claim holds at most 100 groups. To rotate, add the
+next key's JWK to the integration before the ring makes it current.
