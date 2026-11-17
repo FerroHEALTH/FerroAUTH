@@ -24,7 +24,8 @@ use crate::audit::{Connected, Event, Happening};
 use crate::discovery::REVOKE_ROUTE;
 use crate::introspect::{Found, find};
 use crate::server::AppState;
-use crate::token::{Refusal, identify, no_store, read_form, server_error};
+use crate::token::grants::identify;
+use crate::token::{Refusal, no_store, read_form, server_error};
 
 /// `POST {issuer}/revoke`.
 pub async fn revoke(

@@ -42,7 +42,8 @@ use crate::launch::context::Context;
 use crate::server::AppState;
 use crate::store::StoreError;
 use crate::store::launch::NewLaunch;
-use crate::token::{Refusal, authenticate, no_store, server_error};
+use crate::token::assertion::authenticate;
+use crate::token::{Refusal, no_store, server_error};
 
 /// The route of the launch API under the issuer.
 pub const LAUNCH_ROUTE: &str = "/launch";
