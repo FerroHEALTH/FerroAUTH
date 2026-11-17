@@ -348,6 +348,17 @@ pub enum ConfigError {
         /// The key.
         key: &'static str,
     },
+    /// An entry of a list read per issuer names an issuer the section does
+    /// not trust.
+    #[error("a {key} entry names the issuer {issuer:?}, which the section does not trust")]
+    UnknownIssuer {
+        /// The key of the list.
+        key: &'static str,
+        /// The issuer the entry names.
+        issuer: String,
+    },
+    // NOTE: cargo-semver-checks enum_no_repr_variant_discriminant_changed, a new
+    // variant goes last, so no earlier variant's implicit discriminant moves.
     /// Two `[[auth.issuer]]` tables name one issuer, JWT or introspected
     /// alike; a token is checked under one table per issuer, so the later
     /// table would replace the earlier.
@@ -364,15 +375,6 @@ pub enum ConfigError {
         first: usize,
         /// The index of the second.
         second: usize,
-    },
-    /// An entry of a list read per issuer names an issuer the section does
-    /// not trust.
-    #[error("a {key} entry names the issuer {issuer:?}, which the section does not trust")]
-    UnknownIssuer {
-        /// The key of the list.
-        key: &'static str,
-        /// The issuer the entry names.
-        issuer: String,
     },
 }
 
