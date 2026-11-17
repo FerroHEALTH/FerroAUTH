@@ -165,6 +165,20 @@ the Federation Tier Annex B is under CC0 1.0.
 | `ferrohealth-session` | its own version line (read it in the manifest; a release moves it), with the release tag `ferrohealth-session-vX.Y.Z` and the section of its own `CHANGELOG.md` | `crates/ferrohealth-session/Cargo.toml` `[package] version`, `Cargo.lock`, `crates/ferrohealth-session/CHANGELOG.md` (held together by `scripts/checks/crate-version-guard.sh`) |
 | Third-party crates | the `[workspace.dependencies]` table, each version checked against crates.io on 2026-10-19 | `Cargo.toml`, `Cargo.lock` |
 
+## Documentation toolchain
+
+The tools that build and check the site under `website/`.
+`scripts/site/toolchain.sh` reads these rows, the Docs workflow and the CI
+link check install exactly these versions, and `scripts/site/assemble.sh`
+refuses another mdBook. They are the versions the FerroHEALTH family book
+pins, so every book in the family builds with the same tools.
+
+| Item | Pin | Repeated in |
+|---|---|---|
+| mdBook | `0.5.4` | `scripts/site/toolchain.sh` reads it |
+| mdbook-lint | `0.14.4` | `scripts/site/toolchain.sh` reads it |
+| lychee | `0.24.2` | `scripts/site/toolchain.sh` reads it |
+
 ## The CI tools
 
 | Item | Pin | Repeated in |

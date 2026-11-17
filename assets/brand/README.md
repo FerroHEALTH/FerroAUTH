@@ -56,6 +56,22 @@ FerroHEALTH's `assets/brand/ferrohealth-lockup-auto.svg`.
 | `ferrosmart-lockup-auto.svg` | the shield beside the wordmark for the README and any page that serves one file to both themes, switched on `prefers-color-scheme` |
 | `ferrosmart-lockup-light.svg` | the lockup for a light ground |
 | `ferrosmart-lockup-dark.svg` | the lockup for a dark ground |
+| `ferrosmart-icon-dark.svg` | the icon for a dark ground: the shield in the yellow, the keyhole in amber 100 (`#FEF3C7`) |
+| `favicon.svg` | the mark drawn heavier in bronze on a yellow tile (5.4:1), for browser tabs; intrinsic size 64 |
+| `favicon-32.png`, `favicon-16.png`, `favicon.ico` | raster favicons |
 
-The favicon set and the social card follow when the product has a site to
-carry them.
+The site at <https://ferrosmart.eu> reads these files from the site root,
+where `scripts/site/assemble.sh` copies this directory. The social card
+follows when the site needs one.
+
+## Regenerating the rasters
+
+The PNG and ICO files derive from `favicon.svg`. Run these from the
+repository root after any change to it; the ICO holds the two PNGs as they
+are:
+
+```bash
+rsvg-convert -w 32 -h 32 assets/brand/favicon.svg -o assets/brand/favicon-32.png
+rsvg-convert -w 16 -h 16 assets/brand/favicon.svg -o assets/brand/favicon-16.png
+magick assets/brand/favicon-32.png assets/brand/favicon-16.png assets/brand/favicon.ico
+```

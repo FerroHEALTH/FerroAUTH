@@ -198,6 +198,22 @@ jobs:
         if: ${{ !cancelled() }}
         run: cargo publish --workspace --dry-run --locked
 
+      # The site link guard: the book's sources linted, and the site assembled
+      # as the Docs workflow publishes it, the landing page at the root and the
+      # book under /docs/, with every internal link and anchor resolved
+      # offline, and README.md against the tree. It sits here, inside the
+      # required conclusion, because the Docs workflow's build is no required
+      # check. Its self-test proves a broken anchor and a missing page fail.
+      - name: Install the docs toolchain
+        if: ${{ !cancelled() }}
+        uses: ./.github/actions/docs-toolchain
+      - name: Every link and anchor of the site resolves
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          bash scripts/checks/site-links.sh --self-test
+          bash scripts/checks/site-links.sh
+
   # ---- Rust ------------------------------------------------------------------
   lint:
     name: lint

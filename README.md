@@ -6,7 +6,8 @@
 
 **The SMART authorization server of the FerroHEALTH products, and the Rust libraries they check sign-in and access with.**
 
-[Documentation](https://docs.rs/ferrohealth-smart) ·
+[Website](https://ferrosmart.eu/) ·
+[Documentation](https://ferrosmart.eu/docs/) ·
 [The crates](#the-crates) ·
 [Install](#install) ·
 [Licensing](https://ferrohealth.eu/docs/licensing.html)
@@ -46,7 +47,8 @@ upstream and any FHIR server downstream.
 The server is being built in this repository (its design is
 [`docs/architecture.md`](docs/architecture.md) §13, its code
 [`app/ferrosmart`](app/ferrosmart)) and will ship as its own container
-image beside the crates.
+image beside the crates. Its book, for operators and integrators, is at
+<https://ferrosmart.eu/docs/>.
 
 ### The libraries
 

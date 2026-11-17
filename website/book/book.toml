@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# The FerroSMART book, served under /docs/ of the Pages site; the landing page
+# holds the root. Build it through scripts/site/assemble.sh, which stages a
+# copy with the favicon from assets/brand/, renders the version markers from
+# the manifests and gives every page a hashed Content-Security-Policy.
+
+[book]
+title = "FerroSMART"
+authors = ["Cadasto B.V."]
+description = "Documentation for FerroSMART, the FerroHEALTH SMART App Launch 2.2 authorization server, for the operators who run it and the integrators who launch apps and protect resource servers with it."
+language = "en"
+src = "src"
+
+[build]
+build-dir = "book"
+
+[output.html]
+# site-url makes the book's absolute asset, search and 404 links resolve under
+# /docs/ at the root of the domain the site is served on.
+site-url = "/docs/"
+# The two themes theme/ferrosmart.css recolours with the palette of
+# assets/brand/tokens.css.
+default-theme = "light"
+preferred-dark-theme = "navy"
+additional-css = ["theme/ferrosmart.css"]
+git-repository-url = "https://github.com/FerroHEALTH/FerroSMART"
+edit-url-template = "https://github.com/FerroHEALTH/FerroSMART/edit/main/website/book/{path}"
+smart-punctuation = true
+
+# The book carries no runnable code. The playground would fetch from
+# play.rust-lang.org, which the page's Content-Security-Policy forbids.
+[output.html.playground]
+runnable = false
+copyable = true
+
+[output.html.search]
+enable = true

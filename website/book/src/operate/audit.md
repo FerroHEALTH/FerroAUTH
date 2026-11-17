@@ -1,0 +1,70 @@
+<!-- SPDX-FileCopyrightText: Cadasto B.V. -->
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
+
+# Audit records
+
+FerroSMART records every login and every token request as a FHIR R4
+`AuditEvent`, in its own PostgreSQL store. An issued token and its record
+commit in one transaction; a refusal or a login commits its record alone.
+When a record cannot be committed, the request fails: the token endpoint
+answers `503` and issues no token.
+
+## What is recorded
+
+| Event | Form |
+|---|---|
+| A token request, granted or refused | The ITI-71 audit event of IHE Basic Audit Log Patterns 1.1.4, profile `IHE.IUA.71`: type `110114`, subtype `ITI-71`, the client and the authorization server as agents, the person as `agent:user` when one logged in, and the HTTP request as the `token-request` entity, with the values of `code_verifier`, `code`, `refresh_token`, `client_secret` and `client_assertion` left out |
+| A login at the identity provider | DICOM User Authentication, type `110122` Login |
+| A session ended by back-channel logout | DICOM User Authentication, `110123` Logout |
+
+Every other write FerroSMART makes for a person or a client commits with a
+record of its own, in a form of FerroSMART's design, since no IHE or BALP
+pattern covers it. The subtype comes from FerroSMART's code system
+`urn:ferrosmart:audit-event`:
+
+| Write | `type` | Subtypes | `action` |
+|---|---|---|---|
+| A code issued | `110114` | `authorization-code` | `C` |
+| A consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
+| A consent withdrawn | `110113` | `110137`, `consent-withdrawn` | `D` |
+| An access token revoked | `110113` | `token-revoked` | `D` |
+| A grant revoked by its refresh token | `110113` | `grant-revoked` | `D` |
+| A refresh token rotated | `110114` | `refresh-rotated` | `E` |
+| A rotated refresh token reused, its grant revoked | `110113` | `refresh-reused` | `E` |
+| A code redeemed again, its tokens revoked | `110113` | `code-reused` | `E` |
+| An upstream session ended | `110114` | `110123`, `session-ended` | `E` |
+| The patient picker's own token issued | `110114` | `picker-token` | `C` |
+
+None of these is an access to a person's electronic health data. The
+patient picker, which does read Patient resources and EHRs, writes the
+access record of Regulation (EU) 2025/327 Annex II 3.2 for each search and
+read.
+
+`[ferrosmart.audit] source_id` and `site` name FerroSMART as the recording
+system in each record ([configuration](../configure/configuration.md#ferrosmartaudit)).
+
+## Reading the records
+
+`GET {issuer}/audit` answers a FHIR `searchset` Bundle of `AuditEvent`
+resources, newest first. The caller presents a bearer token FerroSMART
+issued for its own issuer with the scope `system/AuditEvent.rs`: a
+Backend Services client whose ceiling lists that scope, asking with
+`resource` set to the issuer.
+
+| Parameter | What it selects |
+|---|---|
+| `subject` | The records of one person, by their FerroSMART `sub` |
+| `since`, `until` | An RFC 3339 instant each, bounding the time |
+| `_count` | How many records, from 1 to 1000; 100 by default |
+
+Each parameter may appear once, and any other is refused. Regulation (EU)
+2025/327 Art 9 gives a person access to who accessed their data; the
+endpoint lets an operator answer that without a database client.
+
+## Forwarding to an Audit Record Repository
+
+With `[ferrosmart.audit.feed]`, the store is also an outbox: the
+`ihe-atna` forwarder delivers each record to the repository's FHIR base
+over the ITI-20 ATX: FHIR Feed, as a create of `[base]/AuditEvent`, `https`
+only, with the retry and credentials the table names. A record the
+repository refuses stays in the store, stamped for an operator to look at.
