@@ -265,6 +265,10 @@ section { padding: clamp(3rem, 7vw, 4.5rem) 0; }
 .card h3 { margin: 0 0 0.4rem; font-size: 1.08rem; }
 .card p { margin: 0; color: var(--fs-muted); font-size: 0.94rem; }
 .card code { font-size: 0.85em; }
+/* The one shape every identity provider card takes. */
+.card dl.idp { margin: 0; font-size: 0.9rem; }
+.card dl.idp dt { margin-top: 0.5rem; font-weight: 600; }
+.card dl.idp dd { margin: 0; color: var(--fs-muted); }
 
 .audiences { grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); }
 .audience ul {

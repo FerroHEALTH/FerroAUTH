@@ -20,7 +20,6 @@ use ferrosmart::authorize::COOKIE;
 use ferrosmart::config::Config;
 use ferrosmart::server::{AppState, router};
 use ferrosmart::store::Store;
-use ferrosmart::upstream::Authentication;
 use http::{Request, StatusCode, header};
 use http_body_util::BodyExt as _;
 use jsonwebtoken::jwk::Jwk;
@@ -36,8 +35,6 @@ use crate::support::{Database, Keys, audit, from_client, rsa_key};
 const ENTRA: &str = include_str!("../../examples/entra/ferrosmart.toml");
 /// The Okta example, run as published.
 const OKTA: &str = include_str!("../../examples/okta/ferrosmart.toml");
-/// The client secret the stub expects, with a space a form encoding changes.
-const SECRET: &str = "synthetic upstream secret";
 /// The examples' SMART app and its redirect URI.
 const APP: &str = "example-app";
 /// The redirect URI of [`APP`].
@@ -67,9 +64,6 @@ struct Contract {
     token: fn(&str) -> String,
     /// The ID Token claims beyond `iss`, `aud`, `nonce`, `iat` and `exp`.
     claims: Value,
-    /// Whether the example authenticates with `private_key_jwt`, else with
-    /// a client secret as HTTP Basic.
-    private_key_jwt: bool,
 }
 
 /// Microsoft Entra ID's v2.0 tenant authority.
@@ -120,7 +114,6 @@ fn entra() -> Contract {
             "sid": "00000000-0000-0000-0000-000000000001",
             "uti": "synthetic-uti"
         }),
-        private_key_jwt: true,
     }
 }
 
@@ -176,7 +169,6 @@ fn okta() -> Contract {
             "groups": ["clinician"],
             "fhir_user": FHIR_USER
         }),
-        private_key_jwt: false,
     }
 }
 
@@ -231,9 +223,8 @@ impl Provider {
     }
 
     /// Mounts the code exchange of FerroSMART's client `client_id`: a client
-    /// assertion (OpenID Connect Core 1.0 §9) or the secret as HTTP Basic
-    /// (RFC 6749 §2.3.1), the PKCE verifier, and an answer whose ID Token
-    /// carries `claims` and `nonce`.
+    /// assertion (OpenID Connect Core 1.0 §9), the PKCE verifier, and an
+    /// answer whose ID Token carries `claims` and `nonce`.
     async fn answer(&self, contract: &Contract, client_id: &str, nonce: &str) {
         let now = jiff::Timestamp::now().as_second();
         let mut claims = json!({
@@ -247,26 +238,12 @@ impl Provider {
         header.kid = Some(String::from(KID));
         header.typ = Some(String::from("JWT"));
         let id_token = jsonwebtoken::encode(&header, &claims, &self.encoding).expect("signs");
-        let encode =
-            |text: &str| url::form_urlencoded::byte_serialize(text.as_bytes()).collect::<String>();
-        let basic = base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            format!("{}:{}", encode(client_id), encode(SECRET)),
-        );
         let path = Url::parse(&self.issuer).expect("a URL").path().to_owned();
-        let exchange =
-            Mock::given(matchers::method("POST")).and(matchers::path((contract.token)(&path)));
-        let exchange = if contract.private_key_jwt {
-            exchange.and(matchers::body_string_contains(
+        Mock::given(matchers::method("POST"))
+            .and(matchers::path((contract.token)(&path)))
+            .and(matchers::body_string_contains(
                 "client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer",
             ))
-        } else {
-            exchange.and(matchers::header(
-                "authorization",
-                format!("Basic {basic}").as_str(),
-            ))
-        };
-        exchange
             .and(matchers::body_string_contains(
                 "grant_type=authorization_code",
             ))
@@ -298,8 +275,8 @@ struct Smart {
 }
 
 /// Returns the configuration of `example`, with the key and the database
-/// of the case, and, as the example authenticates, a certificate of the
-/// case's key or the client secret, each a file under `keys`.
+/// of the case, and its assertion key with, when the example names one, a
+/// certificate of it, each a file under `keys`.
 fn example_config(example: &str, keys: &Keys, database: Option<&Database>) -> Config {
     let mut environment = std::collections::BTreeMap::new();
     environment.insert(
@@ -317,9 +294,13 @@ fn example_config(example: &str, keys: &Keys, database: Option<&Database>) -> Co
         .upstream
         .as_mut()
         .expect("the example names its provider");
-    if let Some(jwt) = upstream.private_key_jwt.as_mut() {
-        let assertion = rsa_key(keys.dir.path(), "assertion.pem");
-        jwt.keys.private_key_file = Some(assertion.clone());
+    let jwt = upstream
+        .private_key_jwt
+        .as_mut()
+        .expect("the example authenticates by private_key_jwt");
+    let assertion = rsa_key(keys.dir.path(), "assertion.pem");
+    jwt.keys.private_key_file = Some(assertion.clone());
+    if jwt.certificate_file.is_some() {
         let pem = std::fs::read_to_string(&assertion).expect("the key");
         let pair = rcgen::KeyPair::from_pem_and_sign_algo(&pem, &rcgen::PKCS_RSA_SHA256)
             .expect("an RSA key");
@@ -330,10 +311,6 @@ fn example_config(example: &str, keys: &Keys, database: Option<&Database>) -> Co
         let path = keys.dir.path().join("assertion.crt");
         std::fs::write(&path, certificate.pem()).expect("the certificate is written");
         jwt.certificate_file = Some(path);
-    } else {
-        let secret = keys.dir.path().join("upstream-secret");
-        std::fs::write(&secret, SECRET).expect("the secret is written");
-        upstream.client_secret_file = Some(secret);
     }
     config
 }
@@ -611,10 +588,10 @@ async fn an_entra_id_login_maps_its_app_role_and_extension_attribute() {
     );
     assert_ne!(contract.claims["oid"], claims["sub"], "nor its oid");
     let (header, assertion) = assertion_sent(&smart, &contract).await;
-    // NOTE: certificate-credentials.md, Assertion format: PS256, JWT, the
-    // certificate's x5t#S256, and the claims of OpenID Connect Core 1.0 §9.
+    // NOTE: certificate-credentials.md, Assertion format: PS256 and the
+    // certificate's x5t#S256; RFC 10070 §4: the explicit type.
     assert_eq!(Algorithm::PS256, header.alg);
-    assert_eq!(Some("JWT"), header.typ.as_deref());
+    assert_eq!(Some("client-authentication+jwt"), header.typ.as_deref());
     let certificate = std::fs::read_to_string(smart.keys.dir.path().join("assertion.crt"))
         .expect("the certificate");
     let der = x509_der(&certificate);
@@ -674,6 +651,22 @@ async fn an_okta_login_maps_its_groups_and_custom_claim() {
         contract.claims["sub"], claims["sub"],
         "the provider's sub never leaves"
     );
+    let (header, assertion) = assertion_sent(&smart, &contract).await;
+    // NOTE: Okta, Client authentication, JWT with private key: RS256, and
+    // `iss` and `sub` the client id; RFC 10070 §4: the explicit type.
+    assert_eq!(Algorithm::RS256, header.alg);
+    assert_eq!(Some("client-authentication+jwt"), header.typ.as_deref());
+    assert_eq!(None, header.x5t_s256, "Okta knows the key by its JWK");
+    assert_eq!(json!(smart.client_id), assertion["iss"]);
+    assert_eq!(json!(smart.client_id), assertion["sub"]);
+    let (status, _, assertions) = smart.get("/upstream-jwks", None).await;
+    assert_eq!(StatusCode::OK, status);
+    let published: Value = serde_json::from_str(&assertions).expect("a JWK Set");
+    assert_eq!(
+        header.kid.as_deref().map(Value::from),
+        published["keys"].get(0).map(|key| key["kid"].clone()),
+        "the assertion names the JWK the integration holds"
+    );
     smart.stop().await;
 }
 
@@ -731,7 +724,10 @@ fn x509_der(pem: &str) -> Vec<u8> {
 
 /// Returns the header and the verified claims of the client assertion
 /// FerroSMART sent the provider's token endpoint: signed by the current
-/// assertion key for the token endpoint URL (OpenID Connect Core 1.0 §9).
+/// assertion key for the provider's issuer identifier as the sole audience
+/// (RFC 10070 §4, where certificate-credentials.md and Okta's Client
+/// authentication name the token endpoint URL; §6 has the issuer work with
+/// both).
 async fn assertion_sent(smart: &Smart, contract: &Contract) -> (Header, Value) {
     let path = Url::parse(&smart.provider.issuer)
         .expect("a URL")
@@ -764,21 +760,26 @@ async fn assertion_sent(smart: &Smart, contract: &Contract) -> (Header, Value) {
     let decoding =
         DecodingKey::from_jwk(&serde_json::from_value(public).expect("a JWK")).expect("a key");
     let mut validation = Validation::new(header.alg);
-    validation.set_audience(&[format!("{}{token_path}", smart.provider.server.uri())]);
+    validation.set_audience(&[smart.provider.issuer.as_str()]);
     validation.set_issuer(&[smart.client_id.as_str()]);
     validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
     let claims = jsonwebtoken::decode::<Value>(&assertion, &decoding, &validation)
         .expect("the assertion verifies with FerroSMART's current key")
         .claims;
+    assert_eq!(
+        Some(&json!(smart.provider.issuer)),
+        claims.get("aud"),
+        "the issuer identifier as the sole audience"
+    );
     (header, claims)
 }
 
 #[test]
 fn both_examples_resolve_to_their_claim_mapping() {
     let keys = Keys::new();
-    for (example, fhir_user, roles, signs) in [
-        (ENTRA, "extn.fhirUser", "roles", true),
-        (OKTA, "fhir_user", "groups", false),
+    for (example, fhir_user, roles) in [
+        (ENTRA, "extn.fhirUser", "roles"),
+        (OKTA, "fhir_user", "groups"),
     ] {
         let settings = example_config(example, &keys, None)
             .resolve()
@@ -786,16 +787,5 @@ fn both_examples_resolve_to_their_claim_mapping() {
         let upstream = settings.upstream.expect("a provider");
         assert_eq!(Some(fhir_user), upstream.fhir_user_claim.as_deref());
         assert_eq!(vec![String::from(roles)], upstream.role_claims);
-        assert!(
-            if signs {
-                matches!(
-                    upstream.authentication,
-                    Authentication::PrivateKeyJwt { .. }
-                )
-            } else {
-                matches!(upstream.authentication, Authentication::Secret(_))
-            },
-            "the example's client authentication"
-        );
     }
 }

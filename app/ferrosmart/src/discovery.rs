@@ -117,8 +117,9 @@ const APP_LAUNCH: [&str; 5] = [
 
 /// Returns the capabilities `settings` add to [`APP_LAUNCH`]:
 /// `context-standalone-patient` when the patient picker can search one of
-/// the resource servers, and `context-style` when the token response
-/// carries a `smart_style_url`.
+/// the resource servers, `context-standalone-encounter` when one of them is
+/// a FHIR server, and `context-style` when the token response carries a
+/// `smart_style_url`.
 fn configured_capabilities(settings: &Settings) -> Vec<String> {
     let mut capabilities: Vec<String> = APP_LAUNCH
         .iter()
@@ -129,6 +130,15 @@ fn configured_capabilities(settings: &Settings) -> Vec<String> {
     });
     if searchable {
         capabilities.push(String::from("context-standalone-patient"));
+    }
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Standalone apps: the
+    // picker offers a patient's encounters at a FHIR server, never at an openEHR one.
+    if settings
+        .resources
+        .iter()
+        .any(|base| !settings.openehr_resources.contains(base))
+    {
+        capabilities.push(String::from("context-standalone-encounter"));
     }
     if !settings.branding.smart_style_url.is_empty() {
         capabilities.push(String::from("context-style"));

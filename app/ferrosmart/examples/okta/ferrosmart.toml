@@ -19,18 +19,31 @@ kind = "fhir"
 # from Okta, Add a custom claim to a token). Its RFC 8414 metadata is at
 # /.well-known/oauth-authorization-server/oauth2/default (Okta, Authorization
 # servers, Discovery endpoints). FerroSMART is the Web Application
-# integration's client and sends its secret as HTTP Basic, Okta's default
-# (Okta OpenID Connect & OAuth 2.0 API, Client authentication).
+# integration's client.
 [ferrosmart.upstream]
 issuer = "https://example.okta.com/oauth2/default"
 client_id = "0oaexampleferrosmart"
-client_secret_file = "/run/secrets/okta_client_secret"
 scopes = ["openid", "profile"]
 # The custom claim whose expression reads the person's `fhirUser` profile
 # attribute, and the groups claim filtered to FerroSMART's role groups, both
 # in the ID Token always.
 fhir_user_claim = "fhir_user"
 role_claims = ["groups"]
+
+# The integration's client authentication is "Public key / Private key"
+# (Okta OpenID Connect & OAuth 2.0 API, Client authentication, JWT with
+# private key): its public keys hold the JWK FerroSMART publishes at
+# {issuer}/upstream-jwks, and FerroSMART signs each client assertion with
+# the current key of its own assertion ring, never a token key
+# (RFC 8725 §3.12), RS256, one of the algorithms Okta lists (OpenID
+# Connect Core 1.0 §9, private_key_jwt).
+[ferrosmart.upstream.private_key_jwt]
+algorithm = "RS256"
+
+# The assertion ring, read as [ferrosmart.keys] is; a rotation adds the next
+# key's JWK to the integration before the ring makes it current.
+[ferrosmart.upstream.private_key_jwt.keys]
+private_key_file = "/run/secrets/upstream-assertion.pem"
 
 # The policy as content (docs/architecture.md §13.6 item 5): a member of the
 # Okta group `clinician` may be granted these user/ scopes.

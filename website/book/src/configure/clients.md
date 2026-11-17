@@ -155,7 +155,7 @@ drops the rest, and shows the person what remains:
 | `patient/...` | the ceiling lists it, a role grants it, and a patient is in context |
 | `launch` | the ceiling lists it and the request carries an EHR launch |
 | `launch/patient` | the ceiling lists it and a patient is in context: the EHR launch named one, or the patient picker can choose one |
-| `launch/encounter` | the ceiling lists it and the EHR launch named an encounter |
+| `launch/encounter` | the ceiling lists it and an encounter is in context: the EHR launch named one, or, with `launch/patient` at a FHIR server, the patient picker can choose one |
 | `offline_access`, `online_access` | the ceiling lists it and the client registers `refresh_token` |
 
 With both refresh scopes granted, `offline_access` decides.

@@ -190,39 +190,51 @@
         <div class="grid">
 
           <a class="card" href="./docs/install/upstream.html#keycloak">
-            <span class="tag">Compose example</span>
+            <span class="tag">Live launch in CI</span>
             <h3>Keycloak</h3>
-            <p>
-              A realm file and a compose overlay, with FerroSMART
-              authenticating to Keycloak by <code>private_key_jwt</code>.
-            </p>
+            <dl class="idp">
+              <dt>Login</dt><dd>the realm&rsquo;s login form</dd>
+              <dt>Client authentication</dt><dd><code>private_key_jwt</code>, Signed JWT read from FerroSMART&rsquo;s key set</dd>
+              <dt><code>fhirUser</code></dt><dd>a user attribute mapper</dd>
+              <dt>Roles</dt><dd>a realm role mapper</dd>
+              <dt>Tested by</dt><dd>a launch in CI and the compose quickstart</dd>
+            </dl>
           </a>
 
           <a class="card" href="./docs/install/upstream.html#zitadel">
-            <span class="tag">Compose example</span>
+            <span class="tag">Live launch in CI</span>
             <h3>ZITADEL</h3>
-            <p>
-              A compose overlay that bootstraps the project, the role, the
-              user and the action that writes <code>fhirUser</code>.
-            </p>
+            <dl class="idp">
+              <dt>Login</dt><dd>the Login v2 UI</dd>
+              <dt>Client authentication</dt><dd><code>private_key_jwt</code>, with a key ZITADEL generates</dd>
+              <dt><code>fhirUser</code></dt><dd>an Actions v2 target, from user metadata</dd>
+              <dt>Roles</dt><dd>the project role claim</dd>
+              <dt>Tested by</dt><dd>a launch in CI through a compose overlay</dd>
+            </dl>
           </a>
 
           <a class="card" href="./docs/install/upstream.html#microsoft-entra-id">
             <span class="tag">Contract tests</span>
             <h3>Microsoft Entra ID</h3>
-            <p>
-              One tenant, app roles, a directory extension for
-              <code>fhirUser</code> and a certificate credential.
-            </p>
+            <dl class="idp">
+              <dt>Login</dt><dd>one tenant&rsquo;s sign-in</dd>
+              <dt>Client authentication</dt><dd><code>private_key_jwt</code>, a certificate credential</dd>
+              <dt><code>fhirUser</code></dt><dd>a directory extension attribute</dd>
+              <dt>Roles</dt><dd>app roles</dd>
+              <dt>Tested by</dt><dd>a contract test against Entra ID&rsquo;s documents</dd>
+            </dl>
           </a>
 
           <a class="card" href="./docs/install/upstream.html#okta">
             <span class="tag">Contract tests</span>
             <h3>Okta</h3>
-            <p>
-              The custom authorization server, a <code>fhir_user</code>
-              claim and a groups claim filtered to the role groups.
-            </p>
+            <dl class="idp">
+              <dt>Login</dt><dd>the custom authorization server</dd>
+              <dt>Client authentication</dt><dd><code>private_key_jwt</code>, a public key on the integration</dd>
+              <dt><code>fhirUser</code></dt><dd>a custom claim</dd>
+              <dt>Roles</dt><dd>a groups claim filtered to the role groups</dd>
+              <dt>Tested by</dt><dd>a contract test against Okta&rsquo;s documents</dd>
+            </dl>
           </a>
 
         </div>

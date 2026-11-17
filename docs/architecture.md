@@ -2926,7 +2926,12 @@ specification governs.
    the launch context, so a patient they may not see is never chosen. The
    choice travels as an EHR launch's does: in the code's launch context,
    the grant's context map, the token response's `patient` and the access
-   token's claim. Every search and read is an access record of Regulation
+   token's claim. At a FHIR server a request that also asks for
+   `launch/encounter` gets a second step (#604): the chosen patient's
+   encounters (`GET [base]/Encounter?patient=…`, as the person, scope
+   `user/Encounter.rs`), one of which the person picks or goes on without;
+   the chosen one is read again and enters the context only when its
+   `subject` is that patient (13.23). Every search and read is an access record of Regulation
    (EU) 2025/327 Annex II 3.2 through `ehds-logging`. A failed search is an
    error page, never an empty context. The search call and the page are our
    own design.
@@ -3151,7 +3156,7 @@ the same lock.
 ```toml
 [ferrosmart]
 issuer = "https://smart.example.org"          # the issuer identifier, https, no query or fragment
-access_token_lifetime = "5m"
+access_token_lifetime = "5min"                # at most one hour (smart app-launch, Response)
 refresh_idle = "30d"
 online_idle = "8h"
 
@@ -3174,10 +3179,17 @@ kind = "fhir"                                 # or "openehr"
 [ferrosmart.upstream]                         # any OpenID Connect provider, discovered at start
 issuer = "https://idp.example.org/realms/hospital"
 client_id = "ferrosmart"
-client_secret_file = "/run/secrets/upstream-secret"   # unset: a public client with PKCE
 scopes = ["openid", "profile"]
 fhir_user_claim = "fhir_user"                 # the ID Token claim holding fhirUser; empty for none
 role_claims = ["roles"]                       # the dotted claims holding the person's roles
+
+[ferrosmart.upstream.private_key_jwt]         # required: the one client authentication upstream (13.22)
+algorithm = "RS256"                           # the one the provider's registration names
+# certificate_file = "/run/secrets/upstream-assertion.crt"   # for a provider that knows the key by its certificate
+
+[ferrosmart.upstream.private_key_jwt.keys]    # the assertion ring, apart from the token keys
+private_key_file = "/run/secrets/upstream-assertion.pem"
+# kid = "..."                                 # the id the provider knows the key by; its thumbprint when unset
 
 [[ferrosmart.role]]                           # policy as content: what a role may be granted
 name = "clinician"
@@ -3530,14 +3542,15 @@ carries the mapped `fhirUser`. Citations are to `docs/specs/entra-docs/`,
 | App registration | Supported account types: single tenant only | `quickstart-register-app.md`, Register an application |
 | Authority | `https://login.microsoftonline.com/{tenant id}/v2.0`, FerroSMART's `upstream.issuer`; its metadata is at `/.well-known/openid-configuration` under it | `v2-protocols-oidc.md`, Find your app's OpenID configuration document URI; `oidc discovery §4` |
 | Platform and redirect URI | Web, FerroSMART's `{issuer}/callback`, `https` | `how-to-add-redirect-uri.md`, Add a redirect URI; `reply-url.md`, What are the restrictions of redirect URIs; `rfc9700 §2.1` |
-| Client credential | a certificate of FerroSMART's current assertion key (`[ferrosmart.upstream.private_key_jwt.keys]`, never a token key), uploaded to the registration; FerroSMART signs a client assertion with that key under `PS256`, typed `JWT`, naming the certificate by `x5t#S256`, `aud` the token endpoint, `iss` and `sub` the client id (`[ferrosmart.upstream.private_key_jwt]`, #569) | `how-to-add-credentials.md`, Add a certificate; `certificate-credentials.md`, Assertion format, Register your certificate with Microsoft identity platform; `oidc core §9`; `rfc7515 §4.1.8` |
+| Client credential | a certificate of FerroSMART's current assertion key (`[ferrosmart.upstream.private_key_jwt.keys]`, never a token key), uploaded to the registration; FerroSMART signs a client assertion with that key under `PS256`, naming the certificate by `x5t#S256`, `iss` and `sub` the client id, `aud` the authority's issuer identifier and `typ` `client-authentication+jwt` (13.22; `certificate-credentials.md` names the token endpoint as `aud`, and #620 checks the issuer on a live tenant) | `how-to-add-credentials.md`, Add a certificate; `certificate-credentials.md`, Assertion format, Register your certificate with Microsoft identity platform; `oidc core §9`; `rfc10070 §4`, `§6`; `rfc7515 §4.1.8` |
 | PKCE | `S256` on every request, which the code flow takes | `v2-oauth2-auth-code-flow.md`, Request an authorization code (`code_challenge_method`); `rfc7636 §4.2` |
 | Scopes | `openid profile`; `profile` brings `name`, `preferred_username` and `oid` | `id-token-claims-reference.md`, Payload claims |
 | App role | `clinician`: allowed member types Users/Groups, value `clinician`, assigned to people under Enterprise applications; the ID Token carries it in `roles` | `howto-add-app-roles-in-apps.md`, Declare roles for an application, Usage scenario of app roles |
 | `fhirUser` | a directory extension attribute `fhirUser` registered on the application through Microsoft Graph, set per user, and the ID Token optional claim `extension_<appid>_fhirUser`, which Entra ID emits as `extn.fhirUser` | `schema-extensions.md`, Register and use directory extensions, Emit claims using Graph or PowerShell; `optional-claims.md`, Configure directory extension optional claims, Directory extension formatting |
 
 On FerroSMART's side, `[ferrosmart.upstream]` names the tenant authority and
-the Application (client) ID, `fhir_user_claim = "extn.fhirUser"` and
+the Application (client) ID, `[ferrosmart.upstream.private_key_jwt]` its
+client authentication, `fhir_user_claim = "extn.fhirUser"` and
 `role_claims = ["roles"]`. A claim name holding a dot is read whole before a
 dotted path steps into an object (`ferrohealth_smart::roles`, #562), which is
 what reads `extn.fhirUser`; no code knows Entra ID. Three readings of the
@@ -3566,13 +3579,10 @@ vendored text are decisions:
    login; one FerroSMART logs in the people of one tenant.
 
 Entra ID advises a certificate over a client secret in production
-(`how-to-add-credentials.md`, Add a client secret), so the setup uses one.
-The key is FerroSMART's assertion key, with its ring's rotation: upload the
-next key's certificate before the ring makes it current, and remove the old
-one after.
-A client secret sent as HTTP Basic, which the code flow also takes
-(`v2-oauth2-auth-code-flow.md`, Request an access token with a
-client_secret), stays possible for a registration without a certificate.
+(`how-to-add-credentials.md`, Add a client secret), and FerroSMART takes no
+client secret at all (13.22). The key is FerroSMART's assertion key, with
+its ring's rotation: upload the next key's certificate before the ring makes
+it current, and remove the old one after.
 
 ### 13.19 Upstream providers: Okta
 
@@ -3590,14 +3600,15 @@ page and section; none of their text is in the tree
 | Authorization server | the custom authorization server `default`, issuer `https://{Okta domain}/oauth2/default`; its RFC 8414 metadata is at `/.well-known/oauth-authorization-server/oauth2/default` | Authorization servers: Issuer - custom authorization server, Discovery endpoints - default custom authorization server; Custom Authorization Servers, Retrieve the OAuth 2.0 metadata; `rfc8414 §3` |
 | App integration | a Web Application: the Authorization Code grant, which a web app always has | Implement the Authorization Code grant (Set up your app) |
 | Redirect URI | FerroSMART's `{issuer}/callback` as the one Sign-in redirect URI | Implement the Authorization Code grant (Sign-in redirect URIs); `rfc9700 §2.1` |
-| Client authentication | the client secret as HTTP Basic, Okta's default method | OpenID Connect & OAuth 2.0 API, Client authentication; `oidc core §9` |
+| Client authentication | Public key / Private key: the integration's public keys hold the JWK FerroSMART publishes at `{issuer}/upstream-jwks`, and FerroSMART signs each client assertion with the current assertion key under `RS256`, `iss` and `sub` the client id, `aud` the authorization server's issuer identifier and `typ` `client-authentication+jwt` (13.22; the guide names the token endpoint as `aud`, and #620 checks the issuer on a live org) | OpenID Connect & OAuth 2.0 API, Client authentication, JWT with private key; `oidc core §9`; `rfc10070 §4`, `§6` |
 | PKCE | `S256` on every request; the metadata names `S256` in `code_challenge_methods_supported` | Custom Authorization Servers, Retrieve the OAuth 2.0 metadata; `rfc7636 §4.2` |
 | `fhir_user` claim | a custom claim on the authorization server: include in the ID Token, Always, value type Expression reading the person's `fhirUser` profile attribute | Customize tokens returned from Okta, Add a custom claim to a token |
 | `groups` claim | a groups claim on the authorization server: include in the ID Token, Always, a Groups filter matching FerroSMART's role groups | Customize tokens with a groups claim, Add a groups claim for a custom authorization server |
 | Group | `clinician`, assigned to the app integration, which `[[ferrosmart.role]]` maps to `user/` scopes | Overview, Subtle behavior (a user is assigned to the client); 13.6 item 5 |
 
 On FerroSMART's side, `[ferrosmart.upstream]` names the authorization server
-and the client, `fhir_user_claim = "fhir_user"` and `role_claims =
+and the client, `[ferrosmart.upstream.private_key_jwt]` its client
+authentication, `fhir_user_claim = "fhir_user"` and `role_claims =
 ["groups"]`. No code knows Okta. Three readings are decisions:
 
 1. **The custom authorization server, never the org one.** Okta's pages
@@ -3631,14 +3642,15 @@ role grants. Citations are to `docs/specs/zitadel/`, ZITADEL's
 `app/ferrosmart/examples/zitadel/bootstrap.sh` makes everything through
 ZITADEL's v2 APIs, with the IAM_OWNER token the first instance writes
 (`cmd/setup/steps.yaml`, FirstInstance). Every id it can choose is fixed;
-ZITADEL generates the OIDC client id, the client secret and the target's
-signing key, so the script writes them out with the FerroSMART
-configuration that names them.
+ZITADEL generates the OIDC client id, the application's private key with
+its key id, and the target's signing key, so the script writes them out
+with the FerroSMART configuration that names them.
 
 | Setting | Value | Ground |
 |---|---|---|
 | Project | `ferrosmart`, role assertion on, the role `clinician` | `proto/zitadel/project/v2/project_service.proto` (CreateProject, AddProjectRole); `guides/integrate/retrieve-user-roles.mdx` |
-| Application | `ferrosmart-login`: an OIDC web app, the code flow, `client_secret_basic`, one redirect URI `{issuer}/callback`, roles and userinfo asserted into the ID Token | `proto/zitadel/application/v2/application_service.proto` (CreateApplication, CreateOIDCApplicationRequest); `oidc core §9`; `rfc9700 §2.1` |
+| Application | `ferrosmart-login`: an OIDC web app, the code flow, one redirect URI `{issuer}/callback`, roles and userinfo asserted into the ID Token | `proto/zitadel/application/v2/application_service.proto` (CreateApplication, CreateOIDCApplicationRequest); `rfc9700 §2.1` |
+| Client authentication | Private Key JWT (`OIDC_AUTH_METHOD_TYPE_PRIVATE_KEY_JWT`) with an application key ZITADEL generates (CreateApplicationKey); FerroSMART's assertion ring holds that key under ZITADEL's key id as `kid`, and each assertion names ZITADEL's issuer as its sole `aud`, which ZITADEL requires (zitadel/oidc v3.47.5, `JWTProfileVerifier`) | `proto/zitadel/application/v2/oidc.proto`, `application_service.proto` (CreateApplicationKeyResponse.key_details); `oidc core §9`; `rfc10070 §4` |
 | PKCE | `S256` on every request FerroSMART sends; ZITADEL applies it to a web app that sends it | `rfc7636 §4.2`; `apis/openidoauth/endpoints.mdx` |
 | User | `clinician`, its role granted, the metadata `fhir_user` | `proto/zitadel/user/v2/user_service.proto` (AddHumanUser, SetUserMetadata); `proto/zitadel/authorization/v2/authorization_service.proto` |
 | `fhirUser` | an Actions v2 execution on the `preuserinfo` function calls the example's target, `tools/zitadel-fhir-user`, which checks the `ZITADEL-Signature` and answers `append_claims` with `fhirUser` from the metadata | `guides/integrate/actions/usage.mdx` (PreUserinfo, Content Signing); `pkg/actions/signing.go`; `proto/zitadel/action/v2/` |
@@ -3647,8 +3659,9 @@ configuration that names them.
 | Audience | ZITADEL names the project beside the client in every ID Token's `aud`, so `trusted_audiences = ["ferrosmart"]` | `oidc core §3.1.3.7` items 3 and 4 |
 
 On FerroSMART's side `[ferrosmart.upstream]` names ZITADEL's issuer and
-the generated client, `fhir_user_claim = "fhirUser"`, the role claim and
-the trusted audience. No code knows ZITADEL: `trusted_audiences` is
+the generated client, `[ferrosmart.upstream.private_key_jwt]` the
+application key, `fhir_user_claim = "fhirUser"`, the role claim and the
+trusted audience. No code knows ZITADEL: `trusted_audiences` is
 `ferrohealth_smart::oidc::RelyingParty::with_trusted_audiences`, the item 3
 rule ("additional audiences not trusted by the Client") for any provider,
 and an ID Token with several audiences must then carry an `azp` naming the
@@ -3745,25 +3758,51 @@ names.
 
 ### 13.22 Client authentication at the upstream provider
 
-FerroSMART authenticates at its provider's token and revocation endpoints in
-one of three ways, which `[ferrosmart.upstream]` names (#569): as a public
-client with PKCE alone, with a client secret as HTTP Basic (`rfc6749
-§2.3.1`), or with `private_key_jwt` (`oidc core §9`), the setup of the
-Keycloak and Entra ID examples. A secret and `private_key_jwt` together are
-refused at load.
+FerroSMART authenticates at its provider's token and revocation endpoints
+with `private_key_jwt` alone (`oidc core §9`; owner decision of 2026-11-17,
+#619). `[ferrosmart.upstream.private_key_jwt]` is required, and the
+configuration takes no client secret: `client_secret` and
+`client_secret_file` are unknown keys, refused at load, and a provider
+without the table is refused too. OAuth 2.1 and FAPI 2.0 prefer asymmetric
+client authentication, and FerroSMART holds keys already.
+
+Every provider is set up the same way, in one shape:
+
+| Provider | Login | Client authentication | `fhirUser` | Roles | Tested by |
+|---|---|---|---|---|---|
+| Keycloak (13.16) | the realm's login form, the code flow with PKCE `S256` | the client authenticator "Signed JWT" (`client-jwt`), reading `{issuer}/upstream-jwks` | a user attribute mapper, `fhir_user` | a realm role mapper, `roles` | the CI Keycloak lane and the compose quickstart lane, a live launch |
+| ZITADEL (13.20) | the Login v2 UI, the code flow with PKCE `S256` | Private Key JWT with an application key ZITADEL generates, held under its key id | the Actions v2 `preuserinfo` target, `fhirUser` from user metadata | the project role claim `urn:zitadel:iam:org:project:ferrosmart:roles` | the CI ZITADEL lane, a live launch |
+| Microsoft Entra ID (13.18) | the tenant's sign-in, the code flow with PKCE `S256` | certificate credentials: the certificate of the current assertion key, named by `x5t#S256` | a directory extension attribute, `extn.fhirUser` | app roles, `roles` | the contract test against a stub of Entra ID's documents |
+| Okta (13.19) | the org's sign-in through the `default` custom authorization server, the code flow with PKCE `S256` | Public key / Private key, the JWK of `{issuer}/upstream-jwks` | a custom claim, `fhir_user` | a groups claim, `groups` | the contract test against a stub of Okta's documents |
 
 Under `[ferrosmart.upstream.private_key_jwt]` the current key of the
 assertion ring signs a fresh assertion for every request: `iss` and `sub`
-the client id, `aud` the provider's token endpoint URL, a unique `jti`,
-`exp` 60 seconds ahead, typed `JWT` (`rfc7523 §3`). The `aud` and `typ` are
-the rule #529 fixed for a plain grant, and `oidc core §9` names the token
-endpoint; a revocation request carries the same `aud`, which Keycloak
-accepts (`JWTClientValidator.java`). `algorithm` is the one the provider's
-registration names (`rfc7518 §3.1`; RS256 by default), and the ring's keys
-are read to sign with it. `certificate_file` is the X.509 certificate of
-the current assertion key, for a provider that knows the key by its
-certificate; each assertion then names it by `x5t#S256` (`rfc7515 §4.1.8`),
-and a certificate of another key is refused at load.
+the client id, `aud` the provider's issuer identifier as its sole value, a
+unique `jti`, `exp` 60 seconds ahead, typed `client-authentication+jwt`
+(`rfc10070 §4`, which updates `rfc7523 §3`). RFC 10070 supersedes the
+token endpoint URL `oidc core §9` recommends ("SHOULD") for
+`private_key_jwt`, and §6 has a client that follows it interoperate with
+servers of either rule. One rule holds for every provider (owner decision
+of 2026-11-17); a revocation request carries the same assertion shape. The
+providers stand on it differently:
+
+- Keycloak accepts the issuer as a single `aud` (`JWTClientValidator.java`,
+  the issuer among the expected audiences) and refuses an array by default.
+- ZITADEL requires its issuer in `aud` (zitadel/oidc v3.47.5,
+  `JWTProfileVerifier` with `CheckAudience` against the issuer).
+- Entra ID (`certificate-credentials.md`, Assertion format) and Okta
+  (Client authentication, JWT with private key) document the token endpoint
+  URL and do not mention RFC 10070. Both rest on RFC 10070 §6 until a test
+  on a real tenant confirms them; FerroHEALTH/FerroSMART#620 is that test
+  plan, and a refusal becomes an upstream report for the owner to decide.
+
+`algorithm` is the one the provider's registration names (`rfc7518 §3.1`;
+RS256 by default), and the ring's keys are read to sign with it. `kid`
+under the keys table is the id a provider knows the key by (ZITADEL's key
+id), the RFC 7638 thumbprint when empty. `certificate_file` is the X.509
+certificate of the current assertion key, for a provider that knows the key
+by its certificate; each assertion then names it by `x5t#S256`
+(`rfc7515 §4.1.8`), and a certificate of another key is refused at load.
 
 **One key per purpose.** The assertion ring is
 `[ferrosmart.upstream.private_key_jwt.keys]`, read as `[ferrosmart.keys]` is
@@ -3775,7 +3814,7 @@ misused, signs nothing a resource server of FerroSMART's accepts. The ring
 is published at its own `{issuer}/upstream-jwks` (`discovery::UPSTREAM_JWKS_ROUTE`),
 apart from the token key set at `{issuer}/jwks`, so a provider that reads it,
 as Keycloak does, trusts the assertion keys alone and a resource server
-never sees them. The route answers `404` when no assertion ring is
+never sees them. The route answers `404` when no upstream provider is
 configured, and no metadata document names it, since it is FerroSMART's key
 as a client, not as an authorization server.
 
@@ -3812,7 +3851,7 @@ absent.
 | `context-ehr-patient` | supported | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
 | `context-ehr-encounter` | supported | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
 | `context-standalone-patient` | supported when the picker can search a resource server (any FHIR base; an openEHR base with a `subject_namespace`) | `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
-| `context-standalone-encounter` | absent until the §2.2 issue lands | `authorize::what_the_document_leaves_out_the_server_refuses` |
+| `context-standalone-encounter` | supported when a resource server is a FHIR one: the picker offers the chosen patient's encounters; never at an openEHR base, which has no Encounter resource to choose from | `authorize::encounter_picker::a_standalone_launch_picks_an_encounter_of_the_chosen_patient` |
 | `permission-offline` | supported | `authorize::an_offline_access_launch_issues_a_refresh_token_that_rotates` |
 | `permission-online` | supported | `authorize::an_online_access_launch_ends_with_its_upstream_login` |
 | `permission-patient` | supported | `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
@@ -3839,6 +3878,51 @@ SHALL support all scopes listed here"), `response_types_supported`
 absent, since FerroSMART has neither, and `user_access_brand_bundle` and
 `user_access_brand_identifier` belong in each FHIR server's document
 (13.5).
+
+**§2.1 App Launch and §2.2 Scopes and Launch Context** (`smart
+app-launch`, `smart scopes-and-launch-context`). One row per SHALL and
+SHOULD. A requirement on the app, the resource server or the EHR names
+who holds it; FerroSMART's own rows name the case that holds them.
+
+| Requirement | Level | Holder and status | Test |
+|---|---|---|---|
+| Apps protect sensitive data in transit, generate and check an unpredictable `state`, run no untrusted input, forward nothing from the redirect, keep tokens out of cookies and in app storage (App Launch, Security and Privacy Considerations; Validate the state value) | SHALL, SHOULD | the app's; FerroSMART refuses an empty `state` and returns the one it got | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
+| Every app supports PKCE; the server supports `S256` and not `plain` (Considerations for PKCE Support) | SHALL | met: `S256` alone, `plain` refused | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
+| The server checks that `code_verifier` is present and valid at the code exchange (Obtain access token, Note on PKCE Support) | SHALL | met | `authorize::a_code_exchange_that_does_not_hold_is_refused_and_burns_nothing` |
+| CORS on the discovery endpoints for any origin, on the token endpoint for a client's registered origins (Considerations for CORS support) | SHALL | met; the FHIR REST API's CORS is the resource server's | `authorize::a_token_response_is_readable_from_the_app_s_origin_alone`, `discovery::the_smart_configuration_is_json_whatever_the_accept_header` |
+| Every app registers fixed, fully specified redirect URIs and launch URLs (Register App with EHR) | SHALL | met for redirect URIs: an authorization code client registers absolute ones, matched exactly; a launch URL is the EHR's | `clients::an_authorization_code_client_registers_absolute_redirect_uris` |
+| The `state` parameter is used against CSRF and session fixation (Obtain authorization code) | SHALL | the app's; FerroSMART requires it and echoes it | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
+| The server supports the `aud` parameter (Obtain authorization code) | SHALL | met: `aud` names a configured resource server, else the request is refused | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
+| The app limits its scopes to the minimum (Obtain authorization code) | SHOULD | the app's; the consent page lets the person untick any scope | `authorize::the_consent_page_offers_what_the_ceiling_and_the_roles_allow` |
+| The authorization endpoint supports GET and POST (Obtain authorization code) | SHALL | met | `authorize::an_authorization_request_by_post_is_the_get_s_twin` |
+| Confidential clients use asymmetric authentication if available (Obtain access token) | SHOULD | the client's; both profiles are offered (§4.1, §4.2) | `token::a_backend_services_client_gets_an_rfc_9068_token` |
+| The token response is JSON with `access_token`, `token_type`, `expires_in`, `scope` and the granted context (Obtain access token, Response) | SHALL | met | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
+| The token response carries `Cache-Control: no-store` and `Pragma: no-cache` (Obtain access token, Response) | SHALL | met | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens`, `token::a_backend_services_client_gets_an_rfc_9068_token` |
+| Access tokens live no longer than one hour (Obtain access token, Response) | SHOULD | met: `access_token_lifetime` is five minutes by default and refused above one hour | `config::a_token_lifetime_over_one_hour_is_refused` |
+| A token past `expires_in` is not accepted (Obtain access token, Response); the resource server validates the token and its scope (Access FHIR API) | SHALL | the resource server's; FerroSMART's introspection answers an expired token inactive | `introspection::an_expired_token_is_inactive` |
+| The app does not follow a reference to another server with its token (Access FHIR API) | SHOULD | the app's | none |
+| A refresh token is bound to its `client_id` and carries the same or fewer claims (Refresh access token) | SHALL | met | `refresh::a_refresh_token_is_bound_to_its_client`, `refresh::a_refresh_may_narrow_the_scope_and_never_widen_it` |
+| v1 scopes: advertise `permission-v1`, process `.read`, `.write`, `.*` as `.rs`, `.cud`, `.cruds`, return v1 when v1 was granted (Scopes for requesting FHIR Resources) | SHOULD | met | `authorize::a_v1_scope_is_offered_by_its_v2_form_and_granted_as_asked` |
+| A server that links Patients through `Patient.link` documents its authorization behaviour (Patient-specific scopes) | SHALL | the resource server's; FerroSMART reads no `Patient.link` | none |
+| An unsupported `?role=` gets any launch context of the resource type (Scopes for requesting context data) | SHOULD | met for an EHR launch: the EHR's `fhirContext` items return under `launch` whatever role was asked; a standalone launch offers no `launch/` scope beyond `launch/patient` and `launch/encounter` | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
+| A granted `patient/` scope has a patient in context (Apps that launch from the EHR; Standalone apps) | SHALL | met: `patient/` scopes are offered only with a patient from the EHR launch or the picker, and dropped when the context is | `ehr_launch::a_launch_needs_the_launch_scope_and_unticking_it_drops_the_context`, `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
+| A standalone app's `launch/patient` and `launch/encounter` are provided (Standalone apps) | SHOULD | met: the picker chooses the patient at a FHIR base and at an openEHR base with a `subject_namespace`, and one of the patient's encounters at a FHIR base; the person may go on without an encounter, which drops `launch/encounter` from the offer. At an openEHR base no encounter is chosen: openEHR has no Encounter resource, and the SMART on openEHR draft's context is the `ehrId` (Context Selection) | `authorize::encounter_picker::a_standalone_launch_picks_an_encounter_of_the_chosen_patient`, `authorize::encounter_picker::a_person_may_go_on_without_an_encounter`, `authorize::ehr_picker::a_standalone_launch_at_an_openehr_server_picks_the_ehr_the_person_may_see` |
+| Each `fhirContext` item has `reference`, `canonical` or `identifier`; a `role` is never empty (Launch context arrives with your access_token, fhirContext) | SHALL | met: an EHR's launch registration breaking either is refused | `launch::a_launch_registration_breaking_a_rule_is_refused` |
+| The app shows a default UI without a style; the style URL serves a SMART Style object; a changed style gets a new URL (Styling) | SHOULD, SHALL | the app's and the deployment's: `smart_style_url` is configuration, `https` only, and a new style document is published at a new URL | `config::a_style_url_other_than_https_is_refused` |
+| OpenID Connect: the Authorization Code Flow (Scopes for requesting identity data) | SHALL | met: `code` alone | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
+| Public keys published as bare JWKs | SHALL | met | `discovery::the_jwk_set_publishes_bare_rs256_keys_and_may_be_cached` |
+| `fhirUser` in the ID Token when `openid` and `fhirUser` are granted | SHALL | met | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
+| ID Tokens signed with RSA SHA-256 | SHALL | met: RS256 | `authorize::the_documents_describe_the_login_once_it_is_configured` |
+| An app passes no `auth_time` or `max_age` to a server that does not take them | SHALL NOT | the app's | none |
+| Scopes as URIs carry the SMART or OpenID prefix (Scopes represented as URIs) | SHALL | not applicable: FerroSMART exchanges no scope as a URI | none |
+
+The encounter step is our own design where the specification is silent:
+the picker chooses an encounter only after a patient, so a request for
+`launch/encounter` without `launch/patient` is not offered it; it searches
+`Encounter?patient=` as the person with a token whose one scope is
+`user/Encounter.rs`, shows the latest start first, leaves out an entry of
+another patient, and reads the chosen encounter again, accepting it only
+when its `subject` is the chosen patient.
 
 **§4.1 Client Authentication: Asymmetric and §4.2 Symmetric**
 (`smart client-confidential-asymmetric`, `smart
@@ -3872,7 +3956,7 @@ The Inferno lane runs a symmetric client in group 2 (13.13).
 | Section | Status |
 |---|---|
 | §1 Conformance (capabilities, discovery) | this section |
-| §2.1 App Launch, §2.2 Scopes and Launch Context | in audit |
+| §2.1 App Launch, §2.2 Scopes and Launch Context | below |
 | §2.3 Persisting App State (experimental) | the resource server's; FerroSMART never advertises it (below) |
 | §2.4 Task profile for requesting a launch (experimental) | the EHR's; FerroSMART serves the EHR launch API it uses (below) |
 | §3 Backend Services | in audit |

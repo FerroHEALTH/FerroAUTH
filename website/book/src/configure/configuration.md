@@ -18,7 +18,7 @@ secret stays out of the environment. `ferrosmart config check` prints the
 tree as FerroSMART reads it, every secret masked, and exits non-zero naming
 the first key it cannot run with.
 
-A duration is written as `"5m"`, `"8h"` or `"30d"`.
+A duration is written as `"5min"`, `"8h"` or `"30d"`.
 
 ## `[server]`
 
@@ -30,7 +30,7 @@ The listener and the request stack every FerroHEALTH server shares.
 | `base_path` | empty | The path every route is served under; it must equal the issuer's path |
 | `request_timeout` | `30s` | How long one request may take before a `408` |
 | `header_read_timeout` | `30s` | How long a client may take to send its request head |
-| `idle_timeout` | `2m` | How long an idle connection is kept |
+| `idle_timeout` | `2min` | How long an idle connection is kept |
 | `body_limit` | 1 MiB | The largest request body read before a `413` |
 | `drain_delay` | `0s` | How long readiness stays withdrawn before the listener closes |
 | `shutdown_timeout` | `10s` | How long requests in flight may take once the listener closed |
@@ -55,7 +55,7 @@ secret or an assertion.
 | Key | Default | What it is |
 |---|---|---|
 | `issuer` | required | The issuer identifier (RFC 8414 §2): an `https` URL with no query or fragment, or `http` on a loopback host. Its path is `[server] base_path`. Every document repeats it exactly |
-| `access_token_lifetime` | `5m` | How long an access token lives, for every grant |
+| `access_token_lifetime` | `5min` | How long an access token lives, for every grant; at most one hour (SMART App Launch 2.2.0, App Launch) |
 | `refresh_idle` | `30d` | How long an `offline_access` refresh token lasts unused; each refresh starts it again |
 | `online_idle` | `8h` | How long an `online_access` refresh token lasts unused, and never past the person's login at the identity provider |
 
@@ -106,20 +106,20 @@ logs in and FerroSMART answers Backend Services alone.
 |---|---|
 | `issuer` | The provider's issuer, whose discovery document FerroSMART reads at start |
 | `client_id` | The client FerroSMART is registered as at the provider |
-| `client_secret_file`, `client_secret` | The client secret, sent as HTTP Basic; unset with no `private_key_jwt`, a public client with PKCE |
 | `scopes` | The scopes FerroSMART asks for, `openid` among them |
 | `fhir_user_claim` | The ID Token claim holding the person's `fhirUser`; empty for none |
 | `role_claims` | The ID Token claims holding the person's roles, each a dotted path; a claim name with a dot is read whole first |
 | `trusted_audiences` | Audiences an ID Token may carry beside the client id, such as a project the provider adds; empty trusts none |
 
-`[ferrosmart.upstream.private_key_jwt]` authenticates with a signed
-assertion in place of a secret:
+`[ferrosmart.upstream.private_key_jwt]` is required: FerroSMART
+authenticates to the provider with a signed assertion (`private_key_jwt`)
+and takes no client secret.
 
 | Key | What it is |
 |---|---|
 | `algorithm` | The JWS algorithm the provider's registration names; `RS256` by default |
 | `certificate_file` | The X.509 certificate of the current assertion key, for a provider that knows the key by its certificate; each assertion then names it by `x5t#S256` |
-| `[ferrosmart.upstream.private_key_jwt.keys]` | The assertion ring, with the same keys as `[ferrosmart.keys]`; it may share no key with the token ring |
+| `[ferrosmart.upstream.private_key_jwt.keys]` | The assertion ring, with the same keys as `[ferrosmart.keys]`; it may share no key with the token ring. Its `kid` is the id the provider knows the key by, such as ZITADEL's key id |
 
 ## `[[ferrosmart.role]]` and `[[ferrosmart.client]]`
 
@@ -166,10 +166,14 @@ kind = "fhir"
 [ferrosmart.upstream]
 issuer = "https://idp.example.org/realms/hospital"
 client_id = "ferrosmart"
-client_secret_file = "/run/secrets/upstream-secret"
 scopes = ["openid", "profile"]
 fhir_user_claim = "fhir_user"
 role_claims = ["roles"]
+
+[ferrosmart.upstream.private_key_jwt]
+
+[ferrosmart.upstream.private_key_jwt.keys]
+private_key_file = "/run/secrets/upstream-assertion.pem"
 
 [[ferrosmart.role]]
 name = "clinician"

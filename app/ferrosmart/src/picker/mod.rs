@@ -21,6 +21,10 @@
 //! with their record, and every search and read writes the access record
 //! of Regulation (EU) 2025/327 Annex II 3.2 through `ehds-logging`. The
 //! search parameters, the token and the page are our own design.
+//!
+//! At a FHIR resource server the picker also offers the chosen patient's
+//! encounters when the app asks for `launch/encounter` (Standalone apps,
+//! `context-standalone-encounter`), in [`encounter`].
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -52,6 +56,7 @@ use crate::pages::{self, Fault};
 use crate::server::AppState;
 use crate::store::{IssuedToken, Pending};
 
+pub mod encounter;
 pub mod openehr;
 
 /// The route of the picker under the issuer.
@@ -85,6 +90,29 @@ pub fn searchable(state: &AppState, audience: &str) -> bool {
         return settings.subject_namespaces.contains_key(audience);
     }
     settings.resources.iter().any(|base| base == audience)
+}
+
+/// What the picker can put in context at a resource server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// Nothing: the picker cannot search the server.
+    Nothing,
+    /// A patient: an openEHR server with a subject namespace.
+    Patient,
+    /// A patient and one of their encounters: a FHIR server.
+    Encounter,
+}
+
+/// Returns what the picker can put in context at `audience`.
+#[must_use]
+pub fn reach(state: &AppState, audience: &str) -> Reach {
+    if !searchable(state, audience) {
+        Reach::Nothing
+    } else if openehr_namespace(state, audience).is_some() {
+        Reach::Patient
+    } else {
+        Reach::Encounter
+    }
 }
 
 /// Returns the subject namespace of `audience` when it is an openEHR
@@ -172,6 +200,9 @@ pub async fn picker_get(
         .get("identifier")
         .map(str::trim)
         .filter(|text| !text.is_empty());
+    if let Some(patient) = params.get("patient") {
+        return encounter::list(&state, &headers, &pending, from, patient).await;
+    }
     if name.is_none() && identifier.is_none() {
         return pages::picker(&state, &headers, &pending, None, None);
     }
@@ -238,27 +269,20 @@ pub async fn picker_post(
         };
         return enter(&state, &pending, &context, from).await;
     }
+    if form.get("step") == Some(encounter::STEP) {
+        return encounter::choose(&state, &pending, from, &form).await;
+    }
     let Some(id) = form.get("patient").filter(|id| is_fhir_id(id)) else {
         return pages::fault(&state, Fault::BadRequest);
     };
-    let url = match patient_url(&pending.audience, Some(id)) {
-        Ok(url) => url,
-        Err(error) => return pages::server_error(&state, &error),
-    };
-    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `patient` is the
-    // id of a patient the person may see, so the choice is read again as them.
-    match as_person(
-        &state,
-        &pending,
-        from,
-        &fhir_ask(&url, &pending.audience, Action::Read),
-    )
-    .await
-    {
-        Ok(resource) if resource.get("id").and_then(Value::as_str) == Some(id) => {}
-        Ok(_) => return pages::server_error(&state, &PickerError::Unreadable),
-        Err(PickerError::Refused(_)) => return pages::fault(&state, Fault::BadRequest),
-        Err(error) => return pages::server_error(&state, &error),
+    if let Err(response) = read_patient(&state, &pending, from, id).await {
+        return *response;
+    }
+    if encounter::wanted(&state, &pending) {
+        return see_other(&format!(
+            "{}?patient={id}",
+            state.settings().endpoint(PICKER_ROUTE)
+        ));
     }
     let context = Context {
         patient: Some(id.to_owned()),
@@ -267,16 +291,51 @@ pub async fn picker_post(
     enter(&state, &pending, &context, from).await
 }
 
+/// Reads the patient `id` at the resource server of `pending` as the
+/// signed-in person, or returns the page that says why it could not.
+async fn read_patient(
+    state: &AppState,
+    pending: &Pending,
+    from: IpAddr,
+    id: &str,
+) -> Result<(), Box<Response>> {
+    let url = patient_url(&pending.audience, Some(id))
+        .map_err(|error| Box::new(pages::server_error(state, &error)))?;
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `patient` is the
+    // id of a patient the person may see, so the choice is read again as them.
+    match as_person(
+        state,
+        pending,
+        from,
+        &fhir_ask(&url, &pending.audience, Action::Read),
+    )
+    .await
+    {
+        Ok(resource) if resource.get("id").and_then(Value::as_str) == Some(id) => Ok(()),
+        Ok(_) => Err(Box::new(pages::server_error(
+            state,
+            &PickerError::Unreadable,
+        ))),
+        Err(PickerError::Refused(_)) => Err(Box::new(pages::fault(state, Fault::BadRequest))),
+        Err(error) => Err(Box::new(pages::server_error(state, &error))),
+    }
+}
+
 /// Puts the chosen `context` into the launch of `pending` and sends the
 /// browser on to the consent.
 async fn enter(state: &AppState, pending: &Pending, context: &Context, from: IpAddr) -> Response {
     if let Err(error) = state.store().set_launch_context(&pending.id, context).await {
         return pages::server_error(state, &error);
     }
+    let offered = pending.offered_scope.clone().unwrap_or_default();
+    go_on(state, pending, &offered, from).await
+}
+
+/// Sends the browser of `pending` on to the consent, offering `offered`.
+async fn go_on(state: &AppState, pending: &Pending, offered: &str, from: IpAddr) -> Response {
     let (Some(subject), Some(client_id)) = (&pending.subject, &pending.client_id) else {
         return pages::fault(state, Fault::Lapsed);
     };
-    let offered = pending.offered_scope.clone().unwrap_or_default();
     let offered: Vec<&str> = offered
         .split(' ')
         .filter(|scope| !scope.is_empty())
@@ -419,23 +478,41 @@ fn fhir_ask<'a>(url: &'a Url, audience: &'a str, action: Action) -> Ask<'a> {
                     patient,
                     ..DataSubject::default()
                 },
-                request: Request {
-                    id: None,
-                    operation: String::from(if action == Action::Read {
-                        "read"
-                    } else {
-                        "search-type"
-                    }),
-                    operation_system: Some(String::from("http://hl7.org/fhir/restful-interaction")),
-                    resource: Some(String::from("Patient")),
-                    query: Some(ihe_atna::balp::request_text(url)),
-                    stored_query: None,
-                    client_address: None,
-                    correlation: None,
-                },
+                request: fhir_request(url, action, "Patient"),
             }
         }),
     }
+}
+
+/// Returns the access record's request of the FHIR read or type search
+/// `url` of `resource` (FHIR R4, `RESTful` interactions).
+fn fhir_request(url: &Url, action: Action, resource: &str) -> Request {
+    Request {
+        id: None,
+        operation: String::from(if action == Action::Read {
+            "read"
+        } else {
+            "search-type"
+        }),
+        operation_system: Some(String::from("http://hl7.org/fhir/restful-interaction")),
+        resource: Some(resource.to_owned()),
+        query: Some(ihe_atna::balp::request_text(url)),
+        stored_query: None,
+        client_address: None,
+        correlation: None,
+    }
+}
+
+/// Returns the resources of type `kind` in the entries of the search
+/// Bundle `bundle`.
+fn entries<'a>(bundle: &'a Value, kind: &'a str) -> impl Iterator<Item = &'a Value> + 'a {
+    bundle
+        .get("entry")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("resource"))
+        .filter(move |resource| resource.get("resourceType").and_then(Value::as_str) == Some(kind))
 }
 
 /// Sends `ask` as the signed-in person of `pending` with a token issued for
@@ -658,33 +735,22 @@ fn accessor(issuer: &str, pending: &Pending, subject: &str) -> Accessor {
 /// Returns the patients of the search Bundle `bundle`, at most
 /// [`MAX_RESULTS`], with their display fields.
 fn patients(bundle: &Value) -> Vec<Found> {
-    bundle
-        .get("entry")
-        .and_then(Value::as_array)
-        .map(|entries| {
-            entries
-                .iter()
-                .filter_map(|entry| entry.get("resource"))
-                .filter(|resource| {
-                    resource.get("resourceType").and_then(Value::as_str) == Some("Patient")
-                })
-                .filter_map(|resource| {
-                    let id = resource.get("id").and_then(Value::as_str)?;
-                    is_fhir_id(id).then(|| Found {
-                        id: id.to_owned(),
-                        name: name_of(resource),
-                        birth_date: text(resource, "birthDate"),
-                        gender: text(resource, "gender"),
-                        identifier: resource
-                            .pointer("/identifier/0/value")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned),
-                    })
-                })
-                .take(MAX_RESULTS)
-                .collect()
+    entries(bundle, "Patient")
+        .filter_map(|resource| {
+            let id = resource.get("id").and_then(Value::as_str)?;
+            is_fhir_id(id).then(|| Found {
+                id: id.to_owned(),
+                name: name_of(resource),
+                birth_date: text(resource, "birthDate"),
+                gender: text(resource, "gender"),
+                identifier: resource
+                    .pointer("/identifier/0/value")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+            })
         })
-        .unwrap_or_default()
+        .take(MAX_RESULTS)
+        .collect()
 }
 
 /// Returns the member `name` of `resource` as text.

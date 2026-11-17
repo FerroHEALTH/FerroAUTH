@@ -14,11 +14,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use base64::Engine as _;
-use ferrohealth_secret::secret::Secret;
 use ferrohealth_smart::client::assertion::AssertionKey;
 use ferrohealth_smart::metadata::Http;
 use ferrohealth_smart::oidc::{OidcError, Provider, RelyingParty};
-use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -35,12 +33,6 @@ pub struct UpstreamSection {
     pub issuer: String,
     /// The client FerroSMART is registered as at the provider.
     pub client_id: String,
-    /// Its client secret, sent as HTTP Basic; unset for a public client
-    /// that relies on PKCE alone.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_secret: Option<Secret>,
-    /// The file holding the client secret.
-    pub client_secret_file: Option<PathBuf>,
     /// The scopes FerroSMART asks the provider for, `openid` among them.
     pub scopes: Vec<String>,
     /// The dotted claim of the ID Token that holds the user's `fhirUser`
@@ -54,8 +46,9 @@ pub struct UpstreamSection {
     /// the project a provider adds; empty trusts none.
     pub trusted_audiences: Vec<String>,
     /// `[ferrosmart.upstream.private_key_jwt]`: FerroSMART authenticates
-    /// with a JWT the current key of its own assertion ring signs, in place
-    /// of a client secret (OpenID Connect Core 1.0 §9).
+    /// with a JWT the current key of its own assertion ring signs, the one
+    /// client authentication it uses at a provider (OpenID Connect Core 1.0
+    /// §9); a configuration without it is refused.
     pub private_key_jwt: Option<PrivateKeyJwtSection>,
 }
 
@@ -91,8 +84,6 @@ impl Default for UpstreamSection {
         Self {
             issuer: String::new(),
             client_id: String::new(),
-            client_secret: None,
-            client_secret_file: None,
             scopes: vec![String::from(ferrohealth_smart::oidc::OPENID)],
             fhir_user_claim: String::new(),
             role_claims: ferrohealth_smart::roles::default_claims(),
@@ -104,22 +95,17 @@ impl Default for UpstreamSection {
 
 /// How FerroSMART authenticates at the provider's token and revocation
 /// endpoints.
+///
+/// A JWT the assertion ring's current key signs (`private_key_jwt`, OpenID
+/// Connect Core 1.0 §9), the ring published at
+/// [`crate::discovery::UPSTREAM_JWKS_ROUTE`].
 #[derive(Debug, Clone)]
-pub enum Authentication {
-    /// A public client, PKCE alone (RFC 6749 §2.1).
-    Public,
-    /// A client secret, sent as HTTP Basic (RFC 6749 §2.3.1).
-    Secret(SecretString),
-    /// A JWT the assertion ring's current key signs (`private_key_jwt`,
-    /// OpenID Connect Core 1.0 §9); the ring is published at
-    /// [`crate::discovery::UPSTREAM_JWKS_ROUTE`].
-    PrivateKeyJwt {
-        /// The current key, at the registration's algorithm and naming its
-        /// certificate when one is configured.
-        signer: Box<AssertionKey>,
-        /// The ring the key is current in.
-        ring: std::sync::Arc<ferrohealth_smart::client::keys::KeyRing>,
-    },
+pub struct Authentication {
+    /// The current key, at the registration's algorithm and naming its
+    /// certificate when one is configured.
+    pub signer: Box<AssertionKey>,
+    /// The ring the key is current in.
+    pub ring: std::sync::Arc<ferrohealth_smart::client::keys::KeyRing>,
 }
 
 /// The upstream provider, resolved.
@@ -154,13 +140,7 @@ impl Upstream {
         let party = RelyingParty::new(http, provider, self.client_id.clone(), callback)
             .with_scopes(self.scopes.iter().map(String::as_str))
             .with_trusted_audiences(self.trusted_audiences.iter().cloned());
-        Ok(match &self.authentication {
-            Authentication::Public => party,
-            Authentication::Secret(secret) => party.with_client_secret(secret.clone()),
-            Authentication::PrivateKeyJwt { signer, .. } => {
-                party.with_private_key_jwt((**signer).clone())
-            }
-        })
+        Ok(party.with_private_key_jwt((*self.authentication.signer).clone()))
     }
 }
 
@@ -181,13 +161,9 @@ pub fn pairwise(issuer: &str, subject: &str) -> String {
 }
 
 impl Upstream {
-    /// Returns the JWK Set of the assertion keys, when FerroSMART
-    /// authenticates with `private_key_jwt`.
+    /// Returns the JWK Set of the assertion keys.
     #[must_use]
-    pub fn assertion_keys(&self) -> Option<serde_json::Value> {
-        match &self.authentication {
-            Authentication::PrivateKeyJwt { ring, .. } => Some(ring.published()),
-            Authentication::Public | Authentication::Secret(_) => None,
-        }
+    pub fn assertion_keys(&self) -> serde_json::Value {
+        self.authentication.ring.published()
     }
 }
