@@ -11,6 +11,20 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `oidc::RelyingParty::with_private_key_jwt` authenticates the relying party
+  with a JWT its `AssertionKey` signs (`private_key_jwt`, OpenID Connect
+  Core 1.0 §9): a fresh assertion per token or revocation request, `aud`
+  the token endpoint URL, typed `JWT`, with the client id beside it (RFC
+  7521 §4.2). `OidcError::Assertion` names a signature that failed.
+  `AssertionKey::with_algorithm` signs with another algorithm of an RSA
+  key's family, and `AssertionKey::with_certificate` (feature `oidc`) names
+  the key's X.509 certificate by `x5t#S256` in every header (RFC 7515
+  §4.1.8), refusing a certificate of another key with the new
+  `AssertionError::Certificate` and `AssertionError::CertificateKey`. The
+  `oidc` feature now pulls `x509-parser` (#569).
+
 ## [0.29.0] - 2026-11-17
 
 `Preset` gains `Ferrosmart`, and the configuration enums likely to grow are
@@ -35,17 +49,6 @@ wildcard arm.
   Token. A token with several audiences must then carry an `azp` naming the
   client (item 4). Without the call nothing changes: an audience beyond the
   client is refused as before (#523).
-- `oidc::RelyingParty::with_private_key_jwt` authenticates the relying party
-  with a JWT its `AssertionKey` signs (`private_key_jwt`, OpenID Connect
-  Core 1.0 §9): a fresh assertion per token or revocation request, `aud`
-  the token endpoint URL, typed `JWT`, with the client id beside it (RFC
-  7521 §4.2). `OidcError::Assertion` names a signature that failed.
-  `AssertionKey::with_algorithm` signs with another algorithm of an RSA
-  key's family, and `AssertionKey::with_certificate` (feature `oidc`) names
-  the key's X.509 certificate by `x5t#S256` in every header (RFC 7515
-  §4.1.8), refusing a certificate of another key with the new
-  `AssertionError::Certificate` and `AssertionError::CertificateKey`. The
-  `oidc` feature now pulls `x509-parser` (#569).
 - A claim path reads a claim whose name contains a dot. OpenID Connect
   Core 1.0 §5.1.2 lets a claim name be any string, and Microsoft Entra ID
   writes a directory extension attribute into a JWT as `extn.<name>`
