@@ -3634,3 +3634,82 @@ CI launch logs in with ZITADEL's custom login flow
 check, then the callback of the auth request, with the login client's
 token (`scripts/idp/authorize.sh`). A person uses the Login v2 UI the
 example runs at `http://localhost:3000/ui/v2/login`.
+
+### 13.21 A product behind FerroSMART
+
+A FerroHEALTH product runs behind FerroSMART as a resource server, and an
+OpenID Connect provider runs upstream for login only. The person never
+signs in to the product. Any IdP works upstream: 13.16 and 13.18 to 13.20
+name Keycloak, Microsoft Entra ID, Okta and ZITADEL. The resource server
+can be FerroEHR, FerroBRIDGE, FerroTERM, FerroPIX or FerroFED. Each product's
+adoption issue tracks its own side (#521).
+
+```
+ browser                SMART app             FerroSMART               IdP (login only)
+    |   1. launch          |                       |                          |
+    |--------------------->|  2. /authorize        |                          |
+    |                      |  aud = product base   |                          |
+    |<---------------------------------------------|  3. OIDC login           |
+    |------------------------------------------------------------------------>|
+    |<------------------------------------------------------------------------|
+    |  4. patient picker and consent (13.6 items 4 and 6)                      |
+    |--------------------------------------------->|                          |
+    |                      |<-- 5. code, /token -->|                          |
+    |                      |   RFC 9068 access token, launch context          |
+    |                      |                                                   |
+    |                      |  6. API call, Bearer token                        |
+    |                      |-------------------------> product (resource server)
+    |                      |                          reads the token under the
+    |                      |                          `ferrosmart` preset, keys
+    |                      |                          from FerroSMART's jwks_uri
+```
+
+1. **FerroSMART names the product's base** as a resource, so a launch can
+   use it as `aud` (13.10):
+
+   ```toml
+   [[ferrosmart.resource]]
+   base = "https://ehr.example.org/openehr/v1"   # or the FHIR base
+   kind = "openehr"                               # or "fhir"
+   subject_namespace = "examples"                # openEHR only: the picker's EHR lookup (13.6 item 4)
+   ```
+
+2. **The product trusts FerroSMART** as an issuer under the `ferrosmart`
+   preset (3.3, the profile section). The preset keeps every `rfc9068`
+   default except two: `typ` is `at+jwt` alone, and `scope` is required.
+   The product lists the SMART apps it admits for a person in `delegates`.
+   A Backend Services client reads as `System` under a `machines` issuer.
+
+   ```toml
+   [[auth.issuer]]
+   issuer = "https://smart.example.org"
+   kind = "persons"
+   profile = "ferrosmart"
+   audience = ["https://ehr.example.org/openehr/v1"]
+   delegates = [{ client = "growth-chart" }]
+
+   [[auth.issuer]]
+   issuer = "https://smart.example.org"
+   kind = "machines"
+   profile = "ferrosmart"
+   audience = ["https://ehr.example.org/openehr/v1"]
+   ```
+
+3. **The product's discovery document describes FerroSMART.** The
+   product's `.well-known/smart-configuration` names FerroSMART's
+   `authorization_endpoint` and `token_endpoint` through the described-issuer
+   rule of 3.8, so an app that starts at the product's base finds
+   FerroSMART.
+
+4. **FerroSMART logs the person in at the IdP.** Its `[ferrosmart.upstream]`
+   section names the IdP, the claim that carries `fhirUser` and the role
+   claims. The roles map to the scopes the person may be granted
+   (`[[ferrosmart.role]]`). The product never sees the IdP's tokens: the
+   person's `sub` is FerroSMART's pairwise identifier (13.6 item 9).
+
+The launch context (`patient`, `encounter`, `fhirUser`, and `ehrId` at an
+openEHR base) reaches the product in the access token (13.6 item 2), where
+`Caller::patient` and `Caller::ehr_id` read it. The product's own rules
+still apply on top of the token's scopes. No specification governs this
+deployment shape: our own design, built only from the specifications 13.4
+names.
