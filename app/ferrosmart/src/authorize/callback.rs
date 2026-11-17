@@ -14,7 +14,8 @@ use ferrohealth_smart::oidc::{Callback, PendingSignIn};
 use http::HeaderMap;
 use url::Url;
 
-use crate::audit::{self, Connected};
+use crate::audit::Connected;
+use crate::audit::exchanges::{Person, login};
 use crate::form::Params;
 use crate::pages::{self, Fault};
 use crate::server::AppState;
@@ -129,7 +130,7 @@ async fn proceed(
         auth_time: now(),
         upstream_session,
     };
-    let person = audit::Person {
+    let person = Person {
         issuer: &state.settings().issuer,
         subject: &login.subject,
         name: login.display_name.as_deref(),
@@ -257,7 +258,7 @@ fn read_callback(query: &str) -> Result<Callback, crate::form::Repeated> {
 /// stored does not go on (no specification governs this: our own design).
 async fn record_login(
     state: &AppState,
-    answer: Result<audit::Person<'_>, &str>,
+    answer: Result<Person<'_>, &str>,
 ) -> Result<(), Box<Response>> {
     let Some(upstream) = &state.settings().upstream else {
         return Err(Box::new(pages::fault(state, Fault::BadRequest)));
@@ -269,12 +270,7 @@ async fn record_login(
     });
     let recorded = state
         .audit()
-        .row(
-            &audit::login(&provider, answer),
-            "login",
-            subject,
-            client_id,
-        )
+        .row(&login(&provider, answer), "login", subject, client_id)
         .map_err(|error| Box::new(pages::server_error(state, &error)))?;
     state
         .audit()
