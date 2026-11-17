@@ -242,6 +242,15 @@ and this project adheres to
 
 ### Fixed
 
+- The SMART configuration lists every capability FerroSMART supports and
+  nothing else (SMART App Launch 2.2.0, Conformance, Capabilities): it adds
+  `authorize-post`, `permission-offline`, `permission-online`,
+  `context-standalone-patient` when the patient picker can search a
+  resource server, and `context-style` when `[ferrosmart.branding]
+  smart_style_url` is set. It names
+  `token_endpoint_auth_signing_alg_values_supported` beside
+  `private_key_jwt`, and `scopes_supported` lists the identity, launch
+  context and refresh scopes FerroSMART honours (#600).
 - The token endpoint answers a request from one of the client's registered
   origins, the origins of its redirect URIs, with
   `Access-Control-Allow-Origin` and `Vary: Origin`, so a browser app can

@@ -11,6 +11,15 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Fixed
+
+- The App Launch discovery document of `resource::configuration::document`
+  names `token_endpoint_auth_signing_alg_values_supported`, the issuer's
+  algorithms, whenever it lists `private_key_jwt`, as SMART App Launch
+  2.2.0, Client Authentication: Asymmetric, Advertising server support
+  requires of a server that supports the profile. Only the Backend Services
+  document carried it before (FerroHEALTH/FerroAUTH#600).
+
 ## [0.29.1] - 2026-11-17
 
 ### Added

@@ -73,7 +73,7 @@ impl AppState {
     #[must_use]
     pub fn new(settings: Settings, store: Store, audit: Audit) -> Self {
         let metadata = discovery::metadata(&settings, false);
-        let smart = discovery::smart_configuration(&metadata, false);
+        let smart = discovery::smart_configuration(&settings, &metadata, false);
         Self {
             metadata: discovery::metadata_document(&metadata),
             settings,
@@ -93,7 +93,7 @@ impl AppState {
     #[must_use]
     pub fn with_login(mut self, party: RelyingParty) -> Self {
         let metadata = discovery::metadata(&self.settings, true);
-        self.smart = discovery::smart_configuration(&metadata, true);
+        self.smart = discovery::smart_configuration(&self.settings, &metadata, true);
         self.openid = Some(discovery::openid_configuration(&metadata));
         self.metadata = discovery::metadata_document(&metadata);
         self.relying_party = Some(party);

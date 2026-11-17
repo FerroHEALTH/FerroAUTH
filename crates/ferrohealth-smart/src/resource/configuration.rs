@@ -283,6 +283,20 @@ pub fn document(metadata: &ServerMetadata, options: &SmartOptions) -> Value {
         "token_endpoint_auth_methods_supported",
         Some(list(&auth_methods)),
     );
+    // NOTE: SMART App Launch 2.2.0, Client Authentication: Asymmetric, Advertising
+    // server support: a server with `private_key_jwt` SHALL name its signing algorithms.
+    if auth_methods
+        .iter()
+        .any(|method| method == "private_key_jwt")
+    {
+        document.put(
+            "token_endpoint_auth_signing_alg_values_supported",
+            metadata
+                .token_endpoint_auth_signing_alg_values_supported
+                .clone()
+                .map(Value::from),
+        );
+    }
     document.put("grant_types_supported", Some(list(&grant_types)));
     let scopes: Vec<&str> = options
         .scopes_supported
