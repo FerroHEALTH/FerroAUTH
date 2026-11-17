@@ -279,7 +279,7 @@ fn discovery() -> Value {
 }
 
 // NOTE: eHDSI SAML Profile 10.0.0 §4: the TRC is issued once the patient is identified,
-// so the discovery phase presents the identity assertion alone (FerroHEALTH/FerroAUTH#314).
+// so the discovery phase presents the identity assertion alone (FerroHEALTH/FerroSMART#314).
 #[tokio::test]
 async fn a_discovery_phase_token_is_admitted_with_no_patient() -> Outcome {
     let caller = Harness::new().admit(&discovery()).await?;

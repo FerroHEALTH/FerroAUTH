@@ -16,4 +16,4 @@ A refactor in any FerroHEALTH repository breaks internal and crate APIs as far a
 
 **How to apply:** every brief that removes or renames something says the refusal lives one release only. Each refusal records the release that introduced it (a `// NOTE:` or its row in the refusal table), so the next cut can find it. The release PR, or the first PR after a release, deletes every refusal the previous release introduced. A refusal older than one release found anywhere is deleted on sight, with a changelog entry under Removed.
 
-**FerroAUTH** publishes library crates. A removed or renamed public item goes with no deprecated alias: the minor version moves and the changelog carries the upgrade line. A configuration key or input format the crates read follows the one-release rule above.
+**FerroSMART** publishes library crates. A removed or renamed public item goes with no deprecated alias: the minor version moves and the changelog carries the upgrade line. A configuration key or input format the crates read follows the one-release rule above.

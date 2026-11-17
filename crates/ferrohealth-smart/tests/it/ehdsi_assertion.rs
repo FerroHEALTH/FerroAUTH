@@ -1129,7 +1129,7 @@ fn a_carriage_return_reference_is_signed_as_one() {
 }
 
 /// 2500 nested elements, each declaring a fresh prefix: 65 000 bytes and
-/// 2500 nodes, inside the byte and node caps (FerroHEALTH/FerroAUTH#315).
+/// 2500 nodes, inside the byte and node caps (FerroHEALTH/FerroSMART#315).
 fn fresh_prefix_nesting(depth: usize) -> (String, String) {
     let letters: Vec<char> = ('a'..='z').chain('A'..='Z').collect();
     let names: Vec<String> = letters

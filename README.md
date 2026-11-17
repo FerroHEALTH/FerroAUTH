@@ -2,9 +2,9 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 <div align="center">
 
-<img src="assets/brand/ferroauth-lockup-auto.svg" alt="FerroAUTH" width="290">
+<img src="assets/brand/ferrosmart-lockup-auto.svg" alt="FerroSMART" width="290">
 
-**Sign-in and access control for the FerroHEALTH products, as Rust libraries.**
+**The SMART authorization server of the FerroHEALTH products, and the Rust libraries they check sign-in and access with.**
 
 [Documentation](https://docs.rs/ferrohealth-smart) ·
 [The crates](#the-crates) ·
@@ -12,33 +12,26 @@
 [Licensing](https://ferrohealth.eu/docs/licensing.html)
 
 **Project**<br>
-[![CI](https://img.shields.io/github/actions/workflow/status/FerroHEALTH/FerroAUTH/ci.yml?branch=main&logo=githubactions&logoColor=white&label=CI)](https://github.com/FerroHEALTH/FerroAUTH/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/FerroHEALTH/FerroSMART/ci.yml?branch=main&logo=githubactions&logoColor=white&label=CI)](https://github.com/FerroHEALTH/FerroSMART/actions/workflows/ci.yml)
 [![License: BUSL-1.1](https://img.shields.io/badge/License-BUSL--1.1-blue)](LICENSE)
 [![Docs](https://img.shields.io/docsrs/ferrohealth-smart?logo=docsdotrs&label=docs.rs)](https://docs.rs/ferrohealth-smart)
 
 **Quality and security**<br>
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/FerroHEALTH/FerroAUTH/badge)](https://scorecard.dev/viewer/?uri=github.com/FerroHEALTH/FerroAUTH)
-[![CodeQL](https://img.shields.io/github/actions/workflow/status/FerroHEALTH/FerroAUTH/codeql.yml?branch=main&logo=github&label=CodeQL)](https://github.com/FerroHEALTH/FerroAUTH/actions/workflows/codeql.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/FerroHEALTH/FerroSMART/badge)](https://scorecard.dev/viewer/?uri=github.com/FerroHEALTH/FerroSMART)
+[![CodeQL](https://img.shields.io/github/actions/workflow/status/FerroHEALTH/FerroSMART/codeql.yml?branch=main&logo=github&label=CodeQL)](https://github.com/FerroHEALTH/FerroSMART/actions/workflows/codeql.yml)
 [![Signed releases](https://img.shields.io/badge/releases-signed-brightgreen?logo=github)](docs/release.md)
 [![SLSA Build L3](https://slsa.dev/images/gh-badge-level3.svg)](docs/release.md)
 
 </div>
 
-## What FerroAUTH does
+## What FerroSMART does
 
 Every health application has to answer two questions on every request: who
 is asking, and may they do this? Getting either wrong exposes patient data.
-FerroAUTH answers both once, for every FerroHEALTH product, so each server
-checks sign-in and permissions the same tested way.
+FerroSMART answers both, for every FerroHEALTH product and for any other
+FHIR or openEHR server.
 
-The libraries run no login page and issue no passwords. A hospital keeps
-the sign-in system it already has (such as Keycloak or Microsoft Entra ID),
-and FerroAUTH checks the access tokens that system hands out: is the token
-genuine, still valid, meant for this server, and does it grant this action
-on this patient's record? It speaks SMART, the standard health apps use to
-ask for access to openEHR and FHIR data.
-
-### FerroSMART, the SMART authorization server
+### The SMART authorization server
 
 Most sign-in systems cannot issue real SMART tokens: they drop the SMART
 scopes and the launch context a health app asks for. FerroSMART fills that
@@ -50,10 +43,19 @@ It speaks only published standards (SMART App Launch 2.2, OAuth 2.0 and its
 RFCs, OpenID Connect), so it works with any OpenID Connect sign-in system
 upstream and any FHIR server downstream.
 
-FerroSMART is being built in this repository (its design is
-[`docs/architecture.md`](docs/architecture.md) §13) and will ship as its
-own container image beside the crates. The repository carried the name
-FerroSMART until 2026-10-25; the name now belongs to the server.
+The server is being built in this repository (its design is
+[`docs/architecture.md`](docs/architecture.md) §13, its code
+[`app/ferrosmart`](app/ferrosmart)) and will ship as its own container
+image beside the crates.
+
+### The libraries
+
+The libraries run no login page and issue no tokens. Each FerroHEALTH
+server uses them to check the access tokens FerroSMART, or a hospital's own
+sign-in system (such as Keycloak or Microsoft Entra ID), hands out: is the
+token genuine, still valid, meant for this server, and does it grant this
+action on this patient's record? They speak SMART, the standard health apps
+use to ask for access to openEHR and FHIR data.
 
 ### Who it is for
 
@@ -75,15 +77,15 @@ against its standard.
 
 ## Part of FerroHEALTH
 
-FerroHEALTH is five servers, each its own product, that reach each other
+FerroHEALTH is six servers, each its own product, that reach each other
 only over published standards: FerroEHR stores the record, FerroBRIDGE
 translates it to FHIR and the OMOP research model, FerroFED connects records
-across organisations and borders, FerroPIX matches patient identities, and
-FerroTERM serves the code systems (the shared lists of medical terms). Work
-that every server needs lives in three shared libraries: FerroAUTH for
-sign-in and access control, FerroAUDIT for the audit trail, and FerroUI for
-the web consoles. Every FerroHEALTH server checks its callers with
-FerroAUTH.
+across organisations and borders, FerroPIX matches patient identities,
+FerroTERM serves the code systems (the shared lists of medical terms), and
+FerroSMART issues the SMART access tokens. Every FerroHEALTH server checks
+its callers with FerroSMART's `ferrohealth-smart`. Work that every server
+needs lives in shared libraries: FerroAUDIT for the audit trail, FerroUI
+for the web consoles and FerroSYS for the system plumbing.
 
 ## The crates
 

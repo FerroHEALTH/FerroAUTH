@@ -372,7 +372,7 @@ mod tests {
 
     #[test]
     fn a_lone_carriage_return_is_a_line_feed_as_libxml2_writes_it() {
-        // NOTE: XML 1.0 §2.11; the expectations are `xmllint --exc-c14n`'s (FerroHEALTH/FerroAUTH#316).
+        // NOTE: XML 1.0 §2.11; the expectations are `xmllint --exc-c14n`'s (FerroHEALTH/FerroSMART#316).
         for (text, expected) in [
             ("a\rb", "a\nb"),
             ("a\r<b/>", "a\n<b></b>"),
