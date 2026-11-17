@@ -80,6 +80,7 @@ pub enum Endpoint {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ClientAuth {
     /// HTTP Basic over the form-encoded client id and secret, the scheme every
     /// authorization server must support (RFC 6749 §2.3.1).

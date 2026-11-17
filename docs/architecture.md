@@ -1079,7 +1079,7 @@ layers, all in `ferrohealth-smart`:
    never a key). No core rule names a vendor, and an integration test scans
    the core modules for a vendor's name.
 2. **Vendor profiles as data**, `profile`: each issuer's `Profile` is a
-   `Preset` (`rfc9068`, `entra`, `keycloak`, `okta`, `nl`, shipped as
+   `Preset` (`rfc9068`, `entra`, `keycloak`, `okta`, `nl`, `ferrosmart`, shipped as
    `profiles/*.toml` with each value labelled by its source) with any key set
    over it on the issuer table. The keys: `person_key`, `tenant_claim`,
    `client_claims`, `app_only` and `guest` (markers), `impersonation_marker`,
@@ -1306,6 +1306,21 @@ form taken as relayed, and a product reads it as `Caller::message_id`, a
 `federation::MessageId` whose `Debug` rendering never carries the value, to
 join its access record to the contact point's audit entry
 (FerroHEALTH/FerroAUTH#432).
+
+**The `ferrosmart` profile** (`profile = "ferrosmart"`,
+`profiles/ferrosmart.toml`, #521). FerroSMART (§13) issues plain RFC 9068
+access tokens with no Ferro-specific claim, so the preset keeps every
+`rfc9068` default but two: `token_types` is `at+jwt` alone, the one `typ`
+FerroSMART writes (`rfc9068 §2.1`), and `required_claims` adds `scope`,
+which every FerroSMART token carries (SMART App Launch 2.2.0, Obtain access
+token, Response). The launch context claims (`patient`, `encounter`,
+`fhirUser`, `ehrId`, §13.6 item 2) need no key. A client credentials token
+reads as `System`, since its `sub` is its `client_id` (`rfc9068 §2.2`). A
+SMART app acts for the signed-in person, so a product lists the apps it
+admits in `delegates` and reads their callers as `Delegated`. The preset
+lists none, because the apps belong to each deployment. FerroSMART grants
+no token exchange, so the onward grants stay with another issuer. FerroSMART's own tests read the
+tokens it issues under the preset.
 
 **The `nl` profile** (`profile = "nl"`, `profiles/nl.toml`). The harmonised
 BgZ and eOverdracht authentication of the openEHR Federation Tier
@@ -1839,7 +1854,7 @@ scopeless_subjects = [               # app-only subjects granted system-wide acc
 [[auth.issuer]]                      # one table per issuer; none with Basic users: a Basic-only surface
 issuer = "https://as.example.org/realms/ferro"
 kind = "persons"                     # required: persons, patients, machines or federation (3.14)
-profile = "rfc9068"                  # or "entra", "keycloak", "okta", "nl"; any profile key below overrides it
+profile = "rfc9068"                  # or "entra", "keycloak", "okta", "nl", "ferrosmart"; any profile key below overrides it
 audience = ["https://bridge.example.org/fhir"]   # at least one; `aud` must contain one
 algorithms = ["RS256", "RS384", "PS256", "PS384", "ES256", "ES384"]
 clock_skew = "60s"                   # at most 300s

@@ -337,3 +337,30 @@ pub(crate) fn events(records: &[Value]) -> Vec<String> {
 
 /// FerroSMART's own code system of audit events.
 const OWN_EVENTS: &str = "urn:ferrosmart:audit-event";
+
+/// Returns the caller `token` is read as by a resource server for
+/// `audience` that trusts FerroSMART's `issuer` under the `ferrosmart`
+/// preset with the deployment's `keys` over it, with the published JWK Set
+/// `jwks` as its key set.
+pub(crate) async fn read_under_preset(
+    jwks: &Value,
+    issuer: &str,
+    audience: &str,
+    kind: ferrohealth_smart::kind::IssuerKind,
+    keys: &ferrohealth_smart::profile::ProfileKeys,
+    token: &str,
+) -> Result<ferrohealth_smart::resource::Caller, ferrohealth_smart::resource::Rejection> {
+    use ferrohealth_smart::profile::{Preset, Profile};
+    use ferrohealth_smart::resource::{ResourceServer, Settings as ResourceSettings};
+
+    let dir = tempfile::tempdir().expect("a directory");
+    let path = dir.path().join("ferrosmart-jwks.json");
+    std::fs::write(&path, jwks.to_string()).expect("written");
+    let mut settings = ResourceSettings::new(issuer, audience, kind);
+    settings.profile = Profile::resolve(Preset::Ferrosmart, keys).expect("the preset reads");
+    settings.jwks_file = Some(path);
+    let server = ResourceServer::discover(settings)
+        .await
+        .expect("the resource server starts");
+    server.authenticate(token).await
+}
