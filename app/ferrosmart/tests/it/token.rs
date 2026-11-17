@@ -311,6 +311,46 @@ impl Server {
     }
 }
 
+// NOTE: RFC 9068 §2.2, a client credentials token whose `sub` is its client is
+// read under the `ferrosmart` preset as a machine, with its scope.
+#[tokio::test]
+async fn a_backend_services_token_is_read_under_the_ferrosmart_preset() {
+    let server = Server::start(None, Algorithm::ES384).await;
+    let assertion = server.assertion("JWT", &valid_claims());
+    let (status, _, body) = server
+        .post(&form(&assertion, "system/Observation.rs"))
+        .await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let token = body["access_token"].as_str().expect("a token");
+    let jwks = server.post_get_jwks().await;
+    let caller = crate::support::read_under_preset(
+        &jwks,
+        ISSUER,
+        RESOURCE,
+        ferrohealth_smart::kind::IssuerKind::Machines,
+        &ferrohealth_smart::profile::ProfileKeys::default(),
+        token,
+    )
+    .await
+    .expect("admitted");
+    assert_eq!(&ferrohealth_smart::kind::CallerKind::System, caller.kind());
+    assert_eq!("export", caller.subject());
+    assert_eq!(Some("export"), caller.client_id());
+    assert_eq!(&[String::from("system/Observation.rs")], caller.scope());
+    // NOTE: RFC 9068 §4, a token for another resource server is refused.
+    let elsewhere = crate::support::read_under_preset(
+        &jwks,
+        ISSUER,
+        "https://other.example.org/fhir",
+        ferrohealth_smart::kind::IssuerKind::Machines,
+        &ferrohealth_smart::profile::ProfileKeys::default(),
+        token,
+    )
+    .await;
+    assert!(elsewhere.is_err(), "another audience");
+    server.stop().await;
+}
+
 #[tokio::test]
 async fn an_rs384_assertion_typed_by_rfc_10070_naming_the_issuer_is_admitted() {
     let server = Server::start(None, Algorithm::RS384).await;

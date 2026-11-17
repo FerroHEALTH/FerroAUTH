@@ -63,6 +63,7 @@ const UPSTREAM: &str = "introspection endpoint";
 /// How the resource server authenticates its call to the introspection
 /// endpoint, which RFC 7662 §2.1 requires.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum IntrospectionAuth {
     /// The client authentication of the token endpoint (RFC 6749 §2.3,
     /// RFC 7523 §2.2, RFC 8705 §2), with the client id, method, secret, key

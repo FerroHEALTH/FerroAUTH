@@ -145,6 +145,7 @@ pub struct OauthSection {
 
 /// The outbound credential a `[<lane>.credentials]` table resolves to.
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum Outbound {
     /// HTTP Basic.
     Basic(Credential),

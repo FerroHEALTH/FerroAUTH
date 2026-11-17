@@ -450,6 +450,7 @@ pub struct ProductStandingSection(pub AuthSection);
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum AuthMode {
     /// The token is a JWT, checked against the issuer's key set (RFC 9068).
     #[default]

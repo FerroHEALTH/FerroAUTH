@@ -14,6 +14,14 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.24.0] - Unreleased
+
+### Changed
+
+- Breaking: requires `ferrohealth-smart` 0.29 in place of 0.28. Its
+  configuration enums are now `#[non_exhaustive]` and `Preset` gains
+  `Ferrosmart` (#521).
+
 ## [0.23.0] - 2026-11-16
 
 ### Changed

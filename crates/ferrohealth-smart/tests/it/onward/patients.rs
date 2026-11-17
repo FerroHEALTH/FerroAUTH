@@ -141,6 +141,7 @@ async fn a_patients_token_is_exchanged_in_both_forms_and_keeps_the_patient() {
                     "{flavor:?}"
                 );
             }
+            other => panic!("the case checks no {other:?}"),
         }
     }
 }

@@ -40,6 +40,7 @@ pub const UNSTABLE_CLAIMS: [&str; 4] = ["email", "phone_number", "preferred_user
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
+#[non_exhaustive]
 pub enum Preset {
     /// Every default: a standards-only RFC 9068 issuer.
     #[default]
@@ -54,6 +55,9 @@ pub enum Preset {
     /// openEHR Federation Tier specification 1.0.1 Annex B §B.4a, with the
     /// `[[auth.federation]]` defaults of a `federation` issuer.
     Nl,
+    /// FerroSMART's access tokens: plain RFC 9068, `typ` `at+jwt` and
+    /// `scope` in every token.
+    Ferrosmart,
 }
 
 impl Preset {
@@ -66,6 +70,7 @@ impl Preset {
             Self::Keycloak => include_str!("../../profiles/keycloak.toml"),
             Self::Okta => include_str!("../../profiles/okta.toml"),
             Self::Nl => include_str!("../../profiles/nl.toml"),
+            Self::Ferrosmart => include_str!("../../profiles/ferrosmart.toml"),
         }
     }
 
@@ -180,6 +185,7 @@ impl ScopeClaim {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(try_from = "tables::MarkerTable", into = "tables::MarkerTable")]
+#[non_exhaustive]
 pub enum Marker {
     /// The claim is present and its text is the value.
     Claim {
@@ -679,10 +685,43 @@ mod tests {
             Preset::Keycloak,
             Preset::Okta,
             Preset::Nl,
+            Preset::Ferrosmart,
         ] {
             assert!(preset.keys().is_ok(), "{preset:?} reads");
         }
         assert_eq!(Preset::Rfc9068.keys().ok(), Some(ProfileKeys::default()));
+    }
+
+    // NOTE: RFC 9068 §2.1 and §2.2, FerroSMART's tokens are plain RFC 9068; its
+    // preset narrows `typ` to `at+jwt` and requires the `scope` it always writes.
+    #[test]
+    fn the_ferrosmart_preset_is_rfc9068_with_its_token_type_and_scope() {
+        let keys = Preset::Ferrosmart.keys().expect("the preset reads");
+        let expected = ProfileKeys {
+            token_types: Some(vec![String::from("at+jwt")]),
+            required_claims: Some(
+                [
+                    "iss",
+                    "exp",
+                    "aud",
+                    "sub",
+                    "client_id",
+                    "iat",
+                    "jti",
+                    "scope",
+                ]
+                .map(String::from)
+                .to_vec(),
+            ),
+            ..ProfileKeys::default()
+        };
+        assert_eq!(expected, keys, "no other key leaves its rfc9068 default");
+        assert!(
+            Preset::Ferrosmart
+                .federation()
+                .expect("the preset reads")
+                .is_none()
+        );
     }
 
     #[test]
@@ -730,6 +769,7 @@ mod tests {
             Preset::Keycloak,
             Preset::Okta,
             Preset::Nl,
+            Preset::Ferrosmart,
         ] {
             let profile = Profile::resolve(preset, &keys).expect("the preset reads");
             let back = ProfileKeys {

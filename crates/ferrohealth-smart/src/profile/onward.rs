@@ -50,6 +50,7 @@ pub const RESERVED_PARAMETERS: [&str; 15] = [
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum OnwardGrant {
     /// OAuth 2.0 Token Exchange (RFC 8693 §2.1), the subject token as
     /// `subject_token`.
@@ -84,6 +85,7 @@ impl OnwardGrant {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum OnwardIndicator {
     /// `resource`, an absolute URI (RFC 8693 §2.1, RFC 8707 §2).
     #[default]
