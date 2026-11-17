@@ -279,6 +279,11 @@ and this project adheres to
 
 ### Changed
 
+- The consent, picker, management and error pages draw FerroSMART's own
+  mark, the shield with the keyhole, through FerroUI 0.6.11
+  (`view::shell::ferrosmart_mark`), in the brand's yellow fill roles, where
+  they drew a key glyph; the error pages now lead with the same lockup
+  (#612).
 - `access_token_lifetime` above one hour is refused at load, as SMART App
   Launch 2.2.0, App Launch has access tokens live no longer (#604).
 - FerroSMART authenticates to every upstream identity provider with

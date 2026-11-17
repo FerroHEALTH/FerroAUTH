@@ -19,7 +19,9 @@ use ferrohealth_ui::view::button::{Variant, label};
 use ferrohealth_ui::view::error_page::{ErrorPage, Status, error_page};
 use ferrohealth_ui::view::form::{check, check_field, field, fieldset};
 use ferrohealth_ui::view::scope::{ScopeGrant, scope_grants};
-use ferrohealth_ui::view::shell::{Document, Footer, centred, document, lockup_plain, mark};
+use ferrohealth_ui::view::shell::{
+    Document, Footer, centred, document, ferrosmart_mark, lockup_plain,
+};
 use ferrohealth_ui::view::surface::{card, page_card};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use url::Url;
@@ -95,7 +97,17 @@ impl Fault {
     }
 }
 
-/// Returns the page `fault` names.
+/// Returns the lockup every page leads with: FerroSMART's mark, the shield
+/// with the keyhole, drawn by FerroUI, beside the deployment's name.
+fn brand_lockup(state: &AppState, locale: &Locale) -> Html {
+    lockup_plain(
+        ferrosmart_mark(),
+        &state.settings().branding.name,
+        locale.lookup(&*CATALOG, "product-word"),
+    )
+}
+
+/// Returns the page `fault` names, under FerroSMART's lockup.
 pub fn fault(state: &AppState, fault: Fault) -> Response {
     let locale = Locale::default().with_catalog(&*CATALOG);
     let (status, code, title, body) = fault.parts();
@@ -111,6 +123,7 @@ pub fn fault(state: &AppState, fault: Fault) -> Response {
         },
     );
     let title = locale.lookup(&*CATALOG, title);
+    let page = Html::join([brand_lockup(state, &locale), page]);
     respond(state, code, &locale, title, page, &[])
 }
 
@@ -203,11 +216,7 @@ pub fn consent(
         form,
     ]);
     let title = with("consent-title", &[("client", client_name)]);
-    let lockup = lockup_plain(
-        mark(Glyph::KEY_ROUND),
-        &deployment.name,
-        words("product-word"),
-    );
+    let lockup = brand_lockup(state, &locale);
     let page = page_card(Some(lockup), title.clone(), body);
     // NOTE: CSP Level 3 §6.4.2, form-action also holds the redirect that follows
     // the post, so the policy names the app's origin beside FerroSMART's.
@@ -389,17 +398,12 @@ fn picker_card(
 ) -> Response {
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let intro = words(intro);
-    let deployment = &state.settings().branding;
     let body = Html::join([
         Html::raw(format!("<p>{}</p>", Html::text(&intro))),
         search,
         results,
     ]);
-    let lockup = lockup_plain(
-        mark(Glyph::KEY_ROUND),
-        &deployment.name,
-        words("product-word"),
-    );
+    let lockup = brand_lockup(state, locale);
     let title = words(title);
     let page = page_card(Some(lockup), title.clone(), body);
     respond(state, StatusCode::OK, locale, title, page, &[])
@@ -551,17 +555,12 @@ pub fn manage(
             )
         }))
     };
-    let deployment = &state.settings().branding;
     let body = Html::join([
         Html::raw(format!("<p>{}</p>", Html::text(words("manage-intro")))),
         rows,
     ]);
     let title = words("manage-title");
-    let lockup = lockup_plain(
-        mark(Glyph::KEY_ROUND),
-        &deployment.name,
-        words("product-word"),
-    );
+    let lockup = brand_lockup(state, &locale);
     let page = page_card(Some(lockup), title.clone(), body);
     respond(state, StatusCode::OK, &locale, title, page, &[])
 }
