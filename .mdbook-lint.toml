@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# mdbook-lint over the book (the site-links job of ci.yml: `mdbook-lint lint
+# website/book/src`). A warning fails the gate, so every rule left on is one
+# the book holds. The rules below are off, each for the reason given; the set
+# is the FerroHEALTH family book's where the reason is the same.
+#
+# - MDBOOK010 (unclosed inline math): the book has no math preprocessor, and
+#   every `$` is a FHIR operation name in a code span (`$ihe-pix`).
+# - CONTENT004 (heading case): the book uses sentence case on purpose.
+# - CONTENT003 (minimum words): it counts SUMMARY.md and the changelog's
+#   include line as chapters.
+# - MD013 (line length): prose wraps at 80, and the only lines past it are a
+#   single link or a table row a line cannot break. Wrapping is
+#   review-enforced.
+# - MD049 and MD050 (emphasis style): they read the `_` inside identifiers
+#   and URLs as emphasis.
+# - CONTENT007 (terminology): the licences are named "Business Source
+#   License" and "Apache License", beside the noun "licence".
+# - MD028 (blank line inside a blockquote): consecutive `> [!NOTE]` callouts
+#   are the mdBook 0.5 idiom.
+# - MDBOOK005 (orphaned files): its scan walks the whole repository and
+#   reports every markdown file outside the book.
+# - MDBOOK017 (hide `use std::` lines): the examples show every import on
+#   purpose, because a reader copies them whole.
+fail-on-warnings = true
+disabled-rules = ["MDBOOK010", "CONTENT004", "CONTENT003", "CONTENT007", "MD013", "MD049", "MD050", "MD028", "MDBOOK005", "MDBOOK017"]

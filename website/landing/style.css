@@ -1,0 +1,378 @@
+/* SPDX-FileCopyrightText: Cadasto B.V. */
+/* SPDX-License-Identifier: BUSL-1.1 */
+
+/* FerroSMART landing page: tokens and layout. Self-contained: a system font
+   stack, no external asset, and light and dark through prefers-color-scheme.
+   Relative URLs only. The palette is assets/brand/tokens.css: the yellow
+   #FBBF24 fills (the primary button, the hero wash) and carries ink on both
+   grounds; on a light ground text and outlines take bronze #78350F, since
+   the yellow is 1.6:1 there, and on a dark ground the yellow is the voice. */
+
+:root {
+  /* accent: bronze for text and outlines (8.7:1 on the surface), with a
+     darker step for hover and a pale wash; the yellow fills and carries ink
+     (10.7:1) */
+  --fs-accent: #78350f;
+  --fs-accent-600: #451a03;
+  --fs-accent-050: #fffbeb;
+  --fs-fill: #fbbf24;
+  --fs-fill-600: #f59e0b;
+  --fs-on-fill: #0f172a;
+  /* light theme: surface and ink from the brand tokens */
+  --fs-bg: #ffffff;
+  --fs-surface: #f8fafc;
+  --fs-text: #0f172a;
+  --fs-muted: #526070;
+  --fs-border: #dbe3ec;
+  --fs-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 8px 24px rgba(15, 23, 42, 0.06);
+  /* fonts */
+  --fs-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --fs-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* layout */
+  --fs-max: 1080px;
+  --fs-radius: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* dark theme: the tile ground and mist text, the yellow as the voice
+       (11.3:1 on the tile) */
+    --fs-bg: #0b1020;
+    --fs-surface: #121a2e;
+    --fs-text: #f1f5f9;
+    --fs-muted: #a3b0c2;
+    --fs-border: #24304a;
+    --fs-accent: #fbbf24;
+    --fs-accent-600: #fcd34d;
+    --fs-accent-050: #1f1a0a;
+    --fs-fill: #fbbf24;
+    --fs-fill-600: #fcd34d;
+    /* the yellow is a light fill, so text on it takes the tile ground */
+    --fs-on-fill: #0b1020;
+    --fs-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+}
+
+* { box-sizing: border-box; }
+
+/* Smooth scrolling and the hover transitions run only for a reader who has
+   not asked for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  html { scroll-behavior: smooth; }
+  .btn { transition: transform 0.06s ease, background 0.15s ease, border-color 0.15s ease; }
+  .card { transition: transform 0.1s ease, box-shadow 0.15s ease, border-color 0.15s ease; }
+}
+
+body {
+  margin: 0;
+  font-family: var(--fs-sans);
+  color: var(--fs-text);
+  background: var(--fs-bg);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+a { color: var(--fs-accent); text-decoration: none; }
+a:hover { color: var(--fs-accent-600); text-decoration: underline; }
+/* Every link and button shows where the keyboard is. */
+a:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+img, svg { max-width: 100%; height: auto; }
+
+/* Inline code breaks anywhere, so a long URL or image name wraps inside its
+   box at any width; a shell transcript (.cmd) scrolls instead. */
+code {
+  font-family: var(--fs-mono);
+  font-size: 0.88em;
+  background: var(--fs-accent-050);
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+  overflow-wrap: anywhere;
+}
+
+.wrap {
+  width: 100%;
+  max-width: var(--fs-max);
+  margin: 0 auto;
+  padding: 0 1.25rem;
+}
+
+/* Nav */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: saturate(180%) blur(12px);
+  background: color-mix(in srgb, var(--fs-bg) 82%, transparent);
+  border-bottom: 1px solid var(--fs-border);
+}
+.nav .wrap {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  height: 60px;
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-weight: 800;
+  font-size: 1.1rem;
+  letter-spacing: -0.01em;
+  color: var(--fs-text);
+}
+.brand:hover { text-decoration: none; color: var(--fs-accent); }
+.brand img { width: 28px; height: 28px; }
+.nav-links {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 1.4rem;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.nav-links a { color: var(--fs-muted); }
+.nav-links a:hover { color: var(--fs-accent); text-decoration: none; }
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.7rem 1.25rem;
+  border-radius: 8px;
+  font-weight: 700;
+  font-size: 1rem;
+  border: 1.5px solid transparent;
+}
+.btn:hover { text-decoration: none; transform: translateY(-1px); }
+.btn-primary { background: var(--fs-fill); color: var(--fs-on-fill); }
+.btn-primary:hover { background: var(--fs-fill-600); color: var(--fs-on-fill); }
+.btn-ghost { border-color: var(--fs-border); color: var(--fs-text); background: var(--fs-surface); }
+.btn-ghost:hover { border-color: var(--fs-accent); color: var(--fs-accent); }
+
+/* Hero */
+.hero {
+  position: relative;
+  padding: clamp(3rem, 8vw, 5.5rem) 0 clamp(2.5rem, 6vw, 4rem);
+  text-align: center;
+  overflow: hidden;
+}
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(60% 55% at 50% 0%, color-mix(in srgb, var(--fs-fill) 24%, transparent), transparent 70%),
+    linear-gradient(180deg, var(--fs-accent-050), transparent 42%);
+  pointer-events: none;
+}
+.hero > * { position: relative; }
+/* The mark is the brand SVG as shipped on the light ground; the page swaps
+   in ferrosmart-icon-dark.svg through <picture> on the dark one, where bronze
+   would sink into the tile. */
+.hero-logo { width: 88px; height: 88px; margin: 0 auto 1.25rem; display: block; }
+.hero h1 {
+  font-size: clamp(1.6rem, 3.6vw, 2.5rem);
+  line-height: 1.2;
+  margin: 0 auto 1rem;
+  max-width: 24ch;
+  letter-spacing: -0.01em;
+}
+.hero .sub {
+  color: var(--fs-muted);
+  font-size: clamp(1rem, 1.6vw, 1.18rem);
+  max-width: 62ch;
+  margin: 0 auto 2rem;
+}
+/* The release badge at the top of the hero. */
+.status {
+  display: inline-block;
+  margin: 0 auto 1.25rem;
+  padding: 0.3rem 0.85rem;
+  border-radius: 999px;
+  background: var(--fs-accent-050);
+  border: 1px solid var(--fs-border);
+  color: var(--fs-accent);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.status:hover { text-decoration: none; border-color: var(--fs-accent); }
+.hero-cta { display: flex; gap: 0.85rem; justify-content: center; flex-wrap: wrap; }
+.hero .note {
+  margin: 1.5rem auto 0;
+  max-width: 60ch;
+  color: var(--fs-muted);
+  font-size: 0.86rem;
+}
+
+/* Section scaffolding */
+section { padding: clamp(3rem, 7vw, 4.5rem) 0; }
+.surface { background: var(--fs-surface); border-block: 1px solid var(--fs-border); }
+.section-head { text-align: center; max-width: 62ch; margin: 0 auto 2.5rem; }
+.section-head h2 {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+  margin: 0 0 0.6rem;
+  letter-spacing: -0.01em;
+}
+.section-head p { color: var(--fs-muted); margin: 0; font-size: 1.05rem; }
+.eyebrow {
+  display: inline-block;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--fs-accent);
+  margin-bottom: 0.5rem;
+}
+
+.tag {
+  display: block;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--fs-muted);
+  margin-bottom: 0.5rem;
+}
+
+/* Cards */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 1.1rem;
+}
+/* A grid item may shrink below its content's width, so nothing inside it
+   pushes it past its column. */
+.grid > * { min-width: 0; }
+.card {
+  background: var(--fs-bg);
+  border: 1px solid var(--fs-border);
+  border-radius: var(--fs-radius);
+  padding: 1.5rem;
+}
+.card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--fs-shadow);
+  border-color: color-mix(in srgb, var(--fs-accent) 40%, var(--fs-border));
+}
+.card h3 { margin: 0 0 0.4rem; font-size: 1.08rem; }
+.card p { margin: 0; color: var(--fs-muted); font-size: 0.94rem; }
+.card code { font-size: 0.85em; }
+
+.audiences { grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); }
+.audience ul {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+/* A shell transcript: scrolls inside its own box, so a long line never widens
+   the page. */
+.cmd {
+  max-width: 760px;
+  margin: 0 auto;
+  background: var(--fs-bg);
+  border: 1px solid var(--fs-border);
+  border-radius: var(--fs-radius);
+  padding: 1.1rem 1.25rem;
+  overflow-x: auto;
+  font-family: var(--fs-mono);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+.cmd code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; white-space: pre; }
+
+.prose { max-width: 68ch; margin: 1.75rem auto 0; color: var(--fs-muted); }
+.prose p { margin: 0 0 0.9rem; }
+
+/* A card that is one link reads as a card, not as link text: hovering lifts
+   the card (the .card:hover above) and underlines its title alone, never its
+   body, and the keyboard focus rings the whole card. */
+a.card,
+a.card:hover,
+a.card:focus-visible { display: block; color: inherit; text-decoration: none; }
+a.card * { text-decoration: none; }
+a.card h3 { color: var(--fs-accent); }
+a.card:hover h3,
+a.card:focus-visible h3 { text-decoration: underline; text-underline-offset: 3px; }
+a.card:focus-visible {
+  outline: 2px solid var(--fs-accent);
+  outline-offset: 3px;
+  border-radius: var(--fs-radius);
+}
+
+/* A screenshot of the console, light or dark with the reader's scheme. It
+   scales inside its box, so it never widens the page. */
+.shot { max-width: 960px; margin: 0 auto; }
+.shot img {
+  display: block;
+  width: 100%;
+  border: 1px solid var(--fs-border);
+  border-radius: var(--fs-radius);
+  box-shadow: var(--fs-shadow);
+}
+.shot figcaption {
+  margin-top: 0.8rem;
+  text-align: center;
+  color: var(--fs-muted);
+  font-size: 0.9rem;
+}
+
+/* A page of its own (the 404 page): one column of prose under the nav. */
+.page { padding: clamp(3rem, 8vw, 5rem) 0; }
+.page h1 { font-size: clamp(1.5rem, 3.2vw, 2.2rem); line-height: 1.2; margin: 0 0 1rem; }
+.page p { max-width: 68ch; color: var(--fs-muted); }
+.page .hero-cta { justify-content: flex-start; margin-top: 2rem; }
+
+/* Footer */
+.footer {
+  border-top: 1px solid var(--fs-border);
+  background: var(--fs-surface);
+  padding: 3rem 0 2.5rem;
+  font-size: 0.92rem;
+}
+.footer-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+.footer-brand { max-width: 46ch; }
+.footer-brand .brand { margin-bottom: 0.75rem; }
+.footer-brand p { color: var(--fs-muted); margin: 0.35rem 0; }
+.footer-links { display: flex; gap: 2.5rem; flex-wrap: wrap; }
+.footer-links ul { list-style: none; margin: 0; padding: 0; }
+.footer-links h4 { margin: 0 0 0.6rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fs-text); }
+.footer-links li { margin: 0.35rem 0; }
+.footer-links a { color: var(--fs-muted); }
+.footer-links a:hover { color: var(--fs-accent); }
+.footer-note {
+  margin-top: 2.25rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--fs-border);
+  color: var(--fs-muted);
+  font-size: 0.85rem;
+}
+
+/* Responsive */
+@media (max-width: 720px) {
+  .nav-links { gap: 1rem; font-size: 0.9rem; }
+  .nav-links .hide-sm { display: none; }
+}
+
+/* A phone keeps the commands on one line inside their box where it can; a
+   longer line still scrolls inside the box, never the page. */
+@media (max-width: 480px) {
+  .cmd { font-size: 0.7rem; padding: 0.9rem 0.75rem; }
+}

@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+name: Install the docs toolchain
+description: >-
+  Install the documentation toolchain the "Documentation toolchain" table of
+  docs/VERSIONS.md pins (mdBook, mdbook-lint, lychee), read through
+  scripts/site/toolchain.sh. The calling job checks out the repository first:
+  a local action path resolves only after checkout, so this action does not
+  check out.
+runs:
+  using: composite
+  steps:
+    - id: pins
+      shell: bash
+      run: echo "tools=$(scripts/site/toolchain.sh)" >> "$GITHUB_OUTPUT"
+    # install-action downloads each tool's upstream release binary and
+    # verifies its checksum, so no cargo build runs in the docs lane.
+    - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
+      with:
+        tool: ${{ steps.pins.outputs.tools }}

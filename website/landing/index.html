@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<!-- SPDX-FileCopyrightText: Cadasto B.V. -->
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- GitHub Pages sets no response headers, so the policy travels in a <meta>
+       element. Every source is 'self': the page loads no external script,
+       style, font, or image, and connects to nothing at load time. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none'">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <title>FerroSMART: a SMART App Launch 2.2 authorization server for any identity provider</title>
+  <meta name="description" content="FerroSMART is the SMART App Launch 2.2 authorization server of the FerroHEALTH family, in pure Rust. People log in at the identity provider you already run, such as Keycloak, ZITADEL, Microsoft Entra ID or Okta, and FerroSMART issues the SMART access tokens, with the launch context and the scopes they approved, for any FHIR or openEHR server.">
+  <link rel="canonical" href="https://ferrosmart.eu/">
+  <link rel="stylesheet" href="./style.css?v={{hash:style.css}}">
+  <link rel="icon" href="./assets/brand/favicon.svg" type="image/svg+xml">
+  <link rel="alternate icon" href="./assets/brand/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="alternate icon" href="./assets/brand/favicon.ico" sizes="32x32 16x16">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://ferrosmart.eu/">
+  <meta property="og:site_name" content="FerroSMART">
+  <meta property="og:title" content="FerroSMART: a SMART App Launch 2.2 authorization server for any identity provider">
+  <meta property="og:description" content="The SMART authorization server of the FerroHEALTH family, in pure Rust: login stays at your identity provider, and FerroSMART issues the SMART tokens for any FHIR or openEHR server.">
+  <meta name="twitter:card" content="summary">
+
+  <!-- Structured data. Browsers never execute an application/ld+json data block
+       (https://html.spec.whatwg.org/multipage/scripting.html#data-block), so
+       script-src does not govern it and the page stays CSP-clean. -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareSourceCode",
+    "name": "FerroSMART",
+    "description": "A pure-Rust SMART App Launch 2.2 authorization server that issues SMART access tokens behind any OpenID Connect identity provider, for any FHIR or openEHR server, and the resource-server crates ferrohealth-smart, ferrohealth-authz and ferrohealth-session.",
+    "codeRepository": "https://github.com/FerroHEALTH/FerroSMART",
+    "programmingLanguage": "Rust",
+    "license": "https://github.com/FerroHEALTH/FerroSMART/blob/main/LICENSE",
+    "applicationCategory": "HealthApplication",
+    "runtimePlatform": "Linux"
+  }
+  </script>
+</head>
+<body>
+
+  <header class="nav">
+    <div class="wrap">
+      <a class="brand" href="./">
+        <picture>
+          <source srcset="./assets/brand/ferrosmart-icon-dark.svg" media="(prefers-color-scheme: dark)">
+          <img src="./assets/brand/ferrosmart-icon.svg" alt="" aria-hidden="true" width="28" height="28">
+        </picture>
+        <span>FerroSMART</span>
+      </a>
+      <nav class="nav-links" aria-label="Primary">
+        <a href="./docs/">Docs</a>
+        <a href="./docs/install/quickstart.html" class="hide-sm">Quickstart</a>
+        <a href="./docs/configure/configuration.html" class="hide-sm">Configure</a>
+        <a href="./docs/integrate/ehr-launch.html" class="hide-sm">EHR launch</a>
+        <a href="https://github.com/FerroHEALTH/FerroSMART" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+
+    <section class="hero">
+      <div class="wrap">
+        <picture>
+          <source srcset="./assets/brand/ferrosmart-icon-dark.svg" media="(prefers-color-scheme: dark)">
+          <img class="hero-logo" src="./assets/brand/ferrosmart-icon.svg" alt="FerroSMART" width="88" height="88">
+        </picture>
+        <!-- The version is rendered from app/ferrosmart/Cargo.toml when the site
+             is assembled (scripts/site/assemble.sh), so it is always the one
+             main carries. -->
+        <a class="status" href="https://github.com/FerroHEALTH/FerroSMART/milestones" rel="noopener">v{{version:ferrosmart}} in preparation</a>
+        <h1>SMART tokens, whichever identity provider you run.</h1>
+        <p class="sub">
+          FerroSMART is the SMART App Launch 2.2 authorization server of the
+          FerroHEALTH family, in pure Rust. Most identity providers cannot
+          issue real SMART tokens: they drop the scopes and the launch
+          context a health app asks for. People keep logging in where they
+          do today, and FerroSMART issues the access tokens, with the patient
+          in context and the scopes the person approved, for any FHIR or
+          openEHR server.
+        </p>
+        <div class="hero-cta">
+          <a class="btn btn-primary" href="./docs/install/quickstart.html">Run the quickstart</a>
+          <a class="btn btn-ghost" href="./docs/evaluate/what-ferrosmart-is.html">What FerroSMART is</a>
+        </div>
+        <p class="note">
+          One static binary on a distroless image beside PostgreSQL. Standards
+          on every interface, and no claim or parameter of its own.
+        </p>
+      </div>
+    </section>
+
+    <section id="what" class="surface">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">What it does</span>
+          <h2>The authorization server SMART asks for</h2>
+          <p>
+            An app sends the person to FerroSMART. FerroSMART sends them on to
+            your identity provider to log in, asks them which access to give,
+            and hands the app a token the FHIR or openEHR server checks. The
+            book cites the section of the specification behind each step.
+          </p>
+        </div>
+        <div class="grid">
+
+          <a class="card" href="./docs/integrate/flows.html">
+            <span class="tag">SMART App Launch 2.2</span>
+            <h3>Standalone and EHR launch</h3>
+            <p>
+              The authorization code flow with PKCE <code>S256</code>, the
+              consent page, the patient picker of a standalone launch, and
+              the patient and encounter context in the token response.
+            </p>
+          </a>
+
+          <a class="card" href="./docs/integrate/ehr-launch.html">
+            <span class="tag">EHR launch API</span>
+            <h3>An EHR hands over its context</h3>
+            <p>
+              The EHR registers the launch at <code>POST /launch</code>, or
+              signs a launch JWT, and opens the app. The context reaches the
+              app's token response, bound to the app and the server, once.
+            </p>
+          </a>
+
+          <a class="card" href="./docs/integrate/flows.html#backend-services">
+            <span class="tag">Backend Services</span>
+            <h3>Systems without a person</h3>
+            <p>
+              The client credentials grant with an asymmetric client
+              assertion (<code>RS384</code> or <code>ES384</code>), scoped to
+              what the client is registered for, for five minutes.
+            </p>
+          </a>
+
+          <a class="card" href="./docs/integrate/flows.html#refresh-introspection-and-revocation">
+            <span class="tag">RFC 7662, RFC 7009</span>
+            <h3>Refresh, introspection, revocation</h3>
+            <p>
+              Refresh tokens rotate on every use and a reused one revokes its
+              grant. A resource server introspects a token; an app or a person
+              revokes one.
+            </p>
+          </a>
+
+          <a class="card" href="./docs/operate/audit.html">
+            <span class="tag">BALP, EHDS</span>
+            <h3>Its own audit trail</h3>
+            <p>
+              Every login and every token request is a FHIR
+              <code>AuditEvent</code> committed with the token itself, read
+              back by subject and time, and forwarded to your Audit Record
+              Repository if you name one.
+            </p>
+          </a>
+
+          <a class="card" href="./docs/operate/keys.html">
+            <span class="tag">RFC 9068</span>
+            <h3>Keys you rotate</h3>
+            <p>
+              Access tokens are signed JWTs. A next key is published before it
+              signs and a previous key stays published after, so resource
+              servers never meet a key they cannot find.
+            </p>
+          </a>
+
+        </div>
+      </div>
+    </section>
+
+    <section id="not">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">What it is not</span>
+          <h2>Login stays where it is</h2>
+          <p>
+            FerroSMART keeps no password and runs no login page. It is an
+            OpenID Connect client of your identity provider and reads only the
+            claims you map: who the person is, their roles, and their
+            <code>fhirUser</code>. It stores no clinical data; the patient
+            picker reads the FHIR or openEHR server as the signed-in person.
+          </p>
+        </div>
+        <div class="grid">
+
+          <a class="card" href="./docs/install/upstream.html#keycloak">
+            <span class="tag">Compose example</span>
+            <h3>Keycloak</h3>
+            <p>
+              A realm file and a compose overlay, with FerroSMART
+              authenticating to Keycloak by <code>private_key_jwt</code>.
+            </p>
+          </a>
+
+          <a class="card" href="./docs/install/upstream.html#zitadel">
+            <span class="tag">Compose example</span>
+            <h3>ZITADEL</h3>
+            <p>
+              A compose overlay that bootstraps the project, the role, the
+              user and the action that writes <code>fhirUser</code>.
+            </p>
+          </a>
+
+          <a class="card" href="./docs/install/upstream.html#microsoft-entra-id">
+            <span class="tag">Contract tests</span>
+            <h3>Microsoft Entra ID</h3>
+            <p>
+              One tenant, app roles, a directory extension for
+              <code>fhirUser</code> and a certificate credential.
+            </p>
+          </a>
+
+          <a class="card" href="./docs/install/upstream.html#okta">
+            <span class="tag">Contract tests</span>
+            <h3>Okta</h3>
+            <p>
+              The custom authorization server, a <code>fhir_user</code>
+              claim and a groups claim filtered to the role groups.
+            </p>
+          </a>
+
+        </div>
+      </div>
+    </section>
+
+    <section id="family" class="surface">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">In the family</span>
+          <h2>The one FerroHEALTH product that issues tokens</h2>
+          <p>
+            The FerroHEALTH products reach each other only over published
+            protocols. Each is its own SMART resource server through
+            <code>ferrohealth-smart</code>, the crate this repository
+            publishes, and trusts FerroSMART as an issuer under the
+            <code>ferrosmart</code> preset.
+          </p>
+        </div>
+        <div class="grid">
+
+          <article class="card">
+            <h3>FerroEHR</h3>
+            <p>
+              A token FerroSMART issues for an openEHR base carries the
+              <code>ehrId</code> of the launch and SMART on openEHR scopes,
+              which the CDR reads through <code>ferrohealth-smart</code>.
+            </p>
+          </article>
+
+          <article class="card">
+            <h3>FerroBRIDGE</h3>
+            <p>
+              The FHIR R4 facade over openEHR describes FerroSMART in its own
+              SMART document, and is the FHIR server of FerroSMART's
+              conformance lane.
+            </p>
+          </article>
+
+          <article class="card">
+            <h3>FerroTERM, FerroPIX and FerroFED</h3>
+            <p>
+              The terminology server, the patient index and the federation
+              gateway trust FerroSMART the same way, with one issuer table,
+              and keep their own rules on top of the scopes.
+            </p>
+          </article>
+
+        </div>
+        <div class="prose">
+          <p>
+            Protecting a server of your own in Rust? The resource-server checks
+            are a crate on crates.io:
+          </p>
+        </div>
+        <pre class="cmd"><code>cargo add ferrohealth-smart -F axum</code></pre>
+      </div>
+    </section>
+
+    <section id="audiences">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="eyebrow">The documentation</span>
+          <h2>Four questions, four parts of the book</h2>
+        </div>
+        <div class="grid audiences">
+
+          <article class="card audience">
+            <span class="tag">Evaluate</span>
+            <h3>Does it fit my problem?</h3>
+            <p>
+              What FerroSMART is and is not, the SMART capabilities it
+              advertises, and the licence.
+            </p>
+            <ul>
+              <li><a href="./docs/evaluate/what-ferrosmart-is.html">What FerroSMART is</a></li>
+              <li><a href="./docs/evaluate/conformance.html">Capabilities and conformance</a></li>
+              <li><a href="./docs/evaluate/licensing.html">Licensing</a></li>
+            </ul>
+          </article>
+
+          <article class="card audience">
+            <span class="tag">Install</span>
+            <h3>How do I run it?</h3>
+            <p>
+              The image, the compose quickstart, and each identity provider
+              upstream.
+            </p>
+            <ul>
+              <li><a href="./docs/install/quickstart.html">Quickstart</a></li>
+              <li><a href="./docs/install/image.html">The image</a></li>
+              <li><a href="./docs/install/upstream.html">Identity providers</a></li>
+            </ul>
+          </article>
+
+          <article class="card audience">
+            <span class="tag">Configure and integrate</span>
+            <h3>How do apps and servers use it?</h3>
+            <p>
+              Every configuration table, the client registry, the flows, the
+              EHR launch API and a resource server behind FerroSMART.
+            </p>
+            <ul>
+              <li><a href="./docs/configure/configuration.html">Configuration</a></li>
+              <li><a href="./docs/configure/clients.html">Clients and policy</a></li>
+              <li><a href="./docs/integrate/resource-server.html">A server behind FerroSMART</a></li>
+            </ul>
+          </article>
+
+          <article class="card audience">
+            <span class="tag">Operate</span>
+            <h3>What does running it involve?</h3>
+            <p>
+              Keys and their rotation, the audit records, health and
+              operations, and the security and release information.
+            </p>
+            <ul>
+              <li><a href="./docs/operate/operations.html">Operations and health</a></li>
+              <li><a href="./docs/operate/security.html">Security and the CRA</a></li>
+              <li><a href="./docs/changelog.html">Release notes</a></li>
+            </ul>
+          </article>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <div class="wrap">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a class="brand" href="./">
+            <picture>
+              <source srcset="./assets/brand/ferrosmart-icon-dark.svg" media="(prefers-color-scheme: dark)">
+              <img src="./assets/brand/ferrosmart-icon.svg" alt="" aria-hidden="true" width="28" height="28">
+            </picture>
+            <span>FerroSMART</span>
+          </a>
+          <p>
+            A pure-Rust SMART App Launch authorization server, one of the
+            <a href="https://ferrohealth.eu/" rel="noopener">FerroHEALTH</a>
+            family. The software is licensed under the
+            <a href="https://github.com/FerroHEALTH/FerroSMART/blob/main/LICENSE" rel="noopener">Business Source License 1.1</a>:
+            free outside production and for non-commercial production use, a
+            commercial licence for other production use, and Apache License
+            2.0 four years after each version.
+            <a href="./docs/evaluate/licensing.html">Which applies to you</a>.
+          </p>
+          <p>
+            Manufactured by Cadasto B.V., Comeniusstraat 2d, 1817 MS Alkmaar,
+            The Netherlands:
+            <a href="mailto:info@cadasto.com">info@cadasto.com</a>.
+          </p>
+        </div>
+        <div class="footer-links">
+          <div>
+            <h4>Read</h4>
+            <ul>
+              <li><a href="./docs/">Documentation</a></li>
+              <li><a href="./docs/install/quickstart.html">Quickstart</a></li>
+              <li><a href="./docs/configure/configuration.html">Configuration</a></li>
+              <li><a href="https://ferrohealth.eu/docs/" rel="noopener">The family book</a></li>
+              <li><a href="https://hl7.org/fhir/smart-app-launch/" rel="noopener">SMART App Launch</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Project</h4>
+            <ul>
+              <li><a href="https://github.com/FerroHEALTH/FerroSMART" rel="noopener">GitHub</a></li>
+              <li><a href="https://github.com/FerroHEALTH/FerroSMART/releases" rel="noopener">Releases</a></li>
+              <li><a href="https://github.com/FerroHEALTH/FerroSMART/milestones" rel="noopener">Roadmap</a></li>
+              <li><a href="https://github.com/FerroHEALTH/FerroSMART/issues" rel="noopener">Issues</a></li>
+              <li><a href="https://github.com/FerroHEALTH/FerroSMART/security/policy" rel="noopener">Security policy</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="footer-note">
+        <span>ferrosmart.eu</span>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

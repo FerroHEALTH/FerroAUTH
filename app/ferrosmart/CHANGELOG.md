@@ -2,6 +2,7 @@
 <!-- SPDX-License-Identifier: BUSL-1.1 -->
 
 # Changelog
+<!-- ANCHOR: book -->
 
 All notable changes to FerroSMART are documented in this file.
 

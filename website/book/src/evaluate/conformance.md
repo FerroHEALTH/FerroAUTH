@@ -1,0 +1,109 @@
+<!-- SPDX-FileCopyrightText: Cadasto B.V. -->
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
+
+# Capabilities and conformance
+
+FerroSMART implements
+[SMART App Launch 2.2.0](https://hl7.org/fhir/smart-app-launch/STU2.2/) on
+OAuth 2.0 and OpenID Connect, and is held to it by the
+[Inferno SMART App Launch test kit](https://github.com/inferno-framework/smart-app-launch-test-kit)
+in CI. The specifications are vendored in the repository under
+[`docs/specs/`](https://github.com/FerroHEALTH/FerroSMART/tree/main/docs/specs)
+at the versions
+[`docs/VERSIONS.md`](https://github.com/FerroHEALTH/FerroSMART/blob/main/docs/VERSIONS.md)
+pins.
+
+## The discovery documents
+
+FerroSMART serves three documents under its issuer, each with absolute
+endpoint URLs:
+
+| Document | Path | Specification |
+|---|---|---|
+| Authorization server metadata | `/.well-known/oauth-authorization-server`, inserted between the host and the issuer's path | RFC 8414 §3 |
+| OpenID Connect discovery | `{issuer}/.well-known/openid-configuration` | OpenID Connect Discovery 1.0 §4 |
+| SMART configuration | `{issuer}/.well-known/smart-configuration` | SMART App Launch 2.2.0, Conformance |
+
+Which document it serves depends on whether people log in. With an
+[identity provider](../install/upstream.md) configured, the SMART document
+is the App Launch document. Without one, FerroSMART answers Backend
+Services alone and the document says so.
+
+## The capabilities it advertises
+
+The SMART App Launch 2.2.0 Conformance page lists capabilities a server
+supports. FerroSMART's App Launch document lists these:
+
+| Capability | What it means here |
+|---|---|
+| `launch-standalone` | The authorization endpoint takes an app that starts on its own |
+| `launch-ehr` | An app launched by an EHR with a `launch` value ([EHR launch API](../integrate/ehr-launch.md)) |
+| `client-public` | A public client authenticates with PKCE alone |
+| `client-confidential-asymmetric` | A confidential client authenticates with a `private_key_jwt` assertion signed `RS384` or `ES384` |
+| `sso-openid-connect` | `openid` and `fhirUser` give the app an ID Token signed `RS256` with the person's `fhirUser` |
+| `context-ehr-patient`, `context-ehr-encounter` | The patient and encounter of an EHR launch reach the token response |
+| `context-banner` | `need_patient_banner` reaches the token response |
+| `permission-patient`, `permission-user` | `patient/` and `user/` scopes |
+| `permission-v2` | SMART v2 scopes (`.cruds`) |
+
+The Backend Services document lists `client-confidential-asymmetric`.
+
+Both documents advertise `code_challenge_methods_supported: ["S256"]` and
+never `plain`, `token_endpoint_auth_signing_alg_values_supported:
+["RS384", "ES384"]`, the introspection and revocation endpoints, and, with
+login, `management_endpoint`, where a person sees and withdraws the
+consents they remembered.
+
+## The endpoints
+
+| Method and path | What it is | Ground |
+|---|---|---|
+| `GET {issuer}/jwks` | The public keys that sign tokens, as bare JWKs | RFC 7517 §5 |
+| `GET`, `POST {issuer}/authorize` | The authorization endpoint | SMART App Launch 2.2.0; RFC 6749 §3.1 |
+| `GET {issuer}/callback` | The identity provider's redirect back | OpenID Connect Core 1.0 §3.1.2.5 |
+| `GET`, `POST {issuer}/picker` | The patient picker | our own design |
+| `GET`, `POST {issuer}/consent` | The consent page | our own design |
+| `GET`, `POST {issuer}/manage` | The person's remembered consents, each withdrawable | SMART App Launch 2.2.0, `management_endpoint` |
+| `POST {issuer}/token` | The token endpoint | RFC 6749 §3.2 |
+| `POST {issuer}/introspect` | Token introspection | RFC 7662 §2 |
+| `POST {issuer}/revoke` | Token revocation | RFC 7009 §2 |
+| `POST {issuer}/launch` | The EHR launch API | our own design |
+| `POST {issuer}/backchannel-logout` | The identity provider's logout notice | OpenID Connect Back-Channel Logout 1.0 |
+| `GET {issuer}/audit` | FerroSMART's own audit records | our own design |
+| `GET {issuer}/upstream-jwks` | The keys FerroSMART signs its own client assertions to the identity provider with | our own design |
+| `GET {issuer}/health`, `/health/liveness`, `/health/readiness`, `/health/info` | Health | the FerroHEALTH family |
+
+## What SMART leaves open, and how FerroSMART decides
+
+Where the specifications are silent, FerroSMART makes one fixed decision
+and the architecture records it as its own design:
+
+- **The launch context in the access token.** SMART puts `patient`,
+  `encounter` and `fhirUser` in the token response. FerroSMART writes them,
+  and `ehrId` for an openEHR server, into the access token as well, so a
+  resource server that reads the JWT has them (RFC 9068 §2.2.2).
+- **Scopes.** The granted scope is what the request asks for, narrowed to
+  the client's registered ceiling, the scopes the person's roles allow and
+  what the person approves ([clients, roles and consent](../configure/clients.md)).
+- **Consent every time.** Every user flow shows the consent page unless the
+  person remembered that choice for that client.
+- **`online_access`.** An online refresh token ends when the person's login
+  at the identity provider ends, signalled by back-channel logout, or after
+  `online_idle` unused.
+- **The person's `sub`.** A pairwise identifier derived from the identity
+  provider's issuer and `sub`, so the provider's identifier never reaches a
+  resource server.
+- **Refresh rotation for every client.** Each refresh rotates the token, and
+  a rotated token presented again revokes the whole grant.
+- **Introspection.** A client authenticated as at the token endpoint, or a
+  bearer token FerroSMART issued, each holding the scope
+  `system/introspect`.
+
+## The test kit in CI
+
+The CI lane runs the four groups of the kit's STU 2.2 server suite
+(`smart_stu2_2`): the standalone launch, the EHR launch, Backend Services
+and token introspection. FerroSMART runs with Keycloak upstream and
+FerroBRIDGE's FHIR R4 facade as the FHIR server, all over TLS, and every
+test of the suite passes. The lane fails when a result changes, and the
+list of tests it may expect anything other than a pass is empty.
