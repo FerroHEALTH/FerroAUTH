@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.29.1] - 2026-11-17
+
 ### Added
 
 - `oidc::RelyingParty::with_private_key_jwt` authenticates the relying party
@@ -2324,7 +2326,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.29.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.29.1...HEAD
+[0.29.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.29.0...ferrohealth-smart-v0.29.1
 [0.29.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.28.0...ferrohealth-smart-v0.29.0
 [0.28.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.27.0...ferrohealth-smart-v0.28.0
 [0.27.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.26.0...ferrohealth-smart-v0.27.0
