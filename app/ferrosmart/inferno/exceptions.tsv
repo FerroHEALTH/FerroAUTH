@@ -6,4 +6,6 @@
 # expected results hold any other test to anything but `pass`, and warns once
 # the issue of a `pending` row is closed. Columns: test id, kind (`pending`:
 # a FerroSMART step will make it pass; `downstream`: the test reads the
-# resource server, never FerroSMART), issue or `-`, reason.
+# resource server, never FerroSMART; `omitted`: the kit itself omits the
+# test for the run's inputs), issue or `-`, reason.
+smart_stu2_2-smart_full_ehr_launch-smart_ehr_launch_stu2_2-smart_cors_token_exchange	omitted	-	the kit omits the token exchange's CORS check for a non-public client, as SMART App Launch 2.2.0, App Launch, Considerations for CORS support asks CORS of servers for browser-based apps; groups 1 and 4 run it with the public client

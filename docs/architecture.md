@@ -3327,7 +3327,10 @@ change that lets one drift:
   with `ferrosmart client hash-secret` for the run.
 - `exceptions.tsv` lists each test of a run group that the expected results
   do not hold to `pass`, with its reason; any other test expected to be
-  anything but `pass` fails the run. It holds no row. FerroBRIDGE answers
+  anything but `pass` fails the run. It holds one row: group 2's
+  `smart_cors_token_exchange`, which the kit omits for the symmetric
+  client, since CORS is asked for browser-based apps; groups 1 and 4 run
+  it with the public client. FerroBRIDGE answers
   CORS (`smart app-launch`, Considerations for CORS support): its SMART
   document and CapabilityStatement for any origin (item 1), and its REST
   routes for the kit's origin `http://localhost:4567`, which the lane
