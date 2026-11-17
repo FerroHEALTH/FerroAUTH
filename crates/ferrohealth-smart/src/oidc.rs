@@ -36,6 +36,7 @@ use serde::Deserialize;
 use url::Url;
 
 use crate::client::OAuthError;
+use crate::client::assertion::{ASSERTION_TYPE, AssertionError, AssertionKey};
 use crate::metadata::{DiscoveryError, Http, ServerMetadata};
 
 /// The scope value every OpenID Connect request carries (OpenID Connect
@@ -78,6 +79,13 @@ pub enum OidcError {
     /// The system's random source failed while a sign-in was minted.
     #[error("the random source could not mint a sign-in")]
     Random,
+    /// The client assertion of `private_key_jwt` could not be signed.
+    #[error("the client assertion could not be signed")]
+    Assertion {
+        /// What the signer reported.
+        #[source]
+        source: AssertionError,
+    },
     /// The redirect's `state` is absent or not the one the request carried.
     #[error("the redirect's state is not the sign-in's")]
     StateMismatch,
@@ -358,6 +366,9 @@ enum ClientAuth {
     /// A confidential client with a secret, sent as HTTP Basic (RFC 6749
     /// §2.3.1).
     SecretBasic(SecretString),
+    /// A confidential client signing a JWT with its private key
+    /// (`private_key_jwt`, OpenID Connect Core 1.0 §9).
+    PrivateKeyJwt(Box<AssertionKey>),
 }
 
 /// The relying-party client of one console at one provider.
@@ -434,6 +445,19 @@ impl RelyingParty {
     #[must_use]
     pub fn with_client_secret(mut self, secret: SecretString) -> Self {
         self.auth = ClientAuth::SecretBasic(secret);
+        self
+    }
+
+    /// Makes the client a confidential one, authenticating with a JWT
+    /// `key` signs (`private_key_jwt`, OpenID Connect Core 1.0 §9).
+    ///
+    /// Each request to the token or revocation endpoint carries a fresh
+    /// assertion (RFC 7523 §2.2, §3): `iss` and `sub` the client id, `aud`
+    /// the token endpoint URL, which §9 names, and the type `JWT`, the rule
+    /// of a plain grant (`crate::client::assertion`).
+    #[must_use]
+    pub fn with_private_key_jwt(mut self, key: AssertionKey) -> Self {
+        self.auth = ClientAuth::PrivateKeyJwt(Box::new(key));
         self
     }
 
@@ -746,8 +770,26 @@ impl RelyingParty {
         let body = {
             let mut encoded = url::form_urlencoded::Serializer::new(String::new());
             encoded.extend_pairs(form);
-            if matches!(self.auth, ClientAuth::Public) {
-                encoded.append_pair("client_id", &self.client_id);
+            match &self.auth {
+                ClientAuth::Public => {
+                    encoded.append_pair("client_id", &self.client_id);
+                }
+                ClientAuth::SecretBasic(_) => {}
+                ClientAuth::PrivateKeyJwt(key) => {
+                    // NOTE: OpenID Connect Core 1.0 §9, `aud` the token endpoint URL;
+                    // RFC 7521 §4.2 lets the client name itself beside the assertion.
+                    let assertion = key
+                        .assertion(
+                            &self.client_id,
+                            self.provider.token_endpoint.as_str(),
+                            "JWT",
+                        )
+                        .map_err(|source| OidcError::Assertion { source })?;
+                    encoded
+                        .append_pair("client_id", &self.client_id)
+                        .append_pair("client_assertion_type", ASSERTION_TYPE)
+                        .append_pair("client_assertion", &assertion);
+                }
             }
             encoded.finish()
         };

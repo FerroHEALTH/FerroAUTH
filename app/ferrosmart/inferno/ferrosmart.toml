@@ -33,6 +33,11 @@ scopes = ["openid"]
 fhir_user_claim = "fhir_user"
 role_claims = ["roles"]
 
+# The realm's client authenticates FerroSMART by a JWT its assertion key
+# signs (OpenID Connect Core 1.0 §9), read from {issuer}/upstream-jwks; the
+# lane names the key file.
+[ferrosmart.upstream.private_key_jwt]
+
 [[ferrosmart.role]]
 name = "clinician"
 scopes = ["user/Practitioner.rs", "patient/Patient.rs"]

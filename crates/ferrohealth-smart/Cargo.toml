@@ -34,8 +34,9 @@ fetch = ["dep:reqwest", "tokio/time"]
 axum = ["dep:axum", "dep:tower"]
 # The OpenID Connect relying-party client of an operator console: the
 # authorization code flow with PKCE, the ID Token check, the refresh grant,
-# revocation and RP-initiated logout.
-oidc = ["fetch"]
+# revocation and RP-initiated logout, with `private_key_jwt` client
+# authentication by a key its X.509 certificate may name.
+oidc = ["fetch", "dep:x509-parser"]
 # The SMART on openEHR scope grammar (`openehr::smart_scopes`). It depends on
 # nothing, so a browser client builds it for `wasm32-unknown-unknown`, where
 # it is the whole crate.

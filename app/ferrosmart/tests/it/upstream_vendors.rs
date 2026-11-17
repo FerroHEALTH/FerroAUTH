@@ -13,16 +13,18 @@ use std::sync::Arc;
 
 use axum::Router;
 use axum::body::Body;
+use ferrohealth_smart::client::assertion::AssertionKey;
 use ferrohealth_smart::metadata::DiscoveryError;
 use ferrohealth_smart::oidc::OidcError;
 use ferrosmart::authorize::COOKIE;
 use ferrosmart::config::Config;
 use ferrosmart::server::{AppState, router};
 use ferrosmart::store::Store;
+use ferrosmart::upstream::Authentication;
 use http::{Request, StatusCode, header};
 use http_body_util::BodyExt as _;
 use jsonwebtoken::jwk::Jwk;
-use jsonwebtoken::{Algorithm, EncodingKey, Header};
+use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use url::Url;
@@ -65,6 +67,9 @@ struct Contract {
     token: fn(&str) -> String,
     /// The ID Token claims beyond `iss`, `aud`, `nonce`, `iat` and `exp`.
     claims: Value,
+    /// Whether the example authenticates with `private_key_jwt`, else with
+    /// a client secret as HTTP Basic.
+    private_key_jwt: bool,
 }
 
 /// Microsoft Entra ID's v2.0 tenant authority.
@@ -115,6 +120,7 @@ fn entra() -> Contract {
             "sid": "00000000-0000-0000-0000-000000000001",
             "uti": "synthetic-uti"
         }),
+        private_key_jwt: true,
     }
 }
 
@@ -170,6 +176,7 @@ fn okta() -> Contract {
             "groups": ["clinician"],
             "fhir_user": FHIR_USER
         }),
+        private_key_jwt: false,
     }
 }
 
@@ -223,9 +230,10 @@ impl Provider {
         }
     }
 
-    /// Mounts the code exchange of FerroSMART's client `client_id`: the
-    /// secret as HTTP Basic (RFC 6749 §2.3.1), the PKCE verifier, and an
-    /// answer whose ID Token carries `claims` and `nonce`.
+    /// Mounts the code exchange of FerroSMART's client `client_id`: a client
+    /// assertion (OpenID Connect Core 1.0 §9) or the secret as HTTP Basic
+    /// (RFC 6749 §2.3.1), the PKCE verifier, and an answer whose ID Token
+    /// carries `claims` and `nonce`.
     async fn answer(&self, contract: &Contract, client_id: &str, nonce: &str) {
         let now = jiff::Timestamp::now().as_second();
         let mut claims = json!({
@@ -246,12 +254,19 @@ impl Provider {
             format!("{}:{}", encode(client_id), encode(SECRET)),
         );
         let path = Url::parse(&self.issuer).expect("a URL").path().to_owned();
-        Mock::given(matchers::method("POST"))
-            .and(matchers::path((contract.token)(&path)))
-            .and(matchers::header(
+        let exchange =
+            Mock::given(matchers::method("POST")).and(matchers::path((contract.token)(&path)));
+        let exchange = if contract.private_key_jwt {
+            exchange.and(matchers::body_string_contains(
+                "client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer",
+            ))
+        } else {
+            exchange.and(matchers::header(
                 "authorization",
                 format!("Basic {basic}").as_str(),
             ))
+        };
+        exchange
             .and(matchers::body_string_contains(
                 "grant_type=authorization_code",
             ))
@@ -278,13 +293,13 @@ struct Smart {
     store: Store,
     /// The database.
     database: Database,
-    /// The keys and the secret file, kept for the case's length.
-    _keys: Keys,
+    /// The keys and the credential files, kept for the case's length.
+    keys: Keys,
 }
 
 /// Returns the configuration of `example`, with the key and the database
-/// of the case, the provider's issuer moved to `issuer` when given, and the
-/// client secret read from a file under `keys`.
+/// of the case, and, as the example authenticates, a certificate of the
+/// case's key or the client secret, each a file under `keys`.
 fn example_config(example: &str, keys: &Keys, database: Option<&Database>) -> Config {
     let mut environment = std::collections::BTreeMap::new();
     environment.insert(
@@ -297,14 +312,29 @@ fn example_config(example: &str, keys: &Keys, database: Option<&Database>) -> Co
     );
     environment.insert(String::from("FERROSMART__FERROSMART__DATABASE__URL"), url);
     let mut config = Config::from_sources(Some(example), &environment).expect("the example reads");
-    let secret = keys.dir.path().join("upstream-secret");
-    std::fs::write(&secret, SECRET).expect("the secret is written");
-    config
+    let upstream = config
         .ferrosmart
         .upstream
         .as_mut()
-        .expect("the example names its provider")
-        .client_secret_file = Some(secret);
+        .expect("the example names its provider");
+    if let Some(jwt) = upstream.private_key_jwt.as_mut() {
+        let assertion = rsa_key(keys.dir.path(), "assertion.pem");
+        jwt.keys.private_key_file = Some(assertion.clone());
+        let pem = std::fs::read_to_string(&assertion).expect("the key");
+        let pair = rcgen::KeyPair::from_pem_and_sign_algo(&pem, &rcgen::PKCS_RSA_SHA256)
+            .expect("an RSA key");
+        let certificate = rcgen::CertificateParams::new(vec![String::from("smart.example.org")])
+            .expect("parameters")
+            .self_signed(&pair)
+            .expect("a certificate");
+        let path = keys.dir.path().join("assertion.crt");
+        std::fs::write(&path, certificate.pem()).expect("the certificate is written");
+        jwt.certificate_file = Some(path);
+    } else {
+        let secret = keys.dir.path().join("upstream-secret");
+        std::fs::write(&secret, SECRET).expect("the secret is written");
+        upstream.client_secret_file = Some(secret);
+    }
     config
 }
 
@@ -341,7 +371,7 @@ impl Smart {
             client_id,
             store,
             database,
-            _keys: keys,
+            keys,
         }
     }
 
@@ -580,6 +610,53 @@ async fn an_entra_id_login_maps_its_app_role_and_extension_attribute() {
         "the provider's sub never leaves"
     );
     assert_ne!(contract.claims["oid"], claims["sub"], "nor its oid");
+    let (header, assertion) = assertion_sent(&smart, &contract).await;
+    // NOTE: certificate-credentials.md, Assertion format: PS256, JWT, the
+    // certificate's x5t#S256, and the claims of OpenID Connect Core 1.0 §9.
+    assert_eq!(Algorithm::PS256, header.alg);
+    assert_eq!(Some("JWT"), header.typ.as_deref());
+    let certificate = std::fs::read_to_string(smart.keys.dir.path().join("assertion.crt"))
+        .expect("the certificate");
+    let der = x509_der(&certificate);
+    let thumbprint = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, &der);
+    assert_eq!(
+        Some(base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            thumbprint.as_ref()
+        )),
+        header.x5t_s256
+    );
+    assert_eq!(json!(smart.client_id), assertion["iss"]);
+    assert_eq!(json!(smart.client_id), assertion["sub"]);
+    // NOTE: RFC 8725 §3.12: the assertion keys are published apart, and the
+    // token key set holds none of them.
+    let (status, _, tokens) = smart.get("/jwks", None).await;
+    assert_eq!(StatusCode::OK, status);
+    let (status, _, assertions) = smart.get("/upstream-jwks", None).await;
+    assert_eq!(StatusCode::OK, status);
+    let moduli = |set: &str| -> Vec<Value> {
+        let set: Value = serde_json::from_str(set).expect("a JWK Set");
+        set["keys"]
+            .as_array()
+            .expect("keys")
+            .iter()
+            .map(|key| key["n"].clone())
+            .collect()
+    };
+    let (tokens, assertions) = (moduli(&tokens), moduli(&assertions));
+    assert_eq!(
+        1,
+        assertions.len(),
+        "the current assertion key: {assertions:?}"
+    );
+    assert!(
+        tokens.iter().all(|key| !assertions.contains(key)),
+        "the token and assertion key sets share no key"
+    );
+    assert!(
+        assertion["jti"].as_str().is_some_and(|jti| !jti.is_empty()),
+        "a jti"
+    );
     smart.stop().await;
 }
 
@@ -643,12 +720,65 @@ async fn the_entra_id_multitenant_authority_is_refused() {
     );
 }
 
+/// Returns the DER of the PEM certificate `pem`.
+fn x509_der(pem: &str) -> Vec<u8> {
+    let body: String = pem
+        .lines()
+        .filter(|line| !line.starts_with("-----"))
+        .collect();
+    base64::Engine::decode(&base64::engine::general_purpose::STANDARD, body).expect("base64")
+}
+
+/// Returns the header and the verified claims of the client assertion
+/// FerroSMART sent the provider's token endpoint: signed by the current
+/// assertion key for the token endpoint URL (OpenID Connect Core 1.0 §9).
+async fn assertion_sent(smart: &Smart, contract: &Contract) -> (Header, Value) {
+    let path = Url::parse(&smart.provider.issuer)
+        .expect("a URL")
+        .path()
+        .to_owned();
+    let token_path = (contract.token)(&path);
+    let requests = smart
+        .provider
+        .server
+        .received_requests()
+        .await
+        .unwrap_or_default();
+    let request = requests
+        .iter()
+        .find(|request| request.url.path() == token_path)
+        .expect("the code exchange");
+    assert!(
+        !request.headers.contains_key("authorization"),
+        "no secret beside the assertion"
+    );
+    let assertion = url::form_urlencoded::parse(&request.body)
+        .find(|(name, _)| name == "client_assertion")
+        .map(|(_, value)| value.into_owned())
+        .expect("a client assertion");
+    let header = jsonwebtoken::decode_header(&assertion).expect("a header");
+    let pem = std::fs::read(smart.keys.dir.path().join("assertion.pem")).expect("the key");
+    let public = AssertionKey::from_pem(&pem, Some(header.alg), None)
+        .expect("the key")
+        .public_jwk();
+    let decoding =
+        DecodingKey::from_jwk(&serde_json::from_value(public).expect("a JWK")).expect("a key");
+    let mut validation = Validation::new(header.alg);
+    validation.set_audience(&[format!("{}{token_path}", smart.provider.server.uri())]);
+    validation.set_issuer(&[smart.client_id.as_str()]);
+    validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
+    let claims = jsonwebtoken::decode::<Value>(&assertion, &decoding, &validation)
+        .expect("the assertion verifies with FerroSMART's current key")
+        .claims;
+    (header, claims)
+}
+
 #[test]
 fn both_examples_resolve_to_their_claim_mapping() {
     let keys = Keys::new();
-    for (example, fhir_user, roles) in [
-        (ENTRA, "extn.fhirUser", "roles"),
-        (OKTA, "fhir_user", "groups"),
+    for (example, fhir_user, roles, signs) in [
+        (ENTRA, "extn.fhirUser", "roles", true),
+        (OKTA, "fhir_user", "groups", false),
     ] {
         let settings = example_config(example, &keys, None)
             .resolve()
@@ -656,6 +786,16 @@ fn both_examples_resolve_to_their_claim_mapping() {
         let upstream = settings.upstream.expect("a provider");
         assert_eq!(Some(fhir_user), upstream.fhir_user_claim.as_deref());
         assert_eq!(vec![String::from(roles)], upstream.role_claims);
-        assert!(upstream.client_secret.is_some(), "a confidential client");
+        assert!(
+            if signs {
+                matches!(
+                    upstream.authentication,
+                    Authentication::PrivateKeyJwt { .. }
+                )
+            } else {
+                matches!(upstream.authentication, Authentication::Secret(_))
+            },
+            "the example's client authentication"
+        );
     }
 }

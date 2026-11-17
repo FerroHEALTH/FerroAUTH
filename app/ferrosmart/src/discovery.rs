@@ -22,6 +22,13 @@ use crate::config::settings::Settings;
 pub const TOKEN_ROUTE: &str = "/token";
 /// The JWK Set's route under the issuer.
 pub const JWKS_ROUTE: &str = "/jwks";
+
+/// The route of the JWK Set of FerroSMART's upstream client assertion keys.
+///
+/// It stands apart from [`JWKS_ROUTE`], so the provider trusts those keys
+/// alone and a resource server never sees them (RFC 8725 §3.12; no
+/// specification names the route: our own design).
+pub const UPSTREAM_JWKS_ROUTE: &str = "/upstream-jwks";
 /// The SMART configuration's route under the issuer (SMART App Launch
 /// 2.2.0, Conformance, Using well-known).
 pub const SMART_CONFIGURATION_ROUTE: &str = "/.well-known/smart-configuration";

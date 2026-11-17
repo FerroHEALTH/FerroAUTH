@@ -9,11 +9,12 @@ use std::collections::BTreeMap;
 use std::time::Duration;
 
 use ferrohealth_secret::secret::Secret;
+use ferrohealth_smart::client::assertion::AssertionKey;
 use ferrohealth_smart::metadata::Http;
 use ferrohealth_smart::oidc::{
     Callback, OidcError, PendingSignIn, Provider, RelyingParty, TokenTypeHint, challenge,
 };
-use jsonwebtoken::{Algorithm, Header};
+use jsonwebtoken::{Algorithm, DecodingKey, Header, Validation};
 use secrecy::SecretString;
 use url::Url;
 use wiremock::matchers;
@@ -30,6 +31,16 @@ const REDIRECT: &str = "https://console.example.org/auth/callback";
 /// A provider with an end-session and a revocation endpoint, and the client
 /// of a confidential console at it.
 async fn provider(key: &SigningKey) -> (Issuer, RelyingParty) {
+    let (issuer, client) = unauthenticated(key).await;
+    (
+        issuer,
+        client.with_client_secret(SecretString::from("synthetic-secret")),
+    )
+}
+
+/// The provider of [`provider`] and a client at it that has not yet named
+/// how it authenticates.
+async fn unauthenticated(key: &SigningKey) -> (Issuer, RelyingParty) {
     let issuer = Issuer::bare().await;
     let uri = issuer.uri();
     issuer
@@ -57,7 +68,6 @@ async fn provider(key: &SigningKey) -> (Issuer, RelyingParty) {
         CLIENT,
         Url::parse(REDIRECT).expect("a URL"),
     )
-    .with_client_secret(SecretString::from("synthetic-secret"))
     .with_scopes(["profile"])
     .with_post_logout_redirect_uri(Url::parse("https://console.example.org/").expect("a URL"));
     (issuer, client)
@@ -632,5 +642,115 @@ async fn a_logout_token_breaking_section_2_6_is_refused() {
             Err(OidcError::LogoutToken { .. })
         ),
         "a key the provider does not hold under its kid"
+    );
+}
+
+/// Returns the form fields of every request `issuer` received at `path`.
+async fn forms(issuer: &Issuer, path: &str) -> Vec<BTreeMap<String, String>> {
+    issuer
+        .server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|request| request.url.path() == path)
+        .map(|request| {
+            url::form_urlencoded::parse(&request.body)
+                .map(|(name, value)| (name.into_owned(), value.into_owned()))
+                .collect()
+        })
+        .collect()
+}
+
+// NOTE: OpenID Connect Core 1.0 §9, private_key_jwt; RFC 7523 §3; RFC 7515 §4.1.8.
+#[tokio::test]
+async fn a_private_key_jwt_client_sends_a_fresh_assertion_at_every_call() {
+    let key = ec_key("op-1", Algorithm::ES256);
+    let (issuer, client) = unauthenticated(&key).await;
+    let pair = rcgen::KeyPair::generate().expect("a key");
+    let certificate = rcgen::CertificateParams::new(vec![String::from("smart.example.org")])
+        .expect("parameters")
+        .self_signed(&pair)
+        .expect("a certificate");
+    let signer = AssertionKey::from_pem(pair.serialize_pem().as_bytes(), None, None)
+        .expect("a key")
+        .with_certificate(certificate.pem().as_bytes())
+        .expect("the certificate names the key");
+    let public = DecodingKey::from_ec_der(pair.public_key_raw());
+    let client = client.with_private_key_jwt(signer);
+    let request = client.authorization_request().expect("a sign-in is minted");
+    let pending = request.pending;
+    let token = id_token(&issuer, &key, pending.nonce());
+    Mock::given(matchers::method("POST"))
+        .and(matchers::path(TOKEN_PATH))
+        .and(matchers::body_string_contains(
+            "client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-bearer",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "access_token": "synthetic-access-1", "token_type": "Bearer", "id_token": token
+        })))
+        .mount(&issuer.server)
+        .await;
+    Mock::given(matchers::method("POST"))
+        .and(matchers::path("/revoke"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&issuer.server)
+        .await;
+    client
+        .exchange(
+            &pending,
+            &Callback::granted("synthetic-code", pending.state()),
+        )
+        .await
+        .expect("the sign-in completes");
+    client
+        .revoke(
+            &Secret::new("synthetic-access-1"),
+            TokenTypeHint::AccessToken,
+        )
+        .await
+        .expect("the provider revokes the token");
+
+    let token_endpoint = format!("{}{TOKEN_PATH}", issuer.uri());
+    let sent: Vec<_> = forms(&issuer, TOKEN_PATH)
+        .await
+        .into_iter()
+        .chain(forms(&issuer, "/revoke").await)
+        .collect();
+    assert_eq!(2, sent.len(), "the exchange and the revocation");
+    let mut ids = Vec::new();
+    for form in &sent {
+        assert_eq!(Some(CLIENT), form.get("client_id").map(String::as_str));
+        let assertion = form.get("client_assertion").expect("an assertion");
+        let header = jsonwebtoken::decode_header(assertion).expect("a header");
+        assert_eq!(Some("JWT"), header.typ.as_deref());
+        let thumbprint = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, certificate.der());
+        assert_eq!(
+            Some(base64::Engine::encode(
+                &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+                thumbprint.as_ref()
+            )),
+            header.x5t_s256
+        );
+        let mut validation = Validation::new(Algorithm::ES256);
+        validation.set_audience(&[token_endpoint.as_str()]);
+        validation.set_issuer(&[CLIENT]);
+        validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
+        let claims = jsonwebtoken::decode::<serde_json::Value>(assertion, &public, &validation)
+            .expect("the assertion verifies, for the token endpoint")
+            .claims;
+        assert_eq!(serde_json::json!(CLIENT), claims["sub"]);
+        ids.push(claims["jti"].as_str().expect("a jti").to_owned());
+    }
+    assert_ne!(ids[0], ids[1], "one assertion per request");
+    assert!(
+        issuer
+            .server
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .all(|request| !request.headers.contains_key("authorization")),
+        "no secret beside the assertion"
     );
 }

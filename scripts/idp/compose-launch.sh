@@ -62,10 +62,11 @@ printf 'postgresql://ferrosmart:%s@postgres:5432/ferrosmart?sslmode=disable' \
   "$(cat "$root/secrets/postgres_password")" > "$root/secrets/database_url"
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
   -out "$root/secrets/signing_key.pem" 2> /dev/null
-openssl rand -hex 32 | tr -d '\n' > "$root/secrets/keycloak_client_secret"
 openssl rand -hex 16 | tr -d '\n' > "$root/secrets/keycloak_user_password"
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
+  -out "$root/secrets/upstream_assertion_key.pem" 2> /dev/null
 chmod 0644 "$root/secrets/database_url" "$root/secrets/signing_key.pem" \
-  "$root/secrets/keycloak_client_secret" "$root/secrets/keycloak_user_password"
+  "$root/secrets/keycloak_user_password" "$root/secrets/upstream_assertion_key.pem"
 
 "${compose[@]}" up --detach --pull missing --quiet-pull > "$LANE_DIR/up.log" 2>&1 ||
   fail "the quickstart did not come up ($LANE_DIR/up.log)"

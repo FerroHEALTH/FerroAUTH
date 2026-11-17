@@ -55,6 +55,7 @@ paths=(
   "$base/how-to-add-redirect-uri.md"
   "$base/reply-url.md"
   "$base/how-to-add-credentials.md"
+  "$base/certificate-credentials.md"
   "$base/includes/register-app/client-credential-advice.md"
   "$base/howto-add-app-roles-in-apps.md"
   "$base/optional-claims.md"
@@ -150,7 +151,8 @@ on the Microsoft identity platform", the discovery document and the
 \`{tenant}\` values), \`$base/v2-oauth2-auth-code-flow.md\` (the code
 redemption and its client authentication), \`$base/quickstart-register-app.md\`,
 \`$base/how-to-add-redirect-uri.md\`, \`$base/reply-url.md\`,
-\`$base/how-to-add-credentials.md\` (with its include file), \`$base/howto-add-app-roles-in-apps.md\`,
+\`$base/how-to-add-credentials.md\` (with its include file),
+\`$base/certificate-credentials.md\` (the client assertion's format), \`$base/howto-add-app-roles-in-apps.md\`,
 \`$base/optional-claims.md\` (the \`extn.\` claim format),
 \`$base/schema-extensions.md\` and
 \`$base/howto-convert-app-to-be-multi-tenant.md\` (the \`/common\` and

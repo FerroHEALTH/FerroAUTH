@@ -3397,8 +3397,8 @@ named otherwise.
 
 | Setting | Value | Ground |
 |---|---|---|
-| Realm import | `--import-realm`, with `${...}` placeholders for the client secret, the redirect URI, the user's password and `fhirUser` | server guide `importExport.adoc`, Importing a Realm during Startup, Using Environment Variables within the Realm Configuration Files |
-| Client `ferrosmart` | `publicClient: false`, `clientAuthenticatorType: client-secret`: a confidential client whose secret FerroSMART sends as HTTP Basic | `clients/oidc/con-basic-settings.adoc`, Client authentication; `clients/oidc/con-confidential-client-credentials.adoc`, Client ID and Secret; `oidc core §9` |
+| Realm import | `--import-realm`, with `${...}` placeholders for FerroSMART's JWK Set URL, the redirect URI, the user's password and `fhirUser` | server guide `importExport.adoc`, Importing a Realm during Startup, Using Environment Variables within the Realm Configuration Files |
+| Client `ferrosmart` | `publicClient: false`, `clientAuthenticatorType: client-jwt`, `use.jwks.url: true`, `jwks.url` FerroSMART's `{issuer}/upstream-jwks`, `token.endpoint.auth.signing.alg: RS256`: a confidential client that authenticates with a JWT FerroSMART's current assertion key signs, which Keycloak verifies against the published key set and re-reads after a rotation | `clients/oidc/con-basic-settings.adoc`, Client authentication; `clients/oidc/con-confidential-client-credentials.adoc`, Signed JWT issued by the client, Using a JWKS URL; `OIDCConfigAttributes.java`, `JWTClientAuthenticator.java`, `JWTClientValidator.java`; `oidc core §9` |
 | Flows | `standardFlowEnabled: true`, implicit and direct access grants off | `con-basic-settings.adoc`, Standard Flow, Direct Access Grants; `rfc9700 §2.4` |
 | PKCE | `pkce.code.challenge.method: S256` | `con-basic-settings.adoc`, Proof Key for Code Exchange Code Challenge Method; `rfc7636 §4.2` |
 | Redirect URI | FerroSMART's `{issuer}/callback`, one exact URI | `con-basic-settings.adoc`, Valid Redirect URIs; `rfc9700 §2.1` |
@@ -3413,7 +3413,8 @@ the browser and for each other, and the configuration below arrives as
 `FERROSMART__` environment.
 
 On FerroSMART's side, `[ferrosmart.upstream]` names the realm's issuer and
-the client, `fhir_user_claim = "fhir_user"` and `role_claims = ["roles"]`
+the client, `[ferrosmart.upstream.private_key_jwt]` its client authentication
+(#569), `fhir_user_claim = "fhir_user"` and `role_claims = ["roles"]`
 (the generic dotted claim reader of `ferrohealth_smart::roles`). No code
 knows Keycloak. The example serves every party on the loopback interface
 over plain `http`, which `ferrohealth_smart::metadata::issuer_url` admits
@@ -3506,7 +3507,7 @@ carries the mapped `fhirUser`. Citations are to `docs/specs/entra-docs/`,
 | App registration | Supported account types: single tenant only | `quickstart-register-app.md`, Register an application |
 | Authority | `https://login.microsoftonline.com/{tenant id}/v2.0`, FerroSMART's `upstream.issuer`; its metadata is at `/.well-known/openid-configuration` under it | `v2-protocols-oidc.md`, Find your app's OpenID configuration document URI; `oidc discovery §4` |
 | Platform and redirect URI | Web, FerroSMART's `{issuer}/callback`, `https` | `how-to-add-redirect-uri.md`, Add a redirect URI; `reply-url.md`, What are the restrictions of redirect URIs; `rfc9700 §2.1` |
-| Client credential | a client secret, which FerroSMART sends as HTTP Basic | `how-to-add-credentials.md`, Add a client secret; `v2-oauth2-auth-code-flow.md`, Request an access token with a client_secret ("The Basic auth pattern ... is also supported"); `oidc core §9` |
+| Client credential | a certificate of FerroSMART's current assertion key (`[ferrosmart.upstream.private_key_jwt.keys]`, never a token key), uploaded to the registration; FerroSMART signs a client assertion with that key under `PS256`, typed `JWT`, naming the certificate by `x5t#S256`, `aud` the token endpoint, `iss` and `sub` the client id (`[ferrosmart.upstream.private_key_jwt]`, #569) | `how-to-add-credentials.md`, Add a certificate; `certificate-credentials.md`, Assertion format, Register your certificate with Microsoft identity platform; `oidc core §9`; `rfc7515 §4.1.8` |
 | PKCE | `S256` on every request, which the code flow takes | `v2-oauth2-auth-code-flow.md`, Request an authorization code (`code_challenge_method`); `rfc7636 §4.2` |
 | Scopes | `openid profile`; `profile` brings `name`, `preferred_username` and `oid` | `id-token-claims-reference.md`, Payload claims |
 | App role | `clinician`: allowed member types Users/Groups, value `clinician`, assigned to people under Enterprise applications; the ID Token carries it in `roles` | `howto-add-app-roles-in-apps.md`, Declare roles for an application, Usage scenario of app roles |
@@ -3542,10 +3543,13 @@ vendored text are decisions:
    login; one FerroSMART logs in the people of one tenant.
 
 Entra ID advises a certificate over a client secret in production
-(`how-to-add-credentials.md`, Add a client secret). That is `private_key_jwt`
-client authentication at the provider (`oidc core §9`, `rfc7523`), which
-FerroSMART's relying party does not send: it would be one generic mechanism
-for every provider, and until it exists the setup uses a client secret.
+(`how-to-add-credentials.md`, Add a client secret), so the setup uses one.
+The key is FerroSMART's assertion key, with its ring's rotation: upload the
+next key's certificate before the ring makes it current, and remove the old
+one after.
+A client secret sent as HTTP Basic, which the code flow also takes
+(`v2-oauth2-auth-code-flow.md`, Request an access token with a
+client_secret), stays possible for a registration without a certificate.
 
 ### 13.19 Upstream providers: Okta
 
@@ -3718,3 +3722,45 @@ openEHR base) reaches the product in the access token (13.6 item 2), where
 still apply on top of the token's scopes. No specification governs this
 deployment shape: our own design, built only from the specifications 13.4
 names.
+
+### 13.22 Client authentication at the upstream provider
+
+FerroSMART authenticates at its provider's token and revocation endpoints in
+one of three ways, which `[ferrosmart.upstream]` names (#569): as a public
+client with PKCE alone, with a client secret as HTTP Basic (`rfc6749
+§2.3.1`), or with `private_key_jwt` (`oidc core §9`), the setup of the
+Keycloak and Entra ID examples. A secret and `private_key_jwt` together are
+refused at load.
+
+Under `[ferrosmart.upstream.private_key_jwt]` the current key of the
+assertion ring signs a fresh assertion for every request: `iss` and `sub`
+the client id, `aud` the provider's token endpoint URL, a unique `jti`,
+`exp` 60 seconds ahead, typed `JWT` (`rfc7523 §3`). The `aud` and `typ` are
+the rule #529 fixed for a plain grant, and `oidc core §9` names the token
+endpoint; a revocation request carries the same `aud`, which Keycloak
+accepts (`JWTClientValidator.java`). `algorithm` is the one the provider's
+registration names (`rfc7518 §3.1`; RS256 by default), and the ring's keys
+are read to sign with it. `certificate_file` is the X.509 certificate of
+the current assertion key, for a provider that knows the key by its
+certificate; each assertion then names it by `x5t#S256` (`rfc7515 §4.1.8`),
+and a certificate of another key is refused at load.
+
+**One key per purpose.** The assertion ring is
+`[ferrosmart.upstream.private_key_jwt.keys]`, read as `[ferrosmart.keys]` is
+(current, previous for its overlap, next) and never holding one of its keys:
+a ring that shares a key with the token ring is refused at load. RFC 8725
+§3.12 has JWTs of different kinds validated by mutually exclusive rules, and
+separate keys give that by construction: an assertion key, leaked or
+misused, signs nothing a resource server of FerroSMART's accepts. The ring
+is published at its own `{issuer}/upstream-jwks` (`discovery::UPSTREAM_JWKS_ROUTE`),
+apart from the token key set at `{issuer}/jwks`, so a provider that reads it,
+as Keycloak does, trusts the assertion keys alone and a resource server
+never sees them. The route answers `404` when no assertion ring is
+configured, and no metadata document names it, since it is FerroSMART's key
+as a client, not as an authorization server.
+
+The assertion ring rotates as 13.11 describes for the token ring: the next
+key is published at `{issuer}/upstream-jwks` before it signs, so a provider
+that reads that URL holds it in time; a provider that stores a certificate
+is given the next key's certificate before the rotation. No specification
+governs the rotation or the route: our own design.

@@ -33,14 +33,18 @@
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
-      "clientAuthenticatorType": "client-secret",
-      "secret": "${FERROSMART_KEYCLOAK_CLIENT_SECRET}",
+      "clientAuthenticatorType": "client-jwt",
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "redirectUris": ["${FERROSMART_KEYCLOAK_REDIRECT_URI}"],
-      "attributes": { "pkce.code.challenge.method": "S256" },
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "use.jwks.url": "true",
+        "jwks.url": "${FERROSMART_KEYCLOAK_JWKS_URL}",
+        "token.endpoint.auth.signing.alg": "RS256"
+      },
       "fullScopeAllowed": true,
       "protocolMappers": [
         {

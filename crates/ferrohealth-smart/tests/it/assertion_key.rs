@@ -156,3 +156,62 @@ fn a_client_assertion_lives_sixty_seconds() -> Result<(), Box<dyn StdError>> {
     );
     Ok(())
 }
+
+#[test]
+fn an_rsa_key_signs_any_rsa_algorithm_and_an_ec_key_only_its_own() -> Result<(), Box<dyn StdError>>
+{
+    let rsa = AssertionKey::from_pem(
+        &rsa_key("unused", Algorithm::RS256).pem,
+        Some(Algorithm::RS256),
+        None,
+    )?;
+    assert_eq!(
+        Algorithm::PS256,
+        rsa.with_algorithm(Algorithm::PS256)?.algorithm()
+    );
+    let ec = AssertionKey::from_pem(&ec_key("unused", Algorithm::ES256).pem, None, None)?;
+    for other in [Algorithm::ES384, Algorithm::RS256] {
+        assert!(
+            matches!(
+                ec.clone().with_algorithm(other),
+                Err(AssertionError::Algorithm { algorithm }) if algorithm == other
+            ),
+            "RFC 7518 §3.4: an EC key signs with its curve's algorithm"
+        );
+    }
+    Ok(())
+}
+
+#[cfg(feature = "oidc")]
+#[test]
+fn a_certificate_of_another_key_or_no_certificate_is_refused() -> Result<(), Box<dyn StdError>> {
+    let own = rcgen::KeyPair::generate()?;
+    let other = rcgen::KeyPair::generate()?;
+    let theirs = rcgen::CertificateParams::new(vec![String::from("other.example.org")])?
+        .self_signed(&other)?;
+    let key = AssertionKey::from_pem(own.serialize_pem().as_bytes(), None, None)?;
+    assert!(matches!(
+        key.clone().with_certificate(theirs.pem().as_bytes()),
+        Err(AssertionError::CertificateKey)
+    ));
+    assert!(matches!(
+        key.clone().with_certificate(own.serialize_pem().as_bytes()),
+        Err(AssertionError::Certificate)
+    ));
+    let mine =
+        rcgen::CertificateParams::new(vec![String::from("own.example.org")])?.self_signed(&own)?;
+    let named = key.with_certificate(mine.pem().as_bytes())?;
+    let token = named.sign(
+        "synthetic+jwt",
+        &Own {
+            iss: "a",
+            sub: "a",
+            exp: 1,
+        },
+    )?;
+    assert!(
+        jsonwebtoken::decode_header(&token)?.x5t_s256.is_some(),
+        "RFC 7515 §4.1.8"
+    );
+    Ok(())
+}

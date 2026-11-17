@@ -9,14 +9,17 @@
 #
 # SECRETS. Two more files under ./secrets, made the way compose.yaml's are:
 #
-#   openssl rand -hex 32 | tr -d '\n' > secrets/keycloak_client_secret
 #   openssl rand -hex 16 | tr -d '\n' > secrets/keycloak_user_password
-#   chmod 0644 secrets/keycloak_client_secret secrets/keycloak_user_password
+#   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out secrets/upstream_assertion_key.pem
+#   chmod 0644 secrets/keycloak_user_password secrets/upstream_assertion_key.pem
 #
 # The realm is app/ferrosmart/examples/keycloak/ferrosmart-realm.json, with
-# fixed ids; its placeholders take the two secrets and the user's `fhirUser`
-# at import (docs/architecture.md §13.16). Sign in as `clinician` with the
-# password in secrets/keycloak_user_password.
+# fixed ids; its placeholders take the password, FerroSMART's JWK Set URL
+# and the user's `fhirUser` at import (docs/architecture.md §13.16).
+# FerroSMART authenticates to Keycloak with a JWT its assertion key signs,
+# a key apart from the token signing key, which Keycloak verifies against
+# that URL, so no client secret exists.
+# Sign in as `clinician` with the password in secrets/keycloak_user_password.
 #
 # NETWORK. FerroSMART shares Keycloak's network namespace, so both reach each
 # other on `localhost`, exactly as the browser does through the published
@@ -42,15 +45,14 @@ services:
       - bash
       - -c
       - |
-        export FERROSMART_KEYCLOAK_CLIENT_SECRET="$$(cat /run/secrets/keycloak_client_secret)"
         export FERROSMART_KEYCLOAK_USER_PASSWORD="$$(cat /run/secrets/keycloak_user_password)"
         exec /opt/keycloak/bin/kc.sh start-dev --import-realm
     environment:
       KC_HTTP_PORT: "8180"
       FERROSMART_KEYCLOAK_REDIRECT_URI: ${FERROSMART_ISSUER:-http://localhost:8080}/callback
+      FERROSMART_KEYCLOAK_JWKS_URL: ${FERROSMART_ISSUER:-http://localhost:8080}/upstream-jwks
       FERROSMART_KEYCLOAK_FHIR_USER: ${FERROSMART_KEYCLOAK_FHIR_USER:-http://localhost:8090/fhir/Practitioner/example}
     secrets:
-      - keycloak_client_secret
       - keycloak_user_password
     volumes:
       - type: bind
@@ -76,7 +78,8 @@ services:
       # The upstream login and its claims (ferrosmart.toml of the example).
       FERROSMART__FERROSMART__UPSTREAM__ISSUER: http://localhost:8180/realms/ferrosmart
       FERROSMART__FERROSMART__UPSTREAM__CLIENT_ID: ferrosmart
-      FERROSMART__FERROSMART__UPSTREAM__CLIENT_SECRET_FILE: /run/secrets/keycloak_client_secret
+      FERROSMART__FERROSMART__UPSTREAM__PRIVATE_KEY_JWT__ALGORITHM: RS256
+      FERROSMART__FERROSMART__UPSTREAM__PRIVATE_KEY_JWT__KEYS__PRIVATE_KEY_FILE: /run/secrets/upstream_assertion_key
       FERROSMART__FERROSMART__UPSTREAM__SCOPES__0: openid
       FERROSMART__FERROSMART__UPSTREAM__FHIR_USER_CLAIM: fhir_user
       FERROSMART__FERROSMART__UPSTREAM__ROLE_CLAIMS__0: roles
@@ -97,10 +100,10 @@ services:
     secrets:
       - database_url
       - signing_key
-      - keycloak_client_secret
+      - upstream_assertion_key
 
 secrets:
-  keycloak_client_secret:
-    file: ./secrets/keycloak_client_secret
+  upstream_assertion_key:
+    file: ./secrets/upstream_assertion_key.pem
   keycloak_user_password:
     file: ./secrets/keycloak_user_password
