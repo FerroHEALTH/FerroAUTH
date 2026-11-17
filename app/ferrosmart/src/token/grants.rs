@@ -19,6 +19,10 @@ use super::assertion::authenticate;
 use super::mint::{Grant, mint};
 use super::{Issued, Refusal, server_error};
 
+/// The longest a Backend Services access token lives: five minutes, the
+/// most SMART App Launch 2.2.0, Backend Services, Issue Access Token allows.
+pub const BACKEND_LIFETIME: std::time::Duration = std::time::Duration::from_secs(300);
+
 /// The client credentials grant (RFC 6749 §4.4; SMART App Launch 2.2.0,
 /// Backend Services).
 pub(super) async fn client_credentials(state: &AppState, form: &Params) -> Result<Issued, Refusal> {
@@ -41,6 +45,9 @@ pub(super) async fn client_credentials(state: &AppState, form: &Params) -> Resul
             fhir_user: None,
             code_hash: None,
             token_type: "bearer",
+            // NOTE: SMART App Launch 2.2.0, Backend Services, Issue Access Token, the
+            // `expires_in` value SHOULD NOT exceed 300.
+            longest: Some(BACKEND_LIFETIME),
             identity: None,
             under: None,
             context: &Map::new(),
@@ -152,6 +159,7 @@ pub(super) async fn authorization_code(
             fhir_user,
             code_hash: Some(&hash),
             token_type: "Bearer",
+            longest: None,
             identity: openid.then_some((grant.nonce.as_deref(), grant.auth_time)),
             under: Some(&launch.grant_id),
             context: &launch.context,

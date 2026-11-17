@@ -139,6 +139,7 @@ pub(crate) async fn refresh(
             fhir_user,
             code_hash: None,
             token_type: "bearer",
+            longest: None,
             identity: None,
             under: Some(&grant.id),
             context: &context,

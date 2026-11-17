@@ -142,7 +142,10 @@ pub fn consent(
         .iter()
         .map(|scope| {
             ScopeGrant::read(&locale, *scope, |read| {
-                (read.resource.clone(), read.resource == "*")
+                (
+                    resource_words(&locale, &read.resource),
+                    read.resource == "*",
+                )
             })
         })
         .collect();
@@ -392,6 +395,9 @@ pub struct Remembered {
     pub name: String,
     /// The scopes given.
     pub scope: String,
+    /// The refresh access the app holds now, if any: how long it may reach
+    /// the person's data without them.
+    pub access: Option<crate::store::grant::Access>,
 }
 
 /// Returns the management page of `pending`'s person, listing `remembered`
@@ -419,7 +425,10 @@ pub fn manage(
                 .filter(|scope| !scope.is_empty())
                 .map(|scope| {
                     ScopeGrant::read(&locale, scope, |read| {
-                        (read.resource.clone(), read.resource == "*")
+                        (
+                            resource_words(&locale, &read.resource),
+                            read.resource == "*",
+                        )
                     })
                 })
                 .collect();
@@ -434,9 +443,22 @@ pub fn manage(
                 danger = Variant::Danger.class(),
                 withdraw = label(None, words("manage-withdraw")),
             ));
+            let access = match each.access {
+                Some(crate::store::grant::Access::Offline) => {
+                    Html::raw(format!("<p>{}</p>", Html::text(words("manage-offline"))))
+                }
+                Some(crate::store::grant::Access::Online) => {
+                    Html::raw(format!("<p>{}</p>", Html::text(words("manage-online"))))
+                }
+                None => Html::empty(),
+            };
             card(
                 each.name.clone(),
-                Html::join([scope_grants(&locale, &words("manage-scope"), grants), form]),
+                Html::join([
+                    access,
+                    scope_grants(&locale, &words("manage-scope"), grants),
+                    form,
+                ]),
             )
         }))
     };
@@ -453,6 +475,28 @@ pub fn manage(
     );
     let page = page_card(Some(lockup), title.clone(), body);
     respond(state, StatusCode::OK, &locale, title, page, &[])
+}
+
+/// Returns the plain words for the FHIR resource type `resource` in
+/// `locale`, with the type itself after them, or the type alone when the
+/// catalog has no words for it.
+///
+/// SMART App Launch 2.2.0, Best Practices, Considerations for Scope Consent
+/// asks the authorization server to avoid jargon such as "Encounters"; the
+/// words are our own.
+fn resource_words(locale: &Locale, resource: &str) -> String {
+    use fluent_templates::Loader as _;
+    let id = format!("resource-{}", resource.to_ascii_lowercase());
+    // NOTE: a tag that does not parse, or a type the catalog lacks, has no plain words.
+    locale
+        .tag()
+        .parse::<fluent_templates::LanguageIdentifier>()
+        .ok()
+        .and_then(|language| CATALOG.try_lookup(&language, &id))
+        .map_or_else(
+            || resource.to_owned(),
+            |words| format!("{words} ({resource})"),
+        )
 }
 
 /// Returns the locale the request's `Accept-Language` prefers among the

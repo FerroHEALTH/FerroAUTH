@@ -52,7 +52,7 @@ Both documents advertise `code_challenge_methods_supported: ["S256"]` and
 never `plain`, `token_endpoint_auth_signing_alg_values_supported:
 ["RS384", "ES384"]`, the introspection and revocation endpoints, and, with
 login, `management_endpoint`, where a person sees and withdraws the
-consents they remembered.
+consents they remembered and the apps that keep offline or online access.
 
 ## The endpoints
 
@@ -63,7 +63,7 @@ consents they remembered.
 | `GET {issuer}/callback` | The identity provider's redirect back | OpenID Connect Core 1.0 §3.1.2.5 |
 | `GET`, `POST {issuer}/picker` | The patient picker | our own design |
 | `GET`, `POST {issuer}/consent` | The consent page | our own design |
-| `GET`, `POST {issuer}/manage` | The person's remembered consents, each withdrawable | SMART App Launch 2.2.0, `management_endpoint` |
+| `GET`, `POST {issuer}/manage` | The person's remembered consents and the apps holding a refresh grant, each withdrawable | SMART App Launch 2.2.0, `management_endpoint` |
 | `POST {issuer}/token` | The token endpoint | RFC 6749 §3.2 |
 | `POST {issuer}/introspect` | Token introspection | RFC 7662 §2 |
 | `POST {issuer}/revoke` | Token revocation | RFC 7009 §2 |

@@ -14,6 +14,15 @@ and this project adheres to
 
 ### Added
 
+- The management page lists every app that holds a live `offline_access`
+  or `online_access` grant of the person, remembered or not, says how long
+  it stays connected, and withdraws it, as SMART App Launch 2.2.0, Best
+  Practices asks a server to remind people which apps have offline access
+  (#608).
+- The consent and management pages put plain words before a FHIR resource
+  type, "Measurements and test results (Observation)", for the common
+  types (SMART App Launch 2.2.0, Best Practices, Considerations for Scope
+  Consent) (#608).
 - SMART v1 scopes (`patient/Observation.read`, `.write`, `.*`) are
   admitted by their v2 form against a client's ceiling and a person's roles
   and granted as asked, as SMART App Launch 2.2.0, Scopes and Launch
@@ -271,6 +280,9 @@ and this project adheres to
 
 ### Fixed
 
+- A Backend Services access token lives at most five minutes, whatever
+  `access_token_lifetime` says, as SMART App Launch 2.2.0, Backend
+  Services, Issue Access Token has `expires_in` not exceed 300 (#603).
 - The SMART configuration lists every capability FerroSMART supports and
   nothing else (SMART App Launch 2.2.0, Conformance, Capabilities): it adds
   `authorize-post`, `permission-offline`, `permission-online`,

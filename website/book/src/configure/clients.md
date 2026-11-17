@@ -141,7 +141,16 @@ for that client and that scope set. A later request whose offered scopes it
 covers goes back to the app with a code at once; a request for more shows
 the page again. The person sees each remembered consent at
 `{issuer}/manage`, the SMART `management_endpoint`, and withdraws it there,
-which revokes the grants it covered with every token under them.
+which revokes the grants it covered with every token under them. The page
+also lists every app that still holds `offline_access` or `online_access`,
+remembered or not, and says how long it stays connected.
+
+The consent and management pages read each scope in words, with plain
+words before the common FHIR resource types, such as "Measurements and test
+results (Observation)".
+
+Backend Services tokens live at most five minutes, whatever
+`access_token_lifetime` says (SMART App Launch 2.2.0, Backend Services).
 
 Backend Services has no person and no consent: the client's ceiling is its
 pre-authorization (SMART App Launch 2.2.0, Backend Services).

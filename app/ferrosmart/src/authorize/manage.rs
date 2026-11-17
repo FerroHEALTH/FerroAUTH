@@ -16,6 +16,7 @@ use crate::audit::{self, Connected};
 use crate::form::Params;
 use crate::pages::{self, Fault};
 use crate::server::AppState;
+use crate::store::grant::Access;
 use crate::store::{Pending, Purpose};
 
 use super::{
@@ -154,8 +155,23 @@ async fn manage_page(state: &AppState, headers: &HeaderMap, pending: &Pending) -
         Ok(consents) => consents,
         Err(error) => return pages::server_error(state, &error),
     };
-    let mut named = Vec::with_capacity(consents.len());
-    for (client_id, scope) in consents {
+    // NOTE: SMART App Launch 2.2.0, Best Practices, remind users which apps have
+    // offline access: every app with a live refresh grant is listed, remembered or not.
+    let held = match state.store().refresh_access(subject).await {
+        Ok(held) => held,
+        Err(error) => return pages::server_error(state, &error),
+    };
+    let mut apps: std::collections::BTreeMap<String, (String, Option<Access>)> = consents
+        .into_iter()
+        .map(|(client_id, scope)| (client_id, (scope, None)))
+        .collect();
+    for (client_id, scope, access) in held {
+        apps.entry(client_id)
+            .and_modify(|(_, held)| *held = Some(access))
+            .or_insert((scope, Some(access)));
+    }
+    let mut named = Vec::with_capacity(apps.len());
+    for (client_id, (scope, access)) in apps {
         let name = match state.store().client(&client_id).await {
             Ok(Some(client)) => client.name,
             Ok(None) => client_id.clone(),
@@ -165,6 +181,7 @@ async fn manage_page(state: &AppState, headers: &HeaderMap, pending: &Pending) -
             client_id,
             name,
             scope,
+            access,
         });
     }
     pages::manage(state, headers, pending, &named)
