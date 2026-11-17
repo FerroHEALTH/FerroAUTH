@@ -27,6 +27,7 @@ use http::{HeaderMap, HeaderValue, StatusCode, header};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
+use crate::audit::exchanges::{Token, TokenRequest, token_request};
 use crate::audit::{self, Connected};
 use crate::discovery::TOKEN_ROUTE;
 use crate::form::Params;
@@ -106,7 +107,7 @@ pub async fn token(
     // NOTE: a form that cannot be read names no client; the record then says so.
     let form = Params::parse(&body, &[]).ok();
     let endpoint = state.settings().endpoint_url(TOKEN_ROUTE);
-    let request = audit::TokenRequest {
+    let request = TokenRequest {
         client_id: form.as_ref().and_then(|form| form.get("client_id")),
         from,
         endpoint: &endpoint,
@@ -171,14 +172,14 @@ async fn allow_registered_origin(
 async fn commit(
     state: &AppState,
     answer: &Result<Issued, Refusal>,
-    request: &audit::TokenRequest<'_>,
+    request: &TokenRequest<'_>,
 ) -> Result<(), audit::RecordFailure> {
     let lane = state.audit();
     match answer {
         Ok(issued) => {
-            let exchange = audit::token_request(
+            let exchange = token_request(
                 request,
-                Ok(audit::Token {
+                Ok(Token {
                     issuer: &state.settings().issuer,
                     jti: &issued.jti,
                     client_id: &issued.client_id,
@@ -204,7 +205,7 @@ async fn commit(
             .await
         }
         Err(refusal) => {
-            let exchange = audit::token_request(request, Err(refusal.error));
+            let exchange = token_request(request, Err(refusal.error));
             let row = lane.row(&exchange, "token", None, request.client_id)?;
             lane.record(state.store(), &row).await
         }
