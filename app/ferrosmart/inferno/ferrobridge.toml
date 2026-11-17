@@ -41,12 +41,15 @@ enabled = false
 [auth]
 capabilities = ["sso-openid-connect"]
 
-# FerroSMART issues the tokens the facade takes: a person's through the
-# kit's standalone client, a machine's by client credentials.
+# FerroSMART issues the tokens the facade takes, read as one `persons`
+# issuer under the `ferrosmart` preset of ferrohealth-smart, as FerroBRIDGE's
+# "Running behind FerroSMART" page deploys it: a person's token through an app
+# `delegates` lists, a machine's by client credentials.
 [[auth.issuer]]
 issuer = "https://smart.localhost:8443"
 kind = "persons"
+profile = "ferrosmart"
 audience = ["https://bridge.localhost:9443/fhir"]
 # The kit's app, and FerroSMART itself, whose picker searches Patient with
 # the signed-in person's own token (docs/architecture.md §13.6 item 4).
-first_party_clients = ["inferno-standalone", "https://smart.localhost:8443"]
+delegates = [{ client = "inferno-standalone" }, { client = "https://smart.localhost:8443" }]

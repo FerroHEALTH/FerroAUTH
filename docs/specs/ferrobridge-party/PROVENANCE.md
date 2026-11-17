@@ -7,9 +7,9 @@ Vendored verbatim by `scripts/vendor/ferrobridge-party.sh`. Never
 edit a file here: change the pin in docs/VERSIONS.md and re-run the script.
 
 - Source: <https://github.com/FerroHEALTH/FerroBRIDGE>
-- Pin: tag `v0.0.26`, which resolves to commit `f3938c0aa20029b71fffeb3bd9766a2f0ffe33e9` (2026-11-16T18:52:07Z), the
+- Pin: tag `v0.0.27`, which resolves to commit `3b1354628f0c1fcba8a66404a31d48427b71100f` (2026-11-17T05:40:01Z), the
   release whose image the Inferno lane runs
-- Fetched: 2026-11-16, each file from raw.githubusercontent.com at the commit
+- Fetched: 2026-11-17, each file from raw.githubusercontent.com at the commit
   and checked against the git blob id the commit records
 - Licence: the Business Source License 1.1 (`LICENSE`), the Licensor of
   this repository; the files are unmodified

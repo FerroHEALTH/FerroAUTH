@@ -42,6 +42,8 @@
 #                        at its pin and no withheld or unpinned file.
 #   4. the design        the pin table of docs/architecture.md names the
 #                        same SMART App Launch version as the matrix.
+#   4e. Inferno lane     the FerroBRIDGE image the lane runs is pinned by
+#                        digest at the release its party mappings pin.
 #   5. the licence       no first-party file claims a licence other than
 #                        BUSL-1.1 in its SPDX header; the vendored trees are
 #                        third-party material and are left out.
@@ -369,6 +371,14 @@ done
 bash scripts/release/install-trivy.sh --sha256 "$want" > /dev/null ||
   fail "scripts/release/install-trivy.sh pins no sha256 for Trivy $want"
 [ "$failures" -ne "$before" ] || ok "the FerroSMART release lane runs the pinned base, database and Trivy"
+
+# ---- 4e. the Inferno lane's FerroBRIDGE ------------------------------------
+before="$failures"
+image="$(corpus_pin_cell "FerroBRIDGE FHIR server image")"
+tag="$(corpus_pin_tag "$(corpus_pin_cell "FerroBRIDGE party mappings")")"
+grep -qE "^ghcr\.io/ferrohealth/ferrobridge:${tag#v}@sha256:[0-9a-f]{64}," <<< "$image" ||
+  fail "the FerroBRIDGE FHIR server image is not release ${tag#v} by digest, the release the party mappings pin"
+[ "$failures" -ne "$before" ] || ok "the Inferno lane runs FerroBRIDGE ${tag#v}, the release of its party mappings"
 
 # ---- 5. the licence ---------------------------------------------------------
 licence="$(awk '{ print $1; exit }' <<< "$(corpus_pin_cell "Project licence")")"

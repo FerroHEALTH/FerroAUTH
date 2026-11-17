@@ -58,8 +58,8 @@ and this project adheres to
 - The Inferno lane runs group 1, Standalone Launch: the person picks the
   lane's patient at the patient picker, which searches FerroBRIDGE's
   facade, so the launch carries `launch/patient`. All four groups of the
-  kit's STU 2.2 suite run, and the suite passes outside FerroBRIDGE's
-  missing CORS headers (#520).
+  kit's STU 2.2 suite run, and every test passes against FerroBRIDGE
+  0.0.27, whose facade answers CORS for the kit's origin (#520).
 - The Inferno lane runs its FHIR server on the family's own stack: FerroBRIDGE's
   facade, with FerroEHR as its CDR, serves the person's `fhirUser` as a
   Practitioner, and Keycloak is the upstream login. Group 4, Token
