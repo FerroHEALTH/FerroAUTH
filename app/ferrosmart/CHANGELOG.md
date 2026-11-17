@@ -215,6 +215,13 @@ and this project adheres to
   record of Regulation (EU) 2025/327 Annex II 3.2 through `ehds-logging`,
   and a failed search is an error page (#516).
 
+### Changed
+
+- The audit lane takes `ihe-atna` and `ehds-logging` 0.23. Their FHIR Feed
+  sends through FerroSMART's own outbound client as a `FeedClient`
+  (`audit_feed`), so FerroSMART links one copy of `ferrohealth-smart` with no
+  `[patch.crates-io]` in the workspace (#549).
+
 ### Fixed
 
 - The token endpoint answers a request from one of the client's registered

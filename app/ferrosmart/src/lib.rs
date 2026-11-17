@@ -10,6 +10,7 @@
 //! its signing keys and the documents that describe it.
 
 pub mod audit;
+pub mod audit_feed;
 pub mod audit_log;
 pub mod authorize;
 pub mod cli;
