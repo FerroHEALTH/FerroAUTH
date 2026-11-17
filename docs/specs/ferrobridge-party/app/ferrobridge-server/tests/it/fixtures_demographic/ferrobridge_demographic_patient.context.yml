@@ -1,0 +1,20 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+# The party context the demographic suite runs: the base Patient onto the
+# synthetic PERSON template ferrobridge.person.v1 of the testkit.
+grammar: FHIRConnect/v1.0.0
+type: context
+metadata:
+  name: ferrobridge_demographic_patient.context
+  version: 1.0.0
+spec:
+  system: FHIR
+  version: R4
+context:
+  profile:
+    url: "http://hl7.org/fhir/StructureDefinition/Patient"
+  template:
+    id: "ferrobridge.person.v1"
+  archetypes:
+    - "ferrobridge_demographic_patient"
+  start: "ferrobridge_demographic_patient"

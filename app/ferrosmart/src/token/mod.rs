@@ -1,0 +1,348 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The token endpoint (RFC 6749 §3.2).
+//!
+//! Its one grant so far is SMART Backend Services' client credentials grant
+//! with a `private_key_jwt` client assertion. The request is the form of RFC 6749 §4.4.2 with the assertion of RFC 7523
+//! §2.2; the client is authenticated as SMART App Launch 2.2.0, Client
+//! Authentication: Asymmetric, Signature Verification, has it, with the
+//! audience `docs/architecture.md` §13.6 item 1 fixes; the answer is the JSON
+//! of RFC 6749 §5.1, or the error of §5.2, never cached. The token is an RFC
+//! 9068 JWT.
+
+pub mod assertion;
+pub mod grants;
+pub mod mint;
+
+use self::grants::{authorization_code, client_credentials};
+
+use std::sync::Arc;
+
+use axum::Json;
+use axum::body::Bytes;
+use axum::extract::State;
+use axum::response::{IntoResponse, Response};
+use http::{HeaderMap, HeaderValue, StatusCode, header};
+use serde::Serialize;
+use serde_json::{Map, Value, json};
+
+use crate::audit::{self, Connected};
+use crate::discovery::TOKEN_ROUTE;
+use crate::form::Params;
+use crate::server::AppState;
+use crate::store::IssuedToken;
+
+/// The `client_assertion_type` of a JWT client assertion (RFC 7523 §2.2).
+pub const JWT_BEARER: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
+/// The longest a client assertion may live: "This time SHALL be no more than
+/// five minutes in the future" (SMART App Launch 2.2.0, Client
+/// Authentication: Asymmetric, Request).
+pub const MAX_ASSERTION_SECONDS: u64 = 300;
+
+/// The clock skew admitted on `exp`. No specification governs the value:
+/// our own design, the one `ferrohealth-smart` admits on a token.
+pub const LEEWAY_SECONDS: u64 = 30;
+
+/// The `typ` values a client assertion may carry: `JWT`, which SMART App
+/// Launch 2.2.0 fixes, and `client-authentication+jwt` of RFC 10070 §4
+/// (`docs/architecture.md` §13.6 item 1).
+const ASSERTION_TYPES: [&str; 2] = ["JWT", "client-authentication+jwt"];
+
+/// A refusal of the token endpoint: an RFC 6749 §5.2 error code with a
+/// description that names no secret and quotes no input.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refusal {
+    /// The `error` code.
+    pub error: &'static str,
+    /// The `error_description`, which SMART Backend Services has the server
+    /// include ("SHOULD include an `error_uri` or `error_description`").
+    pub description: &'static str,
+}
+
+impl Refusal {
+    /// The `invalid_request` refusal.
+    pub(crate) const fn request(description: &'static str) -> Self {
+        Self {
+            error: "invalid_request",
+            description,
+        }
+    }
+
+    /// The `invalid_client` refusal every failure of client authentication
+    /// answers ("the server SHALL respond with an `invalid_client` error",
+    /// SMART App Launch 2.2.0, Client Authentication: Asymmetric, Response).
+    pub(crate) const fn client(description: &'static str) -> Self {
+        Self {
+            error: "invalid_client",
+            description,
+        }
+    }
+}
+
+impl IntoResponse for Refusal {
+    fn into_response(self) -> Response {
+        // NOTE: RFC 6749 §5.2, 400 unless otherwise specified; no Authorization
+        // header carried the credential, so invalid_client is 400 too.
+        let body = json!({ "error": self.error, "error_description": self.description });
+        no_store((StatusCode::BAD_REQUEST, Json(body)).into_response())
+    }
+}
+
+/// `POST {issuer}/token`.
+///
+/// Each request is recorded before its answer is returned: an issued token
+/// and its record commit in one transaction, and a request whose record
+/// could not be stored is answered `503` with no token (no specification
+/// governs the refusal: our own design).
+pub async fn token(
+    State(state): State<Arc<AppState>>,
+    Connected(from): Connected,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let answer = issue(&state, &headers, &body, from).await;
+    // NOTE: a form that cannot be read names no client; the record then says so.
+    let form = Params::parse(&body, &[]).ok();
+    let endpoint = state.settings().endpoint_url(TOKEN_ROUTE);
+    let request = audit::TokenRequest {
+        client_id: form.as_ref().and_then(|form| form.get("client_id")),
+        from,
+        endpoint: &endpoint,
+        content_type: headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok()),
+        body: &body,
+    };
+    let committed = commit(&state, &answer, &request).await;
+    if let Err(error) = committed {
+        tracing::error!(error = %ferrohealth_server::run::chain(&error), "a token request could not be recorded");
+        return unrecorded();
+    }
+    let client_id = match &answer {
+        Ok(issued) => Some(issued.client_id.clone()),
+        Err(_) => request.client_id.map(str::to_owned),
+    };
+    let mut response = match answer {
+        Ok(issued) => no_store(Json(issued.response).into_response()),
+        Err(refusal) => refusal.into_response(),
+    };
+    if let Some(client_id) = client_id {
+        allow_registered_origin(&state, &headers, &client_id, &mut response).await;
+    }
+    response
+}
+
+/// Lets the browser read `response` when the request came from one of the
+/// registered origins of the client `client_id`: "For requests from a
+/// client's registered origin(s), CORS configuration permits access to the
+/// token endpoint" (SMART App Launch 2.2.0, App Launch, Considerations for
+/// CORS support). A client's registered origins are the origins (RFC 6454
+/// §4) of its registered redirect URIs, which SMART leaves open: our own
+/// design. Every other request gets no CORS header.
+async fn allow_registered_origin(
+    state: &AppState,
+    headers: &HeaderMap,
+    client_id: &str,
+    response: &mut Response,
+) {
+    let Some(origin) = headers.get(header::ORIGIN) else {
+        return;
+    };
+    // NOTE: a registry that cannot be read admits no origin, so the browser reads
+    // nothing; the answer itself is unchanged.
+    let Ok(Some(client)) = state.store().client(client_id).await else {
+        return;
+    };
+    let registered = client.redirect_uris.iter().any(|uri| {
+        url::Url::parse(uri)
+            .is_ok_and(|url| origin.as_bytes() == url.origin().ascii_serialization().as_bytes())
+    });
+    if registered && origin.as_bytes() != b"null" {
+        let headers = response.headers_mut();
+        headers.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin.clone());
+        headers.append(header::VARY, HeaderValue::from_static("origin"));
+    }
+}
+
+/// Commits the record of `request` answered `answer`: an issued token
+/// together with its record, a refusal's record alone.
+async fn commit(
+    state: &AppState,
+    answer: &Result<Issued, Refusal>,
+    request: &audit::TokenRequest<'_>,
+) -> Result<(), audit::RecordFailure> {
+    let lane = state.audit();
+    match answer {
+        Ok(issued) => {
+            let exchange = audit::token_request(
+                request,
+                Ok(audit::Token {
+                    issuer: &state.settings().issuer,
+                    jti: &issued.jti,
+                    client_id: &issued.client_id,
+                    audience: &issued.audience,
+                    subject: issued.person.as_deref(),
+                }),
+            );
+            let mut tx = state
+                .store()
+                .begin()
+                .await
+                .map_err(audit::RecordFailure::Store)?;
+            tx.insert_token(&issued.record())
+                .await
+                .map_err(audit::RecordFailure::Store)?;
+            lane.commit(
+                tx,
+                &exchange,
+                "token",
+                issued.person.as_deref(),
+                Some(&issued.client_id),
+            )
+            .await
+        }
+        Err(refusal) => {
+            let exchange = audit::token_request(request, Err(refusal.error));
+            let row = lane.row(&exchange, "token", None, request.client_id)?;
+            lane.record(state.store(), &row).await
+        }
+    }
+}
+
+/// The answer to a token request that could not be recorded.
+fn unrecorded() -> Response {
+    no_store(StatusCode::SERVICE_UNAVAILABLE.into_response())
+}
+
+/// Returns `response` with the headers every token response carries: "The
+/// authorization server's response SHALL include the HTTP 'Cache-Control'
+/// response header field with a value of 'no-store'" and "'Pragma' ... with
+/// a value of 'no-cache'" (SMART App Launch 2.2.0, Obtain access token,
+/// Response; RFC 6749 §5.1).
+pub(crate) fn no_store(mut response: Response) -> Response {
+    let headers = response.headers_mut();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(header::PRAGMA, HeaderValue::from_static("no-cache"));
+    response
+}
+
+/// The RFC 6749 §5.1 token response.
+#[derive(Debug, Serialize)]
+pub struct TokenResponse {
+    /// The access token.
+    pub access_token: String,
+    /// `Bearer` for an app, `bearer` for a backend service: the fixed value
+    /// each of SMART App Launch 2.2.0's grants names (compared without case,
+    /// RFC 6749 §5.1).
+    pub token_type: &'static str,
+    /// The lifetime in seconds.
+    pub expires_in: u64,
+    /// The scope granted.
+    pub scope: String,
+    /// The ID Token, when `openid` is granted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_token: Option<String>,
+    /// The refresh token, when the grant carries `offline_access` or
+    /// `online_access` (SMART App Launch 2.2.0, Obtain access token).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refresh_token: Option<String>,
+    /// The launch context parameters of an app's grant, each a member of the
+    /// response (SMART App Launch 2.2.0, Scopes and Launch Context, Launch
+    /// context arrives with your `access_token`): `smart_style_url` when
+    /// `[ferrosmart.branding]` names one.
+    #[serde(flatten)]
+    pub context: Map<String, Value>,
+}
+
+/// An issued token with what the audit record names.
+#[derive(Debug)]
+pub(crate) struct Issued {
+    /// The response.
+    pub(crate) response: TokenResponse,
+    /// The client.
+    client_id: String,
+    /// The token's `jti`.
+    jti: String,
+    /// The token's `aud`.
+    audience: String,
+    /// The person the token was issued for, when one logged in.
+    person: Option<String>,
+    /// The token's `sub`.
+    subject: String,
+    /// Its `iat`.
+    iat: i64,
+    /// Its `exp`.
+    exp: i64,
+    /// The SHA-256 of the code it answers, if any.
+    code_hash: Option<String>,
+    /// The grant it was issued under; none for a client credentials token.
+    grant_id: Option<String>,
+}
+
+impl Issued {
+    /// Returns the access token as the store records it.
+    fn record(&self) -> IssuedToken<'_> {
+        IssuedToken {
+            jti: &self.jti,
+            client_id: &self.client_id,
+            subject: &self.subject,
+            audience: &self.audience,
+            scope: &self.response.scope,
+            issued_at: self.iat,
+            expires_at: self.exp,
+            code_hash: self.code_hash.as_deref(),
+            grant_id: self.grant_id.as_deref(),
+        }
+    }
+}
+
+/// Answers the token request `body`.
+async fn issue(
+    state: &AppState,
+    headers: &HeaderMap,
+    body: &[u8],
+    from: std::net::IpAddr,
+) -> Result<Issued, Refusal> {
+    let form = read_form(headers, body)?;
+    match form.get("grant_type") {
+        Some("client_credentials") => client_credentials(state, &form).await,
+        Some("authorization_code") => authorization_code(from, state, &form).await,
+        Some("refresh_token") => crate::refresh::refresh(state, &form, from).await,
+        Some(_) => Err(Refusal {
+            error: "unsupported_grant_type",
+            description: "the grant type is not supported",
+        }),
+        None => Err(Refusal::request("the request names no grant_type")),
+    }
+}
+
+/// Reads the form `body`, refused unless `headers` name it form-encoded,
+/// as the token (RFC 6749 §3.2), introspection (RFC 7662 §2.1) and
+/// revocation (RFC 7009 §2.1) requests all are.
+pub(crate) fn read_form(headers: &HeaderMap, body: &[u8]) -> Result<Params, Refusal> {
+    let form_type = headers
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(';').next())
+        .is_some_and(|media| {
+            media
+                .trim()
+                .eq_ignore_ascii_case("application/x-www-form-urlencoded")
+        });
+    if !form_type {
+        return Err(Refusal::request("the request is not form-encoded"));
+    }
+    Params::parse(body, &[]).map_err(|_repeated| Refusal::request("a parameter is repeated"))
+}
+
+/// Returns the `server_error` refusal described by `description`, after the
+/// cause is logged with its whole chain and never a value of the request.
+pub(crate) fn server_error(description: &'static str, cause: &dyn std::error::Error) -> Refusal {
+    tracing::error!(error = %ferrohealth_server::run::chain(cause), "{description}");
+    Refusal {
+        error: "server_error",
+        description,
+    }
+}

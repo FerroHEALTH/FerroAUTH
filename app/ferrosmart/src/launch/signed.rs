@@ -18,7 +18,8 @@ use crate::launch::Unresolved::{self, Refused};
 use crate::launch::context::Context;
 use crate::launch::{LAUNCH_SCOPE, MAX_LAUNCH_SECONDS};
 use crate::server::AppState;
-use crate::token::{LEEWAY_SECONDS, key_of};
+use crate::token::LEEWAY_SECONDS;
+use crate::token::assertion::key_of;
 
 /// The `typ` of a launch JWT (RFC 7515 §4.1.9; RFC 8725 §3.11, explicit
 /// typing). Our own media type.

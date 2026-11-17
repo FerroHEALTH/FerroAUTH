@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: BUSL-1.1
 # A person's part of FerroSMART's authorization code flow, as a browser
 # without script would take it: from the authorization request an app sent
-# the browser to, through the upstream provider's login form and
-# FerroSMART's consent page, approving every scope offered, to the redirect
+# the browser to, through the upstream provider's login form, FerroSMART's
+# patient picker when the app asks for `launch/patient`, and its consent
+# page, approving every scope offered, to the redirect
 # back to the app (SMART App Launch 2.2.0, Obtain authorization code). It
 # prints that redirect and, with --follow, also requests it, which is how
 # the Inferno lane hands the code to the kit. No specification governs the
@@ -85,10 +86,22 @@ case "$login" in
   *) fail "unknown login '$login'" ;;
 esac
 
-# 2. The provider sends it back to FerroSMART's callback, which shows the
-#    consent page; the person approves every scope offered.
+# 2. The provider sends it back to FerroSMART's callback. For `launch/patient`
+#    FerroSMART shows its patient picker first: the person searches by
+#    LAUNCH_PATIENT_NAME and picks the first patient found.
 case "$location" in "$issuer"/callback*) ;; *) fail "the login did not return to FerroSMART: $location" ;; esac
 location=$(redirect "$location")
+if [[ "$location" == "$issuer"/picker* ]]; then
+  : "${LAUNCH_PATIENT_NAME:?the name the person searches a patient by}"
+  page=$(curl -sS -c "$jar" -b "$jar" -G "$issuer/picker" --data-urlencode "name=$LAUNCH_PATIENT_NAME")
+  form_token=$(attribute "$page" '<input[^>]*name="form_token"[^>]*>' value)
+  patient=$(attribute "$page" '<input[^>]*name="patient"[^>]*>' value)
+  [ -n "$form_token" ] && [ -n "$patient" ] || fail "the picker found no patient named $LAUNCH_PATIENT_NAME"
+  location=$(redirect --data-urlencode "form_token=$form_token" --data-urlencode "patient=$patient" "$issuer/picker")
+fi
+
+# 3. FerroSMART shows the consent page; the person approves every scope
+#    offered.
 case "$location" in "$issuer"/consent*) ;; *) fail "FerroSMART did not ask for consent: $location" ;; esac
 page=$(curl -sS -c "$jar" -b "$jar" "$location")
 form_token=$(attribute "$page" '<input[^>]*name="form_token"[^>]*>' value)
@@ -100,7 +113,7 @@ done < <(grep -oE '<input[^>]*name="scope"[^>]*>' <<< "$page" | grep -oE 'value=
 location=$(redirect "${approve[@]}" "$issuer/consent")
 printf '%s\n' "$location"
 
-# 3. The browser follows the redirect to the app.
+# 4. The browser follows the redirect to the app.
 if [ "$follow" = --follow ]; then
   curl -fsS -o /dev/null "$location" || fail "the app did not take its redirect: $location"
 fi

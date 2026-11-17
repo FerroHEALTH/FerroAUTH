@@ -24,7 +24,9 @@ use crate::server::AppState;
 use crate::store::Code;
 use crate::store::Transaction;
 use crate::store::grant::{Access, IdleUntil, NewGrant, Rotation};
-use crate::token::{Grant, Issued, Refusal, identify, mint, server_error};
+use crate::token::grants::identify;
+use crate::token::mint::{Grant, mint};
+use crate::token::{Issued, Refusal, server_error};
 
 /// The `invalid_grant` refusal: "The provided authorization grant ... or
 /// refresh token is invalid, expired, revoked, ... or was issued to another

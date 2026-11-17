@@ -40,7 +40,7 @@ role_claims = ["roles"]
 
 [[ferrosmart.role]]
 name = "clinician"
-scopes = ["user/Practitioner.rs"]
+scopes = ["user/Practitioner.rs", "patient/Patient.rs"]
 
 # Inferno as a Backend Services client. Its public keys are registered by
 # value, taken from the test kit's own key set at the pinned commit; SMART
@@ -60,7 +60,7 @@ client_id = "inferno-standalone"
 name = "Inferno SMART App Launch test kit"
 kind = "public"
 redirect_uris = ["http://localhost:4567/custom/smart_stu2_2/redirect"]
-scopes = ["openid", "fhirUser", "launch", "offline_access", "user/Practitioner.rs"]
+scopes = ["openid", "fhirUser", "launch", "launch/patient", "offline_access", "user/Practitioner.rs", "patient/Patient.rs"]
 grant_types = ["authorization_code", "refresh_token"]
 
 # The lane itself: the EHR that registers each EHR launch (docs/architecture.md
