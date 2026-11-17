@@ -156,10 +156,21 @@ fn verified(
     let mut validation = Validation::new(algorithm);
     validation.leeway = LEEWAY_SECONDS;
     validation.validate_aud = false;
+    // NOTE: RFC 7523 §3 item 4, `exp` is checked below on its own, so an expired
+    // assertion whose signature holds is told apart from one that does not verify.
+    validation.validate_exp = false;
     validation.set_required_spec_claims(&["exp", "iss", "sub", "aud", "jti"]);
     let claims: Value = jsonwebtoken::decode(assertion, key, &validation)
         .map_err(|_refused| Refusal::client("the client_assertion does not verify"))?
         .claims;
+    let now = jiff::Timestamp::now().as_second();
+    if claims
+        .get("exp")
+        .and_then(Value::as_i64)
+        .is_none_or(|exp| exp.saturating_add_unsigned(LEEWAY_SECONDS) < now)
+    {
+        return Err(Refusal::client("the client_assertion has expired"));
+    }
     // NOTE: RFC 10070 §4, a sole audience value; SMART App Launch 2.2.0 names the
     // token URL, and the issuer identifier is admitted beside it (13.6 item 1).
     let settings = state.settings();
@@ -173,7 +184,6 @@ fn verified(
             "the client_assertion's aud is not this server",
         ));
     }
-    let now = jiff::Timestamp::now().as_second();
     let latest = now.saturating_add_unsigned(MAX_ASSERTION_SECONDS + LEEWAY_SECONDS);
     if claims
         .get("exp")

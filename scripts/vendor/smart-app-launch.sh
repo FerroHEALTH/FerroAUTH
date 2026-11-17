@@ -7,7 +7,7 @@
 # HL7 FHIR package `hl7.fhir.uv.smart-app-launch` at the version the
 # "SMART App Launch package" row of docs/VERSIONS.md pins, verified against
 # the registry's checksum, under package/; and the specification's page
-# sources (input/pages/*.md, the includes they use and the two diagrams they
+# sources (input/pages/*.md, the includes they use, the two diagrams they
 # embed) from the HL7/smart-app-launch repository at the commit the
 # "SMART App Launch source" row pins, under repository/. The script proves
 # the release tag still names that commit and that the commit predates the
@@ -99,7 +99,9 @@ corpus_take "$spec_root" "$dest/repository" \
   input/pages \
   input/includes \
   input/images/clinical-scope-syntax-diagram.png \
-  input/images/backend-service-authorization-diagram.png
+  input/images/backend-service-authorization-diagram.png \
+  input/images/RS384.public.json \
+  input/images/ES384.public.json
 
 pages="$(find "$dest/repository/input/pages" -type f -name '*.md' | wc -l | tr -d '[:space:]')"
 stray="$(find "$dest/repository/input/pages" -type f ! -name '*.md' | head -n1)"
@@ -177,6 +179,10 @@ signed assertion), \`client-confidential-asymmetric.md\` and
 \`client-confidential-symmetric.md\` (client authentication),
 \`conformance.md\` (the capability sets and the
 \`.well-known/smart-configuration\` document) and \`token-introspection.md\`.
+\`input/images/RS384.public.json\` and \`ES384.public.json\` are the public
+keys of the guide's signed examples (Examples, Client authentication), which
+the conformance tests verify those examples against; the private halves are
+not taken.
 PROV
 
 say "package $package_files files, digest $package_digest"
