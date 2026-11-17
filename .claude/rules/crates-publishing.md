@@ -120,7 +120,7 @@ that version is on crates.io.
 1. The name was reserved at `0.0.0` by the owner's crates.io login on
    2026-10-19, since a first version cannot use Trusted Publishing.
 2. On crates.io, the crate's Trusted Publishing carries two GitHub entries:
-   repository owner `FerroHEALTH`, repository `FerroAUTH`, workflows
+   repository owner `FerroHEALTH`, repository `FerroSMART`, workflows
    `release.yml` and `publish-crates.yml`, environment `crates-io`.
    `ferrohealth-authz`, the policy decision crate reserved at `0.0.0`, has
    Trusted Publishing for the same repository.

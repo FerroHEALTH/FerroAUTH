@@ -82,10 +82,10 @@ job over the section it cuts (`scripts/release/plan.sh`). A section
 released before the rules is never checked again.
 
 - **Every entry names its advisory** (Annex I Part II(4), (8)). A Security
-  entry carries the `GHSA-` id of the FerroAUTH security advisory drafted
+  entry carries the `GHSA-` id of the FerroSMART security advisory drafted
   for the fix and published with the release (`SECURITY.md`, Security
   advisories), or, for a dependency finding an OpenVEX statement shows does
-  not affect FerroAUTH, the path of that statement under `security/vex/`,
+  not affect FerroSMART, the path of that statement under `security/vex/`,
   which must exist. A RUSTSEC id alone is not enough: name it beside the
   advisory.
 - **A security fix ships alone, or says why not** (Annex I Part II(2)). A
@@ -226,11 +226,11 @@ differences:
 
   ```sh
   gh attestation verify ferrosmart-X.Y.Z-x86_64-unknown-linux-musl.tar.gz \
-    --repo FerroHEALTH/FerroAUTH \
-    --signer-workflow FerroHEALTH/FerroAUTH/.github/workflows/release-ferrosmart-build.yml
+    --repo FerroHEALTH/FerroSMART \
+    --signer-workflow FerroHEALTH/FerroSMART/.github/workflows/release-ferrosmart-build.yml
   gh attestation verify oci://ghcr.io/ferrohealth/ferrosmart:X.Y.Z \
-    --repo FerroHEALTH/FerroAUTH \
-    --signer-workflow FerroHEALTH/FerroAUTH/.github/workflows/release-ferrosmart-image.yml
+    --repo FerroHEALTH/FerroSMART \
+    --signer-workflow FerroHEALTH/FerroSMART/.github/workflows/release-ferrosmart-image.yml
   ```
 
 After the release, `.github/workflows/image-scan.yml` scans the published

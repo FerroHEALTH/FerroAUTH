@@ -47,7 +47,7 @@
 #
 # Requires: curl, shasum, awk, and scripts/vendor/lib/corpus.sh sourced first.
 #
-# No specification governs this file; it is FerroAUTH's own design, taken
+# No specification governs this file; it is FerroSMART's own design, taken
 # from the FerroHEALTH/FerroFED script of the same name.
 
 pinned_cache_root=".vendor-cache"

@@ -5,7 +5,7 @@
 
 Vulnerability Exploitability eXchange documents, in
 [OpenVEX](https://openvex.dev) format, asserting the exploitability of
-specific findings in what FerroAUTH publishes: the `ferrosmart` server
+specific findings in what FerroSMART publishes: the `ferrosmart` server
 binary and the `ferrosmart` image built from it.
 
 A VEX document carries the argument with it: each statement names the

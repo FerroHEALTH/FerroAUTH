@@ -11,6 +11,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The repository is FerroSMART again, at
+  <https://github.com/FerroHEALTH/FerroSMART>, and the crate's `repository`
+  and `homepage` point there (owner decision 2026-11-17). The FerroAUTH
+  address redirects, and the crate name stays.
+
 ### Fixed
 
 - The App Launch discovery document of `resource::configuration::document`
@@ -18,7 +25,7 @@ and this project adheres to
   algorithms, whenever it lists `private_key_jwt`, as SMART App Launch
   2.2.0, Client Authentication: Asymmetric, Advertising server support
   requires of a server that supports the profile. Only the Backend Services
-  document carried it before (FerroHEALTH/FerroAUTH#600).
+  document carried it before (FerroHEALTH/FerroSMART#600).
 
 ## [0.29.1] - 2026-11-17
 
@@ -1833,7 +1840,7 @@ below names what a product changes.
   gains `Role` and `UnknownUser`.
 
 - The repository is FerroAUTH, renamed from FerroSMART on 2026-10-25, at
-  <https://github.com/FerroHEALTH/FerroAUTH>; the old address redirects. It
+  <https://github.com/FerroHEALTH/FerroSMART>; the old address redirects. It
   holds two crates: authentication, `ferrohealth-smart`, and the policy
   decision, `ferrohealth-authz`. The `repository` and `homepage` fields of
   the published manifest name the new address. The crate name and every
@@ -2335,65 +2342,65 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.29.1...HEAD
-[0.29.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.29.0...ferrohealth-smart-v0.29.1
-[0.29.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.28.0...ferrohealth-smart-v0.29.0
-[0.28.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.27.0...ferrohealth-smart-v0.28.0
-[0.27.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.26.0...ferrohealth-smart-v0.27.0
-[0.26.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.25.0...ferrohealth-smart-v0.26.0
-[0.25.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.24.1...ferrohealth-smart-v0.25.0
-[0.24.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.24.0...ferrohealth-smart-v0.24.1
-[0.24.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.23.0...ferrohealth-smart-v0.24.0
-[0.23.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.22.0...ferrohealth-smart-v0.23.0
-[0.22.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.21.0...ferrohealth-smart-v0.22.0
-[0.21.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.20.0...ferrohealth-smart-v0.21.0
-[0.20.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.19.1...ferrohealth-smart-v0.20.0
-[0.19.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.19.0...ferrohealth-smart-v0.19.1
-[0.19.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.18.0...ferrohealth-smart-v0.19.0
-[0.18.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.17.1...ferrohealth-smart-v0.18.0
-[0.17.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.17.0...ferrohealth-smart-v0.17.1
-[0.17.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.3...ferrohealth-smart-v0.17.0
-[0.16.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.2...ferrohealth-smart-v0.16.3
-[0.16.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.1...ferrohealth-smart-v0.16.2
-[0.16.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.16.0...ferrohealth-smart-v0.16.1
-[0.16.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.15.1...ferrohealth-smart-v0.16.0
-[0.15.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.15.0...ferrohealth-smart-v0.15.1
-[0.15.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.14.0...ferrohealth-smart-v0.15.0
-[0.14.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.1...ferrohealth-smart-v0.14.0
-[0.13.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.13.0...ferrohealth-smart-v0.13.1
-[0.13.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.12.0...ferrohealth-smart-v0.13.0
-[0.12.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.11.0...ferrohealth-smart-v0.12.0
-[0.11.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.10.1...ferrohealth-smart-v0.11.0
-[0.10.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.10.0...ferrohealth-smart-v0.10.1
-[0.10.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.4...ferrohealth-smart-v0.10.0
-[0.9.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.3...ferrohealth-smart-v0.9.4
-[0.9.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.2...ferrohealth-smart-v0.9.3
-[0.9.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.1...ferrohealth-smart-v0.9.2
-[0.9.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.9.0...ferrohealth-smart-v0.9.1
-[0.9.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.9...ferrohealth-smart-v0.9.0
-[0.8.9]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.8...ferrohealth-smart-v0.8.9
-[0.8.8]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.7...ferrohealth-smart-v0.8.8
-[0.8.7]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.6...ferrohealth-smart-v0.8.7
-[0.8.6]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.5...ferrohealth-smart-v0.8.6
-[0.8.5]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.4...ferrohealth-smart-v0.8.5
-[0.8.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.3...ferrohealth-smart-v0.8.4
-[0.8.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.2...ferrohealth-smart-v0.8.3
-[0.8.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.1...ferrohealth-smart-v0.8.2
-[0.8.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.8.0...ferrohealth-smart-v0.8.1
-[0.8.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.5...ferrohealth-smart-v0.8.0
-[0.7.5]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.4...ferrohealth-smart-v0.7.5
-[0.7.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.3...ferrohealth-smart-v0.7.4
-[0.7.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.2...ferrohealth-smart-v0.7.3
-[0.7.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.1...ferrohealth-smart-v0.7.2
-[0.7.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.7.0...ferrohealth-smart-v0.7.1
-[0.7.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.6.0...ferrohealth-smart-v0.7.0
-[0.6.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.5.1...v0.6.0
-[0.5.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.5.0...v0.5.1
-[0.5.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.4.1...v0.5.0
-[0.4.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.4.0...v0.4.1
-[0.4.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.3.1...v0.4.0
-[0.3.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.2.0...v0.3.0
-[0.2.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/FerroHEALTH/FerroAUTH/releases/tag/v0.1.0
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.1...HEAD
+[0.29.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.0...ferrohealth-smart-v0.29.1
+[0.29.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.28.0...ferrohealth-smart-v0.29.0
+[0.28.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.27.0...ferrohealth-smart-v0.28.0
+[0.27.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.26.0...ferrohealth-smart-v0.27.0
+[0.26.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.25.0...ferrohealth-smart-v0.26.0
+[0.25.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.24.1...ferrohealth-smart-v0.25.0
+[0.24.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.24.0...ferrohealth-smart-v0.24.1
+[0.24.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.23.0...ferrohealth-smart-v0.24.0
+[0.23.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.22.0...ferrohealth-smart-v0.23.0
+[0.22.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.21.0...ferrohealth-smart-v0.22.0
+[0.21.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.20.0...ferrohealth-smart-v0.21.0
+[0.20.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.19.1...ferrohealth-smart-v0.20.0
+[0.19.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.19.0...ferrohealth-smart-v0.19.1
+[0.19.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.18.0...ferrohealth-smart-v0.19.0
+[0.18.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.17.1...ferrohealth-smart-v0.18.0
+[0.17.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.17.0...ferrohealth-smart-v0.17.1
+[0.17.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.16.3...ferrohealth-smart-v0.17.0
+[0.16.3]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.16.2...ferrohealth-smart-v0.16.3
+[0.16.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.16.1...ferrohealth-smart-v0.16.2
+[0.16.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.16.0...ferrohealth-smart-v0.16.1
+[0.16.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.15.1...ferrohealth-smart-v0.16.0
+[0.15.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.15.0...ferrohealth-smart-v0.15.1
+[0.15.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.14.0...ferrohealth-smart-v0.15.0
+[0.14.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.13.1...ferrohealth-smart-v0.14.0
+[0.13.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.13.0...ferrohealth-smart-v0.13.1
+[0.13.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.12.0...ferrohealth-smart-v0.13.0
+[0.12.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.11.0...ferrohealth-smart-v0.12.0
+[0.11.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.10.1...ferrohealth-smart-v0.11.0
+[0.10.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.10.0...ferrohealth-smart-v0.10.1
+[0.10.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.9.4...ferrohealth-smart-v0.10.0
+[0.9.4]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.9.3...ferrohealth-smart-v0.9.4
+[0.9.3]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.9.2...ferrohealth-smart-v0.9.3
+[0.9.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.9.1...ferrohealth-smart-v0.9.2
+[0.9.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.9.0...ferrohealth-smart-v0.9.1
+[0.9.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.8.9...ferrohealth-smart-v0.9.0
+[0.8.9]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.8.8...ferrohealth-smart-v0.8.9
+[0.8.8]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.8.7...ferrohealth-smart-v0.8.8
+[0.8.7]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.8.6...ferrohealth-smart-v0.8.7
+[0.8.6]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.8.5...ferrohealth-smart-v0.8.6
+[0.8.5]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.8.4...ferrohealth-smart-v0.8.5
+[0.8.4]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.8.3...ferrohealth-smart-v0.8.4
+[0.8.3]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.8.2...ferrohealth-smart-v0.8.3
+[0.8.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.8.1...ferrohealth-smart-v0.8.2
+[0.8.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.8.0...ferrohealth-smart-v0.8.1
+[0.8.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.7.5...ferrohealth-smart-v0.8.0
+[0.7.5]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.7.4...ferrohealth-smart-v0.7.5
+[0.7.4]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.7.3...ferrohealth-smart-v0.7.4
+[0.7.3]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.7.2...ferrohealth-smart-v0.7.3
+[0.7.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.7.1...ferrohealth-smart-v0.7.2
+[0.7.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.7.0...ferrohealth-smart-v0.7.1
+[0.7.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.6.0...ferrohealth-smart-v0.7.0
+[0.6.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.5.1...v0.6.0
+[0.5.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.4.1...v0.5.0
+[0.4.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.4.0...v0.4.1
+[0.4.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.1...v0.4.0
+[0.3.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/FerroHEALTH/FerroSMART/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/FerroHEALTH/FerroSMART/releases/tag/v0.1.0

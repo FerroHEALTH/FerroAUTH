@@ -21,7 +21,7 @@ newest release (Art 13(10)).
 
 | Artifact | Supported version | Where fixes ship |
 | --- | --- | --- |
-| Every published FerroAUTH artifact | the newest published release | the newest release |
+| Every published FerroSMART artifact | the newest published release | the newest release |
 
 - **Where fixes ship:** a security fix ships in a new release. Where it is
   technically feasible, that release is a patch with the fix alone, so the
@@ -45,11 +45,11 @@ effort.
 **Do not open a public issue for a security vulnerability.** Report it
 privately, through either route:
 
-- [GitHub private vulnerability reporting](https://github.com/FerroHEALTH/FerroAUTH/security/advisories/new)
+- [GitHub private vulnerability reporting](https://github.com/FerroHEALTH/FerroSMART/security/advisories/new)
   ("Report a vulnerability" on the repository's Security tab), which needs a
   GitHub account; or
 - email to [security@cadasto.com](mailto:security@cadasto.com), the security
-  address of Cadasto B.V., the manufacturer (CRA Art 13(17)), with "FerroAUTH
+  address of Cadasto B.V., the manufacturer (CRA Art 13(17)), with "FerroSMART
   vulnerability" in the subject. No account is needed. The address has no
   published encryption key, so send the details you are comfortable sending
   by email and say that more is available; a channel for the rest is agreed
@@ -59,7 +59,7 @@ Both routes reach the same people and the same procedure.
 
 ## Response times
 
-FerroAUTH is solo-maintained, so these are best effort rather than a
+FerroSMART is solo-maintained, so these are best effort rather than a
 contractual service-level agreement. They are the times every product of the
 Ferro family states: an acknowledgement within about 5 business days, and
 an initial assessment (is it valid, how severe) within about 10 business days
@@ -82,7 +82,7 @@ other users is your call.
 A reported vulnerability gets a private draft of a GitHub security advisory
 on this repository the day it is confirmed, and the draft is the record
 until the fix ships. Every fixed vulnerability is published as that
-advisory, in the same hour as the release that fixes it: one in FerroAUTH's
+advisory, in the same hour as the release that fixes it: one in FerroSMART's
 own code, and one for a dependency fix that changes what a published crate
 builds into. The `### Security` entry for the fix in
 the affected crate's changelog
@@ -91,14 +91,14 @@ the affected crate's changelog
 and the release notes repeat it (CRA Annex I Part II(4), (8)). CI and the
 release check both rules (`scripts/checks/changelog-security.sh`). The
 advisories are machine-readable through the GitHub REST API
-(`GET /repos/FerroHEALTH/FerroAUTH/security-advisories`).
+(`GET /repos/FerroHEALTH/FerroSMART/security-advisories`).
 
 ## Vulnerability exploitability (VEX)
 
-`deny.toml` accepts no advisory today, so FerroAUTH publishes no VEX
+`deny.toml` accepts no advisory today, so FerroSMART publishes no VEX
 document yet. The document arrives with the first accepted advisory: an
 OpenVEX statement under `security/vex/`, generated from `deny.toml` and the
 reasoning beside it, which a scanner reads with `trivy --vex`, as FerroUI
 and FerroPIX publish theirs. A dependency finding such a statement shows
-does not affect FerroAUTH gets no advisory; its changelog entry names the
+does not affect FerroSMART gets no advisory; its changelog entry names the
 statement instead.

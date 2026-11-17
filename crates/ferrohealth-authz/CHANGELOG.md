@@ -14,6 +14,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The repository is FerroSMART again, at
+  <https://github.com/FerroHEALTH/FerroSMART>, and the crate's `repository`
+  and `homepage` point there (owner decision 2026-11-17). The FerroAUTH
+  address redirects, and the crate name stays.
+
 ## [0.22.0] - 2026-11-17
 
 ### Changed
@@ -391,34 +398,34 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.22.0...HEAD
-[0.22.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.21.0...ferrohealth-authz-v0.22.0
-[0.21.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.20.0...ferrohealth-authz-v0.21.0
-[0.20.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.19.0...ferrohealth-authz-v0.20.0
-[0.19.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.18.0...ferrohealth-authz-v0.19.0
-[0.18.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.17.0...ferrohealth-authz-v0.18.0
-[0.17.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.16.0...ferrohealth-authz-v0.17.0
-[0.16.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.15.0...ferrohealth-authz-v0.16.0
-[0.15.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.14.0...ferrohealth-authz-v0.15.0
-[0.14.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.13.0...ferrohealth-authz-v0.14.0
-[0.13.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.12.0...ferrohealth-authz-v0.13.0
-[0.12.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.11.0...ferrohealth-authz-v0.12.0
-[0.11.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.10.0...ferrohealth-authz-v0.11.0
-[0.10.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.9.0...ferrohealth-authz-v0.10.0
-[0.9.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.8.1...ferrohealth-authz-v0.9.0
-[0.8.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.8.0...ferrohealth-authz-v0.8.1
-[0.8.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.7.0...ferrohealth-authz-v0.8.0
-[0.7.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.6.0...ferrohealth-authz-v0.7.0
-[0.6.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.5.0...ferrohealth-authz-v0.6.0
-[0.5.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.4.0...ferrohealth-authz-v0.5.0
-[0.4.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.3.0...ferrohealth-authz-v0.4.0
-[0.3.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.2...ferrohealth-authz-v0.3.0
-[0.2.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.1...ferrohealth-authz-v0.2.2
-[0.2.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.2.0...ferrohealth-authz-v0.2.1
-[0.2.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.5...ferrohealth-authz-v0.2.0
-[0.1.5]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.4...ferrohealth-authz-v0.1.5
-[0.1.4]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.3...ferrohealth-authz-v0.1.4
-[0.1.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.2...ferrohealth-authz-v0.1.3
-[0.1.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.1...ferrohealth-authz-v0.1.2
-[0.1.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-authz-v0.1.0...ferrohealth-authz-v0.1.1
-[0.1.0]: https://github.com/FerroHEALTH/FerroAUTH/releases/tag/ferrohealth-authz-v0.1.0
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.22.0...HEAD
+[0.22.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.21.0...ferrohealth-authz-v0.22.0
+[0.21.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.20.0...ferrohealth-authz-v0.21.0
+[0.20.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.19.0...ferrohealth-authz-v0.20.0
+[0.19.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.18.0...ferrohealth-authz-v0.19.0
+[0.18.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.17.0...ferrohealth-authz-v0.18.0
+[0.17.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.16.0...ferrohealth-authz-v0.17.0
+[0.16.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.15.0...ferrohealth-authz-v0.16.0
+[0.15.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.14.0...ferrohealth-authz-v0.15.0
+[0.14.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.13.0...ferrohealth-authz-v0.14.0
+[0.13.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.12.0...ferrohealth-authz-v0.13.0
+[0.12.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.11.0...ferrohealth-authz-v0.12.0
+[0.11.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.10.0...ferrohealth-authz-v0.11.0
+[0.10.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.9.0...ferrohealth-authz-v0.10.0
+[0.9.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.8.1...ferrohealth-authz-v0.9.0
+[0.8.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.8.0...ferrohealth-authz-v0.8.1
+[0.8.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.7.0...ferrohealth-authz-v0.8.0
+[0.7.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.6.0...ferrohealth-authz-v0.7.0
+[0.6.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.5.0...ferrohealth-authz-v0.6.0
+[0.5.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.4.0...ferrohealth-authz-v0.5.0
+[0.4.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.3.0...ferrohealth-authz-v0.4.0
+[0.3.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.2.2...ferrohealth-authz-v0.3.0
+[0.2.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.2.1...ferrohealth-authz-v0.2.2
+[0.2.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.2.0...ferrohealth-authz-v0.2.1
+[0.2.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.1.5...ferrohealth-authz-v0.2.0
+[0.1.5]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.1.4...ferrohealth-authz-v0.1.5
+[0.1.4]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.1.3...ferrohealth-authz-v0.1.4
+[0.1.3]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.1.2...ferrohealth-authz-v0.1.3
+[0.1.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.1.1...ferrohealth-authz-v0.1.2
+[0.1.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.1.0...ferrohealth-authz-v0.1.1
+[0.1.0]: https://github.com/FerroHEALTH/FerroSMART/releases/tag/ferrohealth-authz-v0.1.0
