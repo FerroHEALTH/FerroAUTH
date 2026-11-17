@@ -64,6 +64,11 @@ exceptions = [
   { allow = ["BUSL-1.1"], crate = "ihe-atna" },
   # The family's EHDS access record, which the patient picker writes (#516).
   { allow = ["BUSL-1.1"], crate = "ehds-logging" },
+  # FerroBRIDGE's R4 profile validator and the two crates it links, a
+  # dev-dependency of FerroSMART's Brands Bundle test (#602).
+  { allow = ["BUSL-1.1"], crate = "ferrobridge-validator" },
+  { allow = ["BUSL-1.1"], crate = "ferrobridge-term" },
+  { allow = ["BUSL-1.1"], crate = "ferrobridge-fhirpath" },
 ]
 
 [bans]

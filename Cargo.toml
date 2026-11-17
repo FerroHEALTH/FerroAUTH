@@ -54,6 +54,11 @@ cedar-policy = "4.14.0"
 arc-swap = "1.9.3"
 # Test-only: the policy directory of the reload cases.
 tempfile = "3.27.0"
+# The R4 profile validator FerroSMART's Brands Bundle test holds the Bundle
+# to, over the SMART App Launch 2.2.0 package set (#602), and the FHIR
+# document model it reads.
+ferrobridge-validator = "0.13.0"
+fhir-types = { version = "0.1.131", default-features = false, features = ["r4"] }
 # ferrohealth-session: the private (AES-256-GCM) cookie jar of the sealed
 # store, and the session-watch wire FerroUI's script reads. Verified against
 # crates.io on 2026-11-04.

@@ -11,6 +11,7 @@
 
 mod audit;
 mod authorize;
+mod brands;
 mod clients;
 mod config;
 mod discovery;

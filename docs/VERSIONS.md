@@ -110,6 +110,36 @@ RFC Editor reports obsoleted, and records what updates it.
 | RFC 9207 | OAuth 2.0 Authorization Server Issuer Identification, sha256 `c9c17b9824315aca9bda5c0b5e3627cb24aa28d54324292f3761006209b705fd` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 9864 | Fully-Specified Algorithms for JSON Object Signing and Encryption (JOSE) and CBOR Object Signing and Encryption (COSE), sha256 `0f9b6dd26b3285fd9fe7f7e0a82e684d06512dee642703d51c6f88a7b0edaa2b` | `docs/specs/rfc/PROVENANCE.md` |
 | RFC 10070 | Updates to OAuth 2.0 JSON Web Token (JWT) Client Authentication and Assertion-Based Authorization Grants, sha256 `bca193c44b10f864396706e29192a091256d9c15a66c1549b01e75866165e163` | `docs/specs/rfc/PROVENANCE.md` |
+| RFC 9110 | HTTP Semantics, for the conditional GET of the Brands Bundle (If-None-Match, weak entity tags), sha256 `21c1cdce6ab0e5509b04d84a28000836c7a087cf786efe6f04877ebfff47232a` | `docs/specs/rfc/PROVENANCE.md` |
+
+## FHIR packages (the Brands Bundle check, build time, never committed)
+
+The test that holds FerroSMART's User Access Brands Bundle to the profiles
+of SMART App Launch 2.2.0 (#602) reads the SMART package vendored under
+`docs/specs/smart-app-launch/` and the packages below with
+`ferrobridge-validator`, offline. `scripts/vendor/fhir-packages.sh` fetches
+each from the FHIR package registry at build time into the ignored
+`docs/specs/fhir-packages/<package>#<version>/package.tgz`, checks the
+registry's sha1 and the sha256 pinned here, and commits only each
+`PROVENANCE.md`; its `--check` asserts the dependency closure offline.
+
+The closure is the SMART package's `dependencies` and theirs. A package
+whose `fhirVersions` name another FHIR release than R4 is held without its
+own dependencies, since an R4 validator never reads it, and its R4 edition,
+the same package with the `.r4` suffix at the same version, is pinned
+beside it so its definitions resolve: SMART App Launch 2.2.0 depends on
+`hl7.fhir.uv.extensions` 5.1.0-snapshot1, an R5 package, which carries
+`organization-brand`, `organization-portal` and `endpoint-fhir-version`, and
+`hl7.fhir.uv.extensions.r4` 5.1.0-snapshot1 is their R4 form. No
+specification governs the substitution: our own design.
+
+| Item | Pin | Repeated in |
+|---|---|---|
+| `hl7.fhir.r4.core#4.0.1` | sha1 `0e4b8d99f7918587557682c8b47df605424547a5` sha256 `ebd7731df7d36b5b7d39d5fb6c9d77b44bb7fe5742f1a2e87f164738c3289d44` (CC0-1.0) | `scripts/vendor/fhir-packages.sh`, `docs/specs/fhir-packages/hl7.fhir.r4.core#4.0.1/PROVENANCE.md` |
+| `hl7.fhir.uv.extensions#5.1.0-snapshot1` | sha1 `c9b500af54cea20afb742c9773a57ba422557376` sha256 `8a1f92c1e77535cb2ae21b69028de81a21ea27bd24d0a76c43c7224b8f46b35c` (CC0-1.0, FHIR 5.0.0, held) | `scripts/vendor/fhir-packages.sh`, `docs/specs/fhir-packages/hl7.fhir.uv.extensions#5.1.0-snapshot1/PROVENANCE.md` |
+| `hl7.fhir.uv.extensions.r4#5.1.0-snapshot1` | sha1 `439ac5c744b7b66b841d682f1926331719db5042` sha256 `00c6d967fb4afc9fa8dd7852a95ea8806fc838a5651589011c3a056649326eb1` (CC0-1.0, the R4 edition of the row above) | `scripts/vendor/fhir-packages.sh`, `docs/specs/fhir-packages/hl7.fhir.uv.extensions.r4#5.1.0-snapshot1/PROVENANCE.md` |
+| `hl7.terminology#5.5.0` | sha1 `db33c3b3204dd21e5c9d392aaa3e6c16e2d90ac1` sha256 `6d0947f9be882c06c29c693b784b751e8bd8700acdc0cf042bf4ce48d6b16698` (CC0-1.0) | `scripts/vendor/fhir-packages.sh`, `docs/specs/fhir-packages/hl7.terminology#5.5.0/PROVENANCE.md` |
+| `hl7.fhir.uv.extensions.r4#1.0.0` | sha1 `d4f95213cd55173fb5bce87c02eba3ecdace3cb2` sha256 `b270eb5b0ea3d015398a5af6c86cab2718070cbb850e366ef050ce6d6eb4a9d3` (CC0-1.0, a dependency of `hl7.terminology` 5.5.0) | `scripts/vendor/fhir-packages.sh`, `docs/specs/fhir-packages/hl7.fhir.uv.extensions.r4#1.0.0/PROVENANCE.md` |
 
 ## Licence
 

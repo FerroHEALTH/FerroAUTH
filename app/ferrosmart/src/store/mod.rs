@@ -222,6 +222,31 @@ impl Store {
         sqlx::query("SELECT 1").execute(&self.pool).await?;
         Ok(())
     }
+
+    /// Records that the Brands Bundle's contents hash to `digest` and
+    /// returns when they last changed, in milliseconds since the epoch: now
+    /// when the digest differs from the one stored, the stored instant
+    /// otherwise, so every replica serving the same contents names the same
+    /// instant.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when a statement fails.
+    pub async fn brands_changed(&self, digest: &str) -> Result<i64, StoreError> {
+        sqlx::query(
+            "INSERT INTO brand_bundle (singleton, digest, changed_at) VALUES (true, $1, now()) \
+             ON CONFLICT (singleton) DO UPDATE SET digest = EXCLUDED.digest, \
+             changed_at = EXCLUDED.changed_at WHERE brand_bundle.digest <> EXCLUDED.digest",
+        )
+        .bind(digest)
+        .execute(&self.pool)
+        .await?;
+        let changed: i64 = sqlx::query_scalar(
+            "SELECT floor(extract(epoch FROM changed_at) * 1000)::bigint FROM brand_bundle",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(changed)
+    }
 }
 
 /// Writes `client` as a configured client.

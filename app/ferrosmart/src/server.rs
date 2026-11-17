@@ -65,6 +65,9 @@ pub struct AppState {
     /// The HTTP client the patient picker searches the resource servers
     /// with.
     fhir: reqwest::Client,
+    /// The User Access Brands Bundle as served, when the deployment
+    /// publishes one.
+    brands: Option<crate::brands::Published>,
 }
 
 impl AppState {
@@ -85,7 +88,22 @@ impl AppState {
             relying_party: None,
             audit,
             fhir: reqwest::Client::new(),
+            brands: None,
         }
+    }
+
+    /// Returns this state serving `brands` at `{issuer}/brands`.
+    #[must_use]
+    pub fn with_brands(mut self, brands: crate::brands::Published) -> Self {
+        self.brands = Some(brands);
+        self
+    }
+
+    /// Returns the Brands Bundle as served, when the deployment publishes
+    /// one.
+    #[must_use]
+    pub const fn brands(&self) -> Option<&crate::brands::Published> {
+        self.brands.as_ref()
     }
 
     /// Returns this state logging people in through `party`, and serving
@@ -148,7 +166,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     let registry = Registry::new(vec![Arc::new(Database(state.store.clone()))]);
     let health = Health::new(registry, state.lifecycle.clone());
     let section = state.settings.server.clone();
-    let issuer = Router::new()
+    let mut issuer = Router::new()
         .route(SMART_CONFIGURATION_ROUTE, get(smart_configuration))
         .route(JWKS_ROUTE, get(jwks))
         .route(UPSTREAM_JWKS_ROUTE, get(upstream_jwks))
@@ -183,6 +201,12 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(authorize::manage::manage_get).post(authorize::manage::manage_post),
         )
         .with_state(Arc::clone(&state));
+    if state.brands.is_some() {
+        issuer = issuer.route(
+            crate::brands::BRANDS_ROUTE,
+            get(crate::brands::brands).with_state(Arc::clone(&state)),
+        );
+    }
     // NOTE: FerroUI docs/consoles.md, "How a console builds": the asset router at
     // its prefix, from the root, the path the shell's tags name.
     let beside = Router::new()

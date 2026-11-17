@@ -83,6 +83,9 @@ tower = { workspace = true, features = ["util"] }
 wiremock.workspace = true
 # The certificate of the key a case authenticates upstream with.
 rcgen.workspace = true
+# The Brands Bundle held to the SMART App Launch 2.2.0 profiles (#602).
+ferrobridge-validator.workspace = true
+fhir-types.workspace = true
 
 [lints]
 workspace = true
