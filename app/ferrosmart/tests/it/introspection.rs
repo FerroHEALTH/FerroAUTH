@@ -341,12 +341,7 @@ pub(crate) const VAULT_SECRET: &str = "synthetic vault secret";
 
 /// Returns the Argon2id PHC hash of `secret` at the OWASP floor.
 pub(crate) fn phc(secret: &str) -> String {
-    use argon2::password_hash::PasswordHasher as _;
-    let params = argon2::Params::new(19_456, 2, 1, None).expect("the floor");
-    argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
-        .hash_password_with_salt(secret.as_bytes(), b"synthetic-salt-16")
-        .expect("hashes")
-        .to_string()
+    ferrosmart::clients::hash_secret(secret).expect("hashes")
 }
 
 /// Returns an id no other value of the run carries.

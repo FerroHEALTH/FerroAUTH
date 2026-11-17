@@ -15,7 +15,7 @@ use ferrohealth_telemetry::section::TelemetrySection;
 use ferrohealth_telemetry::telemetry::{Console, InitError, Service, Telemetry};
 use ihe_atna::atna::forwarder::Forwarder;
 
-use crate::cli::Cli;
+use crate::cli::{Cli, ClientCommand, Command};
 use crate::config::Config;
 use crate::config::settings::Settings;
 use crate::server::AppState;
@@ -36,14 +36,20 @@ pub const RUN: Run = Run::new("ferrosmart");
 /// Returns the [`Failure`] of a configuration that does not resolve and of
 /// a job that fails.
 pub async fn dispatch(cli: Cli) -> Result<ExitCode, Failure> {
+    let command = match cli.command {
+        Command::Common(command) => command,
+        Command::Client {
+            command: ClientCommand::HashSecret,
+        } => return hash_secret(),
+    };
     let loaded = Config::load(&cli.config).and_then(|loaded| {
         loaded
             .settings()
             .resolve()
             .map(|settings| (loaded, settings))
     });
-    let (loaded, settings) = loaded.map_err(|error| cli.command.refused(error))?;
-    match cli.command {
+    let (loaded, settings) = loaded.map_err(|error| command.refused(error))?;
+    match command {
         Common::Healthcheck => healthcheck(&settings).await,
         Common::Config {
             command: ConfigCommand::Check,
@@ -53,6 +59,32 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, Failure> {
             Box::pin(serve(settings, telemetry)).await
         }
     }
+}
+
+/// Runs `client hash-secret`: the secret on standard input, without its
+/// final line break, hashed with Argon2id at the OWASP Password Storage
+/// Cheat Sheet floor (m=19456, t=2, p=1) under a fresh 16-byte salt, and the
+/// PHC string printed. The parameters are those `secret_hash_file` requires
+/// (`docs/architecture.md` §13.9); the subcommand is our own design.
+#[expect(
+    clippy::print_stdout,
+    reason = "the job's one answer goes to standard output"
+)]
+fn hash_secret() -> Result<ExitCode, Failure> {
+    let mut secret = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut secret)
+        .map_err(|error| Failure::from(error).with_context("cannot read the secret"))?;
+    let secret = secret.strip_suffix('\n').map_or(secret.as_str(), |line| {
+        line.strip_suffix('\r').unwrap_or(line)
+    });
+    if secret.is_empty() {
+        return Err(Failure::boxed("the secret is empty"));
+    }
+    println!(
+        "{}",
+        crate::clients::hash_secret(secret).map_err(Failure::from)?
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 /// Runs `config check`: every key printed with where it came from and every

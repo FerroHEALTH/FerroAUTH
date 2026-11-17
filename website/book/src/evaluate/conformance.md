@@ -38,12 +38,19 @@ supports. FerroSMART's App Launch document lists these:
 |---|---|
 | `launch-standalone` | The authorization endpoint takes an app that starts on its own |
 | `launch-ehr` | An app launched by an EHR with a `launch` value ([EHR launch API](../integrate/ehr-launch.md)) |
+| `authorize-post` | The authorization endpoint takes the request by `GET` and by `POST` |
 | `client-public` | A public client authenticates with PKCE alone |
+| `client-confidential-symmetric` | A confidential client authenticates with its secret, `client_secret_basic` or `client_secret_post` |
 | `client-confidential-asymmetric` | A confidential client authenticates with a `private_key_jwt` assertion signed `RS384` or `ES384` |
 | `sso-openid-connect` | `openid` and `fhirUser` give the app an ID Token signed `RS256` with the person's `fhirUser` |
 | `context-ehr-patient`, `context-ehr-encounter` | The patient and encounter of an EHR launch reach the token response |
+| `context-standalone-patient` | The patient picker chooses the patient of a standalone launch, when a resource server can be searched |
+| `context-standalone-encounter` | The picker chooses one of that patient's encounters, at a FHIR server |
 | `context-banner` | `need_patient_banner` reaches the token response |
+| `context-style` | The token response carries `smart_style_url`, when one is configured |
+| `permission-offline`, `permission-online` | Refresh tokens under `offline_access` and `online_access` |
 | `permission-patient`, `permission-user` | `patient/` and `user/` scopes |
+| `permission-v1` | SMART v1 scopes (`.read`, `.write`, `.*`), matched by their v2 form and granted as asked |
 | `permission-v2` | SMART v2 scopes (`.cruds`) |
 
 The Backend Services document lists `client-confidential-asymmetric`.

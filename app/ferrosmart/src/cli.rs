@@ -4,11 +4,13 @@
 //! The command line: one binary, one subcommand per job.
 //!
 //! `serve` runs the server, `config check` reads and resolves the
-//! configuration the way `serve` would and exits, and `healthcheck` asks the
-//! server on this host for its readiness. No specification governs the
-//! command line: our own design, the family's.
+//! configuration the way `serve` would and exits, `healthcheck` asks the
+//! server on this host for its readiness, and `client hash-secret` turns a
+//! confidential symmetric client's secret into the hash its
+//! `secret_hash_file` holds. No specification governs the command line: our
+//! own design, the family's.
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use ferrohealth_server::cli::{Common, ConfigArgs};
 
 /// The `ferrosmart` command line.
@@ -23,14 +25,36 @@ pub struct Cli {
     /// names, and the `--set key=value` pairs applied last.
     #[command(flatten)]
     pub config: ConfigArgs,
-    /// The job to run: `serve`, `config check` or `healthcheck`.
+    /// The job to run.
     #[command(subcommand)]
-    pub command: Common,
+    pub command: Command,
+}
+
+/// What the binary does.
+#[derive(Debug, Subcommand, PartialEq, Eq)]
+pub enum Command {
+    /// `serve`, `config check` and `healthcheck`.
+    #[command(flatten)]
+    Common(Common),
+    /// Works on the registered clients.
+    Client {
+        /// The job to run.
+        #[command(subcommand)]
+        command: ClientCommand,
+    },
+}
+
+/// The `client` jobs.
+#[derive(Debug, Subcommand, PartialEq, Eq)]
+pub enum ClientCommand {
+    /// Reads a client secret from standard input and prints its Argon2id PHC
+    /// hash, for a confidential symmetric client's `secret_hash_file`.
+    HashSecret,
 }
 
 #[cfg(test)]
 mod tests {
-    use super::Cli;
+    use super::{Cli, ClientCommand, Command};
     use clap::{CommandFactory, Parser};
     use ferrohealth_server::cli::{Common, ConfigCommand};
 
@@ -42,14 +66,23 @@ mod tests {
     #[test]
     fn every_job_parses() {
         for (args, command) in [
-            (vec!["ferrosmart", "serve"], Common::Serve),
+            (vec!["ferrosmart", "serve"], Command::Common(Common::Serve)),
             (
                 vec!["ferrosmart", "config", "check"],
-                Common::Config {
+                Command::Common(Common::Config {
                     command: ConfigCommand::Check,
+                }),
+            ),
+            (
+                vec!["ferrosmart", "healthcheck"],
+                Command::Common(Common::Healthcheck),
+            ),
+            (
+                vec!["ferrosmart", "client", "hash-secret"],
+                Command::Client {
+                    command: ClientCommand::HashSecret,
                 },
             ),
-            (vec!["ferrosmart", "healthcheck"], Common::Healthcheck),
         ] {
             let parsed = Cli::try_parse_from(&args).expect("the job parses");
             assert_eq!(command, parsed.command, "{args:?}");

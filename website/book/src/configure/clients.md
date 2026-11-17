@@ -28,9 +28,10 @@ registry; the configuration is the place to change a client.
 |---|---|
 | `client_id` | The client's id, as the app sends it |
 | `name` | The name the consent page shows the person |
-| `kind` | `public` or `confidential_asymmetric` |
-| `jwks_uri` | A confidential client's JWK Set URL, `https`; exclusive with `jwks_file` |
+| `kind` | `public`, `confidential_symmetric` or `confidential_asymmetric` |
+| `jwks_uri` | A confidential asymmetric client's JWK Set URL, `https`; exclusive with `jwks_file` |
 | `jwks_file` | A file holding the client's JWK Set by value |
+| `secret_hash_file` | A file holding the Argon2id hash of a confidential symmetric client's secret, never the secret |
 | `redirect_uris` | The client's complete redirect URIs, compared by exact string |
 | `scopes` | The ceiling: every scope the client may ever be granted |
 | `grant_types` | Any of `authorization_code`, `client_credentials` and `refresh_token` |
@@ -43,22 +44,39 @@ FerroSMART refuses at start a client that breaks one of these rules:
 - a `confidential_asymmetric` client registers exactly one of `jwks_uri` and
   `jwks_file`, and every key in the set carries `kty` and `kid` and the bare
   public members (`n` and `e`, or `crv`, `x` and `y`), and no private part;
+- a `confidential_symmetric` client registers a `secret_hash_file` whose
+  Argon2id hash is at least `m=19456,t=2,p=1`, no JWK Set, and never
+  `client_credentials`, which SMART keeps for asymmetric clients;
 - `refresh_token` comes with `authorization_code`;
 - `authorization_code` comes with at least one redirect URI.
 
-### The two kinds of client
+### The three kinds of client
 
 | Kind | SMART capability | How it authenticates |
 |---|---|---|
 | `public` | `client-public` | PKCE alone; a browser or native app that keeps no secret |
+| `confidential_symmetric` | `client-confidential-symmetric` | Its client secret, by HTTP Basic (`client_secret_basic`) or in the form (`client_secret_post`), never both in one request |
 | `confidential_asymmetric` | `client-confidential-asymmetric` | A client assertion, `private_key_jwt`, signed `RS384` or `ES384` with a key of its registered JWK Set |
+
+SMART prefers asymmetric authentication for a client that can hold a key
+pair; the symmetric kind is for an app that can keep a secret and nothing
+more. FerroSMART stores only the secret's hash. Make it with:
+
+```sh
+printf '%s' "$secret" | ferrosmart client hash-secret > portal-secret.phc
+```
+
+The command reads the secret on standard input and prints its Argon2id
+hash with a fresh salt; give the client the secret and FerroSMART the file.
 
 The client assertion follows SMART App Launch 2.2.0, Client Authentication:
 Asymmetric: `iss` and `sub` the `client_id`, `aud` the token endpoint URL
 or the issuer, `exp` at most five minutes ahead, a `jti` used once, `typ`
-`JWT`. A `jku` header must equal the registered JWK Set URL, and a JWK Set
-fetched by URL is cached no longer than its `Cache-Control` allows. Any
-failure answers `invalid_client`.
+`JWT`. A `client_id` sent beside it must be the `iss`, a `jku` header must
+equal the registered JWK Set URL, and exactly one key of the set must match
+the `kid` and the algorithm's key type. A JWK Set fetched by URL is cached
+no longer than its `Cache-Control` allows. Any failure answers
+`invalid_client`.
 
 ### Examples
 
@@ -72,6 +90,19 @@ kind = "public"
 redirect_uris = ["https://growth-chart.example.org/callback"]
 scopes = ["openid", "fhirUser", "launch", "launch/patient",
           "patient/Observation.rs", "online_access"]
+grant_types = ["authorization_code", "refresh_token"]
+```
+
+A web app with a server that keeps a secret:
+
+```toml
+[[ferrosmart.client]]
+client_id = "portal"
+name = "Patient portal"
+kind = "confidential_symmetric"
+secret_hash_file = "/run/secrets/portal-secret.phc"
+redirect_uris = ["https://portal.example.org/callback"]
+scopes = ["openid", "fhirUser", "launch/patient", "patient/Observation.rs"]
 grant_types = ["authorization_code", "refresh_token"]
 ```
 

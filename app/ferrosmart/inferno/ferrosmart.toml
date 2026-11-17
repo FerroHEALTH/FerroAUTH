@@ -3,9 +3,9 @@
 
 # FerroSMART as the Inferno lane runs it (#520, docs/architecture.md §13.13).
 # scripts/inferno/lane.sh passes the files it makes for each run with
-# `--set`: the server certificate and key, the signing key, the JWK Sets of
-# the two key-holding clients, the database URL and Keycloak's client
-# secret. Nothing here is a secret.
+# `--set`: the server certificate and key, the signing key, the upstream
+# assertion key, the JWK Sets of the two key-holding clients, the secret
+# hash of the symmetric one and the database URL. Nothing here is a secret.
 
 [server]
 listen = "127.0.0.1:8443"
@@ -61,6 +61,18 @@ name = "Inferno SMART App Launch test kit"
 kind = "public"
 redirect_uris = ["http://localhost:4567/custom/smart_stu2_2/redirect"]
 scopes = ["openid", "fhirUser", "launch", "launch/patient", "offline_access", "user/Practitioner.rs", "patient/Patient.rs"]
+grant_types = ["authorization_code", "refresh_token"]
+
+# Inferno as the app the lane's EHR launches: a confidential symmetric
+# client (SMART App Launch 2.2.0, Client Authentication: Symmetric) whose
+# secret smart_stu2_2.yaml gives the kit; the lane names the file holding its
+# Argon2id hash, made for the run by `ferrosmart client hash-secret`.
+[[ferrosmart.client]]
+client_id = "inferno-ehr"
+name = "Inferno SMART App Launch test kit"
+kind = "confidential_symmetric"
+redirect_uris = ["http://localhost:4567/custom/smart_stu2_2/redirect"]
+scopes = ["openid", "fhirUser", "launch", "offline_access", "user/Practitioner.rs"]
 grant_types = ["authorization_code", "refresh_token"]
 
 # The lane itself: the EHR that registers each EHR launch (docs/architecture.md

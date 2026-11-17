@@ -445,6 +445,54 @@ async fn a_replayed_or_long_lived_or_unsigned_assertion_is_refused() {
     server.stop().await;
 }
 
+// NOTE: SMART App Launch 2.2.0, Signature Verification: the client_id matches
+// the iss, and one key of the client's set matches the kid and the kty.
+#[tokio::test]
+async fn an_assertion_whose_client_or_key_does_not_resolve_is_refused() {
+    let server = Server::start(None, Algorithm::ES384).await;
+    let assertion = server.assertion("JWT", &valid_claims());
+    let mut named = form(&assertion, "system/Patient.rs");
+    named.push(("client_id", "app"));
+    assert_eq!(
+        "invalid_client",
+        refused(&server.post(&named).await),
+        "a client_id other than the iss"
+    );
+    let encoding = jsonwebtoken::EncodingKey::from_ec_pem(&server.pem).expect("the key reads");
+    for (kid, case) in [
+        ("client-2", "a kid the set does not hold"),
+        ("client-1", ""),
+    ] {
+        let mut header = jsonwebtoken::Header::new(Algorithm::ES384);
+        header.kid = Some(String::from(kid));
+        header.typ = Some(String::from("JWT"));
+        let assertion = jsonwebtoken::encode(&header, &valid_claims(), &encoding).expect("signs");
+        let answer = server.post(&form(&assertion, "system/Patient.rs")).await;
+        if case.is_empty() {
+            assert_eq!(StatusCode::OK, answer.0, "{}", answer.2);
+        } else {
+            assert_eq!("invalid_client", refused(&answer), "{case}");
+        }
+    }
+    let rsa = Keys::new();
+    let pem = std::fs::read(rsa_key(rsa.dir.path(), "other.pem")).expect("the key reads");
+    let mut header = jsonwebtoken::Header::new(Algorithm::RS384);
+    header.kid = Some(String::from("client-1"));
+    header.typ = Some(String::from("JWT"));
+    let assertion = jsonwebtoken::encode(
+        &header,
+        &valid_claims(),
+        &jsonwebtoken::EncodingKey::from_rsa_pem(&pem).expect("an RSA key"),
+    )
+    .expect("signs");
+    assert_eq!(
+        "invalid_client",
+        refused(&server.post(&form(&assertion, "system/Patient.rs")).await),
+        "the kid's key is EC, the algorithm RSA"
+    );
+    server.stop().await;
+}
+
 #[tokio::test]
 async fn an_assertion_breaking_the_profile_is_refused() {
     let server = Server::start(None, Algorithm::ES384).await;

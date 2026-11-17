@@ -14,6 +14,12 @@ and this project adheres to
 
 ### Added
 
+- `ferrosmart client hash-secret` reads a confidential symmetric client's
+  secret on standard input and prints its Argon2id hash at the OWASP floor
+  (m=19456, t=2, p=1) with a fresh salt, the string `secret_hash_file`
+  holds. The Inferno lane runs its EHR launch with a symmetric client made
+  this way (#601).
+
 - SMART v1 scopes (`patient/Observation.read`, `.write`, `.*`) are
   admitted by their v2 form against a client's ceiling and a person's roles
   and granted as asked, as SMART App Launch 2.2.0, Scopes and Launch
@@ -258,6 +264,9 @@ and this project adheres to
 
 ### Fixed
 
+- A client assertion sent with a `client_id` other than its `iss` is
+  refused with `invalid_client`, as SMART App Launch 2.2.0, Client
+  Authentication: Asymmetric, Signature Verification requires (#601).
 - The SMART configuration lists every capability FerroSMART supports and
   nothing else (SMART App Launch 2.2.0, Conformance, Capabilities): it adds
   `authorize-post`, `permission-offline`, `permission-online`,
