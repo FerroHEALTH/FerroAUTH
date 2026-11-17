@@ -64,6 +64,9 @@ pub enum Error {
         /// The key.
         key: &'static str,
     },
+    /// The access token lifetime is longer than one hour.
+    #[error("`ferrosmart.access_token_lifetime` is at most one hour")]
+    LongLifetime,
     /// A key file cannot be read.
     #[error("`{key}` cannot be read at {}", path.display())]
     KeyFile {

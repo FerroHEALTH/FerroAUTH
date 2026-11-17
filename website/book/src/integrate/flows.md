@@ -29,7 +29,11 @@ reach: the server's own `.well-known/smart-configuration` names FerroSMART's
    the person, with a token of their own for that one server that lives 30
    seconds and is revoked after the request, so the server's rules decide
    which patients they see. The chosen patient is read again as them before
-   it enters the context.
+   it enters the context. When the app also asks for `launch/encounter` at
+   a FHIR server, the picker then lists that patient's encounters
+   (`GET [base]/Encounter?patient=…`, as the person, with the scope
+   `user/Encounter.rs`); the person chooses one or goes on without, and
+   the chosen encounter is read again and must belong to the patient.
 4. **Consent.** The person approves the scopes on the consent page
    ([clients, roles and consent](../configure/clients.md#consent)).
 5. **The code.** FerroSMART redirects to the app with `code`, the `state` as

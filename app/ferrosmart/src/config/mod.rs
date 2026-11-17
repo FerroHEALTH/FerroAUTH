@@ -18,7 +18,7 @@
 //!
 //! [ferrosmart]
 //! issuer = "https://smart.example.org"
-//! access_token_lifetime = "5m"
+//! access_token_lifetime = "5min"
 //! refresh_idle = "30d"
 //! online_idle = "8h"
 //!

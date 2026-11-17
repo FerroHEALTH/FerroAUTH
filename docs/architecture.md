@@ -2926,7 +2926,12 @@ specification governs.
    the launch context, so a patient they may not see is never chosen. The
    choice travels as an EHR launch's does: in the code's launch context,
    the grant's context map, the token response's `patient` and the access
-   token's claim. Every search and read is an access record of Regulation
+   token's claim. At a FHIR server a request that also asks for
+   `launch/encounter` gets a second step (#604): the chosen patient's
+   encounters (`GET [base]/Encounter?patient=…`, as the person, scope
+   `user/Encounter.rs`), one of which the person picks or goes on without;
+   the chosen one is read again and enters the context only when its
+   `subject` is that patient (13.23). Every search and read is an access record of Regulation
    (EU) 2025/327 Annex II 3.2 through `ehds-logging`. A failed search is an
    error page, never an empty context. The search call and the page are our
    own design.
@@ -3151,7 +3156,7 @@ the same lock.
 ```toml
 [ferrosmart]
 issuer = "https://smart.example.org"          # the issuer identifier, https, no query or fragment
-access_token_lifetime = "5m"
+access_token_lifetime = "5min"                # at most one hour (smart app-launch, Response)
 refresh_idle = "30d"
 online_idle = "8h"
 
@@ -3839,7 +3844,7 @@ absent.
 | `context-ehr-patient` | supported | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
 | `context-ehr-encounter` | supported | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
 | `context-standalone-patient` | supported when the picker can search a resource server (any FHIR base; an openEHR base with a `subject_namespace`) | `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
-| `context-standalone-encounter` | absent until the §2.2 issue lands | `authorize::what_the_document_leaves_out_the_server_refuses` |
+| `context-standalone-encounter` | supported when a resource server is a FHIR one: the picker offers the chosen patient's encounters; never at an openEHR base, which has no Encounter resource to choose from | `authorize::encounter_picker::a_standalone_launch_picks_an_encounter_of_the_chosen_patient` |
 | `permission-offline` | supported | `authorize::an_offline_access_launch_issues_a_refresh_token_that_rotates` |
 | `permission-online` | supported | `authorize::an_online_access_launch_ends_with_its_upstream_login` |
 | `permission-patient` | supported | `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
@@ -3867,12 +3872,57 @@ absent, since FerroSMART has neither, and `user_access_brand_bundle` and
 `user_access_brand_identifier` belong in each FHIR server's document
 (13.5).
 
+**§2.1 App Launch and §2.2 Scopes and Launch Context** (`smart
+app-launch`, `smart scopes-and-launch-context`). One row per SHALL and
+SHOULD. A requirement on the app, the resource server or the EHR names
+who holds it; FerroSMART's own rows name the case that holds them.
+
+| Requirement | Level | Holder and status | Test |
+|---|---|---|---|
+| Apps protect sensitive data in transit, generate and check an unpredictable `state`, run no untrusted input, forward nothing from the redirect, keep tokens out of cookies and in app storage (App Launch, Security and Privacy Considerations; Validate the state value) | SHALL, SHOULD | the app's; FerroSMART refuses an empty `state` and returns the one it got | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
+| Every app supports PKCE; the server supports `S256` and not `plain` (Considerations for PKCE Support) | SHALL | met: `S256` alone, `plain` refused | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
+| The server checks that `code_verifier` is present and valid at the code exchange (Obtain access token, Note on PKCE Support) | SHALL | met | `authorize::a_code_exchange_that_does_not_hold_is_refused_and_burns_nothing` |
+| CORS on the discovery endpoints for any origin, on the token endpoint for a client's registered origins (Considerations for CORS support) | SHALL | met; the FHIR REST API's CORS is the resource server's | `authorize::a_token_response_is_readable_from_the_app_s_origin_alone`, `discovery::the_smart_configuration_is_json_whatever_the_accept_header` |
+| Every app registers fixed, fully specified redirect URIs and launch URLs (Register App with EHR) | SHALL | met for redirect URIs: an authorization code client registers absolute ones, matched exactly; a launch URL is the EHR's | `clients::an_authorization_code_client_registers_absolute_redirect_uris` |
+| The `state` parameter is used against CSRF and session fixation (Obtain authorization code) | SHALL | the app's; FerroSMART requires it and echoes it | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
+| The server supports the `aud` parameter (Obtain authorization code) | SHALL | met: `aud` names a configured resource server, else the request is refused | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
+| The app limits its scopes to the minimum (Obtain authorization code) | SHOULD | the app's; the consent page lets the person untick any scope | `authorize::the_consent_page_offers_what_the_ceiling_and_the_roles_allow` |
+| The authorization endpoint supports GET and POST (Obtain authorization code) | SHALL | met | `authorize::an_authorization_request_by_post_is_the_get_s_twin` |
+| Confidential clients use asymmetric authentication if available (Obtain access token) | SHOULD | the client's; both profiles are offered (§4.1, §4.2) | `token::a_backend_services_client_gets_an_rfc_9068_token` |
+| The token response is JSON with `access_token`, `token_type`, `expires_in`, `scope` and the granted context (Obtain access token, Response) | SHALL | met | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
+| The token response carries `Cache-Control: no-store` and `Pragma: no-cache` (Obtain access token, Response) | SHALL | met | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens`, `token::a_backend_services_client_gets_an_rfc_9068_token` |
+| Access tokens live no longer than one hour (Obtain access token, Response) | SHOULD | met: `access_token_lifetime` is five minutes by default and refused above one hour | `config::a_token_lifetime_over_one_hour_is_refused` |
+| A token past `expires_in` is not accepted (Obtain access token, Response); the resource server validates the token and its scope (Access FHIR API) | SHALL | the resource server's; FerroSMART's introspection answers an expired token inactive | `introspection::an_expired_token_is_inactive` |
+| The app does not follow a reference to another server with its token (Access FHIR API) | SHOULD | the app's | none |
+| A refresh token is bound to its `client_id` and carries the same or fewer claims (Refresh access token) | SHALL | met | `refresh::a_refresh_token_is_bound_to_its_client`, `refresh::a_refresh_may_narrow_the_scope_and_never_widen_it` |
+| v1 scopes: advertise `permission-v1`, process `.read`, `.write`, `.*` as `.rs`, `.cud`, `.cruds`, return v1 when v1 was granted (Scopes for requesting FHIR Resources) | SHOULD | met | `authorize::a_v1_scope_is_offered_by_its_v2_form_and_granted_as_asked` |
+| A server that links Patients through `Patient.link` documents its authorization behaviour (Patient-specific scopes) | SHALL | the resource server's; FerroSMART reads no `Patient.link` | none |
+| An unsupported `?role=` gets any launch context of the resource type (Scopes for requesting context data) | SHOULD | met for an EHR launch: the EHR's `fhirContext` items return under `launch` whatever role was asked; a standalone launch offers no `launch/` scope beyond `launch/patient` and `launch/encounter` | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
+| A granted `patient/` scope has a patient in context (Apps that launch from the EHR; Standalone apps) | SHALL | met: `patient/` scopes are offered only with a patient from the EHR launch or the picker, and dropped when the context is | `ehr_launch::a_launch_needs_the_launch_scope_and_unticking_it_drops_the_context`, `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
+| A standalone app's `launch/patient` and `launch/encounter` are provided (Standalone apps) | SHOULD | met: the picker chooses the patient at a FHIR base and at an openEHR base with a `subject_namespace`, and one of the patient's encounters at a FHIR base; the person may go on without an encounter, which drops `launch/encounter` from the offer. At an openEHR base no encounter is chosen: openEHR has no Encounter resource, and the SMART on openEHR draft's context is the `ehrId` (Context Selection) | `authorize::encounter_picker::a_standalone_launch_picks_an_encounter_of_the_chosen_patient`, `authorize::encounter_picker::a_person_may_go_on_without_an_encounter`, `authorize::ehr_picker::a_standalone_launch_at_an_openehr_server_picks_the_ehr_the_person_may_see` |
+| Each `fhirContext` item has `reference`, `canonical` or `identifier`; a `role` is never empty (Launch context arrives with your access_token, fhirContext) | SHALL | met: an EHR's launch registration breaking either is refused | `launch::a_launch_registration_breaking_a_rule_is_refused` |
+| The app shows a default UI without a style; the style URL serves a SMART Style object; a changed style gets a new URL (Styling) | SHOULD, SHALL | the app's and the deployment's: `smart_style_url` is configuration, `https` only, and a new style document is published at a new URL | `config::a_style_url_other_than_https_is_refused` |
+| OpenID Connect: the Authorization Code Flow (Scopes for requesting identity data) | SHALL | met: `code` alone | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
+| Public keys published as bare JWKs | SHALL | met | `discovery::the_jwk_set_publishes_bare_rs256_keys_and_may_be_cached` |
+| `fhirUser` in the ID Token when `openid` and `fhirUser` are granted | SHALL | met | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
+| ID Tokens signed with RSA SHA-256 | SHALL | met: RS256 | `authorize::the_documents_describe_the_login_once_it_is_configured` |
+| An app passes no `auth_time` or `max_age` to a server that does not take them | SHALL NOT | the app's | none |
+| Scopes as URIs carry the SMART or OpenID prefix (Scopes represented as URIs) | SHALL | not applicable: FerroSMART exchanges no scope as a URI | none |
+
+The encounter step is our own design where the specification is silent:
+the picker chooses an encounter only after a patient, so a request for
+`launch/encounter` without `launch/patient` is not offered it; it searches
+`Encounter?patient=` as the person with a token whose one scope is
+`user/Encounter.rs`, shows the latest start first, leaves out an entry of
+another patient, and reads the chosen encounter again, accepting it only
+when its `subject` is the chosen patient.
+
 **Sections**
 
 | Section | Status |
 |---|---|
 | §1 Conformance (capabilities, discovery) | this section |
-| §2.1 App Launch, §2.2 Scopes and Launch Context | in audit |
+| §2.1 App Launch, §2.2 Scopes and Launch Context | below |
 | §2.3 Persisting App State (experimental) | the resource server's; FerroSMART never advertises it (below) |
 | §2.4 Task profile for requesting a launch (experimental) | the EHR's; FerroSMART serves the EHR launch API it uses (below) |
 | §3 Backend Services | in audit |

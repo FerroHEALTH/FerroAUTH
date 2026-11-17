@@ -14,6 +14,16 @@ and this project adheres to
 
 ### Added
 
+- A standalone launch that asks for `launch/patient` and `launch/encounter`
+  at a FHIR resource server gets an encounter step in the picker: the
+  chosen patient's encounters, searched as the signed-in person with the
+  scope `user/Encounter.rs`, latest first. The person picks one or goes on
+  without, which drops `launch/encounter` from the offer. The chosen
+  encounter is read again and enters the context only when its `subject` is
+  that patient, and the token response and the access token carry it. The
+  discovery document lists `context-standalone-encounter` when a resource
+  server is a FHIR one (SMART App Launch 2.2.0, Scopes and Launch Context,
+  Standalone apps) (#604).
 - SMART v1 scopes (`patient/Observation.read`, `.write`, `.*`) are
   admitted by their v2 form against a client's ceiling and a person's roles
   and granted as asked, as SMART App Launch 2.2.0, Scopes and Launch
@@ -246,6 +256,8 @@ and this project adheres to
 
 ### Changed
 
+- `access_token_lifetime` above one hour is refused at load, as SMART App
+  Launch 2.2.0, App Launch has access tokens live no longer (#604).
 - FerroSMART authenticates to every upstream identity provider with
   `private_key_jwt` alone (OpenID Connect Core 1.0 §9).
   `[ferrosmart.upstream.private_key_jwt]` is required, and the keys

@@ -156,7 +156,7 @@ async fn proceed(
         &state.settings().roles,
         login.fhir_user.is_some(),
         pending.launch_context.as_ref(),
-        crate::picker::searchable(state, &pending.audience),
+        crate::picker::reach(state, &pending.audience),
     );
     if offered.is_empty() {
         forget(state, pending).await;
