@@ -416,10 +416,11 @@ async fn a_graph_slower_than_the_budget_is_groups_unavailable_carrying_the_timeo
     let graph = Graph::start().await;
     let slow = ResponseTemplate::new(200)
         .set_body_json(json!({ "value": ["group-2"] }))
-        .set_delay(Duration::from_millis(800));
+        .set_delay(Duration::from_secs(5));
     graph.members("users", LOGIN, slow, 1).await;
+    // The budget covers the token fetch too, so it leaves a loaded runner room to reach Graph.
     let section = GraphSection {
-        timeout: ferrohealth_config::units::Duration::from_millis(100),
+        timeout: ferrohealth_config::units::Duration::from_millis(1000),
         ..graph.section()
     };
     let started = Instant::now();
@@ -429,11 +430,11 @@ async fn a_graph_slower_than_the_budget_is_groups_unavailable_carrying_the_timeo
             .await?,
     )?;
     assert!(
-        matches!(error, AdapterError::Timeout { timeout } if timeout == Duration::from_millis(100)),
+        matches!(error, AdapterError::Timeout { timeout } if timeout == Duration::from_millis(1000)),
         "{error:?}"
     );
     assert!(
-        started.elapsed() < Duration::from_millis(700),
+        started.elapsed() < Duration::from_secs(3),
         "the budget ended the call"
     );
     Ok(())
