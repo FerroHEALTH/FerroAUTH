@@ -14,6 +14,15 @@ and this project adheres to
 
 ### Added
 
+- The management page lists every app that holds a live `offline_access`
+  or `online_access` grant of the person, remembered or not, says how long
+  it stays connected, and withdraws it, as SMART App Launch 2.2.0, Best
+  Practices asks a server to remind people which apps have offline access
+  (#608).
+- The consent and management pages put plain words before a FHIR resource
+  type, "Measurements and test results (Observation)", for the common
+  types (SMART App Launch 2.2.0, Best Practices, Considerations for Scope
+  Consent) (#608).
 - `ferrosmart client hash-secret` reads a confidential symmetric client's
   secret on standard input and prints its Argon2id hash at the OWASP floor
   (m=19456, t=2, p=1) with a fresh salt, the string `secret_hash_file`
@@ -288,6 +297,9 @@ and this project adheres to
 
 ### Fixed
 
+- A Backend Services access token lives at most five minutes, whatever
+  `access_token_lifetime` says, as SMART App Launch 2.2.0, Backend
+  Services, Issue Access Token has `expires_in` not exceed 300 (#603).
 - A client assertion sent with a `client_id` other than its `iss` is
   refused with `invalid_client`, as SMART App Launch 2.2.0, Client
   Authentication: Asymmetric, Signature Verification requires (#601).

@@ -24,8 +24,10 @@ consent-remember = Remember this choice for { $client }
 consent-remember-help = Next time { $client } asks for the same access, you are not asked again. You can withdraw it on the page that lists your choices.
 manage-page = Your choices
 manage-title = Apps you allowed
-manage-intro = These apps keep the access you chose to remember. Withdraw one and it must ask you again; its current access ends at once.
-manage-none = You have not remembered a choice for any app.
+manage-intro = These apps keep access to your data: the access you chose to remember, and the access that lasts after you leave the app. Withdraw one and it must ask you again; its current access ends at once.
+manage-none = No app keeps access to your data.
+manage-offline = This app stays connected after you sign out, until you withdraw it.
+manage-online = This app stays connected while you are signed in.
 manage-withdraw = Withdraw
 manage-scope = Access given
 picker-title = Choose a patient
@@ -48,3 +50,33 @@ picker-ehr-intro = The app works with one patient's health record. Enter the pat
 picker-ehr-results = Health record found
 picker-ehr-none = No health record you may see belongs to this identifier.
 picker-ehr-created = record created { $date }
+
+# Plain words for the FHIR resource types a scope names, shown before the
+# type (SMART App Launch 2.2.0, Best Practices, Considerations for Scope
+# Consent). A type without a message is shown as itself.
+resource-allergyintolerance = Allergies and intolerances
+resource-appointment = Appointments
+resource-careplan = Care plans
+resource-careteam = Care teams
+resource-condition = Health problems and diagnoses
+resource-coverage = Insurance
+resource-device = Medical devices
+resource-diagnosticreport = Test and imaging reports
+resource-documentreference = Documents and letters
+resource-encounter = Visits and hospital stays
+resource-goal = Care goals
+resource-immunization = Vaccinations
+resource-location = Places of care
+resource-medication = Medicines
+resource-medicationadministration = Medicines given
+resource-medicationdispense = Medicines dispensed
+resource-medicationrequest = Prescriptions
+resource-medicationstatement = Medicines taken
+resource-observation = Measurements and test results
+resource-organization = Organizations
+resource-patient = Personal details
+resource-practitioner = Care providers
+resource-practitionerrole = Care providers' roles
+resource-procedure = Procedures and operations
+resource-relatedperson = Family and other contacts
+resource-servicerequest = Referrals and orders

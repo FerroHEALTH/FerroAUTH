@@ -56,6 +56,12 @@ impl Server {
     /// Starts a server whose client `export` registers its key by value
     /// (`jwks_uri` empty) or at `jwks_uri`.
     async fn start(jwks_uri: Option<&str>, algorithm: Algorithm) -> Self {
+        Self::start_with(jwks_uri, algorithm, "").await
+    }
+
+    /// Starts the server of [`Server::start`] with `extra` under
+    /// `[ferrosmart]`.
+    async fn start_with(jwks_uri: Option<&str>, algorithm: Algorithm, extra: &str) -> Self {
         let keys = Keys::new();
         let pem_path = if algorithm == Algorithm::ES384 {
             ec_key(keys.dir.path(), "client.pem")
@@ -76,7 +82,7 @@ impl Server {
         );
         let database = Database::create().await;
         let text = format!(
-            "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
+            "[ferrosmart]\nissuer = {ISSUER:?}\n{extra}\n[ferrosmart.database]\nurl = {:?}\n\
              [[ferrosmart.client]]\nclient_id = \"export\"\nkind = \"confidential_asymmetric\"\n{registration}\n\
              scopes = [\"system/Patient.rs\", \"system/Observation.rs\", \"system/AuditEvent.rs\"]\ngrant_types = [\"client_credentials\"]\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\
@@ -398,6 +404,26 @@ async fn the_assertion_s_audience_is_one_string_naming_this_server() {
             "{aud}"
         );
     }
+    server.stop().await;
+}
+
+// NOTE: SMART App Launch 2.2.0, Backend Services, Issue Access Token: short-lived,
+// `expires_in` no more than 300, and no refresh token.
+#[tokio::test]
+async fn a_backend_services_token_lives_five_minutes_at_most() {
+    let server =
+        Server::start_with(None, Algorithm::ES384, "access_token_lifetime = \"30min\"").await;
+    let assertion = server.assertion("JWT", &valid_claims());
+    let (status, _, body) = server.post(&form(&assertion, "system/Patient.rs")).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    assert_eq!(json!(300), body["expires_in"]);
+    assert!(body.get("refresh_token").is_none(), "{body}");
+    let claims: Value = jsonwebtoken::dangerous::insecure_decode_claims(
+        body["access_token"].as_str().expect("a token"),
+    )
+    .expect("claims");
+    let lifetime = claims["exp"].as_i64().expect("exp") - claims["iat"].as_i64().expect("iat");
+    assert_eq!(300, lifetime, "the token's own lifetime");
     server.stop().await;
 }
 

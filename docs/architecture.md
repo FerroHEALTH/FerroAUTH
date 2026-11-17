@@ -3951,6 +3951,48 @@ keyword of its own, so its rows are the profile's statements.
 
 The Inferno lane runs a symmetric client in group 2 (13.13).
 
+**§3 Backend Services** (`smart backend-services`). One row per SHALL and
+SHOULD.
+
+| Requirement | Level | Holder and status | Test |
+|---|---|---|---|
+| The client registers with the server before it runs, as a confidential client with its JWK Set (Register Client) | SHALL | the client's; FerroSMART takes a Backend Services client only as `confidential_asymmetric` with one JWK Set | `clients::a_backend_services_client_registers_its_jwk_set_by_url`, `clients::a_public_client_neither_registers_keys_nor_uses_client_credentials` |
+| TLS 1.2 or later on the exchange | SHALL | met by `ferrohealth-server`'s listener | Inferno lane `backend_services_authorization` TLS |
+| A request for data the client is not allowed, or the server does not support, fails at the start | SHOULD | met for scopes beyond the client's ceiling (`invalid_scope`); what a resource server supports is the resource server's | `token::a_request_outside_the_grant_is_refused_with_its_own_error` |
+| No refresh token is issued | SHOULD NOT | met: the client credentials grant answers without one | `token::a_backend_services_token_lives_five_minutes_at_most` |
+| The requested scope is within the client's pre-authorized scope (Evaluate Requested Access) | SHALL | met: the ceiling | `token::a_request_outside_the_grant_is_refused_with_its_own_error` |
+| An error answers by RFC 6749 §5.2, with an `error_description` | SHALL, SHOULD | met | `token::an_assertion_breaking_the_profile_is_refused` |
+| A valid request gets a JSON token response with `access_token`, `token_type` `bearer`, `expires_in` and `scope` (Issue Access Token) | SHALL | met | `token::a_backend_services_client_gets_an_rfc_9068_token` |
+| The token's scope is limited to what was requested; tokens are short-lived, `expires_in` at most 300 | SHOULD, SHALL | met: the scope granted is the requested scope within the ceiling, and a Backend Services token lives at most five minutes whatever `access_token_lifetime` says (#603) | `token::a_backend_services_token_lives_five_minutes_at_most` |
+| The resource server validates the token; the client does not follow references elsewhere with its token (Access FHIR API) | SHALL, SHOULD | the resource server's and the client's | none |
+
+**§5 Token Introspection** (`smart token-introspection`). One row per
+SHALL and SHOULD.
+
+| Requirement | Level | Holder and status | Test |
+|---|---|---|---|
+| The server supports Token Introspection, by RFC 7662 | SHOULD | met: `POST {issuer}/introspect`, listed as `introspection_endpoint` | `introspection::an_active_backend_services_token_answers_what_smart_requires` |
+| An active token's answer carries `active`, `scope`, `client_id` and `exp` consistent with `expires_in` (Required fields) | SHALL | met | `introspection::an_active_backend_services_token_answers_what_smart_requires` |
+| The launch context of the token response is in the answer (Conditional fields) | SHALL | met | `introspection::a_token_issued_under_a_grant_carries_its_launch_context` |
+| With an `id_token` in the response, the answer carries its `iss` and `sub`, and `fhirUser` | SHALL, SHOULD | met | `introspection::a_token_issued_under_a_grant_carries_its_launch_context` |
+| With access control, a client authorized to introspect may do so with an appropriately scoped bearer token (Authorization to perform Token Introspection) | SHALL | met: a token holding `system/introspect` for FerroSMART's own issuer, beside the client's own authentication | `introspection::a_bearer_token_with_the_introspection_scope_may_introspect`, `introspection::a_bearer_token_without_the_right_is_refused_with_a_401` |
+| An inactive, expired, revoked or unknown token answers `{"active": false}` alone (RFC 7662 §2.2) | MUST | met | `introspection::an_unknown_or_forged_token_is_inactive`, `introspection::an_expired_token_is_inactive`, `introspection::a_revoked_grant_s_tokens_are_inactive` |
+
+**§7 Best Practices** (`smart best-practices`). The page is
+non-normative; each practice for a server is applied or the reason is
+given. The practices for app developers are the apps'.
+
+| Practice | Status | Test |
+|---|---|---|
+| Remind users which apps have offline access | applied: the management page lists every app holding a live `offline_access` or `online_access` grant, remembered or not, says how long it stays connected, and withdraws it (#608) | `authorize::the_management_page_lists_an_app_with_offline_access_and_withdraws_it` |
+| Mitigate the threat of compromised refresh tokens | applied: refresh tokens rotate on every use, idle out (`refresh_idle`, `online_idle`), and are stored hashed | `refresh::a_refresh_issues_a_new_access_token_and_rotates_the_refresh_token`, `config::the_refresh_idle_times_default_and_refuse_zero` |
+| Expire an app's authorization when a refresh token is used twice | applied: the second use revokes the whole grant | `refresh::a_rotated_refresh_token_presented_again_revokes_the_grant` |
+| Offer binding refresh tokens to asymmetric secrets held in hardware (per-device registration, DPoP) | applied for confidential clients, whose refresh needs the client's own authentication, by its private key for an asymmetric client; not offered to public clients: SMART App Launch 2.2.0 defines no DPoP or per-device registration, and FerroSMART has no dynamic registration (13.5) | `refresh::a_confidential_client_authenticates_to_refresh` |
+| A short and a long plain-language description per requested scope, in the browser's language | applied for the short one: FerroUI's scope grant reads each scope in words, with plain words for the common FHIR resource types, in the language `Accept-Language` prefers among the catalogs (English today); the long description needs FerroUI's scope grant to carry one (FerroHEALTH/FerroUI#695) | `authorize::the_management_page_lists_an_app_with_offline_access_and_withdraws_it` |
+| Publish consent design documentation for client developers | applied: the book's [clients, roles and consent](https://ferrosmart.eu/docs/configure/clients.html) page says which scopes the consent page offers and why | none |
+| Avoid jargon such as "Encounters" | applied: the consent and management pages put plain words before the resource type (`resource-*` messages of the catalog), the type kept for the clinician who knows it | `authorize::the_management_page_lists_an_app_with_offline_access_and_withdraws_it` |
+| Explain experimental query-based scopes plainly | applied: a query-constrained scope is granted only when a client's ceiling and a role list it as written, and the consent page shows its constraint in words (FerroUI's scope grant, "Only where") | none |
+
 **Sections**
 
 | Section | Status |
@@ -3963,6 +4005,11 @@ The Inferno lane runs a symmetric client in group 2 (13.13).
 | §4.1 Client Authentication: Asymmetric, §4.2 Symmetric | below |
 | §5 Token Introspection | in audit |
 | §7 Best Practices | in audit |
+
+| §3 Backend Services | below |
+| §4.1 Client Authentication: Asymmetric, §4.2 Symmetric | symmetric built; in audit |
+| §5 Token Introspection | below |
+| §7 Best Practices | below |
 | §8 User-access Brands and Endpoints | to build |
 | §9 Examples | test vectors in `app/ferrosmart/tests/it/ig_examples.rs`: the worked RS384 and ES384 assertions and the app launch and Backend Services ES384 assertions verify against their published keys through the token endpoint (each refused only as expired), the symmetric example's Basic credentials authenticate, and the worked ID Token verifies with the page's key and reads as shown; the sandbox's HS256 codes and tokens and the logins are not replayable, and the file says why (#609) |
 

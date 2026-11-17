@@ -60,6 +60,9 @@ pub(crate) struct Grant<'a> {
     pub(crate) code_hash: Option<&'a str>,
     /// The `token_type` the grant's profile fixes.
     pub(crate) token_type: &'static str,
+    /// The longest lifetime the grant's profile allows, below
+    /// `access_token_lifetime`; none when the setting alone decides.
+    pub(crate) longest: Option<std::time::Duration>,
     /// The ID Token's `nonce` and `auth_time`, when `openid` is granted.
     pub(crate) identity: Option<(Option<&'a str>, i64)>,
     /// The grant the token is issued under, when a person gave one.
@@ -79,7 +82,12 @@ pub(crate) struct Grant<'a> {
 /// the RFC 9068 set (13.6 item 2).
 pub(crate) fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Result<Issued, Refusal> {
     let settings = state.settings();
-    let lifetime = settings.access_token_lifetime.as_secs();
+    let lifetime = grant
+        .longest
+        .map_or(settings.access_token_lifetime, |longest| {
+            longest.min(settings.access_token_lifetime)
+        })
+        .as_secs();
     let issued_at = jiff::Timestamp::now().as_second();
     let expires_at = issued_at.saturating_add_unsigned(lifetime);
     let jti = random_id().map_err(|error| server_error("no token id could be drawn", &error))?;

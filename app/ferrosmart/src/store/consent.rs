@@ -6,6 +6,7 @@
 
 use sqlx::Row as _;
 
+use crate::store::grant::Access;
 use crate::store::{Store, StoreError, Transaction};
 
 impl Store {
@@ -40,6 +41,42 @@ impl Store {
         .await?;
         rows.iter()
             .map(|row| Ok((row.try_get("client_id")?, row.try_get("scope")?)))
+            .collect()
+    }
+
+    /// Returns each client that holds a live refresh grant of `subject`,
+    /// with the grant's scope and its access: a grant not revoked whose
+    /// refresh token is neither used, revoked nor lapsed, the newest per
+    /// client.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the query fails, or
+    /// [`StoreError::Corrupt`] for an access the server never writes.
+    pub async fn refresh_access(
+        &self,
+        subject: &str,
+    ) -> Result<Vec<(String, String, Access)>, StoreError> {
+        let rows = sqlx::query(
+            "SELECT DISTINCT ON (g.client_id) g.client_id, g.scope, g.access \
+             FROM authorization_grant g JOIN refresh_token r ON r.grant_id = g.id \
+             WHERE g.subject = $1 AND g.revoked_at IS NULL AND g.access IS NOT NULL \
+             AND r.used_at IS NULL AND r.revoked_at IS NULL AND r.expires_at > now() \
+             ORDER BY g.client_id, g.created_at DESC",
+        )
+        .bind(subject)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.iter()
+            .map(|row| {
+                let client_id: String = row.try_get("client_id")?;
+                let access: String = row.try_get("access")?;
+                let access = match access.as_str() {
+                    "offline" => Access::Offline,
+                    "online" => Access::Online,
+                    _ => return Err(StoreError::Corrupt { client_id }),
+                };
+                Ok((client_id, row.try_get("scope")?, access))
+            })
             .collect()
     }
 }

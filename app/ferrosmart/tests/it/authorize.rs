@@ -922,27 +922,7 @@ async fn a_remembered_consent_answers_again_until_it_is_withdrawn() {
     assert!(param(&back, "code").is_some(), "no consent page this time");
 
     // NOTE: SMART App Launch 2.2.0, Conformance, management_endpoint.
-    let (status, headers, _) = smart.get("/manage", None).await;
-    assert_eq!(
-        StatusCode::SEE_OTHER,
-        status,
-        "the visit begins with a login"
-    );
-    let upstream = location(&headers);
-    let cookie = set_cookie(&headers);
-    smart
-        .provider
-        .answer(&param(&upstream, "nonce").expect("a nonce"), &["clinician"])
-        .await;
-    let callback = format!(
-        "/callback?code=m&state={}",
-        param(&upstream, "state").expect("a state")
-    );
-    let (status, headers, _) = smart.get(&callback, Some(&cookie)).await;
-    assert_eq!(StatusCode::SEE_OTHER, status);
-    assert_eq!("/manage", location(&headers).path());
-    let (status, _, page) = smart.get("/manage", Some(&cookie)).await;
-    assert_eq!(StatusCode::OK, status, "{page}");
+    let (cookie, page) = manage_visit(&smart).await;
     assert!(page.contains("Synthetic App"));
     assert!(
         page.contains("<h1 class=\"fui-page-card-title\">Apps you allowed</h1>"),
@@ -992,6 +972,70 @@ async fn a_remembered_consent_answers_again_until_it_is_withdrawn() {
             "{event}: {happened:?}"
         );
     }
+    smart.stop().await;
+}
+
+/// Logs the person in at the management page and returns the cookie and
+/// the page (SMART App Launch 2.2.0, Conformance, `management_endpoint`).
+async fn manage_visit(smart: &Smart) -> (String, String) {
+    let (status, headers, _) = smart.get("/manage", None).await;
+    assert_eq!(
+        StatusCode::SEE_OTHER,
+        status,
+        "the visit begins with a login"
+    );
+    let upstream = location(&headers);
+    let cookie = set_cookie(&headers);
+    smart
+        .provider
+        .answer(&param(&upstream, "nonce").expect("a nonce"), &["clinician"])
+        .await;
+    let callback = format!(
+        "/callback?code=m&state={}",
+        param(&upstream, "state").expect("a state")
+    );
+    let (status, headers, _) = smart.get(&callback, Some(&cookie)).await;
+    assert_eq!(StatusCode::SEE_OTHER, status, "the login returns");
+    assert_eq!("/manage", location(&headers).path(), "to the page");
+    let (status, _, page) = smart.get("/manage", Some(&cookie)).await;
+    assert_eq!(StatusCode::OK, status, "{page}");
+    (cookie, page)
+}
+
+// NOTE: SMART App Launch 2.2.0, Best Practices, remind users which apps have offline
+// access; the management page lists a live refresh grant that no consent remembered.
+#[tokio::test]
+async fn the_management_page_lists_an_app_with_offline_access_and_withdraws_it() {
+    let (smart, body) = launch_with("offline_access").await;
+    let token = body["refresh_token"].as_str().expect("a refresh token");
+    let (_cookie, page) = manage_visit(&smart).await;
+    assert!(
+        page.contains("Synthetic App")
+            && page.contains("This app stays connected after you sign out"),
+        "{page}"
+    );
+    // NOTE: SMART App Launch 2.2.0, Best Practices, Considerations for Scope
+    // Consent: plain words before the resource type.
+    assert!(
+        page.contains("Measurements and test results (Observation)"),
+        "{page}"
+    );
+    let (cookie, page) = manage_visit(&smart).await;
+    let (status, _, _) = smart
+        .post(
+            "/manage",
+            &[
+                ("form_token", form_token(&page).as_str()),
+                ("client_id", "app"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let (status, refused) = refresh(&smart, token).await;
+    assert_eq!(StatusCode::BAD_REQUEST, status, "withdrawn: {refused}");
+    let (_, _, page) = smart.get("/manage", Some(&cookie)).await;
+    assert!(page.contains("No app keeps access to your data."), "{page}");
     smart.stop().await;
 }
 
