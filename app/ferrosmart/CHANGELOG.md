@@ -295,6 +295,10 @@ and this project adheres to
 - A Backend Services access token lives at most five minutes, whatever
   `access_token_lifetime` says, as SMART App Launch 2.2.0, Backend
   Services, Issue Access Token has `expires_in` not exceed 300 (#603).
+- An expired client assertion whose signature holds is refused as
+  `invalid_client` with the description "the client_assertion has
+  expired", told apart from one that does not verify (RFC 7523 §3). The
+  examples of SMART App Launch 2.2.0 §9 run as test vectors (#609).
 - The SMART configuration lists every capability FerroSMART supports and
   nothing else (SMART App Launch 2.2.0, Conformance, Capabilities): it adds
   `authorize-post`, `permission-offline`, `permission-online`,

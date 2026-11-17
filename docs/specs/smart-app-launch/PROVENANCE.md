@@ -11,7 +11,7 @@ here: change the pin in docs/VERSIONS.md and re-run the script.
   edition the package and the page sources below belong to
 - FHIR versions: 4.0.1
 - Author: HL7 International / FHIR Infrastructure
-- Fetched: 2026-10-19
+- Fetched: 2026-11-17
 - Upstream licence: CC-BY-4.0, the `license` of `package/package.json`
   (Creative Commons Attribution 4.0 International,
   <https://creativecommons.org/licenses/by/4.0/>), which permits copying and
@@ -48,9 +48,9 @@ package build, so these are the sources the publication renders. Each
 URL above.
 
 - Pin: commit `13449f93ba52d401d29ca9e72e8a4cbced8d6424`
-- Files: 35, of which 25 are `input/pages/*.md`
+- Files: 37, of which 25 are `input/pages/*.md`
 - Repository tree digest (sha256 over the sorted per-file `sha256  path`
-  listing): `2756849598639150ba9a4f89a7b21e6f367586ce5c848670e47e439c755a2154`
+  listing): `00e6580b6654f2c769d895bce405763c2d6d276a96698347ccaa738274a5befb`
 
 The pages the design cites: `scopes-and-launch-context.md` (the scope
 grammar and the launch context), `app-launch.md` (the launch flows and the
@@ -59,3 +59,7 @@ signed assertion), `client-confidential-asymmetric.md` and
 `client-confidential-symmetric.md` (client authentication),
 `conformance.md` (the capability sets and the
 `.well-known/smart-configuration` document) and `token-introspection.md`.
+`input/images/RS384.public.json` and `ES384.public.json` are the public
+keys of the guide's signed examples (Examples, Client authentication), which
+the conformance tests verify those examples against; the private halves are
+not taken.

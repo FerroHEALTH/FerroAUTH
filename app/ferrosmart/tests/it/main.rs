@@ -15,6 +15,7 @@ mod clients;
 mod config;
 mod discovery;
 mod ehr_launch;
+mod ig_examples;
 mod introspection;
 mod launch;
 mod refresh;
