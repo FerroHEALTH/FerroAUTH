@@ -69,6 +69,15 @@ check() {
       failures=$((failures + 1))
     fi
   done < <(rows exceptions.tsv | cut -f1)
+  # An `omitted` row is the kit's own omission: the expected result is
+  # `omit`, so a run where the kit ran the test fails the comparison.
+  while IFS=$'\t' read -r id kind _; do
+    [ "$kind" = omitted ] || continue
+    if ! jq -e --arg id "$id" 'any(.[]; .test_id == $id and .result == "omit")' "$expected" > /dev/null; then
+      echo "lane: exceptions.tsv marks $id omitted, which the expected results do not hold omitted" >&2
+      failures=$((failures + 1))
+    fi
+  done < <(rows exceptions.tsv)
   [ "$failures" -eq 0 ] || exit 1
   echo "lane: the expected results pass every test outside exceptions.tsv"
 }
@@ -154,6 +163,10 @@ make_keys() {
   jq '{keys: [.keys[] | select(.key_ops | index("verify"))
         | {kty, kid, alg, crv, x, y, n, e} | with_entries(select(.value != null))]}' \
     "$INFERNO_KIT/lib/smart_app_launch/smart_jwks.json" > "$dir/inferno-client.jwks.json"
+  # The symmetric client's Argon2id hash of the secret smart_stu2_2.yaml
+  # gives the kit for group 2.
+  printf '%s' synthetic-inferno-ehr-secret | "$root/target/debug/ferrosmart" client hash-secret \
+    > "$dir/inferno-ehr.phc"
   chmod 0644 "$dir"/*.key "$dir"/*.pem
 }
 
@@ -229,7 +242,8 @@ run() {
     --set "ferrosmart.upstream.private_key_jwt.keys.private_key_file=$LANE_DIR/assertion.pem" \
     --set "ferrosmart.database.url=$LANE_PG/ferrosmart" \
     --set "ferrosmart.client[0].jwks_file=$LANE_DIR/inferno-client.jwks.json" \
-    --set "ferrosmart.client[2].jwks_file=$LANE_DIR/lane-client.jwks.json" \
+    --set "ferrosmart.client[2].secret_hash_file=$LANE_DIR/inferno-ehr.phc" \
+    --set "ferrosmart.client[3].jwks_file=$LANE_DIR/lane-client.jwks.json" \
     serve > "$LANE_DIR/ferrosmart.log" 2>&1 &
   wait_for FerroSMART https://smart.localhost:8443/.well-known/smart-configuration
 
@@ -262,7 +276,7 @@ run() {
     -v "$INFERNO_KIT:/kit" -v "$lane:/script" -v "$LANE_DIR:/lane:ro" -v "$root/scripts:/repo/scripts:ro" -w /kit \
     -e APP_ENV=development -e SSL_CERT_FILE=/tmp/trust.pem -e CURL_CA_BUNDLE=/tmp/trust.pem \
     -e LAUNCH_USER=clinician -e "LAUNCH_PASSWORD=$password" -e LAUNCH_PATIENT_NAME=Lane \
-    -e LANE_KEY=/lane/lane-client.pem -e SMART_ISSUER=https://smart.localhost:8443 -e LAUNCH_APP=inferno-standalone \
+    -e LANE_KEY=/lane/lane-client.pem -e SMART_ISSUER=https://smart.localhost:8443 -e LAUNCH_APP=inferno-ehr \
     --add-host smart.localhost:127.0.0.1 --add-host bridge.localhost:127.0.0.1 \
     "$(pinned_image 'Inferno runtime')" sh -c '
       cat /etc/ssl/certs/ca-certificates.crt /lane/ca.crt > /tmp/trust.pem &&

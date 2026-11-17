@@ -23,6 +23,11 @@ and this project adheres to
   type, "Measurements and test results (Observation)", for the common
   types (SMART App Launch 2.2.0, Best Practices, Considerations for Scope
   Consent) (#608).
+- `ferrosmart client hash-secret` reads a confidential symmetric client's
+  secret on standard input and prints its Argon2id hash at the OWASP floor
+  (m=19456, t=2, p=1) with a fresh salt, the string `secret_hash_file`
+  holds. The Inferno lane runs its EHR launch with a symmetric client made
+  this way (#601).
 - A standalone launch that asks for `launch/patient` and `launch/encounter`
   at a FHIR resource server gets an encounter step in the picker: the
   chosen patient's encounters, searched as the signed-in person with the
@@ -295,6 +300,9 @@ and this project adheres to
 - A Backend Services access token lives at most five minutes, whatever
   `access_token_lifetime` says, as SMART App Launch 2.2.0, Backend
   Services, Issue Access Token has `expires_in` not exceed 300 (#603).
+- A client assertion sent with a `client_id` other than its `iss` is
+  refused with `invalid_client`, as SMART App Launch 2.2.0, Client
+  Authentication: Asymmetric, Signature Verification requires (#601).
 - An expired client assertion whose signature holds is refused as
   `invalid_client` with the description "the client_assertion has
   expired", told apart from one that does not verify (RFC 7523 §3). The

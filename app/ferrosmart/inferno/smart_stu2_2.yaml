@@ -78,9 +78,11 @@ steps:
       inputs:
         url: https://bridge.localhost:9443/fhir
         ehr_smart_auth_info:
-          auth_type: public
+          auth_type: symmetric
           use_discovery: "true"
-          client_id: inferno-standalone
+          client_id: inferno-ehr
+          # The lane's synthetic secret; FerroSMART holds only its hash.
+          client_secret: synthetic-inferno-ehr-secret
           requested_scopes: launch openid fhirUser offline_access user/Practitioner.rs
           pkce_support: enabled
           pkce_code_challenge_method: S256

@@ -50,6 +50,11 @@ issuer = "https://smart.localhost:8443"
 kind = "persons"
 profile = "ferrosmart"
 audience = ["https://bridge.localhost:9443/fhir"]
-# The kit's app, and FerroSMART itself, whose picker searches Patient with
-# the signed-in person's own token (docs/architecture.md §13.6 item 4).
-delegates = [{ client = "inferno-standalone" }, { client = "https://smart.localhost:8443" }]
+# The kit's two apps, public and symmetric, and FerroSMART itself, whose
+# picker searches Patient with the signed-in person's own token
+# (docs/architecture.md §13.6 item 4).
+delegates = [
+  { client = "inferno-standalone" },
+  { client = "inferno-ehr" },
+  { client = "https://smart.localhost:8443" },
+]

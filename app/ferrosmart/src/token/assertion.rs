@@ -64,6 +64,16 @@ pub(crate) async fn authenticate(state: &AppState, form: &Params) -> Result<Clie
         .await
         .map_err(|error| server_error("the client registry cannot be read", &error))?
         .ok_or(Refusal::client("the client is not registered"))?;
+    // NOTE: SMART App Launch 2.2.0, Signature Verification, the client_id provided
+    // is known and matches the JWT's iss.
+    if form
+        .get("client_id")
+        .is_some_and(|client_id| client_id != issuer)
+    {
+        return Err(Refusal::client(
+            "the client_id is not the client_assertion's iss",
+        ));
+    }
     if client.kind != ClientKind::ConfidentialAsymmetric {
         return Err(Refusal::client("the client authenticates with no key"));
     }

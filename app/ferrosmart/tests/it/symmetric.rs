@@ -176,3 +176,12 @@ fn a_symmetric_client_is_refused_the_client_credentials_grant_and_a_jwk_set() {
     public.kind = ClientKind::Public;
     assert!(resolve(&[public]).is_err(), "a secret on a public client");
 }
+
+// NOTE: OWASP Password Storage Cheat Sheet, Argon2id at m=19456, t=2, p=1.
+#[test]
+fn the_hash_secret_command_makes_a_hash_at_the_floor_with_a_fresh_salt() {
+    let one = phc(VAULT_SECRET);
+    let other = phc(VAULT_SECRET);
+    assert!(one.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"), "{one}");
+    assert_ne!(one, other, "a fresh salt each time");
+}

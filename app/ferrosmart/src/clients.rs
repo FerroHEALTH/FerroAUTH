@@ -402,6 +402,45 @@ fn secret_hash(section: &ClientSection) -> Result<SecretHash, ClientError> {
     Ok(SecretHash(phc))
 }
 
+/// The Argon2id memory cost of a hash [`hash_secret`] makes, in KiB: the
+/// OWASP Password Storage Cheat Sheet floor.
+pub const HASH_MEMORY_KIB: u32 = 19_456;
+
+/// The Argon2id passes of a hash [`hash_secret`] makes.
+pub const HASH_PASSES: u32 = 2;
+
+/// Returns the Argon2id PHC hash of `secret` at [`HASH_MEMORY_KIB`] and
+/// [`HASH_PASSES`], one lane, under a fresh 16-byte salt: the string a
+/// confidential symmetric client's `secret_hash_file` holds.
+///
+/// # Errors
+/// Returns [`HashError`] when no salt can be drawn or the hash fails.
+pub fn hash_secret(secret: &str) -> Result<String, HashError> {
+    use argon2::password_hash::PasswordHasher as _;
+    let mut salt = [0_u8; 16];
+    aws_lc_rs::rand::fill(&mut salt).map_err(|_unspecified| HashError::Salt)?;
+    let params =
+        argon2::Params::new(HASH_MEMORY_KIB, HASH_PASSES, 1, None).map_err(HashError::Params)?;
+    argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
+        .hash_password_with_salt(secret.as_bytes(), &salt)
+        .map(|hash| hash.to_string())
+        .map_err(HashError::Hash)
+}
+
+/// Why a secret could not be hashed.
+#[derive(Debug, thiserror::Error)]
+pub enum HashError {
+    /// No salt could be drawn.
+    #[error("no salt could be drawn")]
+    Salt,
+    /// The parameters were refused.
+    #[error("the Argon2id parameters were refused")]
+    Params(#[source] argon2::Error),
+    /// The hash failed.
+    #[error("the secret could not be hashed")]
+    Hash(#[source] argon2::password_hash::Error),
+}
+
 /// Returns whether `url` names a loopback host over plain `http`, which a
 /// test's JWK Set server is. No specification governs the exception: our
 /// own design, the one `ferrohealth_smart::metadata::issuer_url` makes.

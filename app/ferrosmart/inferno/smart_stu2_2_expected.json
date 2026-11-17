@@ -390,7 +390,7 @@
     "result": "pass",
     "messages": [
       {
-        "message": "Inferno redirecting browser to https://smart.localhost:8443/authorize?response_type=code&client_id=inferno-standalone&redirect_uri=http%3A%2F%2Flocalhost%3A4567%2Fcustom%2Fsmart_stu2_2%2Fredirect&scope=launch+openid+fhirUser+offline_access+user%2FPractitioner.rs&state=e0c587b8-5e4d-44aa-87af-b85265f026bb&aud=https%3A%2F%2Fbridge.localhost%3A9443%2Ffhir&launch=zpipgjRVn1uDpvLVPrSO7Z1oFaxNshRhjvE2ZedlA5s&code_challenge=VhApq21YKIP3h0CbjDelQcRzymRnQl_dMcAby7KpkXQ&code_challenge_method=S256.",
+        "message": "Inferno redirecting browser to https://smart.localhost:8443/authorize?response_type=code&client_id=inferno-ehr&redirect_uri=http%3A%2F%2Flocalhost%3A4567%2Fcustom%2Fsmart_stu2_2%2Fredirect&scope=launch+openid+fhirUser+offline_access+user%2FPractitioner.rs&state=e0c587b8-5e4d-44aa-87af-b85265f026bb&aud=https%3A%2F%2Fbridge.localhost%3A9443%2Ffhir&launch=zpipgjRVn1uDpvLVPrSO7Z1oFaxNshRhjvE2ZedlA5s&code_challenge=VhApq21YKIP3h0CbjDelQcRzymRnQl_dMcAby7KpkXQ&code_challenge_method=S256.",
         "type": "info"
       }
     ]
@@ -447,7 +447,8 @@
   },
   {
     "test_id": "smart_stu2_2-smart_full_ehr_launch-smart_ehr_launch_stu2_2-smart_cors_token_exchange",
-    "result": "pass"
+    "result": "omit",
+    "result_message": "\nClient type is not public, Cross-Origin Resource Sharing (CORS) is not required to be supported for\nnon-public client types\n\n"
   },
   {
     "test_group_id": "smart_stu2_2-smart_full_ehr_launch-smart_ehr_launch_stu2_2",
