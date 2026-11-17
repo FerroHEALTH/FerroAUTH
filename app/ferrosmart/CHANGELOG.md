@@ -14,6 +14,16 @@ and this project adheres to
 
 ### Added
 
+- Confidential symmetric clients (SMART App Launch 2.2.0, Client
+  Authentication: Symmetric): `kind = "confidential_symmetric"` with
+  `secret_hash_file`, the Argon2id PHC hash of the client's secret at the
+  OWASP floor, never the secret. The client authenticates at the token and
+  revocation endpoints by `client_secret_basic` or `client_secret_post`
+  (RFC 6749 §2.3.1); a failed Basic credential answers `401` with
+  `WWW-Authenticate: Basic`, two methods in one request are refused, and
+  the client credentials grant and a JWK Set are refused at load. The
+  discovery documents list both methods and `client-confidential-symmetric`.
+  Migration `0008` adds the hash to the client table (#601).
 - The patient picker at an openEHR resource server: for a standalone launch
   with `launch/patient` at an openEHR base whose `[[ferrosmart.resource]]`
   table names a `subject_namespace`, the signed-in person enters the

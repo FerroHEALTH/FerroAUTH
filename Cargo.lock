@@ -1307,6 +1307,7 @@ dependencies = [
 name = "ferrosmart"
 version = "0.1.0"
 dependencies = [
+ "argon2",
  "async-trait",
  "aws-lc-rs",
  "axum",

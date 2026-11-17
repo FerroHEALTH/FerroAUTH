@@ -43,7 +43,7 @@ pub async fn revoke(
                 error = refusal.error,
                 "a revocation request was refused"
             );
-            refusal.into_response()
+            refusal.answer(&headers)
         }
     }
 }
@@ -57,7 +57,7 @@ async fn revoked(
     from: IpAddr,
 ) -> Result<(), Refusal> {
     let form = read_form(headers, body)?;
-    let client = identify(state, &form).await?;
+    let client = identify(state, headers, &form).await?;
     let token = form
         .get("token")
         .ok_or(Refusal::request("the request carries no token"))?;

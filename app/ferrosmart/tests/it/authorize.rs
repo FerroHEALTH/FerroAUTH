@@ -1619,7 +1619,7 @@ mod preset;
 /// The capabilities FerroSMART supports with a FHIR resource server and a
 /// SMART style document configured, each with the case that exercises it
 /// (`docs/architecture.md` §13.23).
-const SUPPORTED: [(&str, &str); 16] = [
+const SUPPORTED: [(&str, &str); 17] = [
     (
         "authorize-post",
         "an_authorization_request_by_post_is_the_get_s_twin",
@@ -1627,6 +1627,10 @@ const SUPPORTED: [(&str, &str); 16] = [
     (
         "client-confidential-asymmetric",
         "token::a_backend_services_client_gets_an_rfc_9068_token",
+    ),
+    (
+        "client-confidential-symmetric",
+        "symmetric::a_symmetric_client_authenticates_by_http_basic",
     ),
     (
         "client-public",
@@ -1716,6 +1720,7 @@ async fn the_document_lists_exactly_the_capabilities_the_server_supports() {
         let (source, name) = match case.split_once("::") {
             Some(("token", name)) => (include_str!("token.rs"), name),
             Some(("ehr_launch", name)) => (include_str!("ehr_launch.rs"), name),
+            Some(("symmetric", name)) => (include_str!("symmetric.rs"), name),
             Some((module, _)) => panic!("{capability}: no source for {module}"),
             None => (include_str!("authorize.rs"), case),
         };
@@ -1762,28 +1767,12 @@ async fn what_the_document_leaves_out_the_server_refuses() {
     let document: Value = serde_json::from_str(&body).expect("JSON");
     let listed = document["capabilities"].as_array().expect("capabilities");
     for capability in [
-        "client-confidential-symmetric",
         "context-standalone-encounter",
         "permission-v1",
         "smart-app-state",
     ] {
         assert!(!listed.contains(&json!(capability)), "{capability}");
     }
-    // NOTE: RFC 6749 §2.3.1, a client secret sent by HTTP Basic authenticates no client.
-    let (status, _, body) = smart
-        .send(
-            Request::post("/token")
-                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
-                .header(header::AUTHORIZATION, "Basic YXBwOnNlY3JldA==")
-                .body(Body::from("grant_type=client_credentials"))
-                .expect("a request"),
-        )
-        .await;
-    assert!(
-        status == StatusCode::UNAUTHORIZED || status == StatusCode::BAD_REQUEST,
-        "{status} {body}"
-    );
-    assert!(body.contains("invalid_client"), "{body}");
     let client = resolve(&[ClientSection {
         client_id: String::from("app"),
         kind: ClientKind::Public,

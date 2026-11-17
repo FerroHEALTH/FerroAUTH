@@ -72,6 +72,9 @@ impl Server {
         let signing_key =
             AssertionKey::from_pem(&own, Some(Algorithm::RS256), None).expect("the server's key");
         let database = Database::create().await;
+        let secret_hash = keys.dir.path().join("vault.phc");
+        std::fs::write(&secret_hash, phc(VAULT_SECRET)).expect("written");
+        let secret_hash = secret_hash.display().to_string();
         let text = format!(
             "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
              [[ferrosmart.client]]\nclient_id = \"export\"\nkind = \"confidential_asymmetric\"\njwks_file = {set:?}\n\
@@ -80,6 +83,9 @@ impl Server {
              scopes = [\"system/introspect\"]\ngrant_types = [\"client_credentials\"]\n\
              [[ferrosmart.client]]\nclient_id = \"portal\"\nkind = \"confidential_asymmetric\"\njwks_file = {set:?}\n\
              redirect_uris = [\"https://portal.example.org/callback\"]\n\
+             grant_types = [\"authorization_code\", \"refresh_token\"]\n\
+             [[ferrosmart.client]]\nclient_id = \"vault\"\nkind = \"confidential_symmetric\"\n\
+             secret_hash_file = {secret_hash:?}\nredirect_uris = [\"https://vault.example.org/callback\"]\n\
              grant_types = [\"authorization_code\", \"refresh_token\"]\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\
              redirect_uris = [\"https://app.example.org/callback\"]\n\
@@ -163,13 +169,25 @@ impl Server {
         form: &[(String, String)],
         bearer: Option<&str>,
     ) -> Answer {
+        self.post_authorized(path, form, bearer.map(|token| format!("Bearer {token}")))
+            .await
+    }
+
+    /// Posts `form` to `path`, with `authorization` as the whole
+    /// `Authorization` header.
+    pub(crate) async fn post_authorized(
+        &self,
+        path: &str,
+        form: &[(String, String)],
+        authorization: Option<String>,
+    ) -> Answer {
         let body: String = url::form_urlencoded::Serializer::new(String::new())
             .extend_pairs(form)
             .finish();
         let mut request =
             Request::post(path).header(header::CONTENT_TYPE, "application/x-www-form-urlencoded");
-        if let Some(token) = bearer {
-            request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        if let Some(value) = authorization {
+            request = request.header(header::AUTHORIZATION, value);
         }
         let request = request.body(Body::from(body)).expect("a request");
         let response = self
@@ -316,6 +334,19 @@ impl Server {
             database.drop(self.store).await;
         }
     }
+}
+
+/// The secret of the confidential symmetric client `vault`.
+pub(crate) const VAULT_SECRET: &str = "synthetic vault secret";
+
+/// Returns the Argon2id PHC hash of `secret` at the OWASP floor.
+pub(crate) fn phc(secret: &str) -> String {
+    use argon2::password_hash::PasswordHasher as _;
+    let params = argon2::Params::new(19_456, 2, 1, None).expect("the floor");
+    argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params)
+        .hash_password_with_salt(secret.as_bytes(), b"synthetic-salt-16")
+        .expect("hashes")
+        .to_string()
 }
 
 /// Returns an id no other value of the run carries.

@@ -41,10 +41,11 @@ const fn invalid(description: &'static str) -> Refusal {
 /// Answers a refresh token request.
 pub(crate) async fn refresh(
     state: &AppState,
+    headers: &http::HeaderMap,
     form: &Params,
     from: std::net::IpAddr,
 ) -> Result<Issued, Refusal> {
-    let client = identify(state, form).await?;
+    let client = identify(state, headers, form).await?;
     if !client.grant_types.contains(&GrantType::RefreshToken) {
         return Err(Refusal {
             error: "unauthorized_client",

@@ -21,7 +21,7 @@ use serde_json::Value;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::{Postgres, Row as _};
 
-use crate::clients::{Client, ClientKeys, ClientKind, GrantType};
+use crate::clients::{Client, ClientKeys, ClientKind, GrantType, SecretHash};
 use crate::launch::context::Context;
 
 /// How long a request waits for a connection before the store answers that
@@ -128,7 +128,7 @@ impl Store {
     /// [`StoreError::Corrupt`] for a row the server never writes.
     pub async fn client(&self, client_id: &str) -> Result<Option<Client>, StoreError> {
         let row = sqlx::query(
-            "SELECT client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types \
+            "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types \
              FROM client WHERE client_id = $1",
         )
         .bind(client_id)
@@ -240,10 +240,10 @@ async fn upsert(
         .map(|grant| grant.as_str())
         .collect();
     sqlx::query(
-        "INSERT INTO client (client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types, source) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'config') \
+        "INSERT INTO client (client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types, secret_hash, source) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'config') \
          ON CONFLICT (client_id) DO UPDATE SET name = $2, kind = $3, jwks_uri = $4, jwks = $5, \
-         redirect_uris = $6, scopes = $7, grant_types = $8, source = 'config', updated_at = now()",
+         redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, source = 'config', updated_at = now()",
     )
     .bind(&client.client_id)
     .bind(&client.name)
@@ -253,6 +253,7 @@ async fn upsert(
     .bind(&client.redirect_uris)
     .bind(&client.scopes)
     .bind(&grants)
+    .bind(client.secret_hash.as_ref().map(SecretHash::phc))
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -267,8 +268,12 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
     let kind = match row.try_get::<String, _>("kind")?.as_str() {
         "public" => ClientKind::Public,
         "confidential_asymmetric" => ClientKind::ConfidentialAsymmetric,
+        "confidential_symmetric" => ClientKind::ConfidentialSymmetric,
         _ => return Err(corrupt()),
     };
+    let secret_hash = row
+        .try_get::<Option<String>, _>("secret_hash")?
+        .map(SecretHash::from);
     let keys = match (
         row.try_get::<Option<String>, _>("jwks_uri")?,
         row.try_get::<Option<Value>, _>("jwks")?,
@@ -292,6 +297,7 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
         name: row.try_get("name")?,
         kind,
         keys,
+        secret_hash,
         redirect_uris: row.try_get("redirect_uris")?,
         scopes: row.try_get("scopes")?,
         grant_types,
