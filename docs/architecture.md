@@ -3839,11 +3839,36 @@ absent, since FerroSMART has neither, and `user_access_brand_bundle` and
 |---|---|
 | §1 Conformance (capabilities, discovery) | this section |
 | §2.1 App Launch, §2.2 Scopes and Launch Context | in audit |
-| §2.3 Persisting App State (experimental) | the resource server's; FerroSMART never advertises it |
-| §2.4 Task profile for requesting a launch (experimental) | the EHR's; FerroSMART serves the EHR launch API it uses |
+| §2.3 Persisting App State (experimental) | the resource server's; FerroSMART never advertises it (below) |
+| §2.4 Task profile for requesting a launch (experimental) | the EHR's; FerroSMART serves the EHR launch API it uses (below) |
 | §3 Backend Services | in audit |
 | §4.1 Client Authentication: Asymmetric, §4.2 Symmetric | symmetric built; in audit |
 | §5 Token Introspection | in audit |
 | §7 Best Practices | in audit |
 | §8 User-access Brands and Endpoints | to build |
 | §9 Examples | to build as test vectors |
+
+**App State** (`smart app-state`, Discovery). An EHR advertises
+`smart-app-state` "in the capabilities array of their FHIR server's
+`.well-known/smart-configuration`", and the `$smart-app-state-query` and
+`$smart-app-state-modify` operations read and write `Basic` resources at
+that FHIR server or at an `associated_endpoints` entry it names. FerroSMART
+is the authorization server and stores no FHIR resource, so the operations
+belong to the resource server, FerroBRIDGE's facade, and FerroSMART's own
+document never lists the capability
+(`authorize::what_the_document_leaves_out_the_server_refuses`). Its part is
+the access token: "Every App State request SHALL include an Authorization
+header with an access token issued by the EHR's authorization server"
+(`smart app-state`, Access Control), with scopes such as `user/Basic.cuds`
+or `patient/Basic.cuds` granted as any other resource scope, by a client's
+ceiling and a person's roles.
+
+**Task launch** (`smart task-launch`). A `Task` of the `task-ehr-launch`
+or `task-standalone-launch` profile asks staff to launch an app, with its
+URL and optional `appContext`, `for` and `encounter`. Creating it, showing
+it and acting on it is the EHR's work: FerroEHR's viewer and FerroBRIDGE's
+facade. An EHR acting on a `task-ehr-launch` Task registers the launch at
+FerroSMART's `POST {issuer}/launch` (13.17) with the Task's patient,
+encounter and `appContext` as the launch context, and opens the app with
+the `launch` value it gets back; a `task-standalone-launch` Task needs
+nothing of FerroSMART beyond the standalone launch.
