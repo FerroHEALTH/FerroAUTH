@@ -3332,10 +3332,17 @@ change that lets one drift:
   CDR's AQL demographic extension. Group 2's EHR
   is the lane itself: `scripts/inferno/ehr-launch.sh` registers each launch
   at `POST /launch` as the lane's client (13.6 item 3) and opens the kit's
-  launch URI with `iss` and `launch`.
+  launch URI with `iss` and `launch`. The app it launches is the kit as a
+  confidential symmetric client (`inferno-ehr`, `auth_type: symmetric`),
+  so every client type runs: public in groups 1 and 4, symmetric in group
+  2, asymmetric in group 3. The lane hashes the kit's synthetic secret
+  with `ferrosmart client hash-secret` for the run.
 - `exceptions.tsv` lists each test of a run group that the expected results
   do not hold to `pass`, with its reason; any other test expected to be
-  anything but `pass` fails the run. It holds no row. FerroBRIDGE answers
+  anything but `pass` fails the run. It holds one row: group 2's
+  `smart_cors_token_exchange`, which the kit omits for the symmetric
+  client, since CORS is asked for browser-based apps; groups 1 and 4 run
+  it with the public client. FerroBRIDGE answers
   CORS (`smart app-launch`, Considerations for CORS support): its SMART
   document and CapabilityStatement for any origin (item 1), and its REST
   routes for the kit's origin `http://localhost:4567`, which the lane
@@ -3917,6 +3924,33 @@ the picker chooses an encounter only after a patient, so a request for
 another patient, and reads the chosen encounter again, accepting it only
 when its `subject` is the chosen patient.
 
+**§4.1 Client Authentication: Asymmetric and §4.2 Symmetric**
+(`smart client-confidential-asymmetric`, `smart
+client-confidential-symmetric`). One row per SHALL and SHOULD; §4.2 has no
+keyword of its own, so its rows are the profile's statements.
+
+| Requirement | Level | Holder and status | Test |
+|---|---|---|---|
+| The client generates a key pair and registers its public key set, by URL or by value, as a JWK Set (Registering a client) | SHALL | the client's; FerroSMART refuses a confidential asymmetric client without exactly one set | `clients::a_confidential_asymmetric_client_registers_exactly_one_jwk_set` |
+| The server supports both registrations, a JWK Set URL and a JWK Set by value | SHALL | met: `jwks_uri` and `jwks_file` | `clients::a_backend_services_client_registers_its_jwk_set_by_url`, `clients::a_jwk_set_by_value_holds_bare_public_keys_with_kty_and_kid` |
+| The JWK Set URL is reachable over TLS without authentication; the client returns `Cache-Control` | SHALL, SHOULD | the client's; FerroSMART requires `https` outside loopback and honours the header | `token::a_jwk_set_url_is_read_and_cached_as_the_client_allows` |
+| The server protects a JWK Set given by value from corruption, and reminds the client to update it | SHALL, SHOULD | the deployment's: the set is a configuration file the operator owns, read at start; no registration API exists to send a reminder from (13.10) | none |
+| The client signs with RS384 and ES384; the server validates at least one | SHALL | met: both, and nothing else | `token::a_backend_services_client_gets_an_rfc_9068_token`, `token::an_rs384_assertion_typed_by_rfc_10070_naming_the_issuer_is_admitted` |
+| Each JWK is an asymmetric key with `kty` and `kid`, bare `n` and `e` or `crv`, `x` and `y` | SHALL | met: a set breaking it is refused at load, a private member too | `clients::a_jwk_set_by_value_holds_bare_public_keys_with_kty_and_kid` |
+| The client uses its `client_id`, and TLS 1.2 or later (Requesting an access token) | SHALL | met for TLS by `ferrohealth-server`'s listener, which offers TLS 1.2 and 1.3 alone; the lane's kit checks it | Inferno lane `standalone_auth_tls`, `backend_services_authorization` TLS |
+| The authentication JWT carries `alg`, `kid`, `typ` `JWT`, `iss` and `sub` the client, `aud` the token URL, `exp` at most five minutes ahead, a `jti`; `jku` when present is the registered URL | SHALL | met: `typ` `JWT` or `client-authentication+jwt`, `aud` the token URL or the issuer (13.6 item 1) | `token::an_assertion_breaking_the_profile_is_refused`, `token::the_assertion_s_audience_is_one_string_naming_this_server`, `token::a_replayed_or_long_lived_or_unsigned_assertion_is_refused` |
+| The server validates the JWT by RFC 7523 §3 and its signature | SHALL | met | `token::a_replayed_or_long_lived_or_unsigned_assertion_is_refused` |
+| A `jti` seen before for the `iss` within the JWT's lifetime is refused | SHALL | met, across replicas through the store | `token::a_replayed_or_long_lived_or_unsigned_assertion_is_refused` |
+| The `client_id` provided is known and matches the JWT's `iss` | SHALL | met: a form `client_id` other than the `iss` is refused (#601) | `token::an_assertion_whose_client_or_key_does_not_resolve_is_refused` |
+| Key resolution: a `jku` not registered fails; without one, the registered set; exactly one key by `kid` with a `kty` fitting the algorithm | SHALL, SHOULD | met | `token::a_jwk_set_url_is_read_and_cached_as_the_client_allows`, `token::an_assertion_whose_client_or_key_does_not_resolve_is_refused` |
+| An authentication error answers `invalid_client` | SHALL | met | `token::an_assertion_breaking_the_profile_is_refused`, `symmetric::a_wrong_secret_is_invalid_client` |
+| A JWK Set is cached no longer than the client's `Cache-Control` allows, and cached as it allows | SHALL NOT, SHOULD | met | `token::a_jwk_set_url_is_read_and_cached_as_the_client_allows` |
+| A symmetric client sends its `client_secret` by HTTP Basic (Authentication using a `client_secret`) | profile | met, with `client_secret_post` beside it (RFC 6749 §2.3.1), never both | `symmetric::a_symmetric_client_authenticates_by_http_basic`, `symmetric::a_symmetric_client_authenticates_in_the_form`, `symmetric::two_authentication_methods_at_once_are_refused` |
+| The symmetric profile is for App Launch clients and not for Backend Services (Profile Audience and Scope) | profile | met: the client credentials grant and a JWK Set are refused to a symmetric client | `symmetric::a_symmetric_client_is_refused_the_client_credentials_grant_and_a_jwk_set` |
+| The server knows the secret (Authentication using a `client_secret`) | profile | met as its Argon2id hash at the OWASP floor, never the secret; `ferrosmart client hash-secret` makes it (13.9) | `symmetric::the_hash_secret_command_makes_a_hash_at_the_floor_with_a_fresh_salt` |
+
+The Inferno lane runs a symmetric client in group 2 (13.13).
+
 **Sections**
 
 | Section | Status |
@@ -3926,7 +3960,7 @@ when its `subject` is the chosen patient.
 | §2.3 Persisting App State (experimental) | the resource server's; FerroSMART never advertises it (below) |
 | §2.4 Task profile for requesting a launch (experimental) | the EHR's; FerroSMART serves the EHR launch API it uses (below) |
 | §3 Backend Services | in audit |
-| §4.1 Client Authentication: Asymmetric, §4.2 Symmetric | symmetric built; in audit |
+| §4.1 Client Authentication: Asymmetric, §4.2 Symmetric | below |
 | §5 Token Introspection | in audit |
 | §7 Best Practices | in audit |
 | §8 User-access Brands and Endpoints | to build |
