@@ -95,7 +95,12 @@ async fn the_metadata_names_introspection_and_revocation_and_how_they_authentica
         body["introspection_endpoint_auth_signing_alg_values_supported"]
     );
     assert_eq!(
-        json!(["private_key_jwt", "none"]),
+        json!([
+            "private_key_jwt",
+            "client_secret_basic",
+            "client_secret_post",
+            "none"
+        ]),
         body["revocation_endpoint_auth_methods_supported"]
     );
     assert_eq!(

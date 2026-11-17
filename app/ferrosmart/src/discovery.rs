@@ -52,8 +52,9 @@ const ASSERTION_ALGORITHMS: [&str; 2] = ["RS384", "ES384"];
 ///
 /// `response_types_supported` is REQUIRED and lists the response types the
 /// server supports: none without the authorization endpoint, `code` with
-/// it. The token endpoint takes `private_key_jwt`, and with `login` also
-/// `none`, a public client's (RFC 7591 §2).
+/// it. The token endpoint takes `private_key_jwt`, and with `login` also a
+/// confidential symmetric client's secret (`client_secret_basic`,
+/// `client_secret_post`) and `none`, a public client's (RFC 7591 §2).
 #[must_use]
 pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
     let strings = |values: &[&str]| Some(values.iter().map(|&value| value.to_owned()).collect());
@@ -73,7 +74,12 @@ pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
         metadata.authorization_endpoint =
             Some(settings.endpoint(crate::authorize::AUTHORIZE_ROUTE));
         metadata.grant_types_supported = strings(&["authorization_code", "client_credentials"]);
-        metadata.token_endpoint_auth_methods_supported = strings(&["private_key_jwt", "none"]);
+        metadata.token_endpoint_auth_methods_supported = strings(&[
+            "private_key_jwt",
+            "client_secret_basic",
+            "client_secret_post",
+            "none",
+        ]);
         metadata.response_types_supported = strings(&["code"]);
         metadata.code_challenge_methods_supported = strings(&["S256"]);
         metadata.scopes_supported = strings(&APP_LAUNCH_SCOPES);
@@ -135,8 +141,8 @@ fn configured_capabilities(settings: &Settings) -> Vec<String> {
 ///
 /// The introspection endpoint takes a client's `private_key_jwt` assertion
 /// (or a bearer token, which is no client authentication method); the
-/// revocation endpoint takes it too, and `none` with the `client_id` of a
-/// public client (RFC 7009 §2.1, RFC 6749 §2.3).
+/// revocation endpoint takes it too, a client secret, and `none` with the
+/// `client_id` of a public client (RFC 7009 §2.1, RFC 6749 §2.3).
 ///
 /// # Panics
 ///
@@ -161,7 +167,12 @@ pub fn metadata_document(metadata: &ServerMetadata) -> Value {
         );
         members.insert(
             String::from("revocation_endpoint_auth_methods_supported"),
-            json!(["private_key_jwt", "none"]),
+            json!([
+                "private_key_jwt",
+                "client_secret_basic",
+                "client_secret_post",
+                "none"
+            ]),
         );
         members.insert(
             String::from("revocation_endpoint_auth_signing_alg_values_supported"),
@@ -179,7 +190,7 @@ pub fn metadata_document(metadata: &ServerMetadata) -> Value {
 /// with it, the App Launch document, whose capabilities the builder derives
 /// from the metadata (`client-public`, `client-confidential-asymmetric`,
 /// `launch-standalone`), with `sso-openid-connect`, the capabilities of
-/// [`configured_capabilities`], the refresh tokens FerroSMART issues
+/// the configuration (the picker, the style document), the refresh tokens FerroSMART issues
 /// (`permission-offline`, `permission-online`) and the v2 scopes it grants
 /// (`permission-patient`, `permission-user`, `permission-v2`).
 #[must_use]

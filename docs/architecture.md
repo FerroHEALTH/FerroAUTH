@@ -3186,10 +3186,17 @@ scopes = ["user/Observation.rs", "user/Patient.rs"]    # user/ and patient/ scop
 [[ferrosmart.client]]                         # one table per client, written to the store at start
 client_id = "bulk-export"
 name = "Bulk export"
-kind = "confidential_asymmetric"              # or "public"
+kind = "confidential_asymmetric"              # or "public", or "confidential_symmetric"
 jwks_uri = "https://export.example.org/jwks.json"   # or jwks_file, a JWK Set by value
 scopes = ["system/Patient.rs", "system/Observation.rs"]   # the client's ceiling
 grant_types = ["client_credentials"]
+
+[[ferrosmart.client]]                         # a confidential symmetric app (SMART 2.2, Client Authentication: Symmetric)
+client_id = "portal"
+kind = "confidential_symmetric"
+secret_hash_file = "/run/secrets/portal-secret.phc"   # the Argon2id PHC hash, at least m=19456,t=2,p=1
+redirect_uris = ["https://portal.example.org/callback"]
+grant_types = ["authorization_code", "refresh_token"]   # never client_credentials
 
 [ferrosmart.branding]                          # content, never code (13.15)
 name = "Example Hospital"                     # the name the pages carry
@@ -3790,7 +3797,7 @@ absent.
 | `launch-standalone` | supported | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
 | `authorize-post` | supported | `authorize::an_authorization_request_by_post_is_the_get_s_twin` |
 | `client-public` | supported | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
-| `client-confidential-symmetric` | absent until the §4.2 issue lands | `authorize::what_the_document_leaves_out_the_server_refuses` |
+| `client-confidential-symmetric` | supported: `client_secret_basic` and `client_secret_post` against an Argon2id hash, never for Backend Services | `symmetric::a_symmetric_client_authenticates_by_http_basic` |
 | `client-confidential-asymmetric` | supported | `token::a_backend_services_client_gets_an_rfc_9068_token` |
 | `sso-openid-connect` | supported | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
 | `context-banner` | supported | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
@@ -3810,7 +3817,8 @@ absent.
 **Discovery metadata** (`smart conformance`, Metadata). The App Launch
 document carries `issuer` and `jwks_uri` (with `sso-openid-connect`),
 `authorization_endpoint`, `token_endpoint`,
-`token_endpoint_auth_methods_supported` (`private_key_jwt`, `none`) with
+`token_endpoint_auth_methods_supported` (`private_key_jwt`,
+`client_secret_basic`, `client_secret_post`, `none`) with
 `token_endpoint_auth_signing_alg_values_supported` (`RS384`, `ES384`, as
 `smart client-confidential-asymmetric`, Advertising server support
 requires), `grant_types_supported` (`authorization_code`,
@@ -3834,7 +3842,7 @@ absent, since FerroSMART has neither, and `user_access_brand_bundle` and
 | §2.3 Persisting App State (experimental) | the resource server's; FerroSMART never advertises it |
 | §2.4 Task profile for requesting a launch (experimental) | the EHR's; FerroSMART serves the EHR launch API it uses |
 | §3 Backend Services | in audit |
-| §4.1 Client Authentication: Asymmetric, §4.2 Symmetric | in audit; symmetric to build |
+| §4.1 Client Authentication: Asymmetric, §4.2 Symmetric | symmetric built; in audit |
 | §5 Token Introspection | in audit |
 | §7 Best Practices | in audit |
 | §8 User-access Brands and Endpoints | to build |

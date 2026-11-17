@@ -58,9 +58,10 @@ pub(super) async fn client_credentials(state: &AppState, form: &Params) -> Resul
 pub(super) async fn authorization_code(
     from: std::net::IpAddr,
     state: &AppState,
+    headers: &http::HeaderMap,
     form: &Params,
 ) -> Result<Issued, Refusal> {
-    let client = identify(state, form).await?;
+    let client = identify(state, headers, form).await?;
     if !client.grant_types.contains(&GrantType::AuthorizationCode) {
         return Err(Refusal {
             error: "unauthorized_client",
@@ -160,11 +161,19 @@ pub(super) async fn authorization_code(
     Ok(issued)
 }
 
-/// Returns the client of `form`: authenticated by its assertion, or a
-/// registered public client named by `client_id`, which cannot
+/// Returns the client of `headers` and `form`: authenticated by its secret
+/// (RFC 6749 §2.3.1) or its assertion, or a registered public client named
+/// by `client_id`, which cannot
 /// authenticate (RFC 6749 §2.1, §3.2.1; SMART App Launch 2.2.0, Refresh
 /// access token, Request).
-pub(crate) async fn identify(state: &AppState, form: &Params) -> Result<Client, Refusal> {
+pub(crate) async fn identify(
+    state: &AppState,
+    headers: &http::HeaderMap,
+    form: &Params,
+) -> Result<Client, Refusal> {
+    if let Some(presented) = super::secret::presented(headers, form)? {
+        return super::secret::authenticate(state, presented).await;
+    }
     if form.get("client_assertion").is_some() || form.get("client_assertion_type").is_some() {
         return authenticate(state, form).await;
     }

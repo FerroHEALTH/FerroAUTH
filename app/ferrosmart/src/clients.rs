@@ -27,6 +27,10 @@ pub enum ClientKind {
     /// A JWT assertion signed with a key of its registered JWK Set
     /// (`client-confidential-asymmetric`).
     ConfidentialAsymmetric,
+    /// A client secret, sent by HTTP Basic or in the form
+    /// (`client-confidential-symmetric`, SMART App Launch 2.2.0, Client
+    /// Authentication: Symmetric; RFC 6749 §2.3.1).
+    ConfidentialSymmetric,
 }
 
 impl ClientKind {
@@ -36,6 +40,7 @@ impl ClientKind {
         match self {
             Self::Public => "public",
             Self::ConfidentialAsymmetric => "confidential_asymmetric",
+            Self::ConfidentialSymmetric => "confidential_symmetric",
         }
     }
 }
@@ -80,6 +85,9 @@ pub struct ClientSection {
     pub jwks_uri: String,
     /// A file holding the client's JWK Set; exclusive with `jwks_uri`.
     pub jwks_file: Option<PathBuf>,
+    /// A file holding the Argon2id PHC hash of a confidential symmetric
+    /// client's secret; FerroSMART never holds the secret itself.
+    pub secret_hash_file: Option<PathBuf>,
     /// The client's complete redirect URIs.
     pub redirect_uris: Vec<String>,
     /// The scopes the client may be granted at most.
@@ -103,12 +111,39 @@ pub struct Client {
     pub kind: ClientKind,
     /// Its JWK Set, by URL or by value.
     pub keys: Option<ClientKeys>,
+    /// The Argon2id PHC hash of its secret, for a confidential symmetric
+    /// client.
+    pub secret_hash: Option<SecretHash>,
     /// Its redirect URIs.
     pub redirect_uris: Vec<String>,
     /// Its scope ceiling.
     pub scopes: Vec<String>,
     /// Its grant types, sorted and without repetition.
     pub grant_types: Vec<GrantType>,
+}
+
+/// The Argon2id PHC hash of a client secret, never rendered by `Debug`.
+#[derive(Clone, PartialEq, Eq)]
+pub struct SecretHash(String);
+
+impl SecretHash {
+    /// Returns the PHC string.
+    #[must_use]
+    pub fn phc(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for SecretHash {
+    fn from(phc: String) -> Self {
+        Self(phc)
+    }
+}
+
+impl std::fmt::Debug for SecretHash {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SecretHash(..)")
+    }
 }
 
 /// Where a confidential asymmetric client's public keys are.
@@ -174,6 +209,16 @@ pub enum ClientError {
         /// The client.
         client_id: String,
     },
+    /// The secret hash file cannot be read, or holds no Argon2id PHC string
+    /// at the OWASP floor.
+    #[error("the client `{client_id}`: `secret_hash_file` holds no usable Argon2id hash")]
+    SecretHash {
+        /// The client.
+        client_id: String,
+        /// Why.
+        #[source]
+        source: Box<dyn std::error::Error + Send + Sync>,
+    },
     /// A scope is outside the RFC 6749 §3.3 character set.
     #[error("the client `{client_id}`: a scope is outside the RFC 6749 §3.3 character set")]
     Scope {
@@ -221,9 +266,15 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
     if grant_types.is_empty() {
         return Err(rule("no `grant_types`"));
     }
-    let keys = match section.kind {
+    let jwks = !section.jwks_uri.is_empty() || section.jwks_file.is_some();
+    if section.kind != ClientKind::ConfidentialSymmetric && section.secret_hash_file.is_some() {
+        return Err(rule(
+            "only a confidential symmetric client registers a `secret_hash_file`",
+        ));
+    }
+    let (keys, secret_hash) = match section.kind {
         ClientKind::Public => {
-            if !section.jwks_uri.is_empty() || section.jwks_file.is_some() {
+            if jwks {
                 return Err(rule("a public client registers no JWK Set"));
             }
             // NOTE: SMART App Launch 2.2.0, Backend Services, the client
@@ -231,9 +282,22 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
             if grant_types.contains(&GrantType::ClientCredentials) {
                 return Err(rule("a public client cannot use `client_credentials`"));
             }
-            None
+            (None, None)
         }
-        ClientKind::ConfidentialAsymmetric => Some(keys(section)?),
+        ClientKind::ConfidentialAsymmetric => (Some(keys(section)?), None),
+        ClientKind::ConfidentialSymmetric => {
+            if jwks {
+                return Err(rule("a confidential symmetric client registers no JWK Set"));
+            }
+            // NOTE: SMART App Launch 2.2.0, Client Authentication: Symmetric, the
+            // profile "SHALL NOT be used" for SMART Backend Services.
+            if grant_types.contains(&GrantType::ClientCredentials) {
+                return Err(rule(
+                    "a confidential symmetric client cannot use `client_credentials`",
+                ));
+            }
+            (None, Some(secret_hash(section)?))
+        }
     };
     // NOTE: SMART App Launch 2.2.0, Backend Services, refresh tokens SHOULD NOT be
     // issued there; a refresh token continues an authorization code grant.
@@ -269,6 +333,7 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
         },
         kind: section.kind,
         keys,
+        secret_hash,
         redirect_uris: section.redirect_uris.clone(),
         scopes: section.scopes.clone(),
         grant_types,
@@ -314,6 +379,27 @@ fn keys(section: &ClientSection) -> Result<ClientKeys, ClientError> {
             rule: "a confidential asymmetric client registers exactly one of `jwks_uri` and `jwks_file`",
         }),
     }
+}
+
+/// Returns the secret hash a confidential symmetric client registers, read
+/// from its `secret_hash_file` and checked as `ferrohealth-smart` checks a
+/// Basic user's hash: an Argon2id PHC string at the OWASP Password Storage
+/// Cheat Sheet floor (`docs/architecture.md` §13.9).
+fn secret_hash(section: &ClientSection) -> Result<SecretHash, ClientError> {
+    let failed = |source: Box<dyn std::error::Error + Send + Sync>| ClientError::SecretHash {
+        client_id: section.client_id.clone(),
+        source,
+    };
+    let path = section.secret_hash_file.as_ref().ok_or(ClientError::Rule {
+        client_id: section.client_id.clone(),
+        rule: "a confidential symmetric client registers a `secret_hash_file`",
+    })?;
+    let phc = std::fs::read_to_string(path).map_err(|source| failed(Box::new(source)))?;
+    let phc = phc.trim().to_owned();
+    ferrohealth_smart::basic::PasswordStore::new()
+        .with_user("client", secrecy::SecretString::from(phc.clone()))
+        .map_err(|source| failed(Box::new(source)))?;
+    Ok(SecretHash(phc))
 }
 
 /// Returns whether `url` names a loopback host over plain `http`, which a

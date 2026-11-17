@@ -22,5 +22,6 @@ mod replicas;
 mod revocation;
 mod store;
 mod support;
+mod symmetric;
 mod token;
 mod upstream_vendors;

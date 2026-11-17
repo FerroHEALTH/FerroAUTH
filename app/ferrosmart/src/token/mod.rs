@@ -14,6 +14,7 @@
 pub mod assertion;
 pub mod grants;
 pub mod mint;
+pub mod secret;
 
 use self::grants::{authorization_code, client_credentials};
 
@@ -91,6 +92,32 @@ impl IntoResponse for Refusal {
     }
 }
 
+impl Refusal {
+    /// Returns the response of this refusal to a request with `headers`.
+    ///
+    /// "If the client attempted to authenticate via the `Authorization`
+    /// request header field, the authorization server MUST respond with an
+    /// HTTP 401 (Unauthorized) status code and include the
+    /// `WWW-Authenticate` response header field matching the authentication
+    /// scheme used by the client" (RFC 6749 §5.2, `invalid_client`).
+    pub(crate) fn answer(self, headers: &HeaderMap) -> Response {
+        let basic = headers
+            .get(header::AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split_once(' '))
+            .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("Basic"));
+        let invalid_client = self.error == "invalid_client";
+        let mut response = self.into_response();
+        if basic && invalid_client {
+            *response.status_mut() = StatusCode::UNAUTHORIZED;
+            response
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Basic"));
+        }
+        response
+    }
+}
+
 /// `POST {issuer}/token`.
 ///
 /// Each request is recorded before its answer is returned: an issued token
@@ -127,7 +154,7 @@ pub async fn token(
     };
     let mut response = match answer {
         Ok(issued) => no_store(Json(issued.response).into_response()),
-        Err(refusal) => refusal.into_response(),
+        Err(refusal) => refusal.answer(&headers),
     };
     if let Some(client_id) = client_id {
         allow_registered_origin(&state, &headers, &client_id, &mut response).await;
@@ -309,8 +336,8 @@ async fn issue(
     let form = read_form(headers, body)?;
     match form.get("grant_type") {
         Some("client_credentials") => client_credentials(state, &form).await,
-        Some("authorization_code") => authorization_code(from, state, &form).await,
-        Some("refresh_token") => crate::refresh::refresh(state, &form, from).await,
+        Some("authorization_code") => authorization_code(from, state, headers, &form).await,
+        Some("refresh_token") => crate::refresh::refresh(state, headers, &form, from).await,
         Some(_) => Err(Refusal {
             error: "unsupported_grant_type",
             description: "the grant type is not supported",
