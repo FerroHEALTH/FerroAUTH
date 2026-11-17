@@ -41,6 +41,17 @@ fn pem(der: &[u8]) -> String {
     )
 }
 
+/// The `[ferrosmart.upstream.private_key_jwt]` tables of a case, with a
+/// fresh assertion key under `dir`, the one client authentication FerroSMART
+/// uses upstream (OpenID Connect Core 1.0 §9).
+pub(crate) fn upstream_assertion(dir: &Path) -> String {
+    format!(
+        "[ferrosmart.upstream.private_key_jwt]\n[ferrosmart.upstream.private_key_jwt.keys]\n\
+         private_key_file = {:?}\n",
+        rsa_key(dir, "upstream-assertion.pem").display().to_string()
+    )
+}
+
 /// Writes a fresh RSA key to `dir/name` and returns its path.
 pub(crate) fn rsa_key(dir: &Path, name: &str) -> PathBuf {
     let pair = RsaKeyPair::generate(KeySize::Rsa2048).expect("a key pair");
@@ -103,7 +114,7 @@ pub(crate) fn config(text: &str, keys: &Keys) -> Config {
             format!("[{{ base = {RESOURCE:?} }}]"),
         );
     }
-    if !text.contains("private_key_file") {
+    if !text.contains("[ferrosmart.keys]") {
         environment.insert(
             String::from("FERROSMART__FERROSMART__KEYS__PRIVATE_KEY_FILE"),
             keys.current.display().to_string(),

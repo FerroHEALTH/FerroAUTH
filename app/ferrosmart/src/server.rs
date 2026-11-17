@@ -231,14 +231,14 @@ async fn jwks(State(state): State<Arc<AppState>>) -> Response {
 }
 
 /// `GET {issuer}/upstream-jwks`, the JWK Set of the client assertion keys
-/// (RFC 7517 §5), when FerroSMART authenticates upstream with
-/// `private_key_jwt`; `404` otherwise.
+/// (RFC 7517 §5), when people log in at an upstream provider; `404`
+/// otherwise.
 async fn upstream_jwks(State(state): State<Arc<AppState>>) -> Response {
     let Some(set) = state
         .settings
         .upstream
         .as_ref()
-        .and_then(crate::upstream::Upstream::assertion_keys)
+        .map(crate::upstream::Upstream::assertion_keys)
     else {
         return StatusCode::NOT_FOUND.into_response();
     };

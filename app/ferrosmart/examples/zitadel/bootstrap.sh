@@ -8,20 +8,23 @@
 #   project      ferrosmart, with role assertion on, and its role `clinician`
 #                (project/v2 CreateProject, AddProjectRole)
 #   application  ferrosmart-login: an OIDC web app, the code flow with PKCE,
-#                client_secret_basic, the redirect URI FERROSMART_ISSUER/callback,
+#                Private Key JWT, the redirect URI FERROSMART_ISSUER/callback,
 #                roles and userinfo asserted into the ID Token
-#                (application/v2 CreateApplication)
+#                (application/v2 CreateApplication, OIDC_AUTH_METHOD_TYPE_PRIVATE_KEY_JWT),
+#                and its key (CreateApplicationKey)
 #   user         clinician, with the role and the metadata `fhir_user`
 #                (user/v2 AddHumanUser, SetUserMetadata;
 #                authorization/v2 CreateAuthorization)
 #   target       fhir-user, a REST call to TARGET_URL, run for the
 #                `preuserinfo` function (action/v2 CreateTarget, SetExecution)
 #
-# ZITADEL generates the OIDC client id and secret and the target's signing
-# key, so the script writes them to OUT with the FerroSMART configuration
-# that names them: `client-secret`, `target-signing-key` and
-# `ferrosmart.toml`. A second run finds `ferrosmart.toml` and does nothing.
-# It needs sh, curl and sed, so it runs in the curl image and on a CI host.
+# ZITADEL generates the OIDC client id, the application's private key and
+# the target's signing key, so the script writes them to OUT with the
+# FerroSMART configuration that names them: `upstream-assertion.pem`,
+# `target-signing-key` and `ferrosmart.toml`. FerroSMART signs its client
+# assertion with that key under the `kid` ZITADEL gave it (OpenID Connect
+# Core 1.0 §9, private_key_jwt). A second run finds `ferrosmart.toml` and does nothing.
+# It needs sh, curl, sed and base64, so it runs in the curl image and on a CI host.
 #
 #   app/ferrosmart/examples/zitadel/bootstrap.sh
 #
@@ -86,13 +89,19 @@ app=$(call zitadel.application.v2.ApplicationService/CreateApplication "{
     \"responseTypes\":[\"OIDC_RESPONSE_TYPE_CODE\"],
     \"grantTypes\":[\"OIDC_GRANT_TYPE_AUTHORIZATION_CODE\"],
     \"applicationType\":\"OIDC_APP_TYPE_WEB\",
-    \"authMethodType\":\"OIDC_AUTH_METHOD_TYPE_BASIC\",
+    \"authMethodType\":\"OIDC_AUTH_METHOD_TYPE_PRIVATE_KEY_JWT\",
     \"developmentMode\":true,
     \"idTokenRoleAssertion\":true,
     \"idTokenUserinfoAssertion\":true}}")
 client_id=$(member "$app" clientId)
-client_secret=$(member "$app" clientSecret)
-[ -n "$client_id" ] && [ -n "$client_secret" ] || fail "the application has no client credentials"
+[ -n "$client_id" ] || fail "the application has no client id"
+# NOTE: application/v2 CreateApplicationKeyResponse.key_details, base64 JSON with `keyId` and the PEM `key`.
+key=$(call zitadel.application.v2.ApplicationService/CreateApplicationKey \
+  '{"projectId":"ferrosmart","applicationId":"ferrosmart-login","expirationDate":"2099-01-01T00:00:00Z"}')
+details=$(printf '%s' "$(member "$key" keyDetails)" | base64 -d)
+key_id=$(member "$details" keyId)
+pem=$(member "$details" key | sed 's/\\n/\n/g')
+[ -n "$key_id" ] && [ -n "$pem" ] || fail "the application key has no id or private key"
 
 password=$(cat "$USER_PASSWORD_FILE")
 call zitadel.user.v2.UserService/AddHumanUser "{
@@ -115,7 +124,7 @@ call zitadel.action.v2.ActionService/SetExecution \
   "{\"condition\":{\"function\":{\"name\":\"preuserinfo\"}},\"targets\":[\"$target_id\"]}" > /dev/null
 
 mkdir -p "$OUT"
-printf '%s' "$client_secret" > "$OUT/client-secret"
+printf '%s\n' "$pem" > "$OUT/upstream-assertion.pem"
 printf '%s' "$signing_key" > "$OUT/target-signing-key"
 cat > "$OUT/ferrosmart.toml" << TOML
 # Written by app/ferrosmart/examples/zitadel/bootstrap.sh: FerroSMART with
@@ -131,12 +140,20 @@ kind = "fhir"
 [ferrosmart.upstream]
 issuer = "$ZITADEL_API"
 client_id = "$client_id"
-client_secret_file = "$OUT/client-secret"
 scopes = ["openid", "profile"]
+# The Actions v2 target writes the user's \`fhir_user\` metadata as \`fhirUser\`.
 fhir_user_claim = "fhirUser"
 role_claims = ["urn:zitadel:iam:org:project:ferrosmart:roles"]
 # ZITADEL names the project beside the client in every ID Token's aud.
 trusted_audiences = ["ferrosmart"]
+
+# The application's key, which ZITADEL knows by its key id.
+[ferrosmart.upstream.private_key_jwt]
+algorithm = "RS256"
+
+[ferrosmart.upstream.private_key_jwt.keys]
+private_key_file = "$OUT/upstream-assertion.pem"
+kid = "$key_id"
 
 [[ferrosmart.role]]
 name = "clinician"
@@ -151,5 +168,5 @@ scopes = ["openid", "fhirUser", "user/Patient.rs", "user/Observation.rs"]
 grant_types = ["authorization_code"]
 TOML
 # NOTE: FerroSMART and the target run as other users, so they read the two files.
-chmod 0644 "$OUT/client-secret" "$OUT/target-signing-key"
+chmod 0644 "$OUT/upstream-assertion.pem" "$OUT/target-signing-key"
 echo "bootstrap: ZITADEL is bootstrapped; the client id is $client_id"
