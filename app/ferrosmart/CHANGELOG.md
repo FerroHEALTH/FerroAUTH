@@ -19,7 +19,6 @@ and this project adheres to
   (m=19456, t=2, p=1) with a fresh salt, the string `secret_hash_file`
   holds. The Inferno lane runs its EHR launch with a symmetric client made
   this way (#601).
-
 - SMART v1 scopes (`patient/Observation.read`, `.write`, `.*`) are
   admitted by their v2 form against a client's ceiling and a person's roles
   and granted as asked, as SMART App Launch 2.2.0, Scopes and Launch
