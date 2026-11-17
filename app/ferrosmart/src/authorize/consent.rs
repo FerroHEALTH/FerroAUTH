@@ -62,11 +62,11 @@ pub fn offer(
             .any(|allowed| allowed == "launch/patient");
     let patient = chosen_by_picker || context.is_some_and(|context| context.patient.is_some());
     let encounter = context.is_some_and(|context| context.encounter.is_some());
-    let ceiling = |scope: &str| client.scopes.iter().any(|allowed| allowed == scope);
+    let ceiling = |scope: &str| crate::scopes::admits(&client.scopes, scope);
     let granted_by_role = |scope: &str| {
         held.iter()
             .filter_map(|role| roles.get(role))
-            .any(|scopes| scopes.iter().any(|allowed| allowed == scope))
+            .any(|scopes| crate::scopes::admits(scopes, scope))
     };
     let mut offered: Vec<String> = Vec::new();
     for scope in requested.split(' ').filter(|scope| !scope.is_empty()) {

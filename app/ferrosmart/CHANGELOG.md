@@ -13,6 +13,11 @@ and this project adheres to
 
 ### Added
 
+- SMART v1 scopes (`patient/Observation.read`, `.write`, `.*`) are
+  admitted by their v2 form against a client's ceiling and a person's roles
+  and granted as asked, as SMART App Launch 2.2.0, Scopes and Launch
+  Context has a server process them, and the discovery document lists
+  `permission-v1` (#604).
 - Confidential symmetric clients (SMART App Launch 2.2.0, Client
   Authentication: Symmetric): `kind = "confidential_symmetric"` with
   `secret_hash_file`, the Argon2id PHC hash of the client's secret at the

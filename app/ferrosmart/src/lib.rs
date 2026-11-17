@@ -27,6 +27,7 @@ pub mod pages;
 pub mod picker;
 pub mod refresh;
 pub mod revoke;
+pub mod scopes;
 pub mod server;
 pub mod store;
 pub mod token;

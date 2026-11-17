@@ -222,6 +222,7 @@ fn smart_document(settings: &Settings, metadata: &ServerMetadata, login: bool) -
                 PermissionCapability::Online,
                 PermissionCapability::Patient,
                 PermissionCapability::User,
+                PermissionCapability::V1,
                 PermissionCapability::V2,
             ]
             .into_iter()

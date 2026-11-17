@@ -3810,7 +3810,7 @@ absent.
 | `permission-online` | supported | `authorize::an_online_access_launch_ends_with_its_upstream_login` |
 | `permission-patient` | supported | `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
 | `permission-user` | supported | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
-| `permission-v1` | absent until the §2.2 issue lands: a v1 scope is matched as written and never read as its v2 form | `authorize::what_the_document_leaves_out_the_server_refuses` |
+| `permission-v1` | supported: a v1 scope is matched by its v2 form (`read` as `rs`, `write` as `cud`, `*` as `cruds`) and granted as asked | `authorize::a_v1_scope_is_offered_by_its_v2_form_and_granted_as_asked` |
 | `permission-v2` | supported | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
 | `smart-app-state` | never: the `$smart-app-state` operations are FHIR operations on stored `Basic` resources, so the resource server serves them (`smart app-state`) | `authorize::what_the_document_leaves_out_the_server_refuses` |
 
