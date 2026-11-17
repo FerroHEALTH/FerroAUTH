@@ -69,6 +69,15 @@ check() {
       failures=$((failures + 1))
     fi
   done < <(rows exceptions.tsv | cut -f1)
+  # An `omitted` row is the kit's own omission: the expected result is
+  # `omit`, so a run where the kit ran the test fails the comparison.
+  while IFS=$'\t' read -r id kind _; do
+    [ "$kind" = omitted ] || continue
+    if ! jq -e --arg id "$id" 'any(.[]; .test_id == $id and .result == "omit")' "$expected" > /dev/null; then
+      echo "lane: exceptions.tsv marks $id omitted, which the expected results do not hold omitted" >&2
+      failures=$((failures + 1))
+    fi
+  done < <(rows exceptions.tsv)
   [ "$failures" -eq 0 ] || exit 1
   echo "lane: the expected results pass every test outside exceptions.tsv"
 }
