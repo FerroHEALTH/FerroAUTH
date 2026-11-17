@@ -11,7 +11,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.29.0] - Unreleased
+## [0.29.0] - 2026-11-17
 
 `Preset` gains `Ferrosmart`, and the configuration enums likely to grow are
 now `#[non_exhaustive]`, so a later preset, onward grant or credential form
@@ -2297,7 +2297,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.28.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.29.0...HEAD
+[0.29.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.28.0...ferrohealth-smart-v0.29.0
 [0.28.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.27.0...ferrohealth-smart-v0.28.0
 [0.27.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.26.0...ferrohealth-smart-v0.27.0
 [0.26.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-smart-v0.25.0...ferrohealth-smart-v0.26.0
