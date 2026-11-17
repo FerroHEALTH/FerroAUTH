@@ -584,7 +584,11 @@ async fn a_launch_jwt_breaking_a_rule_is_refused() {
 async fn a_registration_a_redemption_and_a_refusal_are_recorded_without_the_launch() {
     let server = Server::start().await;
     let (status, _, body) = server
-        .register("app", RESOURCE, &[("patient", "4711")])
+        .register(
+            "app",
+            RESOURCE,
+            &[("patient", "synthetic-patient-in-context")],
+        )
         .await;
     assert_eq!(StatusCode::CREATED, status, "{body}");
     let launch = body["launch"].as_str().expect("a launch value");
@@ -613,7 +617,10 @@ async fn a_registration_a_redemption_and_a_refusal_are_recorded_without_the_laun
     }
     let text = serde_json::to_string(&records).expect("JSON");
     assert!(!text.contains(launch), "no record holds the launch value");
-    assert!(!text.contains("4711"), "no record holds a context value");
+    assert!(
+        !text.contains("synthetic-patient-in-context"),
+        "no record holds a context value"
+    );
     server.stop().await;
 }
 
