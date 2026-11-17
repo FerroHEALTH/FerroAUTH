@@ -162,7 +162,7 @@ exactly, as every FerroHEALTH product does:
 ```toml
 [dependencies]
 ferrohealth-smart = { version = "=0.30.0", features = ["axum", "openehr"] }
-ferrohealth-authz = { version = "=0.22.0", features = ["cedar"] }
+ferrohealth-authz = { version = "=0.23.0", features = ["cedar"] }
 ferrohealth-session = { version = "=0.25.0", features = ["axum"] }
 ```
 
