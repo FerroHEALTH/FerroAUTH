@@ -1,0 +1,11 @@
+<!-- SPDX-FileCopyrightText: Cadasto B.V. -->
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
+<!-- Favicon master: the mark drawn heavier in bronze on a yellow tile (5.4:1),
+     because the full stroke blurs below 24 px. Intrinsic size stays 64: a
+     favicon wants a small natural size. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="FerroSMART">
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="#FBBF24"/>
+  <path d="M32 8 L51 14.5 V30 C51 43 43 51.5 32 56.5 C21 51.5 13 43 13 30 V14.5 Z" fill="none" stroke="#78350F" stroke-width="6" stroke-linejoin="round"/>
+  <circle cx="32" cy="28" r="6" fill="#78350F"/>
+  <path d="M32 32 V42" stroke="#78350F" stroke-width="6" stroke-linecap="round"/>
+</svg>

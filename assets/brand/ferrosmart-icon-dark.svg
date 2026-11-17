@@ -1,0 +1,11 @@
+<!-- SPDX-FileCopyrightText: Cadasto B.V. -->
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
+<!-- The FerroSMART mark on a dark ground: the shield takes the yellow and the
+     keyhole amber 100, so the mark keeps its contrast where bronze would sink
+     into the tile. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 64 64" role="img" aria-label="FerroSMART icon">
+  <title>FerroSMART</title>
+  <path d="M32 6 L52 13 V30 C52 44 43 53 32 58 C21 53 12 44 12 30 V13 Z" fill="none" stroke="#FBBF24" stroke-width="4.6" stroke-linejoin="round"/>
+  <circle cx="32" cy="28" r="5.5" fill="#FEF3C7"/>
+  <path d="M32 32 V42" stroke="#FEF3C7" stroke-width="5" stroke-linecap="round"/>
+</svg>

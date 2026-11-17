@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+
+# Docs: build the documentation site and publish it to GitHub Pages, served
+# at https://ferrosmart.eu/ (no specification governs this: our own design).
+#
+# The shape is GitHub's Pages-with-Actions pattern (the actions/starter-workflows
+# pages/mdbook.yml): a `build` job renders the site and uploads it as a Pages
+# artifact, and a `deploy` job publishes that artifact to the github-pages
+# environment. `build` runs on pull requests too, so a site that does not
+# build fails the check; only a push to main or a manual dispatch deploys.
+# The custom domain is a setting of the repository's Pages site, which a
+# deployment through actions/deploy-pages keeps, so the site carries no CNAME
+# file. The offline link check is the site-links job of ci.yml, inside the
+# required conclusion check.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+# A push to main or a dispatch shares the `pages` group, which serializes the
+# Pages deployment; cancel-in-progress is false so an in-flight publish
+# finishes instead of being cut off half-written. A pull request only builds,
+# so it gets a group of its own per ref, and never cancels a deploy waiting in
+# `pages`.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('docs-pr-{0}', github.ref) || 'pages' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Render the site and upload it as the Pages artifact. Runs on every event,
+  # pull requests included.
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/docs-toolchain
+      - name: Assemble the site (the landing page at /, the book under /docs/)
+        run: scripts/site/assemble.sh _site
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: _site
+
+  # Publish the artifact. Skipped on pull requests: a pull request verifies the
+  # site and never deploys it.
+  deploy:
+    name: deploy
+    needs: build
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

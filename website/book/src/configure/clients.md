@@ -1,0 +1,147 @@
+<!-- SPDX-FileCopyrightText: Cadasto B.V. -->
+<!-- SPDX-License-Identifier: BUSL-1.1 -->
+
+# Clients, roles and consent
+
+Who may ask for what is content in the configuration, never code. Three
+things decide the scope an app gets, and the narrowest wins:
+
+1. the client's **ceiling**, the scopes its `[[ferrosmart.client]]` table
+   lists;
+2. the **roles** the person holds at the identity provider, each mapped by a
+   `[[ferrosmart.role]]` table to the `user/` and `patient/` scopes it allows;
+3. the **consent** the person gives on FerroSMART's consent page.
+
+SMART lets the granted scope differ from the request and has the server's
+policy win (SMART App Launch 2.2.0, Obtain access token, Response; Scopes
+and Launch Context, SMART's scopes are used to delegate access). The token
+response's `scope` always says what was granted. The resource server still
+applies its own rules on top.
+
+## The client registry
+
+Each `[[ferrosmart.client]]` table registers one client. FerroSMART writes
+the tables to its database at start, so every replica sees the same
+registry; the configuration is the place to change a client.
+
+| Key | What it is |
+|---|---|
+| `client_id` | The client's id, as the app sends it |
+| `name` | The name the consent page shows the person |
+| `kind` | `public` or `confidential_asymmetric` |
+| `jwks_uri` | A confidential client's JWK Set URL, `https`; exclusive with `jwks_file` |
+| `jwks_file` | A file holding the client's JWK Set by value |
+| `redirect_uris` | The client's complete redirect URIs, compared by exact string |
+| `scopes` | The ceiling: every scope the client may ever be granted |
+| `grant_types` | Any of `authorization_code`, `client_credentials` and `refresh_token` |
+
+FerroSMART refuses at start a client that breaks one of these rules:
+
+- a client lists at least one grant type;
+- a `public` client registers no JWK Set and cannot use
+  `client_credentials`, since that grant authenticates with a key;
+- a `confidential_asymmetric` client registers exactly one of `jwks_uri` and
+  `jwks_file`, and every key in the set carries `kty` and `kid` and the bare
+  public members (`n` and `e`, or `crv`, `x` and `y`), and no private part;
+- `refresh_token` comes with `authorization_code`;
+- `authorization_code` comes with at least one redirect URI.
+
+### The two kinds of client
+
+| Kind | SMART capability | How it authenticates |
+|---|---|---|
+| `public` | `client-public` | PKCE alone; a browser or native app that keeps no secret |
+| `confidential_asymmetric` | `client-confidential-asymmetric` | A client assertion, `private_key_jwt`, signed `RS384` or `ES384` with a key of its registered JWK Set |
+
+The client assertion follows SMART App Launch 2.2.0, Client Authentication:
+Asymmetric: `iss` and `sub` the `client_id`, `aud` the token endpoint URL
+or the issuer, `exp` at most five minutes ahead, a `jti` used once, `typ`
+`JWT`. A `jku` header must equal the registered JWK Set URL, and a JWK Set
+fetched by URL is cached no longer than its `Cache-Control` allows. Any
+failure answers `invalid_client`.
+
+### Examples
+
+A SMART app a person launches, which may stay signed in:
+
+```toml
+[[ferrosmart.client]]
+client_id = "growth-chart"
+name = "Growth chart"
+kind = "public"
+redirect_uris = ["https://growth-chart.example.org/callback"]
+scopes = ["openid", "fhirUser", "launch", "launch/patient",
+          "patient/Observation.rs", "online_access"]
+grant_types = ["authorization_code", "refresh_token"]
+```
+
+A system with no person, SMART Backend Services:
+
+```toml
+[[ferrosmart.client]]
+client_id = "bulk-export"
+name = "Bulk export"
+kind = "confidential_asymmetric"
+jwks_uri = "https://export.example.org/jwks.json"
+scopes = ["system/Patient.rs", "system/Observation.rs"]
+grant_types = ["client_credentials"]
+```
+
+Three scopes are FerroSMART's own `system/` scopes, which a client's ceiling
+lists to reach an endpoint of FerroSMART itself:
+
+| Scope | What it opens |
+|---|---|
+| `system/introspect` | `POST /introspect`, for a resource server that introspects ([the flows](../integrate/flows.md#refresh-introspection-and-revocation)) |
+| `system/launch.c` | `POST /launch` and the signed launch JWT, for an EHR ([the EHR launch API](../integrate/ehr-launch.md)) |
+| `system/AuditEvent.rs` | `GET /audit`, for an operator's client ([audit records](../operate/audit.md#reading-the-records)) |
+
+## Roles
+
+A `[[ferrosmart.role]]` table names a role as the identity provider's role
+claims carry it, and the scopes a person holding it may be granted:
+
+```toml
+[[ferrosmart.role]]
+name = "clinician"
+scopes = ["user/Patient.rs", "user/Observation.rs", "patient/Observation.rs"]
+```
+
+A role grants only `user/` and `patient/` scopes, has a name with no space,
+and is named once. `[ferrosmart.upstream] role_claims` says where in the ID
+Token the roles are ([identity providers](../install/upstream.md)).
+
+## Which scopes the consent page offers
+
+FerroSMART matches each requested scope as written against these rules,
+drops the rest, and shows the person what remains:
+
+| Requested scope | Offered when |
+|---|---|
+| `openid` | the ceiling lists it |
+| `fhirUser` | the ceiling lists it, `openid` is offered, and the identity provider carries the person's `fhirUser` |
+| `user/...` | the ceiling lists it and one of the person's roles grants it |
+| `patient/...` | the ceiling lists it, a role grants it, and a patient is in context |
+| `launch` | the ceiling lists it and the request carries an EHR launch |
+| `launch/patient` | the ceiling lists it and a patient is in context: the EHR launch named one, or the patient picker can choose one |
+| `launch/encounter` | the ceiling lists it and the EHR launch named an encounter |
+| `offline_access`, `online_access` | the ceiling lists it and the client registers `refresh_token` |
+
+With both refresh scopes granted, `offline_access` decides.
+
+## Consent
+
+Every flow with a person shows the consent page; no client skips it. The
+person approves the offered scopes, unticks any, or refuses, which sends the
+app an `access_denied` error. FerroSMART draws the page itself, with the
+deployment's name and `consent_text` from `[ferrosmart.branding]`.
+
+When the person ticks "Remember this choice", FerroSMART keeps the consent
+for that client and that scope set. A later request whose offered scopes it
+covers goes back to the app with a code at once; a request for more shows
+the page again. The person sees each remembered consent at
+`{issuer}/manage`, the SMART `management_endpoint`, and withdraws it there,
+which revokes the grants it covered with every token under them.
+
+Backend Services has no person and no consent: the client's ceiling is its
+pre-authorization (SMART App Launch 2.2.0, Backend Services).
