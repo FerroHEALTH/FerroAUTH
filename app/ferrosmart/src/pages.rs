@@ -293,22 +293,105 @@ pub fn picker(
             ))
         }
     };
-    picker_card(state, &locale, &words("picker-intro"), search, results)
+    picker_card(
+        state,
+        &locale,
+        ["picker-title", "picker-intro"],
+        search,
+        results,
+    )
 }
 
-/// Returns the picker page of `locale` with the words `intro`, the form
-/// `search` and the `results` below it.
+/// Returns the encounter step of the picker for `pending`: the encounters
+/// of the chosen `patient` the search `found`, to pick one or go on
+/// without.
+#[must_use]
+pub fn encounter_picker(
+    state: &AppState,
+    headers: &HeaderMap,
+    (pending, patient): (&Pending, &str),
+    found: &[crate::picker::encounter::FoundEncounter],
+) -> Response {
+    let locale = negotiated(headers);
+    let words = |id: &str| locale.lookup(&*CATALOG, id);
+    let choices = if found.is_empty() {
+        Html::raw(format!(
+            "<p>{}</p>",
+            Html::text(words("picker-encounter-none"))
+        ))
+    } else {
+        let radios = Html::join(found.iter().enumerate().map(|(index, encounter)| {
+            let id = format!("encounter-{index}");
+            let radio = Html::raw(format!(
+                "<input type=\"radio\" id=\"{id}\" name=\"encounter\" value=\"{}\" required>",
+                Html::text(&encounter.id)
+            ));
+            let mut words_of = Vec::new();
+            if !encounter.kind.is_empty() {
+                words_of.push(encounter.kind.clone());
+            }
+            if let Some(start) = &encounter.start {
+                words_of.push(locale.lookup_with(
+                    &*CATALOG,
+                    "picker-encounter-started",
+                    &[("date", Arg::from(start.as_str()))],
+                ));
+            }
+            words_of.extend(encounter.status.clone());
+            if words_of.is_empty() {
+                words_of.push(encounter.id.clone());
+            }
+            check(&id, words_of.join(", "), radio)
+        }));
+        fieldset(words("picker-encounter-results"), radios)
+    };
+    let choose = if found.is_empty() {
+        Html::empty()
+    } else {
+        Html::raw(format!(
+            "<button type=\"submit\" class=\"{primary}\">{choose}</button>",
+            primary = Variant::Primary.class(),
+            choose = label(Some(Glyph::CHECK), words("picker-encounter-choose")),
+        ))
+    };
+    let form = Html::raw(format!(
+        "<form method=\"post\" action=\"{action}\" class=\"fui-stack\">\
+         <input type=\"hidden\" name=\"form_token\" value=\"{token}\">\
+         <input type=\"hidden\" name=\"step\" value=\"{step}\">\
+         <input type=\"hidden\" name=\"patient\" value=\"{patient}\">{choices}\
+         <div class=\"fui-cluster\">{choose}\
+         <button type=\"submit\" name=\"without\" value=\"yes\" formnovalidate class=\"{secondary}\">{without}</button>\
+         </div></form>",
+        action = Html::text(state.settings().endpoint(crate::picker::PICKER_ROUTE)),
+        token = Html::text(&pending.form_token),
+        step = crate::picker::encounter::STEP,
+        patient = Html::text(patient),
+        secondary = Variant::Secondary.class(),
+        without = label(None, words("picker-encounter-without")),
+    ));
+    picker_card(
+        state,
+        &locale,
+        ["picker-encounter-title", "picker-encounter-intro"],
+        Html::empty(),
+        form,
+    )
+}
+
+/// Returns the picker page of `locale` with the catalog's title and intro of
+/// `[title, intro]`, the form `search` and the `results` below it.
 fn picker_card(
     state: &AppState,
     locale: &Locale,
-    intro: &str,
+    [title, intro]: [&str; 2],
     search: Html,
     results: Html,
 ) -> Response {
     let words = |id: &str| locale.lookup(&*CATALOG, id);
+    let intro = words(intro);
     let deployment = &state.settings().branding;
     let body = Html::join([
-        Html::raw(format!("<p>{}</p>", Html::text(intro))),
+        Html::raw(format!("<p>{}</p>", Html::text(&intro))),
         search,
         results,
     ]);
@@ -317,7 +400,7 @@ fn picker_card(
         &deployment.name,
         words("product-word"),
     );
-    let title = words("picker-title");
+    let title = words(title);
     let page = page_card(Some(lockup), title.clone(), body);
     respond(state, StatusCode::OK, locale, title, page, &[])
 }
@@ -383,7 +466,13 @@ pub fn ehr_picker(
             ))
         }
     };
-    picker_card(state, &locale, &words("picker-ehr-intro"), search, results)
+    picker_card(
+        state,
+        &locale,
+        ["picker-title", "picker-ehr-intro"],
+        search,
+        results,
+    )
 }
 
 /// A consent the person remembered, as the management page lists it.
