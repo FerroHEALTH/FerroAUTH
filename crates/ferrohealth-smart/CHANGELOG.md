@@ -11,6 +11,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-11-17
+
+### Changed
+
+- Breaking: with `server-tls`, requires `ferrohealth-server` 0.11.0 (caret
+  `0.11.0`) in place of `0.10.0`, whose `tls_client::TlsClient`
+  `config::TlsBuilder` carries. ferrohealth-server 0.11 lets a request past
+  the overload bound wait briefly for a slot before it is refused `503`
+  (`server.admission_wait`, `server.max_waiting_requests`)
+  (FerroHEALTH/FerroSYS#403). Upgrade: move `ferrohealth-server` to 0.11
+  with this crate, so one copy links (#631).
+
 ## [0.29.2] - 2026-11-17
 
 ### Changed
@@ -2352,7 +2364,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.2...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.0...HEAD
+[0.30.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.2...ferrohealth-smart-v0.30.0
 [0.29.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.1...ferrohealth-smart-v0.29.2
 [0.29.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.0...ferrohealth-smart-v0.29.1
 [0.29.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.28.0...ferrohealth-smart-v0.29.0

@@ -14,12 +14,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.25.0] - Unreleased
+
 ### Changed
 
 - The repository is FerroSMART again, at
   <https://github.com/FerroHEALTH/FerroSMART>, and the crate's `repository`
   and `homepage` point there (owner decision 2026-11-17). The FerroAUTH
   address redirects, and the crate name stays.
+- Breaking: requires `ferrohealth-smart` 0.30.0 (caret `0.30.0`) in place of
+  `0.29.0`, whose `oidc` and `config::TlsBuilder` types this crate carries
+  in its public API. Upgrade: move `ferrohealth-smart` to 0.30.0 with this
+  crate, so one copy links (#631).
 
 ## [0.24.0] - 2026-11-17
 
