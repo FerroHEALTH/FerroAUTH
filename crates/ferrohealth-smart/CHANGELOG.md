@@ -25,6 +25,19 @@ and this project adheres to
   `AssertionError::Certificate` and `AssertionError::CertificateKey`. The
   `oidc` feature now pulls `x509-parser` (#569).
 
+### Fixed
+
+- `AuthSection::resolve` refuses two `[[auth.issuer]]` tables naming one
+  issuer, JWT or introspected alike, with the new
+  `ConfigError::DuplicateIssuer`, which names the key, both table indices and
+  the issuer with any userinfo masked. Before, the later table silently
+  replaced the earlier, so a FerroSMART deployment written as a `persons`
+  table plus a `machines` table refused every person with `401`. Trust one
+  issuer in one table: for FerroSMART, a single `persons` table under
+  `profile = "ferrosmart"` with `delegates`, which also reads a Backend
+  Services token as the system. The `ferrosmart` preset's comment and
+  `docs/architecture.md` §13.21 now show that shape (#591).
+
 ## [0.29.0] - 2026-11-17
 
 `Preset` gains `Ferrosmart`, and the configuration enums likely to grow are

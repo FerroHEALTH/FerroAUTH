@@ -348,6 +348,23 @@ pub enum ConfigError {
         /// The key.
         key: &'static str,
     },
+    /// Two `[[auth.issuer]]` tables name one issuer, JWT or introspected
+    /// alike; a token is checked under one table per issuer, so the later
+    /// table would replace the earlier.
+    #[error(
+        "the {key} tables {first} and {second} both name the issuer {issuer:?}; \
+         one issuer takes one table"
+    )]
+    DuplicateIssuer {
+        /// The key of the tables.
+        key: &'static str,
+        /// The issuer, with any userinfo masked.
+        issuer: String,
+        /// The index of the first table naming it.
+        first: usize,
+        /// The index of the second.
+        second: usize,
+    },
     /// An entry of a list read per issuer names an issuer the section does
     /// not trust.
     #[error("a {key} entry names the issuer {issuer:?}, which the section does not trust")]

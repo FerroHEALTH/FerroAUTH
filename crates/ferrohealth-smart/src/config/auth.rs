@@ -172,6 +172,7 @@ impl AuthSection {
         #[cfg(feature = "fetch")]
         let mut introspection = Vec::new();
         if self.enabled {
+            self.check_unique_issuers()?;
             self.check_scopeless()?;
             self.check_federation()?;
             self.check_attributes()?;
@@ -233,6 +234,25 @@ impl AuthSection {
             },
             adapters,
         })
+    }
+
+    /// Refuses two `[[auth.issuer]]` tables naming one issuer: the resource
+    /// server holds one table per issuer identifier, so the later would
+    /// silently replace the earlier (no specification governs the
+    /// configuration model: our own design).
+    fn check_unique_issuers(&self) -> Result<(), ConfigError> {
+        let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
+        for (index, entry) in self.issuers().iter().enumerate() {
+            if let Some(first) = seen.insert(entry.issuer.expose(), index) {
+                return Err(ConfigError::DuplicateIssuer {
+                    key: "auth.issuer",
+                    issuer: shown(&entry.issuer),
+                    first,
+                    second: index,
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Refuses a `scopeless_subjects` entry that names an issuer the section

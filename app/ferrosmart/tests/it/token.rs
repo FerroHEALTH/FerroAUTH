@@ -348,6 +348,23 @@ async fn a_backend_services_token_is_read_under_the_ferrosmart_preset() {
     )
     .await;
     assert!(elsewhere.is_err(), "another audience");
+    // NOTE: RFC 9068 §2.2, under the one `persons` table of docs/architecture.md
+    // §13.21 an app-only token (`sub` is `client_id`) reads as the system too.
+    let one_table = crate::support::read_under_preset(
+        &jwks,
+        ISSUER,
+        RESOURCE,
+        ferrohealth_smart::kind::IssuerKind::Persons,
+        &crate::support::one_table("app"),
+        token,
+    )
+    .await
+    .expect("admitted under the one persons table");
+    assert_eq!(
+        &ferrohealth_smart::kind::CallerKind::System,
+        one_table.kind()
+    );
+    assert_eq!(Some("export"), one_table.client_id());
     server.stop().await;
 }
 

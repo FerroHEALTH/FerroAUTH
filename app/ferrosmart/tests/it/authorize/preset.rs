@@ -6,7 +6,7 @@
 //! Launch 2.2.0, Scopes and Launch Context).
 
 use ferrohealth_smart::kind::{CallerKind, IssuerKind, Unclassified};
-use ferrohealth_smart::profile::{Delegate, ProfileKeys};
+use ferrohealth_smart::profile::ProfileKeys;
 use ferrohealth_smart::resource::Rejection;
 
 use super::*;
@@ -22,10 +22,9 @@ async fn a_person_s_token_is_read_under_the_ferrosmart_preset() {
     let jwks: Value = serde_json::from_str(&jwks).expect("a JWK Set");
     let claims: Value = jsonwebtoken::dangerous::insecure_decode_claims(token).expect("claims");
     let audience = claims["aud"].as_str().expect("one audience");
-    let listed = ProfileKeys {
-        delegates: Some(vec![Delegate::Client(String::from("app"))]),
-        ..ProfileKeys::default()
-    };
+    // NOTE: docs/architecture.md §13.21, the one `persons` table that also reads
+    // the Backend Services tokens (token::a_backend_services_token_is_read_...).
+    let listed = crate::support::one_table("app");
     let caller = crate::support::read_under_preset(
         &jwks,
         ISSUER,

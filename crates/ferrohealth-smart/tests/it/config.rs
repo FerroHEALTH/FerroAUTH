@@ -921,3 +921,36 @@ fn a_basic_hash_below_the_owasp_floor_is_refused_naming_the_user_and_the_floor()
         assert!(source.to_string().contains("m=19456,t=2,p=1"), "{source}");
     }
 }
+
+// NOTE: no specification governs the configuration model: our own design, in which
+// a resource server holds one table per issuer, so a second table naming it is refused.
+#[test]
+fn one_issuer_in_two_tables_is_refused_naming_both() {
+    let section: AuthSection = toml::from_str(
+        "[[issuer]]\nissuer = \"https://user:secret@as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n\
+         [[issuer]]\nissuer = \"https://as.example.org\"\nkind = \"machines\"\naudience = [\"a\"]\n\
+         [[issuer]]\nissuer = \"https://user:secret@as.example.org\"\nkind = \"machines\"\naudience = [\"a\"]\n",
+    )
+    .expect("the section parses");
+    let refused = section.resolve();
+    let Err(ConfigError::DuplicateIssuer {
+        key,
+        issuer,
+        first,
+        second,
+    }) = &refused
+    else {
+        panic!("a duplicate issuer is refused: {refused:?}");
+    };
+    assert_eq!("auth.issuer", *key);
+    assert_eq!((0, 2), (*first, *second), "both tables named");
+    assert!(
+        !issuer.contains("secret"),
+        "the userinfo is masked: {issuer}"
+    );
+    let shown = refused
+        .err()
+        .map(|error| error.to_string())
+        .unwrap_or_default();
+    assert!(!shown.contains("secret"), "{shown}");
+}
