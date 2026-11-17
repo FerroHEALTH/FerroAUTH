@@ -143,18 +143,47 @@ pub(crate) fn from_client(mut request: Request<Body>) -> Request<Body> {
 /// The variable naming the test server.
 const ENV: &str = "FERROSMART_TEST_PG_URL";
 
-/// A database that lives as long as the case.
+/// A database of its own for one case: a schema of the shared test
+/// database, which the case's URL puts first on its `search_path`.
+///
+/// Creating a database per case serializes the cases on the server, which
+/// copies a whole database for each, and under a parallel run a case's
+/// first connection can wait past the pool's acquire timeout; a schema is
+/// a few catalog rows.
 pub(crate) struct Database {
-    /// The server's administrative URL.
-    admin: String,
-    /// The database's name.
+    /// The URL of the shared test database.
+    shared: String,
+    /// The schema's name.
     name: String,
-    /// The database's URL.
+    /// The schema's URL.
     pub(crate) url: SecretString,
+    /// Whether the case dropped it.
+    disposed: bool,
+}
+
+/// The database every case's schema lives in, on the server
+/// `FERROSMART_TEST_PG_URL` names.
+const SHARED: &str = "ferrosmart_test";
+
+/// The advisory lock under which the first case creates [`SHARED`]. Any
+/// fixed key: our own.
+const SHARED_LOCK: i64 = 7_175_170_517;
+
+/// Returns `admin` naming the database [`SHARED`], with `search_path` set
+/// to `schema` when one is named.
+fn shared_url(admin: &str, schema: Option<&str>) -> String {
+    let mut url = url::Url::parse(admin).expect("a URL");
+    url.set_path(SHARED);
+    if let Some(schema) = schema {
+        url.query_pairs_mut()
+            .append_pair("options", &format!("-c search_path={schema}"));
+    }
+    url.to_string()
 }
 
 impl Database {
-    /// Creates a fresh, empty database.
+    /// Creates a fresh schema in [`SHARED`] with the migrations applied,
+    /// creating that database first when no case has.
     pub(crate) async fn create() -> Self {
         let admin = std::env::var(ENV)
             .expect("FERROSMART_TEST_PG_URL names the PostgreSQL server to test against");
@@ -170,34 +199,94 @@ impl Database {
         let mut connection = sqlx::PgConnection::connect(&admin)
             .await
             .expect("the server answers");
-        // The name is the fixed prefix and the hex digits this case drew, never input.
-        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {name}")))
+        sqlx::query("SELECT pg_advisory_lock($1)")
+            .bind(SHARED_LOCK)
             .execute(&mut connection)
             .await
-            .expect("the database is created");
-        let mut url = url::Url::parse(&admin).expect("a URL");
-        url.set_path(&name);
+            .expect("the lock is taken");
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1)")
+                .bind(SHARED)
+                .fetch_one(&mut connection)
+                .await
+                .expect("the catalog reads");
+        if !exists {
+            sqlx::query(sqlx::AssertSqlSafe(format!("CREATE DATABASE {SHARED}")))
+                .execute(&mut connection)
+                .await
+                .expect("the shared database is created");
+        }
+        sqlx::query("SELECT pg_advisory_unlock($1)")
+            .bind(SHARED_LOCK)
+            .execute(&mut connection)
+            .await
+            .expect("the lock is released");
+        let shared = shared_url(&admin, None);
+        let mut connection = sqlx::PgConnection::connect(&shared)
+            .await
+            .expect("the shared database answers");
+        // The name is the fixed prefix and the hex digits this case drew, never input.
+        sqlx::query(sqlx::AssertSqlSafe(format!("CREATE SCHEMA {name}")))
+            .execute(&mut connection)
+            .await
+            .expect("the schema is created");
+        let url = shared_url(&admin, Some(&name));
+        // sqlx takes one migration lock per database, which would queue every case
+        // of the shared database behind the others; each schema migrates alone.
+        let mut migrator = sqlx::migrate!("./migrations");
+        migrator.set_locking(false);
+        let mut schema = sqlx::PgConnection::connect(&url)
+            .await
+            .expect("the schema answers");
+        migrator
+            .run(&mut schema)
+            .await
+            .expect("the schema migrates");
         Self {
-            admin,
+            url: SecretString::from(url),
+            shared,
             name,
-            url: SecretString::from(url.to_string()),
+            disposed: false,
         }
     }
 
-    /// Drops the database.
-    pub(crate) async fn drop(self, store: Store) {
+    /// Drops the schema.
+    pub(crate) async fn drop(mut self, store: Store) {
         drop(store);
-        let mut connection = sqlx::PgConnection::connect(&self.admin)
-            .await
-            .expect("the server answers");
-        sqlx::query(sqlx::AssertSqlSafe(format!(
-            "DROP DATABASE {} WITH (FORCE)",
-            self.name
-        )))
+        dispose(&self.shared, &self.name).await;
+        self.disposed = true;
+    }
+}
+
+impl Drop for Database {
+    /// Drops the schema of a case that failed before it dropped it, so a
+    /// failing run leaves nothing behind.
+    fn drop(&mut self) {
+        if self.disposed {
+            return;
+        }
+        let (shared, name) = (self.shared.clone(), self.name.clone());
+        let _disposed = std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("a runtime");
+            runtime.block_on(dispose(&shared, &name));
+        })
+        .join();
+    }
+}
+
+/// Drops the schema `name` of the shared database `shared` names.
+async fn dispose(shared: &str, name: &str) {
+    let mut connection = sqlx::PgConnection::connect(shared)
+        .await
+        .expect("the shared database answers");
+    // The name is the fixed prefix and the hex digits a case drew, never input.
+    sqlx::query(sqlx::AssertSqlSafe(format!("DROP SCHEMA {name} CASCADE")))
         .execute(&mut connection)
         .await
-        .expect("the database is dropped");
-    }
+        .expect("the schema is dropped");
 }
 
 /// Checks `record` against BALP 1.1.4's profile `IHE.IUA.71`, the FHIR

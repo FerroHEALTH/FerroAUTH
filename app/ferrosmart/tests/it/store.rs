@@ -1,9 +1,9 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The store against a real PostgreSQL: a fresh database per case on the
-//! server `FERROSMART_TEST_PG_URL` names, a URL whose role may `CREATE
-//! DATABASE`. CI sets it (the `nextest (core and axum)` job's PostgreSQL
+//! The store against a real PostgreSQL: a fresh schema per case in a shared
+//! database on the server `FERROSMART_TEST_PG_URL` names, a URL whose role
+//! may `CREATE DATABASE` for the first case. CI sets it (the `nextest (core and axum)` job's PostgreSQL
 //! service); a run without it fails the case, never skips it.
 
 use ferrosmart::clients::{ClientKind, ClientSection, GrantType, resolve};
