@@ -3770,3 +3770,72 @@ key is published at `{issuer}/upstream-jwks` before it signs, so a provider
 that reads that URL holds it in time; a provider that stores a certificate
 is given the next key's certificate before the rotation. No specification
 governs the rotation or the route: our own design.
+
+### 13.23 Conformance to SMART App Launch 2.2.0
+
+The audit of FerroSMART against the whole SMART App Launch 2.2.0
+implementation guide (vendored under `docs/specs/smart-app-launch/`, the
+`hl7.fhir.uv.smart-app-launch` 2.2.0 package and the page sources) runs
+section by section, each with its own issue under #512.
+
+**Capabilities** (`smart conformance`, Capabilities). The App Launch
+document lists exactly the supported rows; `the_document_lists_exactly_the_capabilities_the_server_supports`
+holds the list to this table and to the case each row names, and
+`what_the_document_leaves_out_the_server_refuses` holds the rows marked
+absent.
+
+| Capability | Status | Test |
+|---|---|---|
+| `launch-ehr` | supported | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
+| `launch-standalone` | supported | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
+| `authorize-post` | supported | `authorize::an_authorization_request_by_post_is_the_get_s_twin` |
+| `client-public` | supported | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
+| `client-confidential-symmetric` | absent until the §4.2 issue lands | `authorize::what_the_document_leaves_out_the_server_refuses` |
+| `client-confidential-asymmetric` | supported | `token::a_backend_services_client_gets_an_rfc_9068_token` |
+| `sso-openid-connect` | supported | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
+| `context-banner` | supported | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
+| `context-style` | supported when `[ferrosmart.branding] smart_style_url` is set | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
+| `context-ehr-patient` | supported | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
+| `context-ehr-encounter` | supported | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
+| `context-standalone-patient` | supported when the picker can search a resource server (any FHIR base; an openEHR base with a `subject_namespace`) | `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
+| `context-standalone-encounter` | absent until the §2.2 issue lands | `authorize::what_the_document_leaves_out_the_server_refuses` |
+| `permission-offline` | supported | `authorize::an_offline_access_launch_issues_a_refresh_token_that_rotates` |
+| `permission-online` | supported | `authorize::an_online_access_launch_ends_with_its_upstream_login` |
+| `permission-patient` | supported | `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
+| `permission-user` | supported | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
+| `permission-v1` | absent until the §2.2 issue lands: a v1 scope is matched as written and never read as its v2 form | `authorize::what_the_document_leaves_out_the_server_refuses` |
+| `permission-v2` | supported | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
+| `smart-app-state` | never: the `$smart-app-state` operations are FHIR operations on stored `Basic` resources, so the resource server serves them (`smart app-state`) | `authorize::what_the_document_leaves_out_the_server_refuses` |
+
+**Discovery metadata** (`smart conformance`, Metadata). The App Launch
+document carries `issuer` and `jwks_uri` (with `sso-openid-connect`),
+`authorization_endpoint`, `token_endpoint`,
+`token_endpoint_auth_methods_supported` (`private_key_jwt`, `none`) with
+`token_endpoint_auth_signing_alg_values_supported` (`RS384`, `ES384`, as
+`smart client-confidential-asymmetric`, Advertising server support
+requires), `grant_types_supported` (`authorization_code`,
+`client_credentials`), `scopes_supported` (the identity, launch context and
+refresh scopes FerroSMART honours whatever a client registers; the resource
+scopes depend on each client's ceiling and are left out, since "The server
+SHALL support all scopes listed here"), `response_types_supported`
+(`code`), `management_endpoint`, `introspection_endpoint`,
+`revocation_endpoint`, `capabilities` and `code_challenge_methods_supported`
+(`S256` alone). `registration_endpoint` and `associated_endpoints` are
+absent, since FerroSMART has neither, and `user_access_brand_bundle` and
+`user_access_brand_identifier` belong in each FHIR server's document
+(13.5).
+
+**Sections**
+
+| Section | Status |
+|---|---|
+| §1 Conformance (capabilities, discovery) | this section |
+| §2.1 App Launch, §2.2 Scopes and Launch Context | in audit |
+| §2.3 Persisting App State (experimental) | the resource server's; FerroSMART never advertises it |
+| §2.4 Task profile for requesting a launch (experimental) | the EHR's; FerroSMART serves the EHR launch API it uses |
+| §3 Backend Services | in audit |
+| §4.1 Client Authentication: Asymmetric, §4.2 Symmetric | in audit; symmetric to build |
+| §5 Token Introspection | in audit |
+| §7 Best Practices | in audit |
+| §8 User-access Brands and Endpoints | to build |
+| §9 Examples | to build as test vectors |

@@ -1615,3 +1615,226 @@ async fn a_token_response_is_readable_from_the_app_s_origin_alone() {
 
 mod ehr_picker;
 mod preset;
+
+/// The capabilities FerroSMART supports with a FHIR resource server and a
+/// SMART style document configured, each with the case that exercises it
+/// (`docs/architecture.md` §13.23).
+const SUPPORTED: [(&str, &str); 16] = [
+    (
+        "authorize-post",
+        "an_authorization_request_by_post_is_the_get_s_twin",
+    ),
+    (
+        "client-confidential-asymmetric",
+        "token::a_backend_services_client_gets_an_rfc_9068_token",
+    ),
+    (
+        "client-public",
+        "a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens",
+    ),
+    (
+        "context-banner",
+        "ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response",
+    ),
+    (
+        "context-ehr-encounter",
+        "ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response",
+    ),
+    (
+        "context-ehr-patient",
+        "ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response",
+    ),
+    (
+        "context-standalone-patient",
+        "a_standalone_launch_picks_a_patient_the_person_may_see",
+    ),
+    (
+        "context-style",
+        "a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens",
+    ),
+    (
+        "launch-ehr",
+        "ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response",
+    ),
+    (
+        "launch-standalone",
+        "a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens",
+    ),
+    (
+        "permission-offline",
+        "an_offline_access_launch_issues_a_refresh_token_that_rotates",
+    ),
+    (
+        "permission-online",
+        "an_online_access_launch_ends_with_its_upstream_login",
+    ),
+    (
+        "permission-patient",
+        "a_standalone_launch_picks_a_patient_the_person_may_see",
+    ),
+    (
+        "permission-user",
+        "a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens",
+    ),
+    (
+        "permission-v2",
+        "a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens",
+    ),
+    (
+        "sso-openid-connect",
+        "a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens",
+    ),
+];
+
+// NOTE: SMART App Launch 2.2.0, Conformance, Metadata: `capabilities` lists the
+// SMART capabilities "that the server supports", and nothing else.
+#[tokio::test]
+async fn the_document_lists_exactly_the_capabilities_the_server_supports() {
+    let fhir = MockServer::start().await;
+    let smart = Smart::start_on(
+        "[\"authorization_code\"]",
+        "[\"openid\", \"fhirUser\"]",
+        "[\"user/Observation.rs\"]",
+        Some(&format!("{}/fhir", fhir.uri())),
+    )
+    .await;
+    let (_, _, body) = smart.get("/.well-known/smart-configuration", None).await;
+    let document: Value = serde_json::from_str(&body).expect("JSON");
+    let mut listed: Vec<String> = document["capabilities"]
+        .as_array()
+        .expect("capabilities")
+        .iter()
+        .map(|capability| capability.as_str().expect("a string").to_owned())
+        .collect();
+    listed.sort();
+    let supported: Vec<String> = SUPPORTED
+        .iter()
+        .map(|(capability, _)| (*capability).to_owned())
+        .collect();
+    assert_eq!(supported, listed);
+    for (capability, case) in SUPPORTED {
+        let (source, name) = match case.split_once("::") {
+            Some(("token", name)) => (include_str!("token.rs"), name),
+            Some(("ehr_launch", name)) => (include_str!("ehr_launch.rs"), name),
+            Some((module, _)) => panic!("{capability}: no source for {module}"),
+            None => (include_str!("authorize.rs"), case),
+        };
+        assert!(
+            source.contains(&format!("async fn {name}()")),
+            "{capability}: the case {case} exists"
+        );
+    }
+    // NOTE: SMART App Launch 2.2.0, Client Authentication: Asymmetric, Advertising
+    // server support, the algorithms beside `private_key_jwt`.
+    assert_eq!(
+        json!(["RS384", "ES384"]),
+        document["token_endpoint_auth_signing_alg_values_supported"]
+    );
+    assert_eq!(
+        json!(["S256"]),
+        document["code_challenge_methods_supported"]
+    );
+    assert_eq!(
+        json!(["authorization_code", "client_credentials"]),
+        document["grant_types_supported"]
+    );
+    assert_eq!(
+        json!([
+            "openid",
+            "fhirUser",
+            "launch",
+            "launch/patient",
+            "launch/encounter",
+            "offline_access",
+            "online_access"
+        ]),
+        document["scopes_supported"]
+    );
+    smart.stop().await;
+}
+
+// NOTE: SMART App Launch 2.2.0, Conformance, Capabilities, the capabilities the
+// server does not support stay unlisted and their requests are refused.
+#[tokio::test]
+async fn what_the_document_leaves_out_the_server_refuses() {
+    let smart = Smart::start().await;
+    let (_, _, body) = smart.get("/.well-known/smart-configuration", None).await;
+    let document: Value = serde_json::from_str(&body).expect("JSON");
+    let listed = document["capabilities"].as_array().expect("capabilities");
+    for capability in [
+        "client-confidential-symmetric",
+        "context-standalone-encounter",
+        "permission-v1",
+        "smart-app-state",
+    ] {
+        assert!(!listed.contains(&json!(capability)), "{capability}");
+    }
+    // NOTE: RFC 6749 §2.3.1, a client secret sent by HTTP Basic authenticates no client.
+    let (status, _, body) = smart
+        .send(
+            Request::post("/token")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(header::AUTHORIZATION, "Basic YXBwOnNlY3JldA==")
+                .body(Body::from("grant_type=client_credentials"))
+                .expect("a request"),
+        )
+        .await;
+    assert!(
+        status == StatusCode::UNAUTHORIZED || status == StatusCode::BAD_REQUEST,
+        "{status} {body}"
+    );
+    assert!(body.contains("invalid_client"), "{body}");
+    let client = resolve(&[ClientSection {
+        client_id: String::from("app"),
+        kind: ClientKind::Public,
+        redirect_uris: vec![String::from(REDIRECT)],
+        grant_types: vec![GrantType::AuthorizationCode],
+        scopes: vec![
+            String::from("launch/patient"),
+            String::from("launch/encounter"),
+        ],
+        ..ClientSection::default()
+    }])
+    .expect("admitted")
+    .remove(0);
+    let roles = std::collections::BTreeMap::new();
+    assert_eq!(
+        vec!["launch/patient"],
+        offer(
+            "launch/patient launch/encounter",
+            &client,
+            &[],
+            &roles,
+            true,
+            None,
+            true
+        ),
+        "the picker puts a patient in context and no encounter"
+    );
+    smart.stop().await;
+}
+
+// NOTE: SMART App Launch 2.2.0, Obtain authorization code, the endpoint SHALL
+// support both GET and POST (`authorize-post`).
+#[tokio::test]
+async fn an_authorization_request_by_post_is_the_get_s_twin() {
+    let smart = Smart::start().await;
+    let path = authorize_path(&[]);
+    let query = path.split_once('?').expect("a query").1.to_owned();
+    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(query.as_bytes())
+        .into_owned()
+        .collect();
+    let borrowed: Vec<(&str, &str)> = pairs
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.as_str()))
+        .collect();
+    let (status, headers, _) = smart.post("/authorize", &borrowed, None).await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let upstream = location(&headers);
+    assert!(
+        upstream.as_str().starts_with(&smart.provider.server.uri()),
+        "the browser goes to the provider"
+    );
+    assert!(param(&upstream, "state").is_some() && param(&upstream, "nonce").is_some());
+    smart.stop().await;
+}

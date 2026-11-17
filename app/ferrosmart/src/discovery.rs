@@ -76,18 +76,59 @@ pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
         metadata.token_endpoint_auth_methods_supported = strings(&["private_key_jwt", "none"]);
         metadata.response_types_supported = strings(&["code"]);
         metadata.code_challenge_methods_supported = strings(&["S256"]);
-        metadata.scopes_supported = strings(&["openid", "fhirUser"]);
+        metadata.scopes_supported = strings(&APP_LAUNCH_SCOPES);
     }
     metadata
 }
 
-/// The capabilities of the EHR launch (`docs/architecture.md` §13.6 item 3).
-const EHR_LAUNCH: [&str; 4] = [
+/// The scopes of an app launch that FerroSMART honours whatever a client
+/// registers: identity, launch context and refresh. "The server SHALL
+/// support all scopes listed here" (SMART App Launch 2.2.0, Conformance,
+/// Metadata, `scopes_supported`), so the resource scopes, which a client's
+/// ceiling and a person's roles decide, are left out.
+const APP_LAUNCH_SCOPES: [&str; 7] = [
+    "openid",
+    "fhirUser",
+    "launch",
+    "launch/patient",
+    "launch/encounter",
+    "offline_access",
+    "online_access",
+];
+
+/// The capabilities every app launch document lists beside those the
+/// builder derives from the metadata (SMART App Launch 2.2.0, Conformance,
+/// Capabilities): the EHR launch with its patient, encounter and banner
+/// context (`docs/architecture.md` §13.6 item 3), and the `POST` form of the
+/// authorization endpoint.
+const APP_LAUNCH: [&str; 5] = [
     "launch-ehr",
     "context-ehr-patient",
     "context-ehr-encounter",
     "context-banner",
+    "authorize-post",
 ];
+
+/// Returns the capabilities `settings` add to [`APP_LAUNCH`]:
+/// `context-standalone-patient` when the patient picker can search one of
+/// the resource servers, and `context-style` when the token response
+/// carries a `smart_style_url`.
+fn configured_capabilities(settings: &Settings) -> Vec<String> {
+    let mut capabilities: Vec<String> = APP_LAUNCH
+        .iter()
+        .map(|&capability| capability.to_owned())
+        .collect();
+    let searchable = settings.resources.iter().any(|base| {
+        !settings.openehr_resources.contains(base) || settings.subject_namespaces.contains_key(base)
+    });
+    if searchable {
+        capabilities.push(String::from("context-standalone-patient"));
+    }
+    if !settings.branding.smart_style_url.is_empty() {
+        capabilities.push(String::from("context-style"));
+    }
+    capabilities
+}
 /// Returns the RFC 8414 document of `metadata`: its members with how the
 /// introspection and revocation endpoints authenticate a client, which
 /// RFC 8414 §2 has default to `client_secret_basic` when absent.
@@ -130,18 +171,20 @@ pub fn metadata_document(metadata: &ServerMetadata) -> Value {
     document
 }
 
-/// Returns the SMART configuration of `metadata`.
+/// Returns the SMART configuration of `metadata` for the server `settings`
+/// describe.
 ///
 /// Without `login` it is the Backend Services document (SMART App Launch
 /// 2.2.0, Backend Services, Retrieve `.well-known/smart-configuration`);
 /// with it, the App Launch document, whose capabilities the builder derives
 /// from the metadata (`client-public`, `client-confidential-asymmetric`,
-/// `launch-standalone`), with `sso-openid-connect`, the EHR launch and its
-/// context, and the v2 scopes FerroSMART grants (`permission-patient`,
-/// `permission-user`, `permission-v2`).
+/// `launch-standalone`), with `sso-openid-connect`, the capabilities of
+/// the configuration (the picker, the style document), the refresh tokens FerroSMART issues
+/// (`permission-offline`, `permission-online`) and the v2 scopes it grants
+/// (`permission-patient`, `permission-user`, `permission-v2`).
 #[must_use]
-pub fn smart_configuration(metadata: &ServerMetadata, login: bool) -> Value {
-    let mut document = smart_document(metadata, login);
+pub fn smart_configuration(settings: &Settings, metadata: &ServerMetadata, login: bool) -> Value {
+    let mut document = smart_document(settings, metadata, login);
     // NOTE: SMART App Launch 2.2.0, Conformance, Metadata, management_endpoint
     // (RECOMMENDED): where the person sees and withdraws what they remembered.
     if login && let Some(members) = document.as_object_mut() {
@@ -156,18 +199,16 @@ pub fn smart_configuration(metadata: &ServerMetadata, login: bool) -> Value {
 }
 
 /// Returns the SMART document the builder writes from `metadata`.
-fn smart_document(metadata: &ServerMetadata, login: bool) -> Value {
+fn smart_document(settings: &Settings, metadata: &ServerMetadata, login: bool) -> Value {
     let options = if login {
         SmartOptions {
             purpose: Purpose::AppLaunch,
             openid_connect: OpenIdConnect::Advertised,
-            // NOTE: SMART App Launch 2.2.0, Conformance, Capabilities: the EHR launch
-            // with its patient, encounter and banner context, and patient/ scopes.
-            capabilities: EHR_LAUNCH
-                .iter()
-                .map(|&capability| capability.to_owned())
-                .collect(),
+            capabilities: configured_capabilities(settings),
+            scopes_supported: metadata.scopes_supported.clone().unwrap_or_default(),
             permissions: [
+                PermissionCapability::Offline,
+                PermissionCapability::Online,
                 PermissionCapability::Patient,
                 PermissionCapability::User,
                 PermissionCapability::V2,
