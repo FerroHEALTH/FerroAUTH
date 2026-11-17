@@ -54,8 +54,8 @@ pub struct UpstreamSection {
     /// the project a provider adds; empty trusts none.
     pub trusted_audiences: Vec<String>,
     /// `[ferrosmart.upstream.private_key_jwt]`: FerroSMART authenticates
-    /// with a JWT its current `[ferrosmart.keys]` key signs, in place of a
-    /// client secret (OpenID Connect Core 1.0 §9).
+    /// with a JWT the current key of its own assertion ring signs, in place
+    /// of a client secret (OpenID Connect Core 1.0 §9).
     pub private_key_jwt: Option<PrivateKeyJwtSection>,
 }
 
@@ -63,10 +63,13 @@ pub struct UpstreamSection {
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PrivateKeyJwtSection {
-    /// The algorithm the provider's registration of FerroSMART names, an
-    /// RSA one since `[ferrosmart.keys]` holds RSA keys (RFC 7518 §3.3,
-    /// §3.5).
+    /// The algorithm the provider's registration of FerroSMART names, one
+    /// the assertion keys sign with (RFC 7518 §3.1).
     pub algorithm: String,
+    /// `[ferrosmart.upstream.private_key_jwt.keys]`: the ring of assertion
+    /// keys, read as `[ferrosmart.keys]` is and never one of its keys, so a
+    /// key that signs assertions never signs a token (RFC 8725 §3.12).
+    pub keys: crate::config::KeysSection,
     /// The PEM X.509 certificate of the current key, for a provider that
     /// knows the key by its certificate; each assertion then names it by
     /// `x5t#S256` (RFC 7515 §4.1.8).
@@ -77,6 +80,7 @@ impl Default for PrivateKeyJwtSection {
     fn default() -> Self {
         Self {
             algorithm: String::from("RS256"),
+            keys: crate::config::KeysSection::default(),
             certificate_file: None,
         }
     }
@@ -106,8 +110,16 @@ pub enum Authentication {
     Public,
     /// A client secret, sent as HTTP Basic (RFC 6749 §2.3.1).
     Secret(SecretString),
-    /// A JWT the key signs (`private_key_jwt`, OpenID Connect Core 1.0 §9).
-    PrivateKeyJwt(Box<AssertionKey>),
+    /// A JWT the assertion ring's current key signs (`private_key_jwt`,
+    /// OpenID Connect Core 1.0 §9); the ring is published at
+    /// [`crate::discovery::UPSTREAM_JWKS_ROUTE`].
+    PrivateKeyJwt {
+        /// The current key, at the registration's algorithm and naming its
+        /// certificate when one is configured.
+        signer: Box<AssertionKey>,
+        /// The ring the key is current in.
+        ring: std::sync::Arc<ferrohealth_smart::client::keys::KeyRing>,
+    },
 }
 
 /// The upstream provider, resolved.
@@ -145,7 +157,9 @@ impl Upstream {
         Ok(match &self.authentication {
             Authentication::Public => party,
             Authentication::Secret(secret) => party.with_client_secret(secret.clone()),
-            Authentication::PrivateKeyJwt(key) => party.with_private_key_jwt((**key).clone()),
+            Authentication::PrivateKeyJwt { signer, .. } => {
+                party.with_private_key_jwt((**signer).clone())
+            }
         })
     }
 }
@@ -164,4 +178,16 @@ pub fn pairwise(issuer: &str, subject: &str) -> String {
     context.update(&[0]);
     context.update(subject.as_bytes());
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(context.finish().as_ref())
+}
+
+impl Upstream {
+    /// Returns the JWK Set of the assertion keys, when FerroSMART
+    /// authenticates with `private_key_jwt`.
+    #[must_use]
+    pub fn assertion_keys(&self) -> Option<serde_json::Value> {
+        match &self.authentication {
+            Authentication::PrivateKeyJwt { ring, .. } => Some(ring.published()),
+            Authentication::Public | Authentication::Secret(_) => None,
+        }
+    }
 }

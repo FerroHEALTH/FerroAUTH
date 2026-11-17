@@ -74,12 +74,6 @@ pub enum AssertionError {
         #[source]
         source: jsonwebtoken::errors::Error,
     },
-    /// The certificate is no X.509 certificate in PEM form.
-    #[error("the certificate is not an X.509 certificate in PEM form")]
-    Certificate,
-    /// The certificate carries another public key than the signing key's.
-    #[error("the certificate carries another public key than the signing key")]
-    CertificateKey,
     /// The EC key is on neither P-256 nor P-384, the curves ES256 and ES384
     /// sign with (RFC 7518 §3.4), and no algorithm was configured.
     #[error("the EC key is on neither P-256 (ES256) nor P-384 (ES384)")]
@@ -88,6 +82,12 @@ pub enum AssertionError {
         #[source]
         source: jsonwebtoken::errors::Error,
     },
+    /// The certificate is no X.509 certificate in PEM form.
+    #[error("the certificate is not an X.509 certificate in PEM form")]
+    Certificate,
+    /// The certificate carries another public key than the signing key's.
+    #[error("the certificate carries another public key than the signing key")]
+    CertificateKey,
 }
 
 /// The key a product signs its client assertions with, and its public

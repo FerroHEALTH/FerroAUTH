@@ -7,8 +7,8 @@
 # SMART standalone launch through both (scripts/idp/standalone-launch.sh)
 # to a token response whose ID Token and access token carry the person's
 # mapped `fhirUser`. FerroSMART authenticates to Keycloak with a JWT its
-# signing key signs, which Keycloak verifies against FerroSMART's JWK Set
-# URL. Every secret is made for the run and never kept. No
+# assertion key signs, which Keycloak verifies against FerroSMART's
+# upstream JWK Set URL. Every secret is made for the run and never kept. No
 # specification governs the check itself: our own design.
 #
 #   scripts/idp/keycloak-launch.sh
@@ -37,6 +37,7 @@ case "$image" in quay.io/keycloak/keycloak:*@sha256:*) ;; *) fail "no Keycloak i
 fhir_user="http://localhost:8090/fhir/Practitioner/example"
 password=$(openssl rand -hex 16)
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$LANE_DIR/signing.pem" 2> /dev/null
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$LANE_DIR/assertion.pem" 2> /dev/null
 psql "$LANE_PG/postgres" -qc 'CREATE DATABASE ferrosmart_keycloak'
 
 # NOTE: Keycloak's server guide, Importing and exporting realms, Using Environment Variables
@@ -44,7 +45,7 @@ psql "$LANE_PG/postgres" -qc 'CREATE DATABASE ferrosmart_keycloak'
 docker run -d --name ferrosmart-keycloak --network host \
   -v "$example/ferrosmart-realm.json:/opt/keycloak/data/import/ferrosmart-realm.json:ro" \
   -e KC_HTTP_PORT=8180 -e KC_HTTP_HOST=127.0.0.1 \
-  -e FERROSMART_KEYCLOAK_JWKS_URL=http://localhost:8080/jwks \
+  -e FERROSMART_KEYCLOAK_JWKS_URL=http://localhost:8080/upstream-jwks \
   -e FERROSMART_KEYCLOAK_REDIRECT_URI=http://localhost:8080/callback \
   -e "FERROSMART_KEYCLOAK_USER_PASSWORD=$password" \
   -e "FERROSMART_KEYCLOAK_FHIR_USER=$fhir_user" \
@@ -58,6 +59,7 @@ docker logs ferrosmart-keycloak > "$LANE_DIR/keycloak.log" 2>&1
 "$root/target/debug/ferrosmart" --config "$example/ferrosmart.toml" \
   --set server.listen=127.0.0.1:8080 \
   --set "ferrosmart.keys.private_key_file=$LANE_DIR/signing.pem" \
+  --set "ferrosmart.upstream.private_key_jwt.keys.private_key_file=$LANE_DIR/assertion.pem" \
   --set "ferrosmart.database.url=$LANE_PG/ferrosmart_keycloak" \
   serve > "$LANE_DIR/ferrosmart-keycloak.log" 2>&1 &
 smart=$!

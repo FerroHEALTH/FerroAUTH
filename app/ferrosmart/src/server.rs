@@ -31,7 +31,7 @@ use crate::client_keys::ClientKeySets;
 use crate::config::settings::Settings;
 use crate::discovery::{
     self, INTROSPECT_ROUTE, JWKS_ROUTE, OPENID_CONFIGURATION_ROUTE, REVOKE_ROUTE,
-    SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE,
+    SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE, UPSTREAM_JWKS_ROUTE,
 };
 use crate::store::Store;
 use ferrohealth_smart::oidc::RelyingParty;
@@ -151,6 +151,7 @@ pub fn router(state: Arc<AppState>) -> Router {
     let issuer = Router::new()
         .route(SMART_CONFIGURATION_ROUTE, get(smart_configuration))
         .route(JWKS_ROUTE, get(jwks))
+        .route(UPSTREAM_JWKS_ROUTE, get(upstream_jwks))
         .route(TOKEN_ROUTE, post(crate::token::token))
         .route(crate::launch::LAUNCH_ROUTE, post(crate::launch::launch))
         .route(
@@ -222,6 +223,26 @@ async fn openid_configuration(State(state): State<Arc<AppState>>) -> Response {
 /// [`JWKS_CACHE_CONTROL`] says.
 async fn jwks(State(state): State<Arc<AppState>>) -> Response {
     let mut response = public(Json(state.settings.keys.published()).into_response());
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(JWKS_CACHE_CONTROL),
+    );
+    response
+}
+
+/// `GET {issuer}/upstream-jwks`, the JWK Set of the client assertion keys
+/// (RFC 7517 §5), when FerroSMART authenticates upstream with
+/// `private_key_jwt`; `404` otherwise.
+async fn upstream_jwks(State(state): State<Arc<AppState>>) -> Response {
+    let Some(set) = state
+        .settings
+        .upstream
+        .as_ref()
+        .and_then(crate::upstream::Upstream::assertion_keys)
+    else {
+        return StatusCode::NOT_FOUND.into_response();
+    };
+    let mut response = public(Json(set).into_response());
     response.headers_mut().insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static(JWKS_CACHE_CONTROL),

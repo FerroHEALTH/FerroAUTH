@@ -318,14 +318,16 @@ fn example_config(example: &str, keys: &Keys, database: Option<&Database>) -> Co
         .as_mut()
         .expect("the example names its provider");
     if let Some(jwt) = upstream.private_key_jwt.as_mut() {
-        let pem = std::fs::read_to_string(&keys.current).expect("the key");
+        let assertion = rsa_key(keys.dir.path(), "assertion.pem");
+        jwt.keys.private_key_file = Some(assertion.clone());
+        let pem = std::fs::read_to_string(&assertion).expect("the key");
         let pair = rcgen::KeyPair::from_pem_and_sign_algo(&pem, &rcgen::PKCS_RSA_SHA256)
             .expect("an RSA key");
         let certificate = rcgen::CertificateParams::new(vec![String::from("smart.example.org")])
             .expect("parameters")
             .self_signed(&pair)
             .expect("a certificate");
-        let path = keys.dir.path().join("current.crt");
+        let path = keys.dir.path().join("assertion.crt");
         std::fs::write(&path, certificate.pem()).expect("the certificate is written");
         jwt.certificate_file = Some(path);
     } else {
@@ -613,7 +615,7 @@ async fn an_entra_id_login_maps_its_app_role_and_extension_attribute() {
     // certificate's x5t#S256, and the claims of OpenID Connect Core 1.0 §9.
     assert_eq!(Algorithm::PS256, header.alg);
     assert_eq!(Some("JWT"), header.typ.as_deref());
-    let certificate = std::fs::read_to_string(smart.keys.dir.path().join("current.crt"))
+    let certificate = std::fs::read_to_string(smart.keys.dir.path().join("assertion.crt"))
         .expect("the certificate");
     let der = x509_der(&certificate);
     let thumbprint = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, &der);
@@ -626,6 +628,31 @@ async fn an_entra_id_login_maps_its_app_role_and_extension_attribute() {
     );
     assert_eq!(json!(smart.client_id), assertion["iss"]);
     assert_eq!(json!(smart.client_id), assertion["sub"]);
+    // NOTE: RFC 8725 §3.12: the assertion keys are published apart, and the
+    // token key set holds none of them.
+    let (status, _, tokens) = smart.get("/jwks", None).await;
+    assert_eq!(StatusCode::OK, status);
+    let (status, _, assertions) = smart.get("/upstream-jwks", None).await;
+    assert_eq!(StatusCode::OK, status);
+    let moduli = |set: &str| -> Vec<Value> {
+        let set: Value = serde_json::from_str(set).expect("a JWK Set");
+        set["keys"]
+            .as_array()
+            .expect("keys")
+            .iter()
+            .map(|key| key["n"].clone())
+            .collect()
+    };
+    let (tokens, assertions) = (moduli(&tokens), moduli(&assertions));
+    assert_eq!(
+        1,
+        assertions.len(),
+        "the current assertion key: {assertions:?}"
+    );
+    assert!(
+        tokens.iter().all(|key| !assertions.contains(key)),
+        "the token and assertion key sets share no key"
+    );
     assert!(
         assertion["jti"].as_str().is_some_and(|jti| !jti.is_empty()),
         "a jti"
@@ -703,8 +730,8 @@ fn x509_der(pem: &str) -> Vec<u8> {
 }
 
 /// Returns the header and the verified claims of the client assertion
-/// FerroSMART sent the provider's token endpoint: signed by its current key
-/// for the token endpoint URL (OpenID Connect Core 1.0 §9).
+/// FerroSMART sent the provider's token endpoint: signed by the current
+/// assertion key for the token endpoint URL (OpenID Connect Core 1.0 §9).
 async fn assertion_sent(smart: &Smart, contract: &Contract) -> (Header, Value) {
     let path = Url::parse(&smart.provider.issuer)
         .expect("a URL")
@@ -730,7 +757,7 @@ async fn assertion_sent(smart: &Smart, contract: &Contract) -> (Header, Value) {
         .map(|(_, value)| value.into_owned())
         .expect("a client assertion");
     let header = jsonwebtoken::decode_header(&assertion).expect("a header");
-    let pem = std::fs::read(&smart.keys.current).expect("the key");
+    let pem = std::fs::read(smart.keys.dir.path().join("assertion.pem")).expect("the key");
     let public = AssertionKey::from_pem(&pem, Some(header.alg), None)
         .expect("the key")
         .public_jwk();
@@ -761,12 +788,14 @@ fn both_examples_resolve_to_their_claim_mapping() {
         assert_eq!(vec![String::from(roles)], upstream.role_claims);
         assert!(
             if signs {
-                matches!(upstream.authentication, Authentication::PrivateKeyJwt(_))
+                matches!(
+                    upstream.authentication,
+                    Authentication::PrivateKeyJwt { .. }
+                )
             } else {
                 matches!(upstream.authentication, Authentication::Secret(_))
             },
-            "a confidential client: {:?}",
-            upstream.authentication
+            "the example's client authentication"
         );
     }
 }

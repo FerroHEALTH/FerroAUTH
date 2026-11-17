@@ -23,12 +23,16 @@ and this project adheres to
   response and the access token, and every lookup writes the EHDS access
   record (#571).
 - `[ferrosmart.upstream.private_key_jwt]`: FerroSMART authenticates at its
-  upstream provider with a JWT its current `[ferrosmart.keys]` key signs
-  (OpenID Connect Core 1.0 §9), at the `algorithm` the provider's
-  registration names (an RSA one, RS256 by default), naming the key's
+  upstream provider with a JWT (OpenID Connect Core 1.0 §9) signed by the
+  current key of its own assertion ring,
+  `[ferrosmart.upstream.private_key_jwt.keys]`, read as `[ferrosmart.keys]`
+  is and published apart at `{issuer}/upstream-jwks`, so an assertion key
+  never signs a token (RFC 8725 §3.12). It signs at the `algorithm` the
+  provider's registration names (RS256 by default) and names the key's
   certificate by `x5t#S256` when `certificate_file` is set. A client secret
-  beside it, an algorithm the key cannot sign and a certificate of another
-  key are refused at load. The Entra ID example uses it with a certificate
+  beside it, an algorithm the key cannot sign, a certificate of another key
+  and an assertion ring sharing a key with the token ring are refused at
+  load. The Entra ID example uses it with a certificate
   credential and `PS256`, and its contract test verifies the assertion the
   stub receives (#569).
 
@@ -36,8 +40,9 @@ and this project adheres to
 
 - The Keycloak example authenticates FerroSMART with `private_key_jwt`: the
   realm's client takes the `client-jwt` authenticator and reads
-  FerroSMART's `{issuer}/jwks`, so `compose.keycloak.yaml` and the CI lane
-  no longer make a `keycloak_client_secret` (#569).
+  FerroSMART's `{issuer}/upstream-jwks`, so `compose.keycloak.yaml` and the
+  CI lanes make an `upstream_assertion_key` in place of a
+  `keycloak_client_secret` (#569).
 - Microsoft Entra ID and Okta as the upstream login, each with an example
   configuration under `examples/` and no provider code. Entra ID: a
   single-tenant app registration's v2.0 authority, the app roles in `roles`

@@ -155,7 +155,7 @@ impl Config {
                 .map(ferrohealth_secret::secret::Secret::to_secret_string),
             section.database.url_file.as_deref(),
         )?;
-        let keys = Arc::new(key_ring(&section.keys)?);
+        let keys = Arc::new(key_ring(&section.keys, &TOKEN_KEYS, Algorithm::RS256)?);
         Ok(Settings {
             server: self.server.clone(),
             issuer: section.issuer.clone(),
@@ -228,16 +228,42 @@ fn branding(section: &BrandingSection) -> Result<BrandingSection, Error> {
     Ok(section.clone())
 }
 
+/// The configuration keys of one ring's three files, for its errors.
+struct RingNames {
+    /// The current key's file.
+    current: &'static str,
+    /// The previous key's file.
+    previous: &'static str,
+    /// The next key's file.
+    next: &'static str,
+}
+
+/// The names of `[ferrosmart.keys]`, the ring that signs tokens.
+const TOKEN_KEYS: RingNames = RingNames {
+    current: "ferrosmart.keys.private_key_file",
+    previous: "ferrosmart.keys.previous_private_key_file",
+    next: "ferrosmart.keys.next_private_key_file",
+};
+
+/// The names of `[ferrosmart.upstream.private_key_jwt.keys]`, the ring that
+/// signs client assertions to the upstream provider.
+const ASSERTION_KEYS: RingNames = RingNames {
+    current: "ferrosmart.upstream.private_key_jwt.keys.private_key_file",
+    previous: "ferrosmart.upstream.private_key_jwt.keys.previous_private_key_file",
+    next: "ferrosmart.upstream.private_key_jwt.keys.next_private_key_file",
+};
+
 /// Returns the ring `keys` names: the current key, the previous one for its
-/// overlap and the next one, each read as an `RS256` key.
-fn key_ring(keys: &KeysSection) -> Result<KeyRing, Error> {
-    let path = keys.private_key_file.as_deref().ok_or(Error::Missing {
-        key: "ferrosmart.keys.private_key_file",
-    })?;
+/// overlap and the next one, each read to sign with `algorithm`.
+fn key_ring(keys: &KeysSection, names: &RingNames, algorithm: Algorithm) -> Result<KeyRing, Error> {
+    let path = keys
+        .private_key_file
+        .as_deref()
+        .ok_or(Error::Missing { key: names.current })?;
     let kid = (!keys.kid.is_empty()).then(|| keys.kid.clone());
-    let mut ring = KeyRing::new(read_key("ferrosmart.keys.private_key_file", path, kid)?);
+    let mut ring = KeyRing::new(read_key(names.current, path, kid, algorithm)?);
     if let Some(path) = keys.previous_private_key_file.as_deref() {
-        let previous = read_key("ferrosmart.keys.previous_private_key_file", path, None)?;
+        let previous = read_key(names.previous, path, None, algorithm)?;
         ring = if keys.previous_key_overlap.is_zero() {
             ring.with_previous_until_removed(previous)
         } else {
@@ -246,7 +272,7 @@ fn key_ring(keys: &KeysSection) -> Result<KeyRing, Error> {
         .map_err(|source| Error::KeyRing { source })?;
     }
     if let Some(path) = keys.next_private_key_file.as_deref() {
-        let next = read_key("ferrosmart.keys.next_private_key_file", path, None)?;
+        let next = read_key(names.next, path, None, algorithm)?;
         ring = ring
             .with_next(next)
             .map_err(|source| Error::KeyRing { source })?;
@@ -254,15 +280,19 @@ fn key_ring(keys: &KeysSection) -> Result<KeyRing, Error> {
     Ok(ring)
 }
 
-/// Reads the `RS256` key at `path`, which `key` names.
-fn read_key(key: &'static str, path: &Path, kid: Option<String>) -> Result<AssertionKey, Error> {
+/// Reads the key at `path`, which `key` names, to sign with `algorithm`.
+fn read_key(
+    key: &'static str,
+    path: &Path,
+    kid: Option<String>,
+    algorithm: Algorithm,
+) -> Result<AssertionKey, Error> {
     let pem = std::fs::read(path).map_err(|source| Error::KeyFile {
         key,
         path: path.to_owned(),
         source,
     })?;
-    AssertionKey::from_pem(&pem, Some(Algorithm::RS256), kid)
-        .map_err(|source| Error::Key { key, source })
+    AssertionKey::from_pem(&pem, Some(algorithm), kid).map_err(|source| Error::Key { key, source })
 }
 
 /// Returns the base URLs `sections` configure: at least one, each an
@@ -340,7 +370,7 @@ fn upstream(section: &UpstreamSection, keys: &KeyRing) -> Result<Upstream, Error
             });
         }
         (Some(secret), None) => Authentication::Secret(secret),
-        (None, Some(jwt)) => Authentication::PrivateKeyJwt(Box::new(assertion_key(jwt, keys)?)),
+        (None, Some(jwt)) => assertion_keys(jwt, keys)?,
         (None, None) => Authentication::Public,
     };
     let named = |claim: &String| !claim.is_empty();
@@ -360,9 +390,13 @@ fn upstream(section: &UpstreamSection, keys: &KeyRing) -> Result<Upstream, Error
     })
 }
 
-/// Returns `keys`' current key signing as `section` names: the algorithm of
-/// the provider's registration, and the certificate it knows the key by.
-fn assertion_key(section: &PrivateKeyJwtSection, keys: &KeyRing) -> Result<AssertionKey, Error> {
+/// Returns the assertion ring `section` names, signing at the algorithm of
+/// the provider's registration and naming the certificate it knows the
+/// current key by, once it holds none of `tokens`' keys.
+fn assertion_keys(
+    section: &PrivateKeyJwtSection,
+    tokens: &KeyRing,
+) -> Result<Authentication, Error> {
     const KEY: &str = "ferrosmart.upstream.private_key_jwt";
     let algorithm = section
         .algorithm
@@ -370,11 +404,15 @@ fn assertion_key(section: &PrivateKeyJwtSection, keys: &KeyRing) -> Result<Asser
         .map_err(|_unknown| Error::Upstream {
             rule: "`private_key_jwt.algorithm` names a JWS algorithm (RFC 7518 §3.1)",
         })?;
-    let mut key = keys
-        .current()
-        .clone()
-        .with_algorithm(algorithm)
-        .map_err(|source| Error::Key { key: KEY, source })?;
+    let ring = key_ring(&section.keys, &ASSERTION_KEYS, algorithm)?;
+    // NOTE: RFC 8725 §3.12: a key that signs client assertions never signs a
+    // token, so the two rings share no key.
+    if shares_key(&ring.published(), &tokens.published()) {
+        return Err(Error::Upstream {
+            rule: "the assertion keys share no key with `[ferrosmart.keys]`",
+        });
+    }
+    let mut key = ring.current().clone();
     if let Some(path) = section.certificate_file.as_deref() {
         let pem = std::fs::read(path).map_err(|source| Error::KeyFile {
             key: "ferrosmart.upstream.private_key_jwt.certificate_file",
@@ -385,7 +423,33 @@ fn assertion_key(section: &PrivateKeyJwtSection, keys: &KeyRing) -> Result<Asser
             .with_certificate(&pem)
             .map_err(|source| Error::Key { key: KEY, source })?;
     }
-    Ok(key)
+    Ok(Authentication::PrivateKeyJwt {
+        signer: Box::new(key),
+        ring: Arc::new(ring),
+    })
+}
+
+/// Whether the JWK Sets `one` and `other` publish a key in common, compared
+/// by its RFC 7638 members.
+fn shares_key(one: &serde_json::Value, other: &serde_json::Value) -> bool {
+    let members = |set: &serde_json::Value| -> Vec<String> {
+        set.get("keys")
+            .and_then(serde_json::Value::as_array)
+            .map(|keys| {
+                keys.iter()
+                    .map(|key| {
+                        ["kty", "crv", "n", "e", "x", "y"]
+                            .iter()
+                            .map(|name| key.get(*name).map(ToString::to_string).unwrap_or_default())
+                            .collect::<Vec<_>>()
+                            .join("|")
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let theirs = members(other);
+    members(one).iter().any(|key| theirs.contains(key))
 }
 
 /// Returns the scopes of each role `sections` name: a role named once,

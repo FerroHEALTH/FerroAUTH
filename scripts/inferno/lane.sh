@@ -144,6 +144,7 @@ make_keys() {
   done
   rm -f "$dir/ca.key"
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$dir/signing.pem" 2> /dev/null
+  openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$dir/assertion.pem" 2> /dev/null
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$dir/lane-client.pem" 2> /dev/null
   modulus=$(openssl rsa -in "$dir/lane-client.pem" -noout -modulus | cut -d= -f2 | xxd -r -p |
     openssl base64 -A | tr '+/' '-_' | tr -d '=')
@@ -207,7 +208,7 @@ run() {
     --add-host smart.localhost:127.0.0.1 \
     -e KC_HTTP_PORT=8180 -e KC_HTTP_HOST=127.0.0.1 \
     -e KC_TRUSTSTORE_PATHS=/opt/keycloak/lane-ca.pem \
-    -e FERROSMART_KEYCLOAK_JWKS_URL=https://smart.localhost:8443/jwks \
+    -e FERROSMART_KEYCLOAK_JWKS_URL=https://smart.localhost:8443/upstream-jwks \
     -e FERROSMART_KEYCLOAK_REDIRECT_URI=https://smart.localhost:8443/callback \
     -e "FERROSMART_KEYCLOAK_USER_PASSWORD=$password" \
     -e "FERROSMART_KEYCLOAK_FHIR_USER=$practitioner" \
@@ -219,6 +220,7 @@ run() {
     --set "server.tls.certificate_file=$LANE_DIR/smart.crt" \
     --set "server.tls.key_file=$LANE_DIR/smart.key" \
     --set "ferrosmart.keys.private_key_file=$LANE_DIR/signing.pem" \
+    --set "ferrosmart.upstream.private_key_jwt.keys.private_key_file=$LANE_DIR/assertion.pem" \
     --set "ferrosmart.database.url=$LANE_PG/ferrosmart" \
     --set "ferrosmart.client[0].jwks_file=$LANE_DIR/inferno-client.jwks.json" \
     --set "ferrosmart.client[2].jwks_file=$LANE_DIR/lane-client.jwks.json" \

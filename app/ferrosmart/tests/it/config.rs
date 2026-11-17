@@ -291,11 +291,28 @@ fn a_subject_namespace_belongs_to_an_openehr_base_and_is_never_empty() {
     }
 }
 
-/// The upstream table with `extra` under it, and the issuer of every case.
-fn upstream(extra: &str) -> String {
+/// The upstream table with `extra` under it, the issuer of every case, and
+/// `keys`' current key as the token key.
+fn upstream(keys: &Keys, extra: &str) -> String {
+    let current = keys.current.display().to_string();
     format!(
         "[ferrosmart]\nissuer = \"https://smart.example.org\"\n\
+         [ferrosmart.keys]\nprivate_key_file = {current:?}\n\
          [ferrosmart.upstream]\nissuer = \"https://idp.example.org\"\nclient_id = \"ferrosmart\"\n{extra}"
+    )
+}
+
+/// The `[ferrosmart.upstream.private_key_jwt]` table with `extra` in it and
+/// a fresh assertion key under `keys`.
+fn private_key_jwt(keys: &Keys, extra: &str) -> String {
+    let key = crate::support::rsa_key(keys.dir.path(), "assertion.pem");
+    upstream(
+        keys,
+        &format!(
+            "[ferrosmart.upstream.private_key_jwt]\n{extra}\n\
+             [ferrosmart.upstream.private_key_jwt.keys]\nprivate_key_file = {:?}\n",
+            key.display().to_string()
+        ),
     )
 }
 
@@ -303,7 +320,10 @@ fn upstream(extra: &str) -> String {
 #[test]
 fn private_key_jwt_and_a_client_secret_together_are_refused() {
     let keys = Keys::new();
-    let text = upstream("client_secret = \"synthetic\"\n[ferrosmart.upstream.private_key_jwt]\n");
+    let text = private_key_jwt(&keys, "").replace(
+        "client_id = \"ferrosmart\"\n",
+        "client_id = \"ferrosmart\"\nclient_secret = \"synthetic\"\n",
+    );
     assert!(matches!(
         config(&text, &keys).resolve(),
         Err(Error::Upstream { .. })
@@ -320,9 +340,7 @@ fn a_private_key_jwt_algorithm_the_key_cannot_sign_is_refused() {
         ("ES256", true),
         ("none", true),
     ] {
-        let text = upstream(&format!(
-            "[ferrosmart.upstream.private_key_jwt]\nalgorithm = \"{algorithm}\"\n"
-        ));
+        let text = private_key_jwt(&keys, &format!("algorithm = \"{algorithm}\""));
         assert_eq!(
             refused,
             config(&text, &keys).resolve().is_err(),
@@ -342,12 +360,40 @@ fn a_certificate_of_another_key_is_refused() {
         .expect("a certificate");
     let path = keys.dir.path().join("other.crt");
     std::fs::write(&path, certificate.pem()).expect("written");
-    let text = upstream(&format!(
-        "[ferrosmart.upstream.private_key_jwt]\ncertificate_file = {:?}\n",
-        path.display().to_string()
-    ));
+    let text = private_key_jwt(
+        &keys,
+        &format!("certificate_file = {:?}", path.display().to_string()),
+    );
     assert!(matches!(
         config(&text, &keys).resolve(),
         Err(Error::Key { .. })
+    ));
+}
+
+// NOTE: RFC 8725 §3.12: a key that signs client assertions never signs a token.
+#[test]
+fn an_assertion_ring_holding_a_token_key_or_none_is_refused() {
+    let keys = Keys::new();
+    let text = upstream(
+        &keys,
+        &format!(
+            "[ferrosmart.upstream.private_key_jwt]\n[ferrosmart.upstream.private_key_jwt.keys]\n\
+         next_private_key_file = {:?}\nprivate_key_file = {:?}\n",
+            crate::support::rsa_key(keys.dir.path(), "next.pem")
+                .display()
+                .to_string(),
+            keys.current.display().to_string()
+        ),
+    );
+    assert!(matches!(
+        config(&text, &keys).resolve(),
+        Err(Error::Upstream { .. })
+    ));
+    let text = upstream(&keys, "[ferrosmart.upstream.private_key_jwt]\n");
+    assert!(matches!(
+        config(&text, &keys).resolve(),
+        Err(Error::Missing {
+            key: "ferrosmart.upstream.private_key_jwt.keys.private_key_file"
+        })
     ));
 }
