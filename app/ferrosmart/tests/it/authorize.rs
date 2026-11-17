@@ -1619,7 +1619,7 @@ mod preset;
 /// The capabilities FerroSMART supports with a FHIR resource server and a
 /// SMART style document configured, each with the case that exercises it
 /// (`docs/architecture.md` §13.23).
-const SUPPORTED: [(&str, &str); 17] = [
+const SUPPORTED: [(&str, &str); 18] = [
     (
         "authorize-post",
         "an_authorization_request_by_post_is_the_get_s_twin",
@@ -1681,6 +1681,10 @@ const SUPPORTED: [(&str, &str); 17] = [
         "a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens",
     ),
     (
+        "permission-v1",
+        "a_v1_scope_is_offered_by_its_v2_form_and_granted_as_asked",
+    ),
+    (
         "permission-v2",
         "a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens",
     ),
@@ -1725,7 +1729,7 @@ async fn the_document_lists_exactly_the_capabilities_the_server_supports() {
             None => (include_str!("authorize.rs"), case),
         };
         assert!(
-            source.contains(&format!("async fn {name}()")),
+            source.contains(&format!("fn {name}()")),
             "{capability}: the case {case} exists"
         );
     }
@@ -1766,11 +1770,7 @@ async fn what_the_document_leaves_out_the_server_refuses() {
     let (_, _, body) = smart.get("/.well-known/smart-configuration", None).await;
     let document: Value = serde_json::from_str(&body).expect("JSON");
     let listed = document["capabilities"].as_array().expect("capabilities");
-    for capability in [
-        "context-standalone-encounter",
-        "permission-v1",
-        "smart-app-state",
-    ] {
+    for capability in ["context-standalone-encounter", "smart-app-state"] {
         assert!(!listed.contains(&json!(capability)), "{capability}");
     }
     let client = resolve(&[ClientSection {
@@ -1826,4 +1826,39 @@ async fn an_authorization_request_by_post_is_the_get_s_twin() {
     );
     assert!(param(&upstream, "state").is_some() && param(&upstream, "nonce").is_some());
     smart.stop().await;
+}
+
+// NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Scopes for requesting
+// FHIR Resources: v1 scopes are processed as v2 and returned as v1.
+#[test]
+fn a_v1_scope_is_offered_by_its_v2_form_and_granted_as_asked() {
+    let client = resolve(&[ClientSection {
+        client_id: String::from("app"),
+        kind: ClientKind::Public,
+        redirect_uris: vec![String::from(REDIRECT)],
+        grant_types: vec![GrantType::AuthorizationCode],
+        scopes: vec![String::from("user/Observation.rs")],
+        ..ClientSection::default()
+    }])
+    .expect("admitted")
+    .remove(0);
+    let roles = [(
+        String::from("clinician"),
+        vec![String::from("user/Observation.rs")],
+    )]
+    .into_iter()
+    .collect();
+    let held = vec![String::from("clinician")];
+    assert_eq!(
+        vec!["user/Observation.read"],
+        offer(
+            "user/Observation.read user/Observation.write user/Patient.read",
+            &client,
+            &held,
+            &roles,
+            true,
+            None,
+            false
+        )
+    );
 }

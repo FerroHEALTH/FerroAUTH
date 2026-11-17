@@ -194,8 +194,8 @@ pub(crate) async fn identify(
 /// scope requested is within the scope pre-authorized to the client" (SMART
 /// App Launch 2.2.0, Backend Services, Evaluate Requested Access). A
 /// request with no scope, or none within the ceiling, is refused
-/// (`invalid_scope`, RFC 6749 §3.3, §5.2). Matching a scope against the
-/// ceiling as written is our own design.
+/// (`invalid_scope`, RFC 6749 §3.3, §5.2). A v1 scope is matched by its v2
+/// form and granted as requested ([`crate::scopes`]).
 fn granted_scope(client: &Client, requested: Option<&str>) -> Result<String, Refusal> {
     let invalid = |description| Refusal {
         error: "invalid_scope",
@@ -204,7 +204,7 @@ fn granted_scope(client: &Client, requested: Option<&str>) -> Result<String, Ref
     let requested = requested.ok_or(invalid("the request names no scope"))?;
     let mut granted: Vec<&str> = Vec::new();
     for scope in requested.split(' ').filter(|scope| !scope.is_empty()) {
-        if client.scopes.iter().any(|allowed| allowed == scope) && !granted.contains(&scope) {
+        if crate::scopes::admits(&client.scopes, scope) && !granted.contains(&scope) {
             granted.push(scope);
         }
     }

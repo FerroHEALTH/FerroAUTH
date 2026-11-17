@@ -722,3 +722,20 @@ async fn an_operator_reads_the_records_with_its_own_token_by_time() {
     }
     server.stop().await;
 }
+
+// NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, a v1 scope is
+// processed as its v2 form and returned as v1.
+#[tokio::test]
+async fn a_backend_service_s_v1_scope_is_granted_as_asked() {
+    let server = Server::start(None, Algorithm::ES384).await;
+    let assertion = server.assertion("JWT", &valid_claims());
+    let (status, _, body) = server
+        .post(&form(
+            &assertion,
+            "system/Observation.read system/Encounter.read",
+        ))
+        .await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    assert_eq!(json!("system/Observation.read"), body["scope"]);
+    server.stop().await;
+}
