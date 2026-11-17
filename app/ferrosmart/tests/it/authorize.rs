@@ -35,25 +35,25 @@ const ISSUER: &str = "https://smart.example.org";
 /// The app's redirect URI.
 const REDIRECT: &str = "https://app.example.org/callback";
 /// FerroSMART's client id at the provider.
-const UPSTREAM_CLIENT: &str = "ferrosmart";
+pub(crate) const UPSTREAM_CLIENT: &str = "ferrosmart";
 /// The deployment's SMART style document.
 const STYLE: &str = "https://smart.example.org/smart-style.json";
 /// The app's PKCE verifier and its S256 challenge (RFC 7636 Appendix B).
-const VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+pub(crate) const VERIFIER: &str = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
 /// The challenge of [`VERIFIER`].
-const CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
+pub(crate) const CHALLENGE: &str = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM";
 
 /// The stub upstream provider and its signing key.
-struct Provider {
+pub(crate) struct Provider {
     /// The server.
-    server: MockServer,
+    pub(crate) server: MockServer,
     /// The key its ID Tokens are signed with.
     encoding: EncodingKey,
 }
 
 impl Provider {
     /// Starts a provider serving its metadata and its key set.
-    async fn start() -> Self {
+    pub(crate) async fn start() -> Self {
         let server = MockServer::start().await;
         let pkcs8 =
             EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &SystemRandom::new())
@@ -96,7 +96,7 @@ impl Provider {
 
     /// Answers the next code exchange with an ID Token for the person
     /// `subject` whose `fhir_user` is `fhir_user`.
-    async fn answer_as(&self, nonce: &str, roles: &[&str], subject: &str, fhir_user: &str) {
+    pub(crate) async fn answer_as(&self, nonce: &str, roles: &[&str], subject: &str, fhir_user: &str) {
         let now = jiff::Timestamp::now().as_second();
         let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(String::from("op-1"));
@@ -334,7 +334,7 @@ fn authorize_path(overrides: &[(&str, &str)]) -> String {
 }
 
 /// Returns the location of a `303`, parsed.
-fn location(headers: &http::HeaderMap) -> Url {
+pub(crate) fn location(headers: &http::HeaderMap) -> Url {
     let location = headers
         .get(header::LOCATION)
         .and_then(|v| v.to_str().ok())
@@ -348,14 +348,14 @@ fn location(headers: &http::HeaderMap) -> Url {
 }
 
 /// Returns the query parameter `name` of `url`.
-fn param(url: &Url, name: &str) -> Option<String> {
+pub(crate) fn param(url: &Url, name: &str) -> Option<String> {
     url.query_pairs()
         .find(|(key, _)| key == name)
         .map(|(_, value)| value.into_owned())
 }
 
 /// Returns the cookie value a response set.
-fn set_cookie(headers: &http::HeaderMap) -> String {
+pub(crate) fn set_cookie(headers: &http::HeaderMap) -> String {
     let cookie = headers
         .get(header::SET_COOKIE)
         .and_then(|v| v.to_str().ok())
@@ -1433,7 +1433,7 @@ async fn to_picker_asking(
 }
 
 /// Returns the form token of the page `page`.
-fn form_token(page: &str) -> String {
+pub(crate) fn form_token(page: &str) -> String {
     page.split("name=\"form_token\" value=\"")
         .nth(1)
         .and_then(|rest| rest.split('"').next())

@@ -21,6 +21,7 @@ mod launch;
 mod refresh;
 mod replicas;
 mod revocation;
+mod screenshots;
 mod store;
 mod support;
 mod symmetric;
