@@ -3,31 +3,34 @@
 
 # CLAUDE.md
 
-**FerroAUTH** is SMART for the openEHR ecosystem, FHIR included: the
-shared SMART App Launch 2.x and OAuth 2.0 resource-server crate of the
-FerroHEALTH products, FerroBRIDGE, FerroEHR, FerroFED, FerroPIX and
-FerroTERM. It is one Cargo workspace with three library crates, all
-published to crates.io, the way FerroUI is the family's shared UI crate:
-`ferrohealth-smart` (Rust path `ferrohealth_smart`), authentication and the
-granted subject, and `ferrohealth-authz` (Rust path `ferrohealth_authz`), the
-policy decision (the NIST SP 800-162 request model, a Cedar engine behind
-`cedar`, a remote PDP behind `remote`), which the owner assigned here on
-2026-10-25 (`.claude/memory/family-architecture.md`), and `ferrohealth-session`
-(Rust path `ferrohealth_session`), the operator consoles' OpenID Connect
-sign-in and session store over `ferrohealth-smart`'s relying party, which the
-owner placed here on 2026-11-03. Each crate keeps its own version line and
-tag: `ferrohealth-smart-vX.Y.Z` releases `ferrohealth-smart`,
+**FerroSMART** is SMART for the openEHR ecosystem, FHIR included, and a
+FerroHEALTH product (owner decision 2026-11-17,
+`.claude/memory/ferrosmart.md`): the family's SMART App Launch 2.x
+authorization server in `app/ferrosmart`, which ships as its own OCI image
+and release artefacts, and beside it the shared SMART App Launch 2.x and
+OAuth 2.0 resource-server crates of the FerroHEALTH products, FerroBRIDGE,
+FerroEHR, FerroFED, FerroPIX and FerroTERM. The repository is one Cargo
+workspace with three library crates in `crates/`, all published to
+crates.io: `ferrohealth-smart` (Rust path `ferrohealth_smart`),
+authentication and the granted subject; `ferrohealth-authz` (Rust path
+`ferrohealth_authz`), the policy decision (the NIST SP 800-162 request
+model, a Cedar engine behind `cedar`, a remote PDP behind `remote`), which
+the owner assigned here on 2026-10-25 (`.claude/memory/family-architecture.md`);
+and `ferrohealth-session` (Rust path `ferrohealth_session`), the operator
+consoles' OpenID Connect sign-in and session store over
+`ferrohealth-smart`'s relying party, which the owner placed here on
+2026-11-03. Each crate keeps its own version line and tag:
+`ferrohealth-smart-vX.Y.Z` releases `ferrohealth-smart`,
 `ferrohealth-authz-vX.Y.Z` releases `ferrohealth-authz` and
-`ferrohealth-session-vX.Y.Z` releases `ferrohealth-session` (`docs/release.md`).
-Beside the crates the repository holds FerroSMART, the family's SMART App
-Launch 2.x authorization server, which ships as its own OCI image and
-release artefacts (owner decision 2026-11-16, section below).
+`ferrohealth-session-vX.Y.Z` releases `ferrohealth-session`, and
+`ferrosmart-vX.Y.Z` releases the server (`docs/release.md`).
 
-FerroAUTH in prose (the repository was FerroSMART until the owner renamed
-it on 2026-10-25), `ferrohealth-smart` in identifiers. The crate name and
-its licence are the owner's decision of 2026-10-19: `ferrohealth-smart`,
-under BUSL-1.1, because it is hand-written code that implements a
-specification, and in this family only generator-emitted code is Apache-2.0
+FerroSMART in prose and in the repository name (FerroHEALTH/FerroSMART; it
+was FerroAUTH from 2026-10-25 to 2026-11-17), `ferrohealth-smart` and the
+other `ferrohealth-*` names in identifiers. The crate name and its licence
+are the owner's decision of 2026-10-19: `ferrohealth-smart`, under
+BUSL-1.1, because it is hand-written code that implements a specification,
+and in this family only generator-emitted code is Apache-2.0
 (`.claude/memory/crate-name.md`, `.claude/memory/license-busl.md`).
 
 ## The libraries and the one authorization server
@@ -51,8 +54,7 @@ App Launch 2.2, OAuth 2.x, OpenID Connect, RFC 9068, 7662, 7009, 7523, 8414,
 7591, 7636) with no Ferro-specific claim, and serves any FHIR or openEHR
 server downstream. It lives in this repository permanently, licensed
 BUSL-1.1, and ships as its own OCI image and release artefacts beside the
-library crates. "FerroSMART" was this repository's name until 2026-10-25;
-the product name is reused. Its design is `docs/architecture.md` §13. A
+library crates. Its design is `docs/architecture.md` §13. A
 change that would make a library crate issue a token or hold a signing key
 is refused: that work belongs in FerroSMART.
 

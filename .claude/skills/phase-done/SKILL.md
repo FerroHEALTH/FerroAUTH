@@ -71,7 +71,7 @@ records, and it does not decide the work is done on your behalf.
     auto-merge is armed (`gh pr view --json autoMergeRequest`); arm it if not,
     as its own command, `gh pr merge <n> --auto`
     (`.claude/memory/merge-queue-signed.md`).
-11. **Milestone check:** FerroAUTH has no roadmap board
+11. **Milestone check:** FerroSMART has no roadmap board
     (`.claude/rules/project-board.md`). After the merge, confirm the issue is
     closed in its milestone (`gh issue view <n> --json state,milestone`).
 12. **Remind the user to commit** the close on the current conventional-type

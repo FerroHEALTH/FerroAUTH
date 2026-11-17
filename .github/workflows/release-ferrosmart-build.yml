@@ -16,8 +16,8 @@
 # consumer can demand:
 #
 #   gh attestation verify ferrosmart-<version>-<target>.tar.gz \
-#     --repo FerroHEALTH/FerroAUTH \
-#     --signer-workflow FerroHEALTH/FerroAUTH/.github/workflows/release-ferrosmart-build.yml
+#     --repo FerroHEALTH/FerroSMART \
+#     --signer-workflow FerroHEALTH/FerroSMART/.github/workflows/release-ferrosmart-build.yml
 name: Release FerroSMART build (reusable)
 
 on:

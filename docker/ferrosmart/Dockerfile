@@ -54,7 +54,7 @@ CMD ["serve"]
 # annotation, which is what GHCR reads for the package page.
 LABEL org.opencontainers.image.title="FerroSMART" \
       org.opencontainers.image.description="The SMART App Launch 2.x authorization server of the FerroHEALTH products, with any OpenID Connect provider upstream for login" \
-      org.opencontainers.image.source="https://github.com/FerroHEALTH/FerroAUTH" \
+      org.opencontainers.image.source="https://github.com/FerroHEALTH/FerroSMART" \
       org.opencontainers.image.vendor="Cadasto B.V." \
       org.opencontainers.image.licenses="BUSL-1.1" \
       org.opencontainers.image.base.name="gcr.io/distroless/static-debian13:nonroot"

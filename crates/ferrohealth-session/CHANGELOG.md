@@ -14,6 +14,13 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- The repository is FerroSMART again, at
+  <https://github.com/FerroHEALTH/FerroSMART>, and the crate's `repository`
+  and `homepage` point there (owner decision 2026-11-17). The FerroAUTH
+  address redirects, and the crate name stays.
+
 ## [0.24.0] - 2026-11-17
 
 ### Changed
@@ -443,33 +450,33 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.24.0...HEAD
-[0.24.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.23.0...ferrohealth-session-v0.24.0
-[0.23.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.22.0...ferrohealth-session-v0.23.0
-[0.22.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.21.0...ferrohealth-session-v0.22.0
-[0.21.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.20.0...ferrohealth-session-v0.21.0
-[0.20.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.19.0...ferrohealth-session-v0.20.0
-[0.19.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.18.0...ferrohealth-session-v0.19.0
-[0.18.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.17.0...ferrohealth-session-v0.18.0
-[0.17.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.16.0...ferrohealth-session-v0.17.0
-[0.16.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.15.0...ferrohealth-session-v0.16.0
-[0.15.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.14.0...ferrohealth-session-v0.15.0
-[0.14.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.13.0...ferrohealth-session-v0.14.0
-[0.13.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.12.0...ferrohealth-session-v0.13.0
-[0.12.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.11.0...ferrohealth-session-v0.12.0
-[0.11.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.10.0...ferrohealth-session-v0.11.0
-[0.10.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.9.0...ferrohealth-session-v0.10.0
-[0.9.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.8.0...ferrohealth-session-v0.9.0
-[0.8.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.7.0...ferrohealth-session-v0.8.0
-[0.7.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.6.0...ferrohealth-session-v0.7.0
-[0.6.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.5.0...ferrohealth-session-v0.6.0
-[0.5.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.4.0...ferrohealth-session-v0.5.0
-[0.4.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.3.1...ferrohealth-session-v0.4.0
-[0.3.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.3.0...ferrohealth-session-v0.3.1
-[0.3.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.3...ferrohealth-session-v0.3.0
-[0.2.3]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.2...ferrohealth-session-v0.2.3
-[0.2.2]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.1...ferrohealth-session-v0.2.2
-[0.2.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.2.0...ferrohealth-session-v0.2.1
-[0.2.0]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.1.1...ferrohealth-session-v0.2.0
-[0.1.1]: https://github.com/FerroHEALTH/FerroAUTH/compare/ferrohealth-session-v0.1.0...ferrohealth-session-v0.1.1
-[0.1.0]: https://github.com/FerroHEALTH/FerroAUTH/releases/tag/ferrohealth-session-v0.1.0
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.24.0...HEAD
+[0.24.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.23.0...ferrohealth-session-v0.24.0
+[0.23.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.22.0...ferrohealth-session-v0.23.0
+[0.22.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.21.0...ferrohealth-session-v0.22.0
+[0.21.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.20.0...ferrohealth-session-v0.21.0
+[0.20.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.19.0...ferrohealth-session-v0.20.0
+[0.19.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.18.0...ferrohealth-session-v0.19.0
+[0.18.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.17.0...ferrohealth-session-v0.18.0
+[0.17.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.16.0...ferrohealth-session-v0.17.0
+[0.16.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.15.0...ferrohealth-session-v0.16.0
+[0.15.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.14.0...ferrohealth-session-v0.15.0
+[0.14.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.13.0...ferrohealth-session-v0.14.0
+[0.13.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.12.0...ferrohealth-session-v0.13.0
+[0.12.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.11.0...ferrohealth-session-v0.12.0
+[0.11.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.10.0...ferrohealth-session-v0.11.0
+[0.10.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.9.0...ferrohealth-session-v0.10.0
+[0.9.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.8.0...ferrohealth-session-v0.9.0
+[0.8.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.7.0...ferrohealth-session-v0.8.0
+[0.7.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.6.0...ferrohealth-session-v0.7.0
+[0.6.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.5.0...ferrohealth-session-v0.6.0
+[0.5.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.4.0...ferrohealth-session-v0.5.0
+[0.4.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.3.1...ferrohealth-session-v0.4.0
+[0.3.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.3.0...ferrohealth-session-v0.3.1
+[0.3.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.2.3...ferrohealth-session-v0.3.0
+[0.2.3]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.2.2...ferrohealth-session-v0.2.3
+[0.2.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.2.1...ferrohealth-session-v0.2.2
+[0.2.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.2.0...ferrohealth-session-v0.2.1
+[0.2.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.1.1...ferrohealth-session-v0.2.0
+[0.1.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.1.0...ferrohealth-session-v0.1.1
+[0.1.0]: https://github.com/FerroHEALTH/FerroSMART/releases/tag/ferrohealth-session-v0.1.0

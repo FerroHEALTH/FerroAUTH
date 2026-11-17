@@ -10,15 +10,12 @@
   2026-10-25
 - [Memory lives in the repo](memory-lives-in-repo.md): every learning is a
   tracked file here, never a per-user note
-- [What FerroAUTH is](ferroauth.md): the shared crates, never an
-  authorization server; `ferrohealth-smart` (the resource server, the
-  scopes, two machine-auth modes, the audit line) and `ferrohealth-authz`
-  (the policy decision); owner 2026-10-19 and 2026-10-25
-- [FerroSMART](ferrosmart.md): the family's own SMART App Launch 2.x
-  authorization server lives in this repository permanently, BUSL-1.1, its
-  own OCI image; the one component that issues tokens and holds signing
-  keys, any OIDC IdP upstream for login only, standards on every interface;
-  owner 2026-11-16
+- [FerroSMART](ferrosmart.md): this repository and product is FerroSMART
+  again (owner 2026-11-17): the family's SMART App Launch 2.x authorization
+  server in `app/ferrosmart`, the one component that issues tokens
+  (owner 2026-11-16), beside the crates `ferrohealth-smart`,
+  `ferrohealth-authz` and `ferrohealth-session`, which never issue one;
+  Cedar and the remote PDP decided after FerroEHR v6
 - [Crate name and licence](crate-name.md): the crate is `ferrohealth-smart`
   under BUSL-1.1, because hand-written code implementing a specification is
   BUSL in this family and only generator-emitted code is Apache; owner

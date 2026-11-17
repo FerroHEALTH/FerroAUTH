@@ -10,8 +10,8 @@ version = "0.29.1"
 edition = "2024"
 rust-version = "1.98"
 license = "BUSL-1.1"
-repository = "https://github.com/FerroHEALTH/FerroAUTH"
-homepage = "https://github.com/FerroHEALTH/FerroAUTH"
+repository = "https://github.com/FerroHEALTH/FerroSMART"
+homepage = "https://github.com/FerroHEALTH/FerroSMART"
 authors = ["Ruben Talstra"]
 
 # The authoritative third-party set. A crate takes a dependency with

@@ -53,7 +53,7 @@ readonly TAG_RE='^(ferrohealth-(smart|authz|session)|ferrosmart)-v[0-9]+\.[0-9]+
 # The support period in years from the release date: the minimum of
 # Regulation (EU) 2024/2847 Art 13(8), as SECURITY.md states it.
 readonly SUPPORT_YEARS=5
-readonly SECURITY_URL='https://github.com/FerroHEALTH/FerroAUTH/blob/main/SECURITY.md#supported-versions'
+readonly SECURITY_URL='https://github.com/FerroHEALTH/FerroSMART/blob/main/SECURITY.md#supported-versions'
 
 usage() {
   echo "usage: plan.sh checks <tag> [--notes <file>] | prev-tag <tag> | crate <tag> | changelog <tag> | notes <tag> <file> | support-end <YYYY-MM-DD> | --self-test" >&2
@@ -260,7 +260,7 @@ check_semver() {
 # being cut and the cut version has a link of its own (Keep a Changelog 1.1.0
 # writes each version heading as a link). A pre-release cuts no section.
 check_changelog_links() {
-  local base="https://github.com/FerroHEALTH/FerroAUTH" failed=0
+  local base="https://github.com/FerroHEALTH/FerroSMART" failed=0
   if [[ "$VERSION" == *-* ]]; then
     echo "a pre-release cuts no changelog section"
     return 0

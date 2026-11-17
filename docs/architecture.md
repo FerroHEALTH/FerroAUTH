@@ -3,11 +3,12 @@
 
 # Architecture
 
-FerroAUTH holds three crates: authentication, `ferrohealth-smart`, the
-policy decision, `ferrohealth-authz` (section 11), and the console sign-in
-and session, `ferrohealth-session` (section 12). Beside them it holds
-FerroSMART, the family's SMART App Launch 2.x authorization server (section
-13, owner decision 2026-11-16). Sections 0 to 10 design
+FerroSMART is the family's SMART App Launch 2.x authorization server
+(section 13, owner decision 2026-11-16), a FerroHEALTH product whose name
+this repository carries (owner decision 2026-11-17). Beside the server it
+holds three crates: authentication, `ferrohealth-smart`, the policy
+decision, `ferrohealth-authz` (section 11), and the console sign-in and
+session, `ferrohealth-session` (section 12). Sections 0 to 10 design
 `ferrohealth-smart`, the shared library with which every
 FerroHEALTH product (FerroBRIDGE, FerroEHR, FerroFED, FerroPIX and FerroTERM) acts as an
 OAuth 2.0 and SMART App Launch 2.x resource server, verifies and sends
@@ -95,7 +96,7 @@ with the matrix.
 | Item | Pin | Ground |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | The registry's `latest` on 2026-10-19 and the current 2.x publication; the 2.x line is where the `cruds` scope grammar, the `.well-known/smart-configuration` document and the asymmetric client profile live. Vendored as the package `hl7.fhir.uv.smart-app-launch` 2.2.0 and the page sources at the release tag. |
-| IETF RFCs | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693, 3986, 6819, 7518, 7591, 8252, 9126, 9207, 9864, 10070 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is the `authorization_details` a client grant sends and reads back (3.5); the resource server reads no `authorization_details` claim (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroAUTH#215, #217). RFC 3986 §6.2.2 and §6.2.3 are the normalizations RFC 9449 §4.3 has a server apply before it compares the `htu` (3.15), and §4.2 the network-path reference the session's return path refuses (FerroHEALTH/FerroAUTH#235). RFC 6819, 7518, 7591, 8252, 9126, 9207, 9864 and 10070 are what FerroSMART, the authorization server of section 13, cites beyond the resource server's set: the threat model, the algorithms and their fully-specified names, dynamic registration, native apps, pushed authorization requests, the `iss` authorization response parameter, and RFC 10070's audience rule for client assertions, which updates RFC 7521, 7522, 7523 and 9126 and conflicts with SMART 2.2 (13.6). |
+| IETF RFCs | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693, 3986, 6819, 7518, 7591, 8252, 9126, 9207, 9864, 10070 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is the `authorization_details` a client grant sends and reads back (3.5); the resource server reads no `authorization_details` claim (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroSMART#215, #217). RFC 3986 §6.2.2 and §6.2.3 are the normalizations RFC 9449 §4.3 has a server apply before it compares the `htu` (3.15), and §4.2 the network-path reference the session's return path refuses (FerroHEALTH/FerroSMART#235). RFC 6819, 7518, 7591, 8252, 9126, 9207, 9864 and 10070 are what FerroSMART, the authorization server of section 13, cites beyond the resource server's set: the threat model, the algorithms and their fully-specified names, dynamic registration, native apps, pushed authorization requests, the `iss` authorization response parameter, and RFC 10070's audience rule for client assertions, which updates RFC 7521, 7522, 7523 and 9126 and conflicts with SMART 2.2 (13.6). |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; the authorization code flow (§3.1) and the ID Token check (§3.1.3.7) of the `oidc` relying party. |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the end-session request (§2) and the `end_session_endpoint` metadata (§2.1) of the `oidc` relying party. |
@@ -103,9 +104,9 @@ with the matrix.
 | OAuth 2.1 Authorization Framework | draft-ietf-oauth-v2-1-17 (2026-10-31) | The current revision of the Working Group draft that consolidates RFC 6749, 6750 and the security best current practice. FerroSMART cites it beside those RFCs (13.5) and never in their place, because an Internet-Draft is a work in progress. |
 | Inferno SMART App Launch test kit | 1.0.3 (`inferno-framework/smart-app-launch-test-kit` tag `v1.0.3`) | The latest release on 2026-11-16 and the conformance lane FerroSMART runs (13.13). Its requirement extraction for SMART App Launch 2.2.0 is a cross-check of the checklist, never a citation. |
 | FAPI 2.0 Security Profile | Final Specification (2025-02-22) | The profile a client grant can be held to (3.5): the authorization servers of the Dutch BgZ and eOverdracht track FerroFED reaches follow it. §5.3.3.1 sets the client's sender constraint, client authentication, assertion `aud` and metadata use, and §5.4.1 the admitted algorithms. |
-| Party binding references | IHE IUA Revision 2.5 (`IHE/ITI.IUA` tag `2.5`), Nuts RFC021 (`nuts-foundation/nuts-specification` at `7c0de533…`), the Microsoft Entra documents (`MicrosoftDocs/entra-docs` at `219d8d57…`), the SCIM workload identity federation guide (`AzureAD/SCIMReferenceCode` at `21b92c8f…`), Keycloak 26.8.2, and the Okta OpenID Connect and OAuth 2.0 API reference (cache only) | The access token of a federation issuer (IUA ITI-71, Nuts RFC021) and the deviations of each vendor profile from RFC 9068 (Entra ID, Keycloak, Okta) that the caller classification reads (FerroHEALTH/FerroAUTH#215). IUA and RFC021 are the editions FerroHEALTH/FerroFED vendors. The vendor documents are evidence for a profile's values, never the oracle for a core rule. The Okta page states "All rights reserved", so only its pin and provenance are committed. |
-| Contact-point references | The eHDSI SAML Profile, Section II Security Services, Service Location and Capability Lookup Profile, NCPeH Components Specifications and Messaging Profile 10.0.0, the Cryptographic Algorithms 9.0.0, the X.509 Certificates Profile 7.0.0 and the Interoperability Specifications 8.0.1 (supplied by the owner); SOG-IS Agreed Cryptographic Mechanisms 1.3 (read, recorded by sha256, never copied); the MyHealth@EU Requirements Catalogue 10.0.0 (read, recorded by sha256, never copied); Implementing Regulation (EU) 2026/2099 and Regulation (EU) 2016/679 (the Official Journal XHTML); the Federation Tier with AQL specification 1.0.1 Annex B (`syntaric/openehr-federation-spec` at `b4242c29…`) | The contact-point issuer profile of the caller classification (FerroHEALTH/FerroAUTH#215): the IdA issuer, attributes, authentication classes, lifetimes and refusal names from the eHDSI documents, the fields of 2026/2099 Annex Tables 1 and 2, GDPR Art. 9(3) and Art. 29 for guests, and the Dutch `authorization_details` of Annex B §B.4a. The eHDSI files and Annex B are the ones FerroHEALTH/FerroFED vendors. The Requirements Catalogue states no reuse terms, so it is cited by section only. |
-| Consent decision record | IHE Basic Audit Log Patterns (BALP) 1.1.4, the Volume 3 content page (3:5.7) as profiles.ihe.net renders it | The consent decision reference a `federation` token carries in `consent.reference` is the Consent entity of the 3:5.7.6 consent decision record (FerroHEALTH/FerroAUTH#286). The page is the one FerroHEALTH/FerroFED vendors. |
+| Party binding references | IHE IUA Revision 2.5 (`IHE/ITI.IUA` tag `2.5`), Nuts RFC021 (`nuts-foundation/nuts-specification` at `7c0de533…`), the Microsoft Entra documents (`MicrosoftDocs/entra-docs` at `219d8d57…`), the SCIM workload identity federation guide (`AzureAD/SCIMReferenceCode` at `21b92c8f…`), Keycloak 26.8.2, and the Okta OpenID Connect and OAuth 2.0 API reference (cache only) | The access token of a federation issuer (IUA ITI-71, Nuts RFC021) and the deviations of each vendor profile from RFC 9068 (Entra ID, Keycloak, Okta) that the caller classification reads (FerroHEALTH/FerroSMART#215). IUA and RFC021 are the editions FerroHEALTH/FerroFED vendors. The vendor documents are evidence for a profile's values, never the oracle for a core rule. The Okta page states "All rights reserved", so only its pin and provenance are committed. |
+| Contact-point references | The eHDSI SAML Profile, Section II Security Services, Service Location and Capability Lookup Profile, NCPeH Components Specifications and Messaging Profile 10.0.0, the Cryptographic Algorithms 9.0.0, the X.509 Certificates Profile 7.0.0 and the Interoperability Specifications 8.0.1 (supplied by the owner); SOG-IS Agreed Cryptographic Mechanisms 1.3 (read, recorded by sha256, never copied); the MyHealth@EU Requirements Catalogue 10.0.0 (read, recorded by sha256, never copied); Implementing Regulation (EU) 2026/2099 and Regulation (EU) 2016/679 (the Official Journal XHTML); the Federation Tier with AQL specification 1.0.1 Annex B (`syntaric/openehr-federation-spec` at `b4242c29…`) | The contact-point issuer profile of the caller classification (FerroHEALTH/FerroSMART#215): the IdA issuer, attributes, authentication classes, lifetimes and refusal names from the eHDSI documents, the fields of 2026/2099 Annex Tables 1 and 2, GDPR Art. 9(3) and Art. 29 for guests, and the Dutch `authorization_details` of Annex B §B.4a. The eHDSI files and Annex B are the ones FerroHEALTH/FerroFED vendors. The Requirements Catalogue states no reuse terms, so it is cited by section only. |
+| Consent decision record | IHE Basic Audit Log Patterns (BALP) 1.1.4, the Volume 3 content page (3:5.7) as profiles.ihe.net renders it | The consent decision reference a `federation` token carries in `consent.reference` is the Consent entity of the 3:5.7.6 consent decision record (FerroHEALTH/FerroSMART#286). The page is the one FerroHEALTH/FerroFED vendors. |
 | SMART on openEHR | DEVELOPMENT (the ITS-REST draft, `openEHR/specifications-ITS-REST` at commit `9d25ea78…`, its tree last changed at `5183c1f9…`, amendment record 1.1.0 of 2025-05-20) | The one specification of openEHR scopes, which FerroEHR, FerroFED and FerroBRIDGE reach. It is a draft the ITS-REST release does not stabilise, so it is pinned by commit, its status is checked on every vendor run, and a weekly job fails when upstream moves (3.9). |
 
 ## 3. The components
@@ -532,7 +533,7 @@ ways, configured, never guessed from the server's metadata:
   as an item in an array", FAPI 2.0 §5.3.3.1; RFC 10070 §4 types it). RFC
   10070 §4 has every client use the issuer; SMART 2.2 governs a SMART
   client and requires the token URL, so the plain grant deviates from RFC
-  10070 there, the conflict FerroHEALTH/FerroAUTH#528 reports (#529; the
+  10070 there, the conflict FerroHEALTH/FerroSMART#528 reports (#529; the
   `assertion_audience` key of #59 is removed in 0.28.0 and refused as
   an unknown key). The private key comes from
   `private_key_file`; the product serves the matching public JWK Set at a
@@ -572,7 +573,7 @@ then the next key. Only the current key signs. Each key is published under
 its configured `kid` or, by default, its `rfc7638 §3` thumbprint. A previous
 key equal to the current key is refused, and so is a next key equal to
 either. No specification governs the rotation: our own design, FerroFED's,
-moved into the crate (FerroHEALTH/FerroAUTH#319).
+moved into the crate (FerroHEALTH/FerroSMART#319).
 
 **`authorization_details`.** A grant may send RFC 9396 `authorization_details`
 on its client credentials request and its token exchange (`rfc9396 §6`).
@@ -1276,7 +1277,7 @@ patient from it, so a product refuses every patient-data request under it
 (FerroFED and FerroEHR answer `trc-missing`). A token that carries any TRC
 field or a `patient.id` carries `trc.id` and both TRC window bounds, or is
 refused `ERROR_SEC_DATA_INTEGRITY_NOT_ENSURED` naming the missing ones
-(FerroHEALTH/FerroAUTH#314).
+(FerroHEALTH/FerroSMART#314).
 
 `EhdsiCode::of` names any other invalid token, and an unreadable key set or
 upstream, `ERROR_SEC_GENERIC` (requirement 11): §1.25 has no code for an
@@ -1294,7 +1295,7 @@ field), each `@Format` one of the three URNs of eHDSI SAML Profile 10.0.0
 §2.1. Both are mandatory there, and one string under two formats names two
 identifiers, so a product reads them as one pair, `Caller::name_id`, a
 `contact::NameId` with its `contact::NameIdFormat`, beside
-`assertion.issuer` (FerroHEALTH/FerroAUTH#291).
+`assertion.issuer` (FerroHEALTH/FerroSMART#291).
 
 The contact point may relay the UUID of the cross-border request message,
 the WS-Addressing `MessageID` of the request (eHDSI NCPeH Components
@@ -1305,7 +1306,7 @@ bidirectional control character, at most 256 characters), a `urn:uuid:`
 form taken as relayed, and a product reads it as `Caller::message_id`, a
 `federation::MessageId` whose `Debug` rendering never carries the value, to
 join its access record to the contact point's audit entry
-(FerroHEALTH/FerroAUTH#432).
+(FerroHEALTH/FerroSMART#432).
 
 **The `ferrosmart` profile** (`profile = "ferrosmart"`,
 `profiles/ferrosmart.toml`, #521). FerroSMART (§13) issues plain RFC 9068
@@ -1354,7 +1355,7 @@ A token may be bound to a key its client proves with a DPoP proof
 member of its introspection response: `jkt`, the RFC 7638 SHA-256
 thumbprint of the DPoP key (`rfc9449 §6.1`, `§6.2`), or `x5t#S256`, the
 SHA-256 of the certificate's DER encoding (`rfc8705 §3.1`, `§3.2`). The
-module is `sender` (FerroHEALTH/FerroAUTH#220).
+module is `sender` (FerroHEALTH/FerroSMART#220).
 
 **Per issuer, `sender_constraint`**, `none` (the default) or `required` on
 each `[[auth.issuer]]`. Under `required` a token without `cnf` is refused.
@@ -1396,7 +1397,7 @@ address it, and the expected `htu` is that URL with the request path
 appended. It is no key of `[auth.dpop]`: a product names its public URL
 once, for every document and check that needs it, and hands it to
 `DpopSection::settings` (no specification governs the configuration model:
-our own design, FerroHEALTH/FerroAUTH#474). Both sides are normalized first (`rfc3986 §6.2.2`,
+our own design, FerroHEALTH/FerroSMART#474). Both sides are normalized first (`rfc3986 §6.2.2`,
 `§6.2.3`, which `rfc9449 §4.3` has a server apply): scheme and host
 lowercased, the default port dropped, dot segments resolved, an
 unreserved percent-encoding decoded and every other one in upper case, the
@@ -1444,7 +1445,7 @@ whole `DPoP` request; a product verifier that does not implement
 `verify_bound` refuses every `DPoP` request (`Check::Unsupported`).
 
 **The client half.** A client grant binds the tokens it is issued, as its
-`token_binding` says (FerroHEALTH/FerroAUTH#318):
+`token_binding` says (FerroHEALTH/FerroSMART#318):
 
 - **to a DPoP key** (`client::dpop::DpopKey`, P-256 signing ES256 or P-384
   signing ES384, `rfc7518 §3.4`). Every token request carries a proof whose
@@ -1483,7 +1484,7 @@ another. The `[<lane>.credentials.oauth]` table takes `dpop_key_file` or
 
 A product that calls another service on behalf of its caller obtains an
 onward token for that service with `client::onward::exchange::Onward`,
-behind the default `fetch` feature (FerroHEALTH/FerroAUTH#217). The
+behind the default `fetch` feature (FerroHEALTH/FerroSMART#217). The
 caller's token travels to the token endpoint only, never to the service,
 as 3.5 requires.
 
@@ -1497,10 +1498,10 @@ which `CredentialsSection::onward` resolves into the client and its
   `subject_token` with its `subject_token_type`, an optional `actor_token`
   (an access token of the actor's own, with `actor_token_type`, or, under
   `Onward::with_actor_assertion`, which the onward table's
-  `actor_assertion = true` asks for (FerroHEALTH/FerroAUTH#340), an RFC 7523 assertion of the requesting
+  `actor_assertion = true` asks for (FerroHEALTH/FerroSMART#340), an RFC 7523 assertion of the requesting
   client signed for each request, with the claims and `aud` of its client
   assertion, a `jti` of its own and the JWT type of `rfc8693 §3`, whose
-  issued token is held to the client as its actor, FerroHEALTH/FerroAUTH#321), `scope`
+  issued token is held to the client as its actor, FerroHEALTH/FerroSMART#321), `scope`
   when the target names one, and the target as `resource` (`rfc8707 §2`,
   an absolute URI without a fragment) or `audience`, as `onward_indicator`
   declares. The response must name `issued_token_type`
@@ -1550,7 +1551,7 @@ over the connection the client opened. It is refused unless:
   caller's `assertion.not_on_or_after` or `trc.not_on_or_after`, each when
   carried, plus 60 s of drift (eHDSI SAML Profile 10.0.0 §2.1, §4.1),
   refused as `Rejected::AssertionWindow` naming the window; an unreadable
-  end is refused (our own design, FerroHEALTH/FerroAUTH#295);
+  end is refused (our own design, FerroHEALTH/FerroSMART#295);
 - it carries every claim and value of the profile's `expect`;
 - it names the requesting client as its actor: `act` (`rfc8693 §4.1`,
   `iss` and `sub`) equal to the actor token's actor, or to the issuer and
@@ -1740,7 +1741,7 @@ represented subject.
 `federation::assertion`, behind `ehdsi-assertion`, is the check an
 authorization server acting for NCPeH-A runs on the HP Identity Assertion
 and the Treatment Relationship Confirmation before it issues the
-contact-point token of 3.14 (FerroHEALTH/FerroAUTH#294). The library still
+contact-point token of 3.14 (FerroHEALTH/FerroSMART#294). The library still
 issues nothing: it reads two signed SAML 2.0 assertions and returns typed
 values, and `identity::ehdsi_claim` writes them as the `ehdsi` claim the
 contact-point profile reads.
@@ -1761,9 +1762,9 @@ contact-point profile reads.
   declarations to 128 before `roxmltree` parses (our own design), since its
   namespace copies cost time quadratic in nested declarations, and the
   canonicalization keeps one rendered-namespace map with an undo log
-  (FerroHEALTH/FerroAUTH#315). The line ends are translated before parsing
+  (FerroHEALTH/FerroSMART#315). The line ends are translated before parsing
   (XML 1.0 §2.11), since `roxmltree` 0.21 leaves a carriage return before a
-  reference untranslated (FerroHEALTH/FerroAUTH#316).
+  reference untranslated (FerroHEALTH/FerroSMART#316).
 - **The floor.** SOG-IS ACM 1.3 at "Legacy valid beyond 2025"
   (Cryptographic Algorithms 9.0.0 §2): an RSA modulus of at least 3000 bits
   (§4.1, Note 27), PKCS#1 v1.5 or PSS with SHA-256, SHA-384 or SHA-512
@@ -2262,6 +2263,8 @@ four agree on and settles each difference:
 | Decision | Ground | Owner items |
 |---|---|---|
 | `ferrohealth-smart` is a library, a resource server and a credential client, never an authorization server | owner decision 2026-10-19, kept for the three library crates by the owner decision of 2026-11-16 | none |
+| The repository is FerroSMART again, a FerroHEALTH product: the server in `app/ferrosmart`, the three libraries in `crates/` under their `ferrohealth-*` names, and the product's own yellow brand | owner decision 2026-11-17, replacing the rename to FerroAUTH of 2026-10-25 | none |
+| Cedar and the remote PDP stay features of `ferrohealth-authz` with no change in behaviour, and their future is decided after FerroEHR v6 | owner decision 2026-11-17 | the owner decides after FerroEHR v6 |
 | FerroSMART, a SMART App Launch 2.x authorization server, is built in this repository, licensed BUSL-1.1 and shipped as its own OCI image; it is the one component that issues tokens and holds signing keys, and any OpenID Connect IdP upstream serves login only | owner decision 2026-11-16: no IdP the family supports issues real SMART tokens (FerroHEALTH/FerroEHR#5827) | a deployment that wants SMART launch points its products' issuer at FerroSMART (section 13) |
 | The crate is licensed BUSL-1.1 | It is hand-written code that implements the specifications above, which is the family's rule for its own code; only generator-emitted code (`fhir-types`, `hl7v2-types` in FerroBRIDGE) is published under Apache-2.0, because it is emitted from CC0 inputs and three servers depend on it. `ferrohealth-smart` emits nothing and is consumed by the family's own products (owner decision 2026-10-19). `docs/VERSIONS.md` records the licence row and `scripts/checks/versions.sh` fails on any other claim. | none |
 | Machine-to-machine traffic is the client credentials grant, beside the onward grants and federation tokens; HTTP Basic is a person's credential and carries no `system/` scope; no static bearer token and no API key | owner decision 2026-10-19; owner ruling 2026-11-05 on Basic (#215, #274) | none |
@@ -2274,7 +2277,7 @@ four agree on and settles each difference:
 | Under the `rfc9068` profile only `scope` counts; under the `jwt` profile `scp` is read as a fallback when `scope` is absent, for an issuer such as Entra ID that mints the array form | `rfc9068 §2.2.3` names `scope`; `scp` is no specification's, so it is admitted only outside the profile (owner decision 2026-10-19) | none |
 | Product scopes (`ferrobridge.operator`, `ferroterm/admin`) are renamed to a form SMART's Extensibility section admits, a `__` prefix or a full URI, during each product's migration | `smart scopes-and-launch-context`, Extensibility (owner decision 2026-10-19) | each product's migration names the new scope and the deployments that must update their authorization server |
 | Granular scopes grant nothing without a product evaluator | the safe reading of "MAY be ignored" | none |
-| An access token's `jti` is read, not tracked; DPoP-bound (`rfc9449`) and certificate-bound (`rfc8705 §3`) tokens are verified per issuer, `sender_constraint = "required"` admits a bound token alone, a `cnf` token is never a plain bearer token, the `htu` is compared with the external URL the product names, and the proof `jti` is recorded in a product-supplied `ReplayStore` whose in-memory default holds per replica (3.15) | `rfc9700 §4.9.3`; `rfc9449 §4.3`, `§6`, `§7`, `§11.1`; `rfc8705 §3`; the store, the window values and the refusal of an unknown `cnf` method are our own design (FerroHEALTH/FerroAUTH#220, which replaces the owner decision of 2026-10-19 that kept both in FerroFED) | a product with more than one replica supplies a shared `ReplayStore` (FerroHEALTH/FerroFED#1637); a surface admitting `DPoP` sets `[auth.dpop] external_url` |
+| An access token's `jti` is read, not tracked; DPoP-bound (`rfc9449`) and certificate-bound (`rfc8705 §3`) tokens are verified per issuer, `sender_constraint = "required"` admits a bound token alone, a `cnf` token is never a plain bearer token, the `htu` is compared with the external URL the product names, and the proof `jti` is recorded in a product-supplied `ReplayStore` whose in-memory default holds per replica (3.15) | `rfc9700 §4.9.3`; `rfc9449 §4.3`, `§6`, `§7`, `§11.1`; `rfc8705 §3`; the store, the window values and the refusal of an unknown `cnf` method are our own design (FerroHEALTH/FerroSMART#220, which replaces the owner decision of 2026-10-19 that kept both in FerroFED) | a product with more than one replica supplies a shared `ReplayStore` (FerroHEALTH/FerroFED#1637); a surface admitting `DPoP` sets `[auth.dpop] external_url` |
 | `resource` is the RFC 8707 resource indicator, sent when configured; `audience` has no specification and is sent only when configured | `rfc8707 §2`; FerroBRIDGE sends both today | none |
 | The `kid` of the product's own JWK is configured, or defaults to the RFC 7638 SHA-256 thumbprint | `rfc7638 §3`; the default is our own design | none |
 | A caller's roles are read from the RFC 9068 §2.2.3.1 claims, or the paths a deployment names, and a Basic user's from the product's grant; a route table states role requirements beside scope requirements, matched without regard to ASCII case | `rfc9068 §2.2.3.1`, `rfc7643 §2.4`, `§4.1.2`; the matching and the requirement forms are our own design (owner decision 2026-10-25: authentication and the granted subject belong in this crate) | a product that read roles itself (FerroEHR's claim paths and Basic role table) moves them to `[auth] role_claims` and its Basic grants (3.4) |
@@ -2315,7 +2318,7 @@ four agree on and settles each difference:
 | An Entra ID groups overage is resolved by the `idp-entra` adapter, an optional feature a profile names by `adapter`, at the `getMemberObjects` URL it builds from the Graph root and the token's `oid` and `idtyp`, never at `_claim_sources`; every Graph failure is `GroupsUnavailable` carrying the status, the `Retry-After` or the timeout, under a 2 s budget of its own and with no cache (3.17) | Microsoft, "Access token claims reference", §Groups overage claim; "Optional claims reference", `idtyp`; Microsoft Graph v1.0 `directoryObject: getMemberObjects` and "Microsoft Graph throttling guidance"; the bounds are our own design (#221) | a deployment with users above the overage limit compiles `idp-entra`, sets `adapter = "idp-entra"` on its `entra` issuer, grants the Graph permission and registers the adapter |
 | The eHDSI IdA and TRC are checked in this crate behind `ehdsi-assertion`, by our own exclusive canonicalization over `roxmltree` and `x509-parser` with `aws-lc-rs` verifying, in one accepted signature shape against wrapping; a trusted signer is an issuer URI with its seal certificate, revocation is the deployment's, and an inclusive prefix outside SAML Profile 10.0.0 §1.4.2 or a canonicalization other than Exc-C14N is refused (3.18) | eHDSI Cryptographic Algorithms 9.0.0 §2, §4.1; SAML Profile 10.0.0 §2, §4; X.509 Certificates Profile 7.0.0 §2.4, §3.1; SOG-IS ACM 1.3 §4.1, §5.2; the shape, the caps and the trust set are our own design (#294) | an authorization server acting for NCPeH-A compiles `ehdsi-assertion` and supplies the SMP-published seal certificates |
 | An `@ID` is accepted as `urn:uuid:` or `_` followed by a UUID | SAML Profile 10.0.0 §2.1 writes a URN-encoded UUID, which SAML 2.0 Core §2.3.3's `xs:ID` cannot hold; accepting both is our own design (#294) | none |
-| An eHDSI exchange is admitted once: the `ReplayGuard` keys it by the issuer and `ID` of the IdA and, past the discovery phase, of the TRC, and keeps it until the earliest window or session end plus 60 s; a guard is required to build a `Validator`, and one that cannot answer admits nothing | RFC 7522 §3, item 6; eHDSI Messaging Profile 10.0.0 §5.5.1 (the IdA is a supporting token) and SAML Profile 10.0.0 §6 (non-normative, the IdA's session); keying by the exchange is our own design | the authorization server acting for NCPeH-A supplies a store its replicas share (FerroHEALTH/FerroAUTH#317) |
+| An eHDSI exchange is admitted once: the `ReplayGuard` keys it by the issuer and `ID` of the IdA and, past the discovery phase, of the TRC, and keeps it until the earliest window or session end plus 60 s; a guard is required to build a `Validator`, and one that cannot answer admits nothing | RFC 7522 §3, item 6; eHDSI Messaging Profile 10.0.0 §5.5.1 (the IdA is a supporting token) and SAML Profile 10.0.0 §6 (non-normative, the IdA's session); keying by the exchange is our own design | the authorization server acting for NCPeH-A supplies a store its replicas share (FerroHEALTH/FerroSMART#317) |
 | An eHDSI assertion whose `InclusiveNamespaces PrefixList` names a prefix outside SAML Profile 10.0.0 §1.4.2, such as the `xs` OpenSAML signers often list, is refused | eHDSI Cryptographic Algorithms 9.0.0 §4.1: "other prefixes than the ones defined in [SAML Profile] MUST NOT be used" | an NCP-B whose signer lists `xs` fixes its signer |
 
 ## 10. Verification
@@ -2412,6 +2415,9 @@ generalised so FerroFED and FerroPIX use it too (owner decision 2026-10-25).
   `5xx` is tried again with a doubling, bounded backoff, and a `4xx`, a
   redirect or a refused token is not. The wire contract and the retry rule
   are our own design.
+- **Their future.** The Cedar engine and the remote PDP stay as they are,
+  features of this crate with no change in behaviour. The owner decides
+  their future after FerroEHR v6 (owner decision 2026-11-17).
 - **Dependencies.** Without a feature the crate holds the request model and
   the trait alone. `cedar` adds `cedar-policy`, `arc-swap` and the Tokio
   timer of the reload; `remote` adds the HTTP client through
@@ -2601,13 +2607,14 @@ version line beside the library crates: the tag `ferrosmart-vX.Y.Z`, the
 image `ghcr.io/ferrohealth/ferrosmart` on distroless static, and the
 `compose.yaml` quickstart beside PostgreSQL (`docs/release.md`, The
 FerroSMART release). It is licensed BUSL-1.1, like the
-rest of the family's hand-written code. "FerroSMART" was this repository's
-name until the owner renamed it FerroAUTH on 2026-10-25; the product name is
-reused for the server.
+rest of the family's hand-written code. The repository carries the
+product's name: it was FerroSMART until the owner renamed it FerroAUTH on
+2026-10-25, and the owner made it FerroSMART again on 2026-11-17, a product
+and no longer only a library repository.
 
 ### 13.4 The sources
 
-The step-1 research (FerroHEALTH/FerroAUTH#513) read the vendored corpora
+The step-1 research (FerroHEALTH/FerroSMART#513) read the vendored corpora
 and added what FerroSMART cites and the tree lacked: RFC 6819, 7518, 7591,
 8252, 9126, 9207, 9864 and 10070 beside the RFCs of section 2, the OAuth 2.1
 Authorization Framework draft (`docs/specs/oauth-v2-1/`, revision 17) and
@@ -2804,7 +2811,7 @@ specification governs.
    `typ` `JWT` (SMART 2.2) and `client-authentication+jwt` (`rfc10070 §4`)
    and refuses an assertion with no `typ` or another one. This is fixed
    behaviour with no setting. Accepting the token URL deviates from
-   `rfc10070 §4`'s server MUST; FerroHEALTH/FerroAUTH#528 is the upstream
+   `rfc10070 §4`'s server MUST; FerroHEALTH/FerroSMART#528 is the upstream
    report. `ferrohealth-smart`'s own client follows the same reading
    (3.5, #529): the token URL under `JWT`, and under FAPI 2.0 the issuer
    (FAPI 2.0 §5.3.3.1).
@@ -3034,7 +3041,7 @@ specification governs.
     SMART profiles, has "The requested scope MUST NOT include any scope not
     originally granted by the resource owner" (and `oauth21 §4.3.1` the
     same). A request equal to the original adds no permission, which is the
-    intent SMART's parenthetical states. FerroHEALTH/FerroAUTH#550 is the
+    intent SMART's parenthetical states. FerroHEALTH/FerroSMART#550 is the
     upstream report. A client receives a refresh token when its
     ceiling lists `offline_access` or `online_access` and it registers the
     `refresh_token` grant; only then does the consent page offer either
@@ -3636,7 +3643,7 @@ client (item 4).
 The role claim's shape was checked against a live v4.20.3: the server
 writes the object `retrieve-user-roles.mdx` shows
 (`{"clinician": {"<orgId>": "<orgDomain>"}}`), and the array
-`apis/openidoauth/claims.mdx` shows does not occur. FerroHEALTH/FerroAUTH#565
+`apis/openidoauth/claims.mdx` shows does not occur. FerroHEALTH/FerroSMART#565
 is the upstream report.
 
 ZITADEL has no password grant (`apis/openidoauth/grant-types.mdx`), so the

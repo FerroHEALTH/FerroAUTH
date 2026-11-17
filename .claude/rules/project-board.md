@@ -3,8 +3,8 @@
 
 # No roadmap board
 
-FerroAUTH has no GitHub Project (v2) board, and none is created. The
-FerroHEALTH products each keep a public roadmap board; this library
+FerroSMART has no GitHub Project (v2) board, and none is created. The
+FerroHEALTH products each keep a public roadmap board; this
 repository keeps its plan on the tracker alone (#24, 2026-10-20).
 
 - **The tracker is the issue list** (`issue-workflow.md`): the native issue
@@ -20,7 +20,7 @@ repository keeps its plan on the tracker alone (#24, 2026-10-20).
 
 `scripts/gh/project.sh` stays as a stub: every command prints that this
 repository has no board and exits 0 without calling GitHub, so a shared
-habit or skill that calls it gets a clear answer. Never create a "FerroAUTH
+habit or skill that calls it gets a clear answer. Never create a "FerroSMART
 Roadmap" project, never add this repository's issues to another product's
 board, and never extend the stub into a board client. Should the owner ever
 want a board, that decision rewrites this file and the helper first.
