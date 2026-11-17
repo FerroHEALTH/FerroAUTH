@@ -1,0 +1,230 @@
+// SPDX-FileCopyrightText: Cadasto B.V.
+// SPDX-License-Identifier: BUSL-1.1
+
+//! The grants of the token endpoint.
+//!
+//! SMART Backend Services' client credentials grant and the authorization
+//! code grant (RFC 6749 §4.1.3, §4.4), with the client they identify and the
+//! scope and audience they grant.
+
+use serde_json::Map;
+
+use crate::audit::{self};
+use crate::clients::{Client, ClientKind, GrantType};
+use crate::discovery::TOKEN_ROUTE;
+use crate::form::Params;
+use crate::server::AppState;
+
+use super::assertion::authenticate;
+use super::mint::{Grant, mint};
+use super::{Issued, Refusal, server_error};
+
+/// The client credentials grant (RFC 6749 §4.4; SMART App Launch 2.2.0,
+/// Backend Services).
+pub(super) async fn client_credentials(state: &AppState, form: &Params) -> Result<Issued, Refusal> {
+    let client = authenticate(state, form).await?;
+    if !client.grant_types.contains(&GrantType::ClientCredentials) {
+        return Err(Refusal {
+            error: "unauthorized_client",
+            description: "the client may not use this grant",
+        });
+    }
+    let scope = granted_scope(&client, form.get("scope"))?;
+    let audience = audience(state, form.get("resource"))?;
+    mint(
+        state,
+        &client,
+        Grant {
+            subject: &client.client_id,
+            audience: &audience,
+            scope: &scope,
+            fhir_user: None,
+            code_hash: None,
+            token_type: "bearer",
+            identity: None,
+            under: None,
+            context: &Map::new(),
+        },
+    )
+}
+
+/// The authorization code grant (RFC 6749 §4.1.3; SMART App Launch 2.2.0,
+/// Obtain access token): the client authenticated by its assertion, or a
+/// public client named by `client_id`; the code its own, unexpired and
+/// unused, for the same redirect URI, its PKCE verifier matching (RFC 7636
+/// §4.6). A second use of a code is refused and revokes the tokens the
+/// first issued, once the rest of the request holds (OAuth 2.1 draft
+/// §4.1.3, §7.5.3).
+pub(super) async fn authorization_code(
+    from: std::net::IpAddr,
+    state: &AppState,
+    form: &Params,
+) -> Result<Issued, Refusal> {
+    let client = identify(state, form).await?;
+    if !client.grant_types.contains(&GrantType::AuthorizationCode) {
+        return Err(Refusal {
+            error: "unauthorized_client",
+            description: "the client may not use this grant",
+        });
+    }
+    let invalid = |description| Refusal {
+        error: "invalid_grant",
+        description,
+    };
+    let code = form
+        .get("code")
+        .ok_or(Refusal::request("the request carries no code"))?;
+    let verifier = form
+        .get("code_verifier")
+        .ok_or(Refusal::request("the request carries no code_verifier"))?;
+    let hash = crate::authorize::sha256(code);
+    let (grant, redeemed) = state
+        .store()
+        .code(&hash)
+        .await
+        .map_err(|error| server_error("the code cannot be read", &error))?
+        .ok_or(invalid("the code is unknown or expired"))?;
+    if grant.client_id != client.client_id {
+        return Err(invalid("the code was issued to another client"));
+    }
+    // NOTE: RFC 6749 §4.1.3, the redirect URI is the one the request carried.
+    if form.get("redirect_uri") != Some(grant.redirect_uri.as_str()) {
+        return Err(invalid("the redirect_uri is not the request's"));
+    }
+    // NOTE: RFC 7636 §4.1 and §4.6, a verifier of 43 to 128 unreserved characters
+    // whose S256 is the challenge.
+    let well_formed = (43..=128).contains(&verifier.len())
+        && verifier
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"-._~".contains(&byte));
+    if !well_formed || ferrohealth_smart::oidc::challenge(verifier) != grant.code_challenge {
+        return Err(invalid("the code_verifier does not match"));
+    }
+    let first = !redeemed
+        && state
+            .store()
+            .redeem(&hash)
+            .await
+            .map_err(|error| server_error("the code cannot be redeemed", &error))?;
+    if !first {
+        let mut tx = state
+            .store()
+            .begin()
+            .await
+            .map_err(|error| server_error("the code's tokens cannot be revoked", &error))?;
+        let revoked = tx
+            .revoke_code(&hash)
+            .await
+            .map_err(|error| server_error("the code's tokens cannot be revoked", &error))?;
+        let endpoint = state.settings().endpoint_url(TOKEN_ROUTE);
+        state
+            .audit()
+            .commit_happening(
+                tx,
+                &audit::Happening {
+                    event: audit::Event::CodeReused,
+                    issuer: &state.settings().issuer,
+                    client_id: Some(&client.client_id),
+                    subject: Some(&grant.subject),
+                    from,
+                    endpoint: &endpoint,
+                    details: vec![("revoked", revoked.to_string())],
+                },
+            )
+            .await
+            .map_err(|error| server_error("the code's tokens cannot be revoked", &error))?;
+        return Err(invalid("the code was used before"));
+    }
+    let openid = grant.scope.split(' ').any(|scope| scope == "openid");
+    let fhir_user = grant
+        .fhir_user
+        .as_deref()
+        .filter(|_| grant.scope.split(' ').any(|scope| scope == "fhirUser"));
+    let launch = crate::refresh::open(state, &client, &grant).await?;
+    let mut issued = mint(
+        state,
+        &client,
+        Grant {
+            subject: &grant.subject,
+            audience: &grant.audience,
+            scope: &grant.scope,
+            fhir_user,
+            code_hash: Some(&hash),
+            token_type: "Bearer",
+            identity: openid.then_some((grant.nonce.as_deref(), grant.auth_time)),
+            under: Some(&launch.grant_id),
+            context: &launch.context,
+        },
+    )?;
+    issued.response.refresh_token = launch.refresh_token;
+    Ok(issued)
+}
+
+/// Returns the client of `form`: authenticated by its assertion, or a
+/// registered public client named by `client_id`, which cannot
+/// authenticate (RFC 6749 §2.1, §3.2.1; SMART App Launch 2.2.0, Refresh
+/// access token, Request).
+pub(crate) async fn identify(state: &AppState, form: &Params) -> Result<Client, Refusal> {
+    if form.get("client_assertion").is_some() || form.get("client_assertion_type").is_some() {
+        return authenticate(state, form).await;
+    }
+    let client_id = form
+        .get("client_id")
+        .ok_or(Refusal::client("the request names no client"))?;
+    match state.store().client(client_id).await {
+        Ok(Some(client)) if client.kind == ClientKind::Public => Ok(client),
+        Ok(_) => Err(Refusal::client(
+            "the client is not a registered public client",
+        )),
+        Err(error) => Err(server_error("the client registry cannot be read", &error)),
+    }
+}
+
+/// Returns the scope the client is granted: each requested scope its
+/// registered ceiling lists, in the order requested, "to assure that the
+/// scope requested is within the scope pre-authorized to the client" (SMART
+/// App Launch 2.2.0, Backend Services, Evaluate Requested Access). A
+/// request with no scope, or none within the ceiling, is refused
+/// (`invalid_scope`, RFC 6749 §3.3, §5.2). Matching a scope against the
+/// ceiling as written is our own design.
+fn granted_scope(client: &Client, requested: Option<&str>) -> Result<String, Refusal> {
+    let invalid = |description| Refusal {
+        error: "invalid_scope",
+        description,
+    };
+    let requested = requested.ok_or(invalid("the request names no scope"))?;
+    let mut granted: Vec<&str> = Vec::new();
+    for scope in requested.split(' ').filter(|scope| !scope.is_empty()) {
+        if client.scopes.iter().any(|allowed| allowed == scope) && !granted.contains(&scope) {
+            granted.push(scope);
+        }
+    }
+    if granted.is_empty() {
+        return Err(invalid("no requested scope is granted to the client"));
+    }
+    Ok(granted.join(" "))
+}
+
+/// Returns the token's audience: the resource server the request names in
+/// `resource` (RFC 8707 §2), or the one configured when the deployment
+/// configures one alone (RFC 9068 §3, a default audience). The issuer is
+/// a resource too, the introspection endpoint's (`docs/architecture.md`
+/// §13.6 item 8).
+fn audience(state: &AppState, resource: Option<&str>) -> Result<String, Refusal> {
+    let settings = state.settings();
+    let resources = &settings.resources;
+    let target = |description| Refusal {
+        error: "invalid_target",
+        description,
+    };
+    match (resource, resources.as_slice()) {
+        (Some(named), _) if named == settings.issuer => Ok(settings.issuer.clone()),
+        (Some(named), _) => resources
+            .iter()
+            .find(|base| base.as_str() == named)
+            .cloned()
+            .ok_or(target("the resource is not served by this issuer")),
+        (None, [only]) => Ok(only.clone()),
+        (None, _) => Err(target("the request names no resource")),
+    }
+}
