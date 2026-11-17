@@ -3275,7 +3275,9 @@ is TLS:
   picker's search at FerroBRIDGE.
 - FerroBRIDGE's FHIR R4 facade as the FHIR server, the kit's `url`. Its
   SMART document describes FerroSMART as a `persons` issuer, it checks
-  FerroSMART's tokens through `ferrohealth-smart`, and it serves the
+  FerroSMART's tokens through `ferrohealth-smart` under the `ferrosmart`
+  preset with the kit's app and the picker in `delegates`, as 13.21
+  deploys a product, and it serves the
   person's `fhirUser` as a `Practitioner`, mapped onto a `PERSON` by the
   party context its own release ships (vendored under
   `docs/specs/ferrobridge-party/`). The lane stores that `PERSON` in
@@ -3307,20 +3309,19 @@ change that lets one drift:
   launch URI with `iss` and `launch`.
 - `exceptions.tsv` lists each test of a run group that the expected results
   do not hold to `pass`, with its reason; any other test expected to be
-  anything but `pass` fails the run. Ten rows stand, all FerroBRIDGE's
-  missing CORS headers (`smart app-launch`, Considerations for CORS
-  support): `smart_cors_well_known_endpoint` and
-  `smart_cors_metadata_request` in the discovery of every group (its SMART
-  document and its CapabilityStatement, item 1), and
-  `smart_cors_openid_fhir_user_claim` in groups 1 and 2 (the `Practitioner`
-  read from the app's origin, item 2).
+  anything but `pass` fails the run. It holds no row. FerroBRIDGE answers
+  CORS (`smart app-launch`, Considerations for CORS support): its SMART
+  document and CapabilityStatement for any origin (item 1), and its REST
+  routes for the kit's origin `http://localhost:4567`, which the lane
+  lists in `[facade.cors] allowed_origins` (item 2), so
+  `smart_cors_well_known_endpoint`, `smart_cors_metadata_request` and
+  `smart_cors_openid_fhir_user_claim` pass in every group that runs them.
 - Each result is recorded in the job summary against the SMART App Launch
   2.2.0 requirements the kit's coverage map ties its test to.
 
 Group 4 introspects with a bearer token of the lane's own client, which
 holds `system/introspect` (13.6 item 8) and asks for FerroSMART's issuer as
-its audience. Every test of the suite outside those ten passes, and the
-suite with them:
+its audience. Every test of the suite passes:
 SMART Backend Services Authorization (TLS 1.2 or newer, the invalid grant
 type, the invalid client assertion and the invalid JWT refused, the success
 response and its body); the standalone launch of group 4 (TLS on the

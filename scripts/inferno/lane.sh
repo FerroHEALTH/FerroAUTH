@@ -233,7 +233,10 @@ run() {
     serve > "$LANE_DIR/ferrosmart.log" 2>&1 &
   wait_for FerroSMART https://smart.localhost:8443/.well-known/smart-configuration
 
-  # 4. FerroBRIDGE, the FHIR server the kit is pointed at.
+  # 4. FerroBRIDGE, the FHIR server the kit is pointed at. Its REST routes
+  #    answer CORS for the kit's origin, the origin the kit's app runs on
+  #    (SMART App Launch 2.2.0, App Launch, CORS support, item 2); the
+  #    discovery endpoints answer any origin by themselves (item 1).
   docker run -d --name inferno-lane-ferrobridge --network host \
     -v "$lane/ferrobridge.toml:/etc/ferrobridge/ferrobridge.toml:ro" -v "$LANE_DIR:/lane:ro" \
     -e FERROBRIDGE_CONFIG=/etc/ferrobridge/ferrobridge.toml \
@@ -243,6 +246,7 @@ run() {
     -e FERROBRIDGE__AUTH__TLS__TRUST_ROOTS_FILE=/lane/ca.crt \
     -e FERROBRIDGE__MAPPINGS__DIRECTORY=/lane/mappings \
     -e FERROBRIDGE__FACADE__IDENTITY_STORE=/tmp/identity.redb \
+    -e 'FERROBRIDGE__FACADE__CORS__ALLOWED_ORIGINS=["http://localhost:4567"]' \
     --add-host smart.localhost:127.0.0.1 --add-host bridge.localhost:127.0.0.1 \
     "$(pinned_image 'FerroBRIDGE FHIR server image')" > /dev/null
   wait_for FerroBRIDGE https://bridge.localhost:9443/fhir/metadata
