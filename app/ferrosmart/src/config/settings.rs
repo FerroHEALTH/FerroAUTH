@@ -131,6 +131,11 @@ impl Config {
                 key: "ferrosmart.access_token_lifetime",
             });
         }
+        // NOTE: SMART App Launch 2.2.0, App Launch, Response, access tokens SHOULD
+        // have a valid lifetime no greater than one hour.
+        if section.access_token_lifetime.get() > Duration::from_secs(3600) {
+            return Err(Error::LongLifetime);
+        }
         if section.refresh_idle.is_zero() {
             return Err(Error::Zero {
                 key: "ferrosmart.refresh_idle",

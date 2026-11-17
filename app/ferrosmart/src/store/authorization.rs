@@ -95,6 +95,29 @@ impl Store {
         Ok(())
     }
 
+    /// Puts `context` in the launch context of the pending request `id` and
+    /// narrows what the consent page offers to `offered`, as the picker
+    /// chose a patient and no encounter.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn set_launch_context_offering(
+        &self,
+        id: &str,
+        context: &Context,
+        offered: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "UPDATE pending_authorization SET launch_context = $2, offered_scope = $3 WHERE id = $1",
+        )
+        .bind(id)
+        .bind(Json(context))
+        .bind(offered)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Records who logged in for the request `id` and what the consent
     /// page offers them.
     ///

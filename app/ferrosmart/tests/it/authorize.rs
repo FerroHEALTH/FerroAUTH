@@ -14,6 +14,7 @@ use axum::body::Body;
 use ferrosmart::authorize::COOKIE;
 use ferrosmart::authorize::consent::offer;
 use ferrosmart::clients::{ClientKind, ClientSection, GrantType, resolve};
+use ferrosmart::picker::Reach;
 use ferrosmart::server::{AppState, router};
 use ferrosmart::store::Store;
 use http::{Request, StatusCode, header};
@@ -526,6 +527,11 @@ async fn a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens() {
             .get(header::CACHE_CONTROL)
             .and_then(|v| v.to_str().ok())
     );
+    // NOTE: SMART App Launch 2.2.0, Obtain access token, Response, Pragma no-cache.
+    assert_eq!(
+        Some("no-cache"),
+        headers.get(header::PRAGMA).and_then(|v| v.to_str().ok())
+    );
     let body: Value = serde_json::from_str(&body).expect("JSON");
     assert_eq!(json!("Bearer"), body["token_type"]);
     assert_eq!(json!("openid fhirUser user/Observation.rs"), body["scope"]);
@@ -831,11 +837,27 @@ fn the_consent_page_offers_what_the_ceiling_and_the_roles_allow() {
     let requested = "openid fhirUser user/Observation.rs user/Patient.rs system/Patient.rs offline_access user/Observation.rs";
     assert_eq!(
         vec!["openid", "fhirUser", "user/Observation.rs"],
-        offer(requested, &client, &held, &roles, true, None, false)
+        offer(
+            requested,
+            &client,
+            &held,
+            &roles,
+            true,
+            None,
+            Reach::Nothing
+        )
     );
     assert_eq!(
         vec!["openid", "user/Observation.rs"],
-        offer(requested, &client, &held, &roles, false, None, false),
+        offer(
+            requested,
+            &client,
+            &held,
+            &roles,
+            false,
+            None,
+            Reach::Nothing
+        ),
         "no fhirUser to give"
     );
     assert_eq!(
@@ -847,12 +869,12 @@ fn the_consent_page_offers_what_the_ceiling_and_the_roles_allow() {
             &roles,
             true,
             None,
-            false
+            Reach::Nothing
         ),
         "fhirUser rides on openid"
     );
     assert!(
-        offer(requested, &client, &[], &roles, true, None, false)
+        offer(requested, &client, &[], &roles, true, None, Reach::Nothing)
             .iter()
             .all(|scope| !scope.starts_with("user/")),
         "no role, no user scope"
@@ -1137,7 +1159,7 @@ fn offline_and_online_access_are_offered_to_a_client_that_refreshes() {
             &roles,
             false,
             None,
-            false,
+            Reach::Nothing,
         )
     );
 }
@@ -1614,12 +1636,13 @@ async fn a_token_response_is_readable_from_the_app_s_origin_alone() {
 }
 
 mod ehr_picker;
+mod encounter_picker;
 mod preset;
 
 /// The capabilities FerroSMART supports with a FHIR resource server and a
 /// SMART style document configured, each with the case that exercises it
 /// (`docs/architecture.md` §13.23).
-const SUPPORTED: [(&str, &str); 18] = [
+const SUPPORTED: [(&str, &str); 19] = [
     (
         "authorize-post",
         "an_authorization_request_by_post_is_the_get_s_twin",
@@ -1647,6 +1670,10 @@ const SUPPORTED: [(&str, &str); 18] = [
     (
         "context-ehr-patient",
         "ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response",
+    ),
+    (
+        "context-standalone-encounter",
+        "encounter_picker::a_standalone_launch_picks_an_encounter_of_the_chosen_patient",
     ),
     (
         "context-standalone-patient",
@@ -1725,6 +1752,9 @@ async fn the_document_lists_exactly_the_capabilities_the_server_supports() {
             Some(("token", name)) => (include_str!("token.rs"), name),
             Some(("ehr_launch", name)) => (include_str!("ehr_launch.rs"), name),
             Some(("symmetric", name)) => (include_str!("symmetric.rs"), name),
+            Some(("encounter_picker", name)) => {
+                (include_str!("authorize/encounter_picker.rs"), name)
+            }
             Some((module, _)) => panic!("{capability}: no source for {module}"),
             None => (include_str!("authorize.rs"), case),
         };
@@ -1770,9 +1800,10 @@ async fn what_the_document_leaves_out_the_server_refuses() {
     let (_, _, body) = smart.get("/.well-known/smart-configuration", None).await;
     let document: Value = serde_json::from_str(&body).expect("JSON");
     let listed = document["capabilities"].as_array().expect("capabilities");
-    for capability in ["context-standalone-encounter", "smart-app-state"] {
-        assert!(!listed.contains(&json!(capability)), "{capability}");
-    }
+    assert!(
+        !listed.contains(&json!("smart-app-state")),
+        "App State lives at the resource server"
+    );
     let client = resolve(&[ClientSection {
         client_id: String::from("app"),
         kind: ClientKind::Public,
@@ -1796,9 +1827,38 @@ async fn what_the_document_leaves_out_the_server_refuses() {
             &roles,
             true,
             None,
-            true
+            Reach::Patient
         ),
-        "the picker puts a patient in context and no encounter"
+        "at an openEHR server the picker puts a patient in context and no encounter"
+    );
+    assert_eq!(
+        vec!["launch/encounter"],
+        offer(
+            "launch/encounter",
+            &client,
+            &[],
+            &roles,
+            true,
+            Some(&ferrosmart::launch::context::Context {
+                encounter: Some(String::from("e-1")),
+                ..ferrosmart::launch::context::Context::default()
+            }),
+            Reach::Nothing
+        ),
+        "an EHR launch's encounter is offered"
+    );
+    assert!(
+        offer(
+            "launch/encounter",
+            &client,
+            &[],
+            &roles,
+            true,
+            None,
+            Reach::Encounter
+        )
+        .is_empty(),
+        "the picker chooses an encounter only with a patient"
     );
     smart.stop().await;
 }
@@ -1858,7 +1918,7 @@ fn a_v1_scope_is_offered_by_its_v2_form_and_granted_as_asked() {
             &roles,
             true,
             None,
-            false
+            Reach::Nothing
         )
     );
 }

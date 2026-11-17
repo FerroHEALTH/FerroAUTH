@@ -39,7 +39,10 @@ use super::{
 /// that need a standalone patient or a refresh token join with the steps
 /// that bring them (#518). A standalone launch whose `picker` can search
 /// the resource server offers `launch/patient` and the `patient/` scopes,
-/// since the patient picker puts the patient in context (#516). Matching a
+/// since the patient picker puts the patient in context (#516), and at a
+/// FHIR server also `launch/encounter`, which the picker answers with one
+/// of the patient's encounters (#604). The picker chooses an encounter only
+/// with a patient, so `launch/encounter` alone is not offered. Matching a
 /// scope as written is our own design.
 #[must_use]
 pub fn offer(
@@ -49,11 +52,11 @@ pub fn offer(
     roles: &std::collections::BTreeMap<String, Vec<String>>,
     has_fhir_user: bool,
     context: Option<&Context>,
-    picker: bool,
+    picker: crate::picker::Reach,
 ) -> Vec<String> {
     // NOTE: SMART App Launch 2.2.0, Obtain authorization code, a standalone
     // launch's `launch/patient` is answered by the patient selection widget.
-    let chosen_by_picker = picker
+    let chosen_by_picker = picker != crate::picker::Reach::Nothing
         && context.is_none()
         && requested.split(' ').any(|scope| scope == "launch/patient")
         && client
@@ -61,7 +64,10 @@ pub fn offer(
             .iter()
             .any(|allowed| allowed == "launch/patient");
     let patient = chosen_by_picker || context.is_some_and(|context| context.patient.is_some());
-    let encounter = context.is_some_and(|context| context.encounter.is_some());
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Standalone apps,
+    // `launch/encounter` SHOULD be provided, by the picker at a FHIR server.
+    let encounter = context.is_some_and(|context| context.encounter.is_some())
+        || (chosen_by_picker && picker == crate::picker::Reach::Encounter);
     let ceiling = |scope: &str| crate::scopes::admits(&client.scopes, scope);
     let granted_by_role = |scope: &str| {
         held.iter()

@@ -154,6 +154,22 @@ fn a_zero_token_lifetime_is_refused() {
     ));
 }
 
+// NOTE: SMART App Launch 2.2.0, App Launch, Response: no greater than one hour.
+#[test]
+fn a_token_lifetime_over_one_hour_is_refused() {
+    let keys = Keys::new();
+    let with = |lifetime: &str| {
+        config(
+            &format!(
+                "[ferrosmart]\nissuer = \"https://smart.example.org\"\naccess_token_lifetime = \"{lifetime}\""
+            ),
+            &keys,
+        )
+    };
+    assert!(with("1h").resolve().is_ok(), "one hour is the most");
+    assert!(matches!(with("61min").resolve(), Err(Error::LongLifetime)));
+}
+
 #[test]
 fn the_refresh_idle_times_default_and_refuse_zero() {
     let keys = Keys::new();
