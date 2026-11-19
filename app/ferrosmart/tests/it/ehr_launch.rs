@@ -224,6 +224,12 @@ impl Smart {
     /// Registers a launch of patient `123` in encounter `456` for `app` and
     /// returns its value.
     async fn launch(&self) -> String {
+        self.launch_with(&[]).await
+    }
+
+    /// Registers the launch of [`Smart::launch`] with the further
+    /// parameters `more`, and returns its value.
+    async fn launch_with(&self, more: &[(&str, &str)]) -> String {
         let now = jiff::Timestamp::now().as_second();
         let mut bytes = [0_u8; 12];
         aws_lc_rs::rand::fill(&mut bytes).expect("draws");
@@ -251,7 +257,10 @@ impl Smart {
                     ("encounter", "456"),
                     ("need_patient_banner", "false"),
                     ("fhirContext", r#"[{"reference":"DiagnosticReport/7"}]"#),
-                ],
+                ]
+                .into_iter()
+                .chain(more.iter().copied())
+                .collect::<Vec<_>>(),
                 None,
             )
             .await;
@@ -468,5 +477,29 @@ async fn a_launch_needs_the_launch_scope_and_unticking_it_drops_the_context() {
     );
     assert_eq!(Value::Null, body["patient"]);
     assert_eq!(Value::Null, body["need_patient_banner"]);
+    smart.stop().await;
+}
+
+// NOTE: SMART App Launch 2.2.0, Task profile for requesting a SMART launch: the
+// Task's appContext is "to be included in the token response" (#660).
+#[tokio::test]
+async fn a_launch_s_app_context_reaches_the_token_response() {
+    let smart = Smart::start().await;
+    let app_context = r#"{"field1":"value"}"#;
+    let launch = smart.launch_with(&[("appContext", app_context)]).await;
+    let (cookie, token, _) = to_consent(&smart, &launch).await;
+    let body = approve_and_exchange(
+        &smart,
+        &cookie,
+        &token,
+        &[
+            "openid",
+            "launch",
+            "launch/patient",
+            "patient/Observation.rs",
+        ],
+    )
+    .await;
+    assert_eq!(json!(app_context), body["appContext"], "unchanged");
     smart.stop().await;
 }

@@ -52,12 +52,13 @@ client_assertion_type=urn%3Aietf%3Aparams%3Aoauth%3Aclient-assertion-type%3Ajwt-
 
 | Parameter | What it is |
 |---|---|
-| `app_client_id` | The app the launch is for |
+| `app_client_id` or `app_launch_uri` | The app the launch is for, by its `client_id` or by the `launch_uri` it registers; exactly one |
 | `resource` | The base URL of the server, one of `[[ferrosmart.resource]]` |
 | `patient`, `encounter` | The FHIR ids in context |
 | `fhirContext` | A JSON array of context items, each with a `reference`, `canonical` or `identifier` |
 | `intent`, `need_patient_banner`, `tenant` | The SMART launch context parameters of the same names |
 | `ehrId` | The openEHR EHR in context, for an openEHR server |
+| `appContext` | A SMART Task's application context, at most 8192 bytes, which the token response carries unchanged as `appContext` |
 
 FerroSMART answers `201 Created`:
 
