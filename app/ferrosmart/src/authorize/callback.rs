@@ -244,10 +244,7 @@ async fn proceed(
     );
     if offered.is_empty() {
         forget(state, pending).await;
-        return back.deny(Denial {
-            error: "invalid_scope",
-            description: "no requested scope can be granted to this person",
-        });
+        return no_scope(state, &client, &pending.scope, back);
     }
     login.offered_scope = offered.join(" ");
     if let Err(error) = state.store().logged_in(&pending.id, &login).await {
@@ -269,6 +266,50 @@ async fn proceed(
         consent: pending.asking.prompt.consent,
     };
     onward(state, &asked, back, from).await
+}
+
+/// Answers a request of which no scope can be granted to the person: a page
+/// naming the roles that would grant one, whose way on sends the browser
+/// back with `access_denied` (RFC 6749 §4.1.2.1; the page first is our own
+/// design, `docs/architecture.md` §13.6 item 5).
+fn no_scope(state: &AppState, client: &Client, requested: &str, back: &Back) -> Response {
+    let roles = granting_roles(client, requested, &state.settings().roles);
+    tracing::info!(
+        target: "ferrosmart::audit",
+        event = "authorization.refused",
+        client_id = %client.client_id,
+        reason = "no requested scope can be granted to this person",
+        "no scope could be granted"
+    );
+    let Some(url) = back.denial_url(Denial {
+        error: "access_denied",
+        description: "no requested scope can be granted to this person",
+    }) else {
+        return pages::fault(state, Fault::UnknownRedirect);
+    };
+    pages::no_scope(state, client, &roles, url.as_str())
+}
+
+/// Returns the configured roles, in name order, that grant at least one
+/// scope of `requested` the client's ceiling admits.
+fn granting_roles<'a>(
+    client: &Client,
+    requested: &str,
+    roles: &'a std::collections::BTreeMap<String, Vec<String>>,
+) -> Vec<&'a str> {
+    let wanted: Vec<&str> = requested
+        .split(' ')
+        .filter(|scope| !scope.is_empty() && crate::scopes::admits(&client.scopes, scope))
+        .collect();
+    roles
+        .iter()
+        .filter(|(_, scopes)| {
+            wanted
+                .iter()
+                .any(|scope| crate::scopes::admits(scopes, scope))
+        })
+        .map(|(name, _)| name.as_str())
+        .collect()
 }
 
 /// What a person, logged in with the launch context complete, was asked

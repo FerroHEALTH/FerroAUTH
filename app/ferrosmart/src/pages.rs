@@ -16,7 +16,7 @@ use ferrohealth_ui::serve::Assets;
 use ferrohealth_ui::style::Brand;
 use ferrohealth_ui::theme::Preferences;
 use ferrohealth_ui::view::button::{Variant, label};
-use ferrohealth_ui::view::error_page::{ErrorPage, Status, error_page};
+use ferrohealth_ui::view::error_page::{ErrorPage, Status, Way, error_page};
 use ferrohealth_ui::view::form::{check, check_field, field, fieldset};
 use ferrohealth_ui::view::scope::{ScopeGrant, scope_grants};
 use ferrohealth_ui::view::shell::{
@@ -125,6 +125,53 @@ pub fn fault(state: &AppState, fault: Fault) -> Response {
     let title = locale.lookup(&*CATALOG, title);
     let page = Html::join([brand_lockup(state, &locale), page]);
     respond(state, code, &locale, title, page, Sources::default())
+}
+
+/// Returns the page that tells the person no scope `client` asked is theirs.
+///
+/// It names the configured `roles` that would grant one, with one way on:
+/// back to the app at `back`, which carries `access_denied`.
+#[must_use]
+pub fn no_scope(state: &AppState, client: &Client, roles: &[&str], back: &str) -> Response {
+    let locale = Locale::default().with_catalog(&*CATALOG);
+    let client_name = Arg::from(client.name.as_str());
+    let with = |id: &str, args: &[(&'static str, Arg)]| locale.lookup_with(&*CATALOG, id, args);
+    let title = with("no-scope-title", &[("client", client_name.clone())]);
+    let body = if roles.is_empty() {
+        with("no-scope-body-client", &[("client", client_name.clone())])
+    } else {
+        with(
+            "no-scope-body-role",
+            &[
+                ("client", client_name.clone()),
+                ("roles", Arg::from(roles.join(", "))),
+            ],
+        )
+    };
+    let page = error_page(
+        &locale,
+        ErrorPage {
+            status: Status::Forbidden,
+            title: title.clone(),
+            body: Html::text(body),
+            hint: None,
+            ways: vec![Way {
+                label: with("no-scope-back", &[("client", client_name)]),
+                href: back.to_owned(),
+                glyph: None,
+            }],
+            detail: None,
+        },
+    );
+    let page = Html::join([brand_lockup(state, &locale), page]);
+    respond(
+        state,
+        StatusCode::FORBIDDEN,
+        &locale,
+        title,
+        page,
+        Sources::default(),
+    )
 }
 
 /// Logs `error` with its whole chain and returns the server's fault page.
