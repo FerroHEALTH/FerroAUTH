@@ -29,6 +29,15 @@ and this project adheres to
   `claims_locales` and `acr_values` are taken. The OpenID Connect
   discovery document names `display_values_supported` and
   `ui_locales_supported` (#662).
+- A `[[ferrosmart.client]]` may register its app's `launch_uri`, and the
+  EHR launch API takes `app_launch_uri` in place of `app_client_id`, so an
+  EHR acting on a SMART `task-ehr-launch` Task, which names the app only by
+  its launch URL, can register the launch. The URLs are compared after RFC
+  3986 §6.2.2 normalization, and two clients may not register one (#659).
+- The EHR launch API takes a Task's `appContext` (at most 8192 bytes), and
+  the token response of that launch carries it unchanged as `appContext`
+  (SMART App Launch 2.2.0, Task profile for requesting a SMART launch)
+  (#660).
 - `.well-known/smart-configuration` and the RFC 8414 metadata name the EHR
   launch API as `launch_registration_endpoint` (`{issuer}/launch`) whenever
   the app launch is configured, so an EHR reads it from the documents

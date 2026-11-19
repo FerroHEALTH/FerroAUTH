@@ -197,3 +197,52 @@ fn a_refresh_token_continues_an_authorization_code_grant_only() {
         admitted[0].grant_types
     );
 }
+
+// NOTE: docs/architecture.md §13.17, a launch registration names the app by its
+// launch URL, so two clients may not register one (#659).
+#[test]
+fn a_launch_url_is_normalized_and_registered_once() {
+    let app = |client_id: &str, launch_uri: &str| ClientSection {
+        client_id: client_id.to_owned(),
+        kind: ClientKind::Public,
+        redirect_uris: vec![String::from("https://app.example.org/callback")],
+        grant_types: vec![GrantType::AuthorizationCode],
+        launch_uri: launch_uri.to_owned(),
+        ..ClientSection::default()
+    };
+    let clients = resolve(&[app(
+        "one",
+        "HTTPS://App.Example.ORG:443/a/../%6Caunch?x=%7e",
+    )])
+    .expect("admitted");
+    assert_eq!(
+        Some("https://app.example.org/launch?x=~"),
+        clients
+            .first()
+            .and_then(|client| client.launch_uri.as_deref()),
+        "RFC 3986 §6.2.2"
+    );
+    assert!(
+        matches!(
+            resolve(&[
+                app("one", "https://app.example.org/launch"),
+                app("two", "https://APP.example.org/launch"),
+            ]),
+            Err(ClientError::RepeatedLaunchUri { .. })
+        ),
+        "the same launch URL twice"
+    );
+    for refused in [
+        "http://app.example.org/launch",
+        "https://app.example.org/launch#start",
+        "/launch",
+    ] {
+        assert!(
+            matches!(
+                resolve(&[app("one", refused)]),
+                Err(ClientError::LaunchUri { .. })
+            ),
+            "{refused}"
+        );
+    }
+}

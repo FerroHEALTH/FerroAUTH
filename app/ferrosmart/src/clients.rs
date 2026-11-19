@@ -9,7 +9,7 @@
 //! table names one client, checked here against what SMART requires of a
 //! registration, and the store keeps them (`docs/architecture.md` §13.9).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
@@ -94,6 +94,10 @@ pub struct ClientSection {
     pub scopes: Vec<String>,
     /// The grant types the client may use.
     pub grant_types: Vec<GrantType>,
+    /// The app's launch URL, which an EHR's launch registration may name
+    /// in place of the `client_id` (`docs/architecture.md` §13.17); empty
+    /// for none.
+    pub launch_uri: String,
     /// The administrator's approval of the client for the whole
     /// organisation, under which a professional sees no consent page
     /// (`docs/architecture.md` §13.6 item 6).
@@ -182,6 +186,8 @@ pub struct Client {
     pub scopes: Vec<String>,
     /// Its grant types, sorted and without repetition.
     pub grant_types: Vec<GrantType>,
+    /// Its launch URL, normalized by [`normalized_launch_uri`].
+    pub launch_uri: Option<String>,
     /// Its approval for the whole organisation, when an administrator
     /// gave one.
     pub approval: Option<Approval>,
@@ -284,6 +290,23 @@ pub enum ClientError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
+    /// The launch URL is no absolute `https` URL without a fragment.
+    #[error(
+        "the client `{client_id}`: `launch_uri` is not an absolute https URL without a fragment"
+    )]
+    LaunchUri {
+        /// The client.
+        client_id: String,
+    },
+    /// Two clients register one launch URL, which a launch registration
+    /// could then not tell apart.
+    #[error("the clients `{first}` and `{second}` register the same `launch_uri`")]
+    RepeatedLaunchUri {
+        /// The client that registered it first.
+        first: String,
+        /// The client that registered it again.
+        second: String,
+    },
     /// A scope is outside the RFC 6749 §3.3 character set.
     #[error("the client `{client_id}`: a scope is outside the RFC 6749 §3.3 character set")]
     Scope {
@@ -298,6 +321,7 @@ pub enum ClientError {
 /// Returns [`ClientError`] for the first table that breaks a rule.
 pub fn resolve(sections: &[ClientSection]) -> Result<Vec<Client>, ClientError> {
     let mut seen = BTreeSet::new();
+    let mut launch_uris: BTreeMap<String, String> = BTreeMap::new();
     let mut clients = Vec::with_capacity(sections.len());
     for section in sections {
         let client = resolve_one(section)?;
@@ -306,9 +330,43 @@ pub fn resolve(sections: &[ClientSection]) -> Result<Vec<Client>, ClientError> {
                 client_id: client.client_id,
             });
         }
+        if let Some(uri) = &client.launch_uri
+            && let Some(first) = launch_uris.insert(uri.clone(), client.client_id.clone())
+        {
+            return Err(ClientError::RepeatedLaunchUri {
+                first,
+                second: client.client_id,
+            });
+        }
         clients.push(client);
     }
     Ok(clients)
+}
+
+/// Returns the launch URL `uri` normalized for comparison.
+///
+/// The URL is an absolute `https` URL without user information or a
+/// fragment; its scheme and host go to lower case, its default port is
+/// dropped, its dot segments resolved and its percent-encodings normalized
+/// in the path and the query (RFC 3986 §6.2.2). Any other value is `None`.
+///
+/// A launch registration names the app by this URL, as OpenID Connect
+/// Dynamic Client Registration 1.0 §2 names a client's `initiate_login_uri`;
+/// comparing the normalized forms exactly is our own design.
+#[must_use]
+pub fn normalized_launch_uri(uri: &str) -> Option<String> {
+    let url = Url::parse(uri).ok()?;
+    if url.scheme() != "https" || url.fragment().is_some() {
+        return None;
+    }
+    let base = ferrohealth_smart::uri::normalized(uri)?;
+    Some(match url.query() {
+        Some(query) => format!(
+            "{base}?{}",
+            ferrohealth_smart::uri::normalize_percent(query)
+        ),
+        None => base,
+    })
 }
 
 /// Returns the client `section` registers, checked.
@@ -389,6 +447,7 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
     {
         return Err(ClientError::Scope { client_id: id() });
     }
+    let launch_uri = resolve_launch_uri(section, &grant_types)?;
     let approval = section
         .organisation_approval
         .as_ref()
@@ -407,8 +466,31 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
         redirect_uris: section.redirect_uris.clone(),
         scopes: section.scopes.clone(),
         grant_types,
+        launch_uri,
         approval,
     })
+}
+
+/// Returns the launch URL the client `section` registers, normalized; it
+/// needs the authorization code grant an EHR launch continues in.
+fn resolve_launch_uri(
+    section: &ClientSection,
+    grant_types: &[GrantType],
+) -> Result<Option<String>, ClientError> {
+    if section.launch_uri.is_empty() {
+        return Ok(None);
+    }
+    if !grant_types.contains(&GrantType::AuthorizationCode) {
+        return Err(ClientError::Rule {
+            client_id: section.client_id.clone(),
+            rule: "`launch_uri` needs `authorization_code`, the grant an EHR launch continues in",
+        });
+    }
+    normalized_launch_uri(&section.launch_uri)
+        .map(Some)
+        .ok_or_else(|| ClientError::LaunchUri {
+            client_id: section.client_id.clone(),
+        })
 }
 
 /// Returns the organisation approval `approval` of the client `section`,
