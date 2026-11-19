@@ -93,7 +93,10 @@ and the architecture records it as its own design:
   the client's registered ceiling, the scopes the person's roles allow and
   what the person approves ([clients, roles and consent](../configure/clients.md)).
 - **Consent every time.** Every user flow shows the consent page unless the
-  person remembered that choice for that client.
+  person remembered that choice for that client, or an administrator
+  approved the client for the organisation's professionals and the
+  request stays within that approval (no `patient/` scope, no patient's
+  own login).
 - **`online_access`.** An online refresh token ends when the person's login
   at the identity provider ends, signalled by back-channel logout, or after
   `online_idle` unused.

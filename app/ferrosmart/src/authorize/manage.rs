@@ -162,17 +162,28 @@ async fn manage_page(state: &AppState, headers: &HeaderMap, pending: &Pending) -
         Ok(held) => held,
         Err(error) => return pages::server_error(state, &error),
     };
-    let mut apps: std::collections::BTreeMap<String, (String, Option<Access>)> = consents
+    // NOTE: docs/architecture.md §13.6 item 6, an app the organisation approved is
+    // listed as such, and only an administrator withdraws it.
+    let approved = match state.store().approved_apps(subject).await {
+        Ok(approved) => approved,
+        Err(error) => return pages::server_error(state, &error),
+    };
+    let mut apps: std::collections::BTreeMap<String, (String, Option<Access>, bool)> = consents
         .into_iter()
-        .map(|(client_id, scope)| (client_id, (scope, None)))
+        .map(|(client_id, scope)| (client_id, (scope, None, false)))
         .collect();
+    for (client_id, scope) in approved {
+        apps.entry(client_id)
+            .and_modify(|(_, _, organisation)| *organisation = true)
+            .or_insert((scope, None, true));
+    }
     for (client_id, scope, access) in held {
         apps.entry(client_id)
-            .and_modify(|(_, held)| *held = Some(access))
-            .or_insert((scope, Some(access)));
+            .and_modify(|(_, held, _)| *held = Some(access))
+            .or_insert((scope, Some(access), false));
     }
     let mut named = Vec::with_capacity(apps.len());
-    for (client_id, (scope, access)) in apps {
+    for (client_id, (scope, access, organisation)) in apps {
         let name = match state.store().client(&client_id).await {
             Ok(Some(client)) => client.name,
             Ok(None) => client_id.clone(),
@@ -183,6 +194,7 @@ async fn manage_page(state: &AppState, headers: &HeaderMap, pending: &Pending) -
             name,
             scope,
             access,
+            organisation,
         });
     }
     pages::manage(state, headers, pending, &named)

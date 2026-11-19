@@ -155,11 +155,22 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
         .migrate()
         .await
         .map_err(|error| Failure::not_up(error).with_context("cannot migrate the database"))?;
+    let audit = crate::audit::Audit::new(settings.audit.observer.clone());
+    let issuer = settings.endpoint_url("");
+    let origin = crate::approvals::Origin {
+        issuer: &settings.issuer,
+        endpoint: &issuer,
+        host: listen.ip(),
+    };
+    crate::approvals::withdraw_lapsed(&store, &audit, &settings.clients, origin)
+        .await
+        .map_err(|error| {
+            Failure::not_up(error).with_context("cannot withdraw a lapsed organisation approval")
+        })?;
     store
         .register(&settings.clients)
         .await
         .map_err(|error| Failure::not_up(error).with_context("cannot register the clients"))?;
-    let audit = crate::audit::Audit::new(settings.audit.observer.clone());
     let forwarder = settings.audit.feed.clone().map(|feed| {
         let forwarder = Forwarder::fhir_feed_from(audit.outbox(store.clone(), FEED_IDLE), feed);
         let running = tokio::spawn(Arc::clone(&forwarder).run());

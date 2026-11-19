@@ -94,6 +94,68 @@ pub struct ClientSection {
     pub scopes: Vec<String>,
     /// The grant types the client may use.
     pub grant_types: Vec<GrantType>,
+    /// The administrator's approval of the client for the whole
+    /// organisation, under which a professional sees no consent page
+    /// (`docs/architecture.md` §13.6 item 6).
+    pub organisation_approval: Option<ApprovalSection>,
+}
+
+/// One `[ferrosmart.client.organisation_approval]` table: what an
+/// administrator of the controller approved for every professional, who
+/// and when.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ApprovalSection {
+    /// The approved scopes: `user/` scopes with the launch, OpenID and
+    /// refresh scopes that go with them, each within the client's ceiling.
+    pub scopes: Vec<String>,
+    /// The administrator who approved, as the controller names them.
+    pub approved_by: String,
+    /// When they approved, an RFC 3339 instant.
+    pub approved_at: String,
+}
+
+/// A client's approval for the whole organisation, checked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Approval {
+    /// The approved scopes.
+    pub scopes: Vec<String>,
+    /// Who approved.
+    pub approved_by: String,
+    /// When, in seconds since the epoch.
+    pub approved_at: i64,
+}
+
+impl Approval {
+    /// Returns whether the approval covers every scope of `offered`.
+    #[must_use]
+    pub fn covers(&self, offered: &[&str]) -> bool {
+        offered
+            .iter()
+            .all(|wanted| self.scopes.iter().any(|approved| approved == wanted))
+    }
+}
+
+/// Returns whether an organisation may approve `scope` for its staff.
+///
+/// A `user/` scope may be approved, with a launch, OpenID, refresh or
+/// extension scope that goes with one. A `patient/` scope, whose data the
+/// person decides on, and a `system/` scope, which no person holds, may not
+/// (`docs/architecture.md` §13.6 item 6).
+#[must_use]
+pub fn approvable(scope: &str) -> bool {
+    scope.starts_with("user/")
+        || crate::scopes::is_extension(scope)
+        || matches!(
+            scope,
+            "openid"
+                | "fhirUser"
+                | "launch"
+                | "launch/patient"
+                | "launch/encounter"
+                | "online_access"
+                | "offline_access"
+        )
 }
 
 /// A registered client, checked.
@@ -120,6 +182,9 @@ pub struct Client {
     pub scopes: Vec<String>,
     /// Its grant types, sorted and without repetition.
     pub grant_types: Vec<GrantType>,
+    /// Its approval for the whole organisation, when an administrator
+    /// gave one.
+    pub approval: Option<Approval>,
 }
 
 /// The Argon2id PHC hash of a client secret, never rendered by `Debug`.
@@ -324,6 +389,11 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
     {
         return Err(ClientError::Scope { client_id: id() });
     }
+    let approval = section
+        .organisation_approval
+        .as_ref()
+        .map(|approval| resolve_approval(section, &grant_types, approval))
+        .transpose()?;
     Ok(Client {
         client_id: section.client_id.clone(),
         name: if section.name.is_empty() {
@@ -337,6 +407,58 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
         redirect_uris: section.redirect_uris.clone(),
         scopes: section.scopes.clone(),
         grant_types,
+        approval,
+    })
+}
+
+/// Returns the organisation approval `approval` of the client `section`,
+/// checked: a person's grant to approve, an approver and an instant, and
+/// scopes an organisation may approve within the client's ceiling.
+fn resolve_approval(
+    section: &ClientSection,
+    grant_types: &[GrantType],
+    approval: &ApprovalSection,
+) -> Result<Approval, ClientError> {
+    let rule = |rule| ClientError::Rule {
+        client_id: section.client_id.clone(),
+        rule,
+    };
+    if !grant_types.contains(&GrantType::AuthorizationCode) {
+        return Err(rule(
+            "an `organisation_approval` needs `authorization_code`, the grant a person signs in to",
+        ));
+    }
+    if approval.scopes.is_empty() {
+        return Err(rule("the `organisation_approval` approves no scope"));
+    }
+    if approval.scopes.iter().any(|scope| !approvable(scope)) {
+        return Err(rule(
+            "the `organisation_approval` lists a scope no organisation approves: only `user/`, launch, OpenID, refresh and `__` extension scopes",
+        ));
+    }
+    if !approval
+        .scopes
+        .iter()
+        .all(|scope| crate::scopes::admits(&section.scopes, scope))
+    {
+        return Err(rule(
+            "the `organisation_approval` lists a scope beyond the client's `scopes`",
+        ));
+    }
+    if approval.approved_by.trim().is_empty() {
+        return Err(rule("the `organisation_approval` names no `approved_by`"));
+    }
+    let approved_at = approval
+        .approved_at
+        .parse::<jiff::Timestamp>()
+        .map_err(|_unparsed| {
+            rule("the `organisation_approval`'s `approved_at` is no RFC 3339 instant")
+        })?
+        .as_second();
+    Ok(Approval {
+        scopes: approval.scopes.clone(),
+        approved_by: approval.approved_by.clone(),
+        approved_at,
     })
 }
 

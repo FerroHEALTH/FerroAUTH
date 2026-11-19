@@ -484,10 +484,15 @@ pub struct Remembered {
     /// The refresh access the app holds now, if any: how long it may reach
     /// the person's data without them.
     pub access: Option<crate::store::grant::Access>,
+    /// Whether the app holds its access on the organisation's approval,
+    /// which only an administrator withdraws (`docs/architecture.md`
+    /// §13.6 item 6).
+    pub organisation: bool,
 }
 
 /// Returns the management page of `pending`'s person, listing `remembered`
-/// with a withdraw form each.
+/// with a withdraw form each, and an app the organisation approved marked
+/// as such, with none.
 ///
 /// It is the `management_endpoint`, a "URL where an end-user can view which
 /// applications currently have access to data and can make adjustments to
@@ -510,17 +515,24 @@ pub fn manage(
                 .split(' ')
                 .filter(|scope| !scope.is_empty())
                 .collect();
-            let form = Html::raw(format!(
-                "<form method=\"post\" action=\"{action}\">\
+            let form = if each.organisation {
+                Html::raw(format!(
+                    "<p>{}</p>",
+                    Html::text(words("manage-organisation"))
+                ))
+            } else {
+                Html::raw(format!(
+                    "<form method=\"post\" action=\"{action}\">\
                  <input type=\"hidden\" name=\"form_token\" value=\"{token}\">\
                  <input type=\"hidden\" name=\"client_id\" value=\"{client}\">\
                  <button type=\"submit\" class=\"{danger}\">{withdraw}</button></form>",
-                action = Html::text(&action),
-                token = Html::text(&pending.form_token),
-                client = Html::text(&each.client_id),
-                danger = Variant::Danger.class(),
-                withdraw = label(None, words("manage-withdraw")),
-            ));
+                    action = Html::text(&action),
+                    token = Html::text(&pending.form_token),
+                    client = Html::text(&each.client_id),
+                    danger = Variant::Danger.class(),
+                    withdraw = label(None, words("manage-withdraw")),
+                ))
+            };
             let access = match each.access {
                 Some(crate::store::grant::Access::Offline) => {
                     Html::raw(format!("<p>{}</p>", Html::text(words("manage-offline"))))

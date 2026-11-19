@@ -161,6 +161,8 @@ struct Smart {
     database: Database,
     /// The keys, kept for the case's length.
     _keys: Keys,
+    /// The settings it runs on.
+    settings: ferrosmart::config::settings::Settings,
 }
 
 impl Smart {
@@ -223,13 +225,14 @@ impl Smart {
             .await
             .expect("the provider is discovered");
         let audit = audit(&settings);
-        let state = AppState::new(settings, store.clone(), audit).with_login(party);
+        let state = AppState::new(settings.clone(), store.clone(), audit).with_login(party);
         Self {
             app: router(Arc::new(state)),
             provider,
             store,
             database,
             _keys: keys,
+            settings,
         }
     }
 
@@ -1858,6 +1861,7 @@ async fn a_token_response_is_readable_from_the_app_s_origin_alone() {
     smart.stop().await;
 }
 
+mod approval;
 mod ehr_picker;
 mod encounter_picker;
 mod paired_picker;
