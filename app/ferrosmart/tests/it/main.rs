@@ -22,6 +22,7 @@ mod launch;
 mod refresh;
 mod replicas;
 mod revocation;
+mod saml;
 mod screenshots;
 mod store;
 mod support;

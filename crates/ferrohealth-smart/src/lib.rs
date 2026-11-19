@@ -62,7 +62,9 @@
 //! credentials token client) sit behind the default `fetch` feature; without
 //! it the crate links no HTTP client and reads a key set from a file. The
 //! `oidc` feature adds `oidc`, the OpenID Connect relying-party client an
-//! operator console signs its operator in with.
+//! operator console signs its operator in with. The `xml` feature adds `xml`, the bounded
+//! XML reader and Exclusive XML Canonicalization an XML signature check
+//! reads its document through.
 //!
 //! The `openehr-scopes` feature builds `openehr::smart_scopes`, the SMART on
 //! openEHR scope grammar, which depends on nothing. For the browser
@@ -120,6 +122,8 @@ pub mod sender;
 pub mod uri;
 #[cfg(resource_server)]
 pub mod usage;
+#[cfg(all(feature = "xml", resource_server))]
+pub mod xml;
 
 // The Rust examples of this crate's README and the repository's README
 // compile as doctests, with the features they guard a router with.

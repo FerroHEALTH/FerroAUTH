@@ -75,6 +75,10 @@ ferrohealth-smart = { version = "=0.30.2", features = ["axum", "openehr"] }
   `Outcome`: `Party`, `WrongMarker`, `Unbound`, `Ambiguous`, `Inactive`,
   `Abandoned`, `Deprovisioned`, `KeyClaimMissing` or `GroupsUnavailable`. A
   source failure is a `SourceError`, never no match.
+- **`xml`** (feature `xml`): the bounded XML reader (a byte cap, a linear
+  pre-scan of depth and namespace declarations, no DTD, a node cap) and the
+  Exclusive XML Canonicalization an XML signature check reads its document
+  through; `ehdsi-assertion` enables it.
 - **`federation::assertion`** (feature `ehdsi-assertion`): the check an
   authorization server acting for a MyHealth@EU contact point runs on the
   eHDSI HP Identity Assertion and Treatment Relationship Confirmation. A
