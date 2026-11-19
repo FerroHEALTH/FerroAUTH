@@ -1,0 +1,28 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+# The one route of the APISIX gateway in the third-party lane (#639): every
+# request under /fhir passes the openid-connect plugin, which introspects the
+# bearer token at FerroSMART (RFC 7662 §2) and forwards it to HAPI FHIR only
+# when the answer is active. The plugin authenticates as the confidential
+# symmetric client `third-party-gateway` by HTTP Basic, its default
+# (`client_secret_basic`, RFC 6749 §2.3.1), which FerroSMART takes under
+# docs/architecture.md §13.6 item 8. The lane writes the run's secret over
+# GATEWAY_SECRET before APISIX reads the file. The plugin caches an active
+# answer until its `exp`, so a token revoked after it passed is taken until
+# then. No specification governs the file: our own design.
+routes:
+  - uri: /fhir/*
+    upstream:
+      type: roundrobin
+      nodes:
+        "127.0.0.1:8091": 1
+    plugins:
+      openid-connect:
+        client_id: third-party-gateway
+        client_secret: GATEWAY_SECRET
+        discovery: http://127.0.0.1:8080/.well-known/openid-configuration
+        introspection_endpoint: http://127.0.0.1:8080/introspect
+        introspection_endpoint_auth_method: client_secret_basic
+        bearer_only: true
+        realm: fhir
+#END

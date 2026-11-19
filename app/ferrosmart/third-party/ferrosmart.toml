@@ -18,6 +18,12 @@ access_token_lifetime = "10s"
 base = "http://localhost:8090/fhir"
 kind = "fhir"
 
+# The APISIX gateway's listener in front of the same FHIR server (#639),
+# which introspects every token it is shown.
+[[ferrosmart.resource]]
+base = "http://localhost:8092/fhir"
+kind = "fhir"
+
 # Another server, whose tokens the validator refuses.
 [[ferrosmart.resource]]
 base = "http://localhost:8099/fhir"
@@ -56,3 +62,19 @@ name = "The third-party lane"
 kind = "confidential_asymmetric"
 scopes = ["system/Patient.rs", "system/introspect"]
 grant_types = ["client_credentials"]
+
+# The APISIX gateway, a resource server that introspects (#639): a
+# confidential symmetric client whose ceiling lists `system/introspect` and
+# which authenticates to the introspection endpoint by HTTP Basic
+# (docs/architecture.md §13.6 item 8). A symmetric client registers the
+# authorization code grant with a redirect URI, since SMART App Launch 2.2.0
+# keeps the profile from Backend Services; the gateway's plugin is an OpenID
+# Connect relying party, and the lane uses neither.
+[[ferrosmart.client]]
+client_id = "third-party-gateway"
+name = "The third-party lane's gateway"
+kind = "confidential_symmetric"
+redirect_uris = ["http://localhost:8092/callback"]
+scopes = ["system/introspect"]
+grant_types = ["authorization_code"]
+secret_hash_file = "/run/secrets/gateway_secret_hash"

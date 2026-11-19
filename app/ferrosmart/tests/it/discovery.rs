@@ -87,7 +87,11 @@ async fn the_metadata_names_introspection_and_revocation_and_how_they_authentica
     );
     // NOTE: RFC 8414 §2, absent auth methods would mean client_secret_basic.
     assert_eq!(
-        json!(["private_key_jwt"]),
+        json!([
+            "private_key_jwt",
+            "client_secret_basic",
+            "client_secret_post"
+        ]),
         body["introspection_endpoint_auth_methods_supported"]
     );
     assert_eq!(
