@@ -235,6 +235,7 @@ pub(crate) async fn open(
                 .upstream_session
                 .as_deref()
                 .filter(|_| access == Some(Access::Online)),
+            approved_at: code.approved_at,
         })
         .await
         .map_err(|error| server_error("the grant could not be recorded", &error))?;

@@ -269,6 +269,7 @@ impl Server {
                 auth_time: Some(jiff::Timestamp::now().as_second()),
                 access,
                 upstream_session: session,
+                approved_at: None,
             })
             .await
             .expect("recorded");

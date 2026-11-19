@@ -244,6 +244,12 @@ pub enum Event {
     ConsentRemembered,
     /// A remembered consent withdrawn, with the tokens it covered.
     ConsentWithdrawn,
+    /// A code issued with no consent page, on the client's organisation
+    /// approval (`docs/architecture.md` §13.6 item 6).
+    ConsentApproved,
+    /// A client's organisation approval withdrawn, with the grants issued
+    /// on it.
+    ApprovalWithdrawn,
     /// An access token revoked at `/revoke` (RFC 7009).
     TokenRevoked,
     /// A grant revoked at `/revoke` by its refresh token (RFC 7009 §2.1).
@@ -280,6 +286,8 @@ impl Event {
             Self::CodeIssued => "authorization-code",
             Self::ConsentRemembered => "consent-remembered",
             Self::ConsentWithdrawn => "consent-withdrawn",
+            Self::ConsentApproved => "consent-organisation-approved",
+            Self::ApprovalWithdrawn => "organisation-approval-withdrawn",
             Self::TokenRevoked => "token-revoked",
             Self::GrantRevoked => "grant-revoked",
             Self::RefreshRotated => "refresh-rotated",
@@ -308,6 +316,8 @@ impl Event {
             Self::CodeIssued => "Authorization code issued",
             Self::ConsentRemembered => "Consent remembered",
             Self::ConsentWithdrawn => "Consent withdrawn",
+            Self::ConsentApproved => "Consent by organisation approval",
+            Self::ApprovalWithdrawn => "Organisation approval withdrawn",
             Self::TokenRevoked => "Access token revoked",
             Self::GrantRevoked => "Grant revoked",
             Self::RefreshRotated => "Refresh token rotated",
@@ -333,10 +343,12 @@ impl Event {
                 (USER_AUTHENTICATION, vec![own], "C")
             }
             Self::RefreshRotated | Self::LaunchRedeemed => (USER_AUTHENTICATION, vec![own], "E"),
-            Self::ConsentRemembered => {
+            Self::ConsentRemembered | Self::ConsentApproved => {
                 (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "C")
             }
-            Self::ConsentWithdrawn => (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "D"),
+            Self::ConsentWithdrawn | Self::ApprovalWithdrawn => {
+                (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "D")
+            }
             Self::TokenRevoked | Self::GrantRevoked => (SECURITY_ALERT, vec![own], "D"),
             Self::RefreshReused | Self::CodeReused | Self::LaunchRefused => {
                 (SECURITY_ALERT, vec![own], "E")

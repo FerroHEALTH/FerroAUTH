@@ -51,7 +51,7 @@ use serde_json::Value;
 use url::Url;
 
 use crate::audit::{self, Connected, Event, Happening};
-use crate::authorize::callback::onward;
+use crate::authorize::callback::{Asked, onward};
 use crate::authorize::{Back, logged_in, see_other};
 use crate::form::Params;
 use crate::launch::context::Context;
@@ -343,17 +343,21 @@ async fn go_on(state: &AppState, pending: &Pending, offered: &str, from: IpAddr)
         .split(' ')
         .filter(|scope| !scope.is_empty())
         .collect();
+    let client = match state.store().client(client_id).await {
+        Ok(Some(client)) => client,
+        Ok(None) => return pages::fault(state, Fault::Lapsed),
+        Err(error) => return pages::server_error(state, &error),
+    };
     let back = Back::of(state, pending);
-    onward(
-        state,
-        &pending.id,
+    let asked = Asked {
+        id: &pending.id,
         subject,
-        client_id,
-        &offered,
-        &back,
-        from,
-    )
-    .await
+        fhir_user: pending.fhir_user.as_deref(),
+        requested: &pending.scope,
+        client: &client,
+        offered: &offered,
+    };
+    onward(state, &asked, &back, from).await
 }
 
 /// Returns whether `pending` waits for the picker: a standalone launch

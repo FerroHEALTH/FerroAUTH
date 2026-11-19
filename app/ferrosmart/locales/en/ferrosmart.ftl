@@ -28,6 +28,7 @@ manage-intro = These apps keep access to your data: the access you chose to reme
 manage-none = No app keeps access to your data.
 manage-offline = This app stays connected after you sign out, until you withdraw it.
 manage-online = This app stays connected while you are signed in.
+manage-organisation = Your organisation approved this app for its staff. Ask your administrator to withdraw it.
 manage-withdraw = Withdraw
 manage-scope = Access given
 picker-title = Choose a patient
