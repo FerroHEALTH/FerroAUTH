@@ -46,12 +46,13 @@ pub const JWKS_CACHE_CONTROL: &str = "public, max-age=3600";
 /// They are the consent page, the patient picker, the management page, and
 /// the error pages the authorization endpoint and the upstream callback
 /// draw. The book shows each (`website/book/src/integrate/img/`).
-pub const PAGES: [&str; 5] = [
+pub const PAGES: [&str; 6] = [
     AUTHORIZE_ROUTE,
     CALLBACK_ROUTE,
     CONSENT_ROUTE,
     crate::picker::PICKER_ROUTE,
     MANAGE_ROUTE,
+    crate::logout::end_session::END_SESSION_ROUTE,
 ];
 
 /// What every request reads.
@@ -200,6 +201,27 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route(
             crate::logout::BACKCHANNEL_LOGOUT_ROUTE,
             post(crate::logout::backchannel_logout),
+        )
+        .route(
+            crate::logout::front::FRONTCHANNEL_LOGOUT_ROUTE,
+            // NOTE: Front-Channel Logout 1.0 §2, the provider frames the URI, so it sets
+            // its own headers and the stack's frame refusal stays off it.
+            get(crate::logout::front::frontchannel_logout).layer(axum::middleware::map_response(
+                ferrohealth_server::api_headers::exempt,
+            )),
+        )
+        .route(
+            crate::logout::end_session::END_SESSION_ROUTE,
+            get(crate::logout::end_session::end_session_get)
+                .post(crate::logout::end_session::end_session_post),
+        )
+        .route(
+            crate::logout::end_session::END_SESSION_CONFIRM_ROUTE,
+            post(crate::logout::end_session::end_session_confirm),
+        )
+        .route(
+            crate::logout::end_session::END_SESSION_RETURN_ROUTE,
+            get(crate::logout::end_session::end_session_return),
         )
         .route(
             CONSENT_ROUTE,

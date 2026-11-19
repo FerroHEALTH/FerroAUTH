@@ -20,14 +20,14 @@ use crate::store::grant::Access;
 use crate::store::{Asking, Pending, Purpose};
 
 use super::{
-    MANAGE_ROUTE, REQUEST_SECONDS, Stop, constant_eq, cookie, fail, now, random, see_other,
+    COOKIE, MANAGE_ROUTE, REQUEST_SECONDS, Stop, constant_eq, cookie, fail, now, random, see_other,
     set_cookie,
 };
 
 /// `GET {issuer}/manage`: the person's remembered consents, once they
 /// logged in at the provider for it; the visit begins that login.
 pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
-    if let Some(id) = cookie(&headers) {
+    if let Some(id) = cookie(&headers, COOKIE) {
         match state.store().pending(&id).await {
             Ok(Some(pending))
                 if pending.purpose == Purpose::Manage && pending.subject.is_some() =>
@@ -78,7 +78,7 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
         return pages::server_error(&state, &error);
     }
     let mut response = see_other(upstream.url.as_str());
-    set_cookie(&state, &mut response, &id, REQUEST_SECONDS);
+    set_cookie(&state, &mut response, COOKIE, &id, REQUEST_SECONDS);
     response
 }
 
@@ -93,7 +93,7 @@ pub async fn manage_post(
     let Ok(form) = Params::parse(&body, &[]) else {
         return pages::fault(&state, Fault::BadRequest);
     };
-    let pending = match cookie(&headers) {
+    let pending = match cookie(&headers, COOKIE) {
         Some(id) => match state.store().pending(&id).await {
             Ok(Some(pending)) if pending.purpose == Purpose::Manage => pending,
             Ok(_) => return pages::fault(&state, Fault::Lapsed),

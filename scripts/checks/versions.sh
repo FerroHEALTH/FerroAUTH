@@ -14,8 +14,8 @@
 #                        tree still hashes to the digest it records.
 #   2. the RFCs          every `RFC NNNN` row's sha256 is the sha256 of the
 #                        vendored text, which the PROVENANCE.md repeats.
-#   3. OpenID Connect    the vendored Discovery, Core, RP-Initiated Logout
-#                        and Back-Channel Logout documents each hash to
+#   3. OpenID Connect    the vendored Discovery, Core, RP-Initiated Logout,
+#                        Front-Channel and Back-Channel Logout documents each hash to
 #                        their row's sha256, which their PROVENANCE.md
 #                        repeats.
 #   3a. FAPI 2.0         the vendored Security Profile hashes to its row's
@@ -180,6 +180,7 @@ vendored="$(find "$rfc" -maxdepth 1 -name 'rfc*.txt' | wc -l | tr -d '[:space:]'
 # ---- 3. the OpenID Connect specifications ----------------------------------
 for spec in discovery:"OpenID Connect Discovery 1.0" core:"OpenID Connect Core 1.0" \
   rpinitiated:"OpenID Connect RP-Initiated Logout 1.0" \
+  frontchannel:"OpenID Connect Front-Channel Logout 1.0" \
   backchannel:"OpenID Connect Back-Channel Logout 1.0"; do
   oidc="docs/specs/openid-connect-${spec%%:*}"
   name="${spec#*:}"

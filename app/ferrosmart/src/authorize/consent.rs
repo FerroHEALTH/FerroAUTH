@@ -21,7 +21,7 @@ use crate::server::AppState;
 use crate::store::{Code, Pending};
 
 use super::{
-    Back, CODE_SECONDS, CONSENT_ROUTE, Denial, constant_eq, found, logged_in, now, random,
+    Back, CODE_SECONDS, CONSENT_ROUTE, COOKIE, Denial, constant_eq, found, logged_in, now, random,
     registered, see_other, set_cookie, sha256,
 };
 
@@ -188,7 +188,7 @@ pub async fn consent_post(
             description: "the person declined",
         })
     };
-    set_cookie(&state, &mut response, "", 0);
+    set_cookie(&state, &mut response, COOKIE, "", 0);
     response
 }
 

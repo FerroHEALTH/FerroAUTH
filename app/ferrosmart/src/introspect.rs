@@ -20,8 +20,6 @@ use axum::body::Bytes;
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
-use jsonwebtoken::jwk::Jwk;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde_json::{Map, Value, json};
 
 use crate::clients::Client;
@@ -273,27 +271,8 @@ pub(crate) async fn find(state: &AppState, token: &str) -> Result<Option<Found>,
 fn own_access_token(state: &AppState, token: &str) -> Option<String> {
     // NOTE: RFC 7662 §2.2, a value that does not verify is a token this server did
     // not issue, which is legitimately absent here and answers inactive.
-    let header = jsonwebtoken::decode_header(token).ok()?;
     // NOTE: RFC 9068 §2.1 and §4, an access token is typed at+jwt and signed RS256 here.
-    if header.typ.as_deref() != Some("at+jwt") || header.alg != Algorithm::RS256 {
-        return None;
-    }
-    let kid = header.kid?;
-    let settings = state.settings();
-    let published = settings.keys.published();
-    let jwk = published
-        .get("keys")
-        .and_then(Value::as_array)?
-        .iter()
-        .find(|key| key.get("kid").and_then(Value::as_str) == Some(kid.as_str()))?;
-    let jwk: Jwk = serde_json::from_value(jwk.clone()).ok()?;
-    let key = DecodingKey::from_jwk(&jwk).ok()?;
-    let mut validation = Validation::new(Algorithm::RS256);
-    validation.validate_exp = false;
-    validation.validate_aud = false;
-    validation.set_required_spec_claims(&["iss"]);
-    validation.set_issuer(&[settings.issuer.as_str()]);
-    let claims: Value = jsonwebtoken::decode(token, &key, &validation).ok()?.claims;
+    let claims = crate::token::own_jwt(state.settings(), token, "at+jwt")?;
     claims.get("jti").and_then(Value::as_str).map(str::to_owned)
 }
 

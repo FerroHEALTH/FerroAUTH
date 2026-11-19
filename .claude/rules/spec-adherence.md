@@ -30,8 +30,9 @@ version `docs/VERSIONS.md` pins, and the design of record,
    the `oidc` relying party, **OpenID Connect Core 1.0** (incorporating
    errata set 2), the authorization code flow and the ID Token check,
    **OpenID Connect RP-Initiated Logout 1.0**, the end-session request,
-   and **OpenID Connect Back-Channel Logout 1.0** (incorporating errata
-   set 1), the Logout Token check.
+   **OpenID Connect Back-Channel Logout 1.0** (incorporating errata set 1),
+   the Logout Token check, and **OpenID Connect Front-Channel Logout 1.0**,
+   the logout URI an upstream renders in an iframe.
 4. **IHE IUA** (ITI-71) and **Nuts RFC021** for the access token of a
    federation issuer, and **IHE BALP** 1.1.4 (3:5.7.6, the consent decision
    record) for the consent decision reference it carries. The Microsoft
