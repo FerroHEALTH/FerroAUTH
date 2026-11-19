@@ -49,11 +49,11 @@ upstream and any FHIR server downstream.
   <img src="website/book/src/integrate/img/consent-clinician.png" alt="FerroSMART's consent page: the app's name, each scope it asks for in words, and Allow and Deny">
 </picture>
 
-The server is being built in this repository (its design is
+The server lives in this repository (its design is
 [`docs/architecture.md`](docs/architecture.md) §13, its code
-[`app/ferrosmart`](app/ferrosmart)) and will ship as its own container
-image beside the crates. Its book, for operators and integrators, is at
-<https://ferrosmart.eu/docs/>.
+[`app/ferrosmart`](app/ferrosmart)) and ships as its own container image,
+`ghcr.io/ferrohealth/ferrosmart`, beside the crates. Its book, for
+operators and integrators, is at <https://ferrosmart.eu/docs/>.
 
 #### Identity providers
 

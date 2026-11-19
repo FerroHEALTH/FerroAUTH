@@ -6,8 +6,7 @@
 The quickstart is one file, `compose.yaml`, which runs the FerroSMART image
 beside PostgreSQL. It needs Docker with Compose and no checkout of the
 repository. It pulls `ghcr.io/ferrohealth/ferrosmart` at the release the
-file shipped with, so it runs once v{{version:ferrosmart}} is published;
-until then, build the image from a checkout ([the image](image.md)).
+file shipped with, v{{version:ferrosmart}} ([the image](image.md)).
 
 ## Run it
 
