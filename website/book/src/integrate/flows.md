@@ -14,8 +14,11 @@ reach: the server's own `.well-known/smart-configuration` names FerroSMART's
    `GET` or a form `POST`: `response_type=code`, its `client_id`, a
    registered `redirect_uri`, `scope`, `state`, a PKCE `code_challenge`
    with `code_challenge_method=S256`, and `aud`, the base URL of the server
-   the token is for (`resource` is taken as a synonym). An `aud` FerroSMART
-   does not serve is refused. An unknown client or redirect URI is shown to
+   the token is for (`resource` is taken as a synonym). SMART requires the
+   app to send `aud`, so send it. A deployment that configures one resource
+   server takes a missing `aud` as that server, as its token endpoint does
+   for `resource`; with two or more, a request without `aud` is refused. An
+   `aud` FerroSMART does not serve is refused. An unknown client or redirect URI is shown to
    the person and never redirected to.
 2. **Log in.** FerroSMART sends the person to the identity provider and
    back to `{issuer}/callback`.

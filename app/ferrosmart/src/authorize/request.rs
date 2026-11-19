@@ -114,15 +114,20 @@ async fn begin(
         .ok_or(Stop::Deny(Denial::request(
             "the request carries no S256 code_challenge",
         )))?;
-    // NOTE: SMART App Launch 2.2.0, `aud` is required and `resource` MAY be its
-    // synonym; it names a resource server this issuer serves.
-    let audience = params
-        .get("aud")
-        .or_else(|| params.get("resource"))
-        .filter(|aud| state.settings().resources.iter().any(|base| base == aud))
-        .ok_or(Stop::Deny(Denial::request(
-            "the aud is not a server this issuer serves",
-        )))?;
+    // NOTE: SMART App Launch 2.2.0, `aud` is required of the app and `resource` MAY
+    // be its synonym; with one base configured a missing one defaults to it (#670).
+    let resources = &state.settings().resources;
+    let audience = match (
+        params.get("aud").or_else(|| params.get("resource")),
+        resources.as_slice(),
+    ) {
+        (Some(aud), _) => resources.iter().find(|base| base.as_str() == aud),
+        (None, [only]) => Some(only),
+        (None, _) => None,
+    }
+    .ok_or(Stop::Deny(Denial::request(
+        "the aud is not a server this issuer serves",
+    )))?;
     let scope = params.get("scope").ok_or(Stop::Deny(Denial {
         error: "invalid_scope",
         description: "the request names no scope",

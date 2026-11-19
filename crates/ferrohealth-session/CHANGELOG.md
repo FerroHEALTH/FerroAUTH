@@ -14,6 +14,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.25.1] - 2026-11-19
+
+### Added
+
+- `Sessions::token_for` returns an access token for a second resource
+  server on the session's grant: kept with the memory-store session until
+  it is due, else one refresh naming the resource (RFC 8707 §2.2), with
+  the rotated refresh token kept. `invalid_grant` ends the session; any
+  other refusal is returned as `ForResource::Refused` and the session stays
+  (#675).
+
 ## [0.25.0] - 2026-11-17
 
 ### Changed
@@ -456,7 +467,8 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.25.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.25.1...HEAD
+[0.25.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.25.0...ferrohealth-session-v0.25.1
 [0.25.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.24.0...ferrohealth-session-v0.25.0
 [0.24.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.23.0...ferrohealth-session-v0.24.0
 [0.23.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.22.0...ferrohealth-session-v0.23.0
