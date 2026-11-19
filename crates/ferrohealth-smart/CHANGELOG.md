@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.30.2] - 2026-11-19
+
 ### Added
 
 - `uri::normalized` and `uri::normalize_percent`: the RFC 3986 §6.2.2
@@ -2409,7 +2411,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.2...HEAD
+[0.30.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.1...ferrohealth-smart-v0.30.2
 [0.30.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.0...ferrohealth-smart-v0.30.1
 [0.30.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.2...ferrohealth-smart-v0.30.0
 [0.29.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.1...ferrohealth-smart-v0.29.2
