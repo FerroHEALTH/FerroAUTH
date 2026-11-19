@@ -307,6 +307,24 @@ The checks, in order, each a refusal when it fails:
    unique in the context of the issuer", which a blank value does not. The
    gate holds the same rule over a caller any `Verifier` returns.
 
+Steps 1 to 8 are a verdict on the token alone, so the resource server keeps
+it: the claims of a token that passed are held under the SHA-256 of the
+token, never the token itself, and the same token presented again is not
+verified again. A held verdict ends at the token's `exp` and never later
+(`rfc7519 §4.1.4`), without the skew; after it the token takes the full
+check, which refuses it as today. Before a held verdict answers, the key
+that verified the token is looked up in the set exactly as step 4 does, so
+a set past its maximum age is read again and a token whose key the issuer
+no longer publishes is refused. A read that finds the set changed drops
+every held verdict. The steps that read the request or the deployment run
+on every request, a held verdict included: the binding (3.15), `iat`, the
+subject and the classification. At most 10 000 verdicts in at most 16 MiB
+are held, a full map dropping the expired ones and then those that expire
+soonest, reported by `ResourceServer::cache_usage` and summed over a set by
+`IssuerSet::verdict_usage`. An introspected issuer (3.10) keeps its own
+cache and its own per-request rules. No specification asks for a signature
+to be recomputed per request: our own design (FerroHEALTH/FerroEHR#6049).
+
 What the library then reads from a valid token: `sub`, `client_id`, `scope`
 (the space-delimited string of `rfc6749 §3.3`, which `rfc9068 §2.2.3` carries
 as the `scope` claim of RFC 8693), and `patient`. Two of these need a note:
@@ -469,12 +487,14 @@ re-derivation that fails drops the entry, and no entry admits past
 `cache_ttl` from the derivation that admitted it (#498). No specification
 governs the cache: our own design, FerroEHR's, moved into the crate.
 
-Three caches of the crate grow with traffic: this one, the introspection
-response cache (3.10, at most `cache_capacity` responses) and the records of
+Four caches of the crate grow with traffic: this one, the verdicts of
+verified tokens (3.3, at most 10 000), the introspection response cache
+(3.10, at most `cache_capacity` responses) and the records of
 `MemoryReplayStore` (3.15, at most 100 000 unless the product sets another
 cap). Each reports its cap, its entries and an estimate of their bytes as a
 `usage::CacheUsage` (`PasswordStore::cache_usage`,
-`Introspector::cache_usage`, `MemoryReplayStore::cache_usage`), which a
+`ResourceServer::cache_usage`, `Introspector::cache_usage`,
+`MemoryReplayStore::cache_usage`), which a
 product copies into its own gauges; the crate links no metrics library
 (FerroHEALTH/FerroSMART#630). The estimate counts each key and value with
 the heap it owns and leaves out the collection's own nodes. No

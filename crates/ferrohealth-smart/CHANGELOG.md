@@ -21,6 +21,18 @@ and this project adheres to
   `MemoryReplayStore::cache_usage` (the DPoP proof records). The crate
   links no metrics library; a product copies the numbers into its own
   gauges (#630).
+- `resource::ResourceServer` keeps the verdict of a verified access token
+  until the token's `exp` (RFC 7519 §4.1.4), so the same token is verified
+  once instead of on every request: its signature, header and claims are
+  checked on the first request and held under the token's SHA-256, never
+  the token. Before a held verdict answers, the token's key is looked up in
+  the issuer's key set as a fresh check would, so a set past its maximum age
+  is read again and a key the issuer no longer publishes refuses the token;
+  a read that finds the set changed drops every held verdict. The binding,
+  `iat` and the classification stay per request, and an introspected
+  issuer is unchanged. At most 10,000 verdicts in at most 16 MiB are held,
+  reported by `ResourceServer::cache_usage` and, summed over the issuers of
+  a set, `IssuerSet::verdict_usage` (FerroHEALTH/FerroEHR#6049).
 
 ## [0.30.0] - 2026-11-17
 

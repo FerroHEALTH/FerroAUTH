@@ -347,31 +347,12 @@ struct Entry {
     bytes: usize,
 }
 
-/// A sink that counts the bytes written to it and keeps none.
-struct Counted(usize);
-
-impl std::io::Write for Counted {
-    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
-        self.0 = self.0.saturating_add(buffer.len());
-        Ok(buffer.len())
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
 /// Returns an estimate of the bytes a held `caller` takes under its
 /// 32-byte key.
 fn weigh(caller: &Caller) -> usize {
-    let mut members = Counted(0);
-    // NOTE: no specification governs this: our own design; the sink takes every
-    // write, and a response that came from JSON goes back into it.
-    let written = serde_json::to_writer(&mut members, caller.claims());
-    let members = if written.is_ok() { members.0 } else { 0 };
     size_of::<[u8; 32]>()
         .saturating_add(size_of::<Entry>())
-        .saturating_add(members)
+        .saturating_add(super::verdict::json_bytes(caller.claims()))
 }
 
 /// The introspection check of one authorization server.
@@ -536,7 +517,7 @@ impl Introspector {
     /// Returns the caller of `token`, from the cache while its response is
     /// held.
     async fn lookup(&self, token: &str) -> Result<Caller, Rejection> {
-        let key = digest(token);
+        let key = super::verdict::digest(token);
         if let Some(held) = self.cached(&key) {
             // NOTE: no specification governs this: our own design; a held response is
             // classified again, so the issuer's standing answers every request.
@@ -850,12 +831,4 @@ fn audience_holds(claims: &Map<String, Value>, audience: &[String]) -> bool {
             .any(|named| audience.iter().any(|expected| expected == named)),
         _ => false,
     }
-}
-
-/// Returns the SHA-256 of `token`, the key its response is held under.
-fn digest(token: &str) -> [u8; 32] {
-    let digest = aws_lc_rs::digest::digest(&aws_lc_rs::digest::SHA256, token.as_bytes());
-    let mut key = [0_u8; 32];
-    key.copy_from_slice(digest.as_ref());
-    key
 }

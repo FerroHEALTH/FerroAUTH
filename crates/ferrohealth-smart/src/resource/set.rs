@@ -159,6 +159,17 @@ pub(super) enum Trusted {
 }
 
 impl Trusted {
+    /// Returns the resource server, when the issuer's tokens are checked
+    /// against its key set and that set has been read.
+    fn read(&self) -> Option<&Arc<ResourceServer>> {
+        match self {
+            Self::Ready(server) => Some(server),
+            Self::Lazy(lazy) => lazy.get(),
+            #[cfg(feature = "fetch")]
+            Self::Introspected(_) => None,
+        }
+    }
+
     /// Returns whether the issuer's tokens are introspected.
     const fn introspected(&self) -> bool {
         match self {
@@ -213,12 +224,7 @@ impl IssuerSet {
     /// metadata and key set have been read.
     #[must_use]
     pub fn server(&self, issuer: &str) -> Option<&Arc<ResourceServer>> {
-        match self.servers.get(issuer)? {
-            Trusted::Ready(server) => Some(server),
-            Trusted::Lazy(lazy) => lazy.get(),
-            #[cfg(feature = "fetch")]
-            Trusted::Introspected(_) => None,
-        }
+        self.servers.get(issuer)?.read()
     }
 
     /// Returns how many issuers the set trusts.
@@ -231,6 +237,32 @@ impl IssuerSet {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.servers.is_empty()
+    }
+
+    /// Returns the caps, the entries and the estimated bytes of the token
+    /// verdicts of every issuer whose metadata and key set have been read,
+    /// summed ([`ResourceServer::cache_usage`]).
+    ///
+    /// An introspected issuer holds no verdict; its introspector reports
+    /// its own response cache.
+    #[must_use]
+    pub fn verdict_usage(&self) -> crate::usage::CacheUsage {
+        self.read().map(|server| server.cache_usage()).fold(
+            crate::usage::CacheUsage::new(0, 0, 0),
+            |sum, usage| {
+                crate::usage::CacheUsage::new(
+                    sum.capacity.saturating_add(usage.capacity),
+                    sum.entries.saturating_add(usage.entries),
+                    sum.bytes.saturating_add(usage.bytes),
+                )
+            },
+        )
+    }
+
+    /// Returns the resource servers of the set whose metadata and key set
+    /// have been read.
+    fn read(&self) -> impl Iterator<Item = &Arc<ResourceServer>> {
+        self.servers.values().filter_map(Trusted::read)
     }
 }
 
@@ -270,6 +302,12 @@ impl IssuerSet {
     /// Returns the caller `token` authenticates under `binding` at the
     /// issuer its `iss` names, or the one introspected issuer.
     async fn route(&self, token: &str, binding: &Binding) -> Result<Caller, Rejection> {
+        let key = super::verdict::digest(token);
+        for server in self.read() {
+            if let Some(outcome) = super::token::held(server, &key, binding).await {
+                return outcome;
+            }
+        }
         let server = match unverified_issuer(token) {
             Some(issuer) => self.servers.get(&issuer).ok_or(Rejection::Invalid {
                 reason: Reason::UntrustedIssuer,
@@ -279,8 +317,10 @@ impl IssuerSet {
             })?,
         };
         match server {
-            Trusted::Ready(server) => server.authenticate_bound(token, binding).await,
-            Trusted::Lazy(lazy) => lazy.authenticate_bound(token, binding).await,
+            Trusted::Ready(server) => super::token::verify(server, token, key, binding).await,
+            Trusted::Lazy(lazy) => {
+                super::token::verify(lazy.server().await?, token, key, binding).await
+            }
             #[cfg(feature = "fetch")]
             Trusted::Introspected(introspector) => {
                 introspector.authenticate_bound(token, binding).await

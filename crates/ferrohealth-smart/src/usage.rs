@@ -4,8 +4,9 @@
 //! What the in-memory caches of this crate hold, for a product's memory
 //! metrics.
 //!
-//! Three caches grow with traffic: the verified-credential cache of
-//! [`crate::basic::PasswordStore`], the response cache of
+//! Four caches grow with traffic: the verified-credential cache of
+//! [`crate::basic::PasswordStore`], the token verdicts of
+//! [`crate::resource::ResourceServer`], the response cache of
 //! [`crate::resource::introspection::Introspector`] and the records of
 //! [`crate::sender::replay::MemoryReplayStore`]. Each reports a
 //! [`CacheUsage`], which a product copies into its own gauges; the crate
