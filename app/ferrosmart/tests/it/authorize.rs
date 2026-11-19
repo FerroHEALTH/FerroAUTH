@@ -1275,7 +1275,14 @@ async fn an_offline_access_launch_issues_a_refresh_token_that_rotates() {
     assert_eq!(json!("Practitioner/synthetic-1"), access["fhirUser"]);
     let second = renewed["refresh_token"].as_str().expect("rotated");
     assert_ne!(first, second);
-    // NOTE: RFC 9700 §4.14.2, the rotated token presented again revokes the grant.
+    // NOTE: RFC 9700 §4.14.2, the rotated token presented again after the repeat
+    // window revokes the grant (docs/architecture.md §13.6 item 11).
+    crate::support::rotated_ago(
+        secrecy::ExposeSecret::expose_secret(&smart.database.url),
+        first,
+        11,
+    )
+    .await;
     let (status, replay) = refresh(&smart, first).await;
     assert_eq!(StatusCode::BAD_REQUEST, status);
     assert_eq!(json!("invalid_grant"), replay["error"]);

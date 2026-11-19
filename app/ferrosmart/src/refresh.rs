@@ -9,7 +9,9 @@
 //! draft §4.3.3). A token presented again after its rotation revokes the
 //! grant with every token under it, which is the replay detection RFC 9700
 //! §4.14.2 requires for public clients and FerroSMART applies to every
-//! client. A refresh token lapses after its idle time, `refresh_idle` for
+//! client, except that the same client presenting it again within
+//! [`crate::store::grant::REPEAT_WINDOW`], while its successor is unused, gets the same successor
+//! back: a retried or racing request is not a replay. A refresh token lapses after its idle time, `refresh_idle` for
 //! `offline_access` and `online_access`'s shorter `online_idle`, and an
 //! `online_access` one with the person's upstream login
 //! (`docs/architecture.md` §13.6 item 7).
@@ -23,7 +25,7 @@ use crate::form::Params;
 use crate::server::AppState;
 use crate::store::Code;
 use crate::store::Transaction;
-use crate::store::grant::{Access, IdleUntil, NewGrant, Rotation};
+use crate::store::grant::{Access, GrantRecord, IdleUntil, NewGrant, Rotation, Successor};
 use crate::token::grants::identify;
 use crate::token::mint::{Grant, mint};
 use crate::token::{Issued, Refusal, server_error};
@@ -70,57 +72,7 @@ pub(crate) async fn refresh(
         (Some(granted), None) => granted.clone(),
         (None, _) => String::new(),
     };
-    let successor =
-        random().map_err(|error| server_error("no refresh token could be drawn", &error))?;
-    let settings = state.settings();
-    let now = jiff::Timestamp::now().as_second();
-    let idle = IdleUntil {
-        offline: now.saturating_add_unsigned(settings.refresh_idle.as_secs()),
-        online: now.saturating_add_unsigned(settings.online_idle.as_secs()),
-    };
-    let mut tx = state
-        .store()
-        .begin()
-        .await
-        .map_err(|error| server_error("the refresh token cannot be redeemed", &error))?;
-    let rotation = tx
-        .rotate(&hash, &client.client_id, &sha256(&successor), idle)
-        .await
-        .map_err(|error| server_error("the refresh token cannot be redeemed", &error))?;
-    let endpoint = settings.endpoint_url(crate::discovery::TOKEN_ROUTE);
-    let happening = |event, subject, grant_id: &str| Happening {
-        event,
-        issuer: &settings.issuer,
-        client_id: Some(&client.client_id),
-        subject,
-        from,
-        endpoint: &endpoint,
-        details: vec![("grant", grant_id.to_owned())],
-    };
-    let grant = match rotation {
-        Rotation::Rotated(grant) => {
-            commit(
-                state,
-                tx,
-                &happening(
-                    Event::RefreshRotated,
-                    Some(grant.subject.as_str()),
-                    &grant.id,
-                ),
-            )
-            .await?;
-            grant
-        }
-        Rotation::Reused { grant_id } => {
-            commit(state, tx, &happening(Event::RefreshReused, None, &grant_id)).await?;
-            return Err(invalid("the refresh token was used before"));
-        }
-        // NOTE: an invalid or foreign token changes nothing, so the transaction
-        // is dropped and its request is recorded as the ITI-71 refusal alone.
-        Rotation::OtherClient | Rotation::Invalid => {
-            return Err(invalid("the refresh token is not valid"));
-        }
-    };
+    let (grant, successor) = redeem(state, &client, presented, &hash, from).await?;
     let context = grant.context.as_object().cloned().unwrap_or_default();
     let fhir_user = grant
         .fhir_user
@@ -147,6 +99,90 @@ pub(crate) async fn refresh(
     // context MAY be included, and is, as the original response carried it.
     issued.response.refresh_token = Some(successor);
     Ok(issued)
+}
+
+/// Redeems the refresh token `presented`, whose SHA-256 is `hash`, for
+/// `client` in one transaction committed with its record, and returns the
+/// grant it is under with the successor to answer.
+async fn redeem(
+    state: &AppState,
+    client: &Client,
+    presented: &str,
+    hash: &str,
+    from: std::net::IpAddr,
+) -> Result<(Box<GrantRecord>, String), Refusal> {
+    let salt = random().map_err(|error| server_error("no refresh token could be drawn", &error))?;
+    let successor = derived(presented, &salt);
+    let settings = state.settings();
+    let now = jiff::Timestamp::now().as_second();
+    let idle = IdleUntil {
+        offline: now.saturating_add_unsigned(settings.refresh_idle.as_secs()),
+        online: now.saturating_add_unsigned(settings.online_idle.as_secs()),
+    };
+    let mut tx = state
+        .store()
+        .begin()
+        .await
+        .map_err(|error| server_error("the refresh token cannot be redeemed", &error))?;
+    let rotation = tx
+        .rotate(
+            hash,
+            &client.client_id,
+            Successor {
+                hash: &sha256(&successor),
+                salt: &salt,
+            },
+            idle,
+        )
+        .await
+        .map_err(|error| server_error("the refresh token cannot be redeemed", &error))?;
+    let endpoint = settings.endpoint_url(crate::discovery::TOKEN_ROUTE);
+    let happening = |event, subject, grant_id: &str| Happening {
+        event,
+        issuer: &settings.issuer,
+        client_id: Some(&client.client_id),
+        subject,
+        from,
+        endpoint: &endpoint,
+        details: vec![("grant", grant_id.to_owned())],
+    };
+    match rotation {
+        Rotation::Rotated(grant) => {
+            commit(
+                state,
+                tx,
+                &happening(
+                    Event::RefreshRotated,
+                    Some(grant.subject.as_str()),
+                    &grant.id,
+                ),
+            )
+            .await?;
+            Ok((grant, successor))
+        }
+        // NOTE: our own design (docs/architecture.md §13.6 item 11): a retry or a
+        // race within the window gets the successor the first answer carried.
+        Rotation::Repeated { grant, salt } => {
+            commit(
+                state,
+                tx,
+                &happening(
+                    Event::RefreshRepeated,
+                    Some(grant.subject.as_str()),
+                    &grant.id,
+                ),
+            )
+            .await?;
+            Ok((grant, derived(presented, &salt)))
+        }
+        Rotation::Reused { grant_id } => {
+            commit(state, tx, &happening(Event::RefreshReused, None, &grant_id)).await?;
+            Err(invalid("the refresh token was used before"))
+        }
+        // NOTE: an invalid or foreign token changes nothing, so the transaction
+        // is dropped and its request is recorded as the ITI-71 refusal alone.
+        Rotation::OtherClient | Rotation::Invalid => Err(invalid("the refresh token is not valid")),
+    }
 }
 
 /// What redeeming a code opens: the grant every token of the launch is
@@ -271,6 +307,14 @@ pub(crate) async fn open(
         context,
         refresh_token,
     })
+}
+
+/// Returns the successor of the refresh token `presented` drawn with
+/// `salt`: the SHA-256 of both, so only a holder of the presented token can
+/// derive it again, and the store, which keeps the salt beside the presented
+/// token's hash, cannot.
+fn derived(presented: &str, salt: &str) -> String {
+    sha256(&format!("{presented}.{salt}"))
 }
 
 /// Returns whether the space-separated `scope` holds `wanted`.

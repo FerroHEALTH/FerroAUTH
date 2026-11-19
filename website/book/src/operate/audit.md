@@ -32,6 +32,7 @@ pattern covers it. The subtype comes from FerroSMART's code system
 | An access token revoked | `110113` | `token-revoked` | `D` |
 | A grant revoked by its refresh token | `110113` | `grant-revoked` | `D` |
 | A refresh token rotated | `110114` | `refresh-rotated` | `E` |
+| A rotated refresh token repeated by its client within 10 seconds, answered with the same successor | `110114` | `refresh-repeated` | `E` |
 | A rotated refresh token reused, its grant revoked | `110113` | `refresh-reused` | `E` |
 | A code redeemed again, its tokens revoked | `110113` | `code-reused` | `E` |
 | An upstream session ended | `110114` | `110123`, `session-ended` | `E` |

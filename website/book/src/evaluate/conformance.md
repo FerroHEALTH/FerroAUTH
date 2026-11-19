@@ -104,7 +104,9 @@ and the architecture records it as its own design:
   provider's issuer and `sub`, so the provider's identifier never reaches a
   resource server.
 - **Refresh rotation for every client.** Each refresh rotates the token, and
-  a rotated token presented again revokes the whole grant.
+  a rotated token presented again revokes the whole grant, unless its own
+  client repeats it within 10 seconds while the new token is unused: a retry
+  or a race then gets the same new token.
 - **Introspection.** A confidential client authenticated as at the token
   endpoint (its assertion or its secret), or a bearer token FerroSMART
   issued, each holding the scope `system/introspect` (RFC 7662 §2.1).

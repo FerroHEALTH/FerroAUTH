@@ -11,7 +11,7 @@ use http::StatusCode;
 use serde_json::{Value, json};
 
 use crate::introspection::{Answer, Server, inactive, unique};
-use crate::support::{commit, events, records};
+use crate::support::{commit, events, records, rotated_ago};
 
 /// The scope every grant of these cases holds.
 const GRANTED: &str = "openid fhirUser launch/patient patient/Observation.rs offline_access";
@@ -125,13 +125,14 @@ async fn a_refresh_may_narrow_the_scope_and_never_widen_it() {
 }
 
 #[tokio::test]
-async fn a_rotated_refresh_token_presented_again_revokes_the_grant() {
+async fn a_rotated_refresh_token_presented_again_after_the_window_revokes_the_grant() {
     let (server, grant, token) = offline().await;
     let earlier = server.access("app", Some(&grant), 300).await;
     let (status, _, body) = server.post("/token", &public(&token, None), None).await;
     assert_eq!(StatusCode::OK, status, "{body}");
     let successor = body["refresh_token"].as_str().expect("a refresh token");
     let access = body["access_token"].as_str().expect("an access token");
+    rotated_ago(&server.database_url(), &token, 11).await;
 
     // NOTE: RFC 9700 §4.14.2 and OAuth 2.1 draft §4.3.1: the server revokes the
     // active refresh token as well as the grant associated with it.
@@ -154,26 +155,110 @@ async fn a_rotated_refresh_token_presented_again_revokes_the_grant() {
 }
 
 #[tokio::test]
-async fn two_refreshes_racing_with_one_token_revoke_the_grant() {
+async fn a_retry_within_the_window_gets_the_same_successor_and_keeps_the_grant() {
+    let (server, grant, token) = offline().await;
+    let earlier = server.access("app", Some(&grant), 300).await;
+    let (status, _, first) = server.post("/token", &public(&token, None), None).await;
+    assert_eq!(StatusCode::OK, status, "{first}");
+    // NOTE: docs/architecture.md §13.6 item 11: a lost response retried within
+    // the window is answered again, with the successor the first answer carried.
+    let (status, _, second) = server.post("/token", &public(&token, None), None).await;
+    assert_eq!(StatusCode::OK, status, "{second}");
+    assert_eq!(first["refresh_token"], second["refresh_token"]);
+    assert_ne!(first["access_token"], second["access_token"]);
+    assert_eq!(json!(GRANTED), second["scope"]);
+    assert_eq!(json!("123"), second["patient"], "the launch context");
+    let successor = second["refresh_token"].as_str().expect("a refresh token");
+    assert_eq!(json!(true), server.introspect(successor).await["active"]);
+    assert_eq!(json!(true), server.introspect(&earlier).await["active"]);
+    for answer in [&first, &second] {
+        let access = answer["access_token"].as_str().expect("an access token");
+        assert_eq!(json!(true), server.introspect(access).await["active"]);
+    }
+    // NOTE: the retry narrows like any refresh, and never widens.
+    let narrowed = server
+        .post(
+            "/token",
+            &public(&token, Some("openid patient/Observation.rs")),
+            None,
+        )
+        .await;
+    assert_eq!(StatusCode::OK, narrowed.0, "{}", narrowed.2);
+    assert_eq!(json!("openid patient/Observation.rs"), narrowed.2["scope"]);
+    assert_eq!(first["refresh_token"], narrowed.2["refresh_token"]);
+    let (status, _, next) = server.post("/token", &public(successor, None), None).await;
+    assert_eq!(StatusCode::OK, status, "{next}");
+    assert_eq!(inactive(), server.introspect(successor).await);
+    let happened = events(&records(&server.store).await);
+    assert!(
+        happened.contains(&String::from("refresh-repeated"))
+            && !happened.contains(&String::from("refresh-reused")),
+        "{happened:?}"
+    );
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn two_refreshes_racing_with_one_token_both_get_the_same_successor() {
     let (server, _, token) = offline().await;
     let form = public(&token, None);
     let (first, second) = tokio::join!(
         server.post("/token", &form, None),
         server.post("/token", &form, None)
     );
-    let (won, lost) = if first.0 == StatusCode::OK {
-        (first, second)
-    } else {
-        (second, first)
-    };
-    assert_eq!(StatusCode::OK, won.0, "one of them redeems the token");
-    assert_eq!(json!("invalid_grant"), refused(&lost));
-    let successor = won.2["refresh_token"].as_str().expect("a refresh token");
-    assert_eq!(
-        inactive(),
-        server.introspect(successor).await,
-        "the second presentation is a replay"
+    assert_eq!(StatusCode::OK, first.0, "{}", first.2);
+    assert_eq!(StatusCode::OK, second.0, "{}", second.2);
+    assert_eq!(first.2["refresh_token"], second.2["refresh_token"]);
+    let successor = first.2["refresh_token"].as_str().expect("a refresh token");
+    assert_eq!(json!(true), server.introspect(successor).await["active"]);
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn two_replicas_racing_with_one_token_both_get_the_same_successor() {
+    let (server, _, token) = offline().await;
+    let replica = server.replica().await;
+    let form = public(&token, None);
+    let (first, second) = tokio::join!(
+        server.post("/token", &form, None),
+        replica.post("/token", &form, None)
     );
+    assert_eq!(StatusCode::OK, first.0, "{}", first.2);
+    assert_eq!(StatusCode::OK, second.0, "{}", second.2);
+    assert_eq!(first.2["refresh_token"], second.2["refresh_token"]);
+    replica.stop().await;
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn a_repeat_once_the_successor_was_used_revokes_the_grant() {
+    let (server, _, token) = offline().await;
+    let (_, _, body) = server.post("/token", &public(&token, None), None).await;
+    let successor = body["refresh_token"].as_str().expect("a refresh token");
+    let (status, _, next) = server.post("/token", &public(successor, None), None).await;
+    assert_eq!(StatusCode::OK, status, "{next}");
+    let latest = next["refresh_token"].as_str().expect("a refresh token");
+    // NOTE: docs/architecture.md §13.6 item 11: the chain moved on, so the first
+    // token presented again is a replay even within the window.
+    let replay = server.post("/token", &public(&token, None), None).await;
+    assert_eq!(json!("invalid_grant"), refused(&replay));
+    assert_eq!(inactive(), server.introspect(latest).await);
+    server.stop().await;
+}
+
+#[tokio::test]
+async fn a_repeat_by_another_client_is_refused_and_changes_nothing() {
+    let (server, _, token) = offline().await;
+    let (_, _, body) = server.post("/token", &public(&token, None), None).await;
+    let successor = body["refresh_token"].as_str().expect("a refresh token");
+    let mut form = server.credentials("portal");
+    form.extend([
+        (String::from("grant_type"), String::from("refresh_token")),
+        (String::from("refresh_token"), token.clone()),
+    ]);
+    let answer = server.post("/token", &form, None).await;
+    assert_eq!(json!("invalid_grant"), refused(&answer));
+    assert_eq!(json!(true), server.introspect(successor).await["active"]);
     server.stop().await;
 }
 
