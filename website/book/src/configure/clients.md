@@ -33,6 +33,7 @@ registry; the configuration is the place to change a client.
 | `jwks_file` | A file holding the client's JWK Set by value |
 | `secret_hash_file` | A file holding the Argon2id hash of a confidential symmetric client's secret, never the secret |
 | `redirect_uris` | The client's complete redirect URIs, compared by exact string |
+| `launch_uri` | Optional: the app's launch URL, absolute `https`, by which an EHR's [launch registration](../integrate/ehr-launch.md) may name the app (`app_launch_uri`), as a SMART Task does; compared after RFC 3986 normalization, one client per URL |
 | `scopes` | The ceiling: every scope the client may ever be granted |
 | `grant_types` | Any of `authorization_code`, `client_credentials` and `refresh_token` |
 

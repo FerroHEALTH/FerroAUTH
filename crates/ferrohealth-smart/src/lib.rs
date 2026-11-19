@@ -117,6 +117,8 @@ pub mod scope;
 #[cfg(resource_server)]
 pub mod sender;
 #[cfg(resource_server)]
+pub mod uri;
+#[cfg(resource_server)]
 pub mod usage;
 
 // The Rust examples of this crate's README and the repository's README

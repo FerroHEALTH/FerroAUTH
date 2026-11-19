@@ -76,6 +76,7 @@ impl Server {
              jwks_file = {:?}\nscopes = [\"system/Patient.rs\"]\ngrant_types = [\"client_credentials\"]\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\
              redirect_uris = [\"https://app.example.org/callback\"]\ngrant_types = [\"authorization_code\"]\n\
+             launch_uri = \"https://app.example.org/launch\"\n\
              [[ferrosmart.client]]\nclient_id = \"other\"\nkind = \"public\"\n\
              redirect_uris = [\"https://other.example.org/callback\"]\ngrant_types = [\"authorization_code\"]",
             secrecy::ExposeSecret::expose_secret(&database.url),
@@ -661,5 +662,97 @@ async fn a_launch_whose_record_cannot_be_committed_is_not_kept() {
         .resolve(&launch, "app", RESOURCE)
         .await
         .expect("the launch stayed unredeemed");
+    server.stop().await;
+}
+
+/// The `appContext` of the IG's `Task-task-for-ehr-launch.json`.
+const APP_CONTEXT: &str = r#"{"field1":"value"}"#;
+
+// NOTE: SMART App Launch 2.2.0, Task profile for requesting a SMART launch: a
+// Task names the app by its launch URL and may carry appContext; naming the app
+// by it and carrying appContext as context are our own design (#659, #660).
+#[tokio::test]
+async fn an_ehr_names_the_app_by_its_launch_url_and_passes_its_app_context() {
+    let server = Server::start().await;
+    let assertion = Server::assertion(&server.ehr, "ehr");
+    let registration = |app: Vec<(&'static str, String)>| {
+        let mut form: Vec<(&str, String)> = vec![
+            ("client_assertion_type", JWT_BEARER.to_owned()),
+            ("client_assertion", assertion.clone()),
+            ("resource", RESOURCE.to_owned()),
+        ];
+        form.extend(app);
+        form
+    };
+    let post = |form: Vec<(&'static str, String)>| {
+        let pairs: Vec<(&str, &str)> = form.iter().map(|(k, v)| (*k, v.as_str())).collect();
+        let body: String = url::form_urlencoded::Serializer::new(String::new())
+            .extend_pairs(pairs)
+            .finish();
+        server.post_raw("application/x-www-form-urlencoded", body)
+    };
+    // NOTE: RFC 3986 §6.2.2, case, port and percent-encoding normalized.
+    let (status, _, body) = post(registration(vec![
+        (
+            "app_launch_uri",
+            String::from("HTTPS://App.Example.ORG:443/%6Caunch"),
+        ),
+        ("appContext", String::from(APP_CONTEXT)),
+    ]))
+    .await;
+    assert_eq!(StatusCode::CREATED, status, "{body}");
+    let launch = body["launch"].as_str().expect("a launch value");
+    let context = server
+        .resolve(launch, "app", RESOURCE)
+        .await
+        .expect("redeemed for the app the URL names");
+    assert_eq!(
+        json!({"appContext": APP_CONTEXT}),
+        serde_json::to_value(&context).expect("JSON"),
+        "passed on unchanged"
+    );
+
+    let refusals = [
+        (
+            vec![
+                ("app_client_id", String::from("app")),
+                (
+                    "app_launch_uri",
+                    String::from("https://app.example.org/launch"),
+                ),
+            ],
+            "both",
+        ),
+        (Vec::new(), "neither"),
+        (
+            vec![(
+                "app_launch_uri",
+                String::from("https://unknown.example.org/launch"),
+            )],
+            "app_launch_uri",
+        ),
+        (
+            vec![
+                ("app_client_id", String::from("app")),
+                ("appContext", "x".repeat(8193)),
+            ],
+            "appContext",
+        ),
+    ];
+    for (app, named) in refusals {
+        let mut form: Vec<(&str, String)> = vec![
+            ("client_assertion_type", JWT_BEARER.to_owned()),
+            ("client_assertion", Server::assertion(&server.ehr, "ehr")),
+            ("resource", RESOURCE.to_owned()),
+        ];
+        form.extend(app);
+        let answer = post(form).await;
+        assert_eq!("invalid_request", refused(&answer), "{named}");
+        let description = answer.2["error_description"].as_str().unwrap_or_default();
+        assert!(
+            named == "both" || named == "neither" || description.contains(named),
+            "{named}: {description}"
+        );
+    }
     server.stop().await;
 }
