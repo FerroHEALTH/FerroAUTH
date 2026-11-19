@@ -18,6 +18,16 @@ and this project adheres to
   and the dark theme: the consent page of a clinician app and of a patient
   app, the patient picker, the management page and the three error pages.
   The README and the landing page show the consent page (#623).
+- `[ferrosmart.brand]` publishes the deployment's User Access Brands Bundle
+  at `GET {issuer}/brands` (SMART App Launch 2.2.0, User Access Brands and
+  Endpoints): a primary brand that references every FHIR endpoint, its
+  portals and its affiliated brands, as `application/fhir+json` with CORS
+  for any origin and a weak `ETag` an `If-None-Match` answers with `304`.
+  `Bundle.timestamp` is the last change to the contents and each resource's
+  `meta.lastUpdated` its own, which the store keeps across restarts and
+  replicas. The Bundle is held to the guide's
+  profiles with `ferrobridge-validator` over the package set
+  `scripts/vendor/fhir-packages.sh` fetches (#602).
 - The management page lists every app that holds a live `offline_access`
   or `online_access` grant of the person, remembered or not, says how long
   it stays connected, and withdraws it, as SMART App Launch 2.2.0, Best

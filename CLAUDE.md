@@ -197,7 +197,7 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   9068, 9700, 8707, 7638, 8705, 9449, 9470, 8259, 6454, 7636, 7009, 7521,
   7522, 8693 and 3986, OpenID Connect Discovery 1.0, Core 1.0, RP-Initiated
   Logout 1.0 and Back-Channel Logout 1.0, and for FerroSMART also RFC 6819, 7518, 7591, 8252, 9126,
-  9207, 9864 and 10070 and the OAuth 2.1 draft (cited beside the RFCs it
+  9207, 9864, 10070 and 9110 and the OAuth 2.1 draft (cited beside the RFCs it
   consolidates), the FAPI 2.0 Security Profile for a client grant held to it,
   and IHE IUA and Nuts RFC021 for federation tokens, as
   vendored under `docs/specs/`. Cite the section in every `// NOTE:`; never resolve a

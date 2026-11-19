@@ -88,6 +88,9 @@ thirtyfour.workspace = true
 rustix.workspace = true
 # The chromedriver process and its output.
 tokio = { workspace = true, features = ["process", "io-util"] }
+# The Brands Bundle held to the SMART App Launch 2.2.0 profiles (#602).
+ferrobridge-validator.workspace = true
+fhir-types.workspace = true
 
 [lints]
 workspace = true

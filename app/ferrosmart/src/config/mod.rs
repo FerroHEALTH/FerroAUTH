@@ -150,6 +150,10 @@ pub struct FerroSmartSection {
     /// `[ferrosmart.branding]`: the deployment's name and words on the
     /// pages, content and never code (13.15).
     pub branding: BrandingSection,
+    /// `[ferrosmart.brand]`: the User Access Brands Bundle the deployment
+    /// publishes; without it the server serves none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub brand: Option<crate::brands::BrandSection>,
     /// `[ferrosmart.audit]`: where every login and token is recorded.
     pub audit: AuditSection,
 }
@@ -250,6 +254,7 @@ impl Default for FerroSmartSection {
             upstream: None,
             role: Vec::new(),
             branding: BrandingSection::default(),
+            brand: None,
             audit: AuditSection::default(),
         }
     }

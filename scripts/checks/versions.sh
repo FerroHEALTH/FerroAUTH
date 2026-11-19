@@ -40,6 +40,11 @@
 #                        digest, the tree hashes to the digest it records,
 #                        and the script's --check finds every committed file
 #                        at its pin and no withheld or unpinned file.
+#   3g. FHIR packages    the Brands Bundle check's packages: each
+#                        PROVENANCE.md names its row's sha1 and sha256, a
+#                        fetched tarball is at its pin, and the closure of
+#                        the SMART package is complete
+#                        (scripts/vendor/fhir-packages.sh --check).
 #   4. the design        the pin table of docs/architecture.md names the
 #                        same SMART App Launch version as the matrix.
 #   4e. Inferno lane     the FerroBRIDGE image the lane runs is pinned by
@@ -309,6 +314,13 @@ for tree in "ehdsi-specifications:eHDSI specifications" "eu-law:EU legal acts" \
     fail "$dir/PROVENANCE.md is missing"
   fi
 done
+
+# ---- 3g. the FHIR packages of the Brands Bundle check ----------------------
+if checked="$(bash scripts/vendor/fhir-packages.sh --check 2>&1)"; then
+  ok "FHIR packages: ${checked##*: }"
+else
+  fail "FHIR packages: $checked"
+fi
 
 # ---- 4. the design ----------------------------------------------------------
 architecture="docs/architecture.md"
