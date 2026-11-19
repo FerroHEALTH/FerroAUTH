@@ -2589,6 +2589,8 @@ discovery and token shapes for the two SaaS providers.
   | a code issued | `110114` | `authorization-code` | `C` |
   | a consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
   | a consent withdrawn, with what it covered | `110113` | `110137`, `consent-withdrawn` | `D` |
+  | a code issued with no page, on the client's organisation approval (13.6 item 6) | `110113` | `110137`, `consent-organisation-approved` | `C` |
+  | an organisation approval withdrawn, with the grants issued on it | `110113` | `110137`, `organisation-approval-withdrawn` | `D` |
   | an access token revoked (RFC 7009) | `110113` | `token-revoked` | `D` |
   | a grant revoked by its refresh token (RFC 7009 §2.1) | `110113` | `grant-revoked` | `D` |
   | a refresh token rotated | `110114` | `refresh-rotated` | `E` |
@@ -2706,7 +2708,7 @@ document (13.8).
 | An invalid `client_id` or `redirect_uri` is shown to the user and never redirected | MUST NOT redirect | `rfc6749 §4.1.2.1`; `rfc9700 §4.11` | 3 |
 | `state` returned exactly as received | REQUIRED | `smart app-launch`, Obtain authorization code, Response; `rfc6749 §4.1.2` | 3 |
 | The code expires shortly after issue (FerroSMART: 60 seconds), is single-use, and a second valid use is denied and revokes what it issued | SHOULD; MUST deny, SHOULD revoke | `smart app-launch`, Response; `rfc6749 §4.1.2`; `oauth21 §4.1.3`, `§7.5.3` | 3 |
-| The decision to grant or deny is the server's, by local policy and optionally the user's input (FerroSMART asks the user every time, 13.6 item 6); a denial is an `access_denied` error response | SHALL | `smart app-launch`, Response; `rfc6749 §4.1.2.1` | 3 |
+| The decision to grant or deny is the server's, by local policy and optionally the user's input (FerroSMART asks the user every time, except a professional within an organisation approval of the client, 13.6 item 6); a denial is an `access_denied` error response | SHALL | `smart app-launch`, Response; `rfc6749 §4.1.2.1` | 3 |
 | The granted scope may differ from the request and is reported | MAY, SHALL report | `smart app-launch`, Obtain access token, Response; `rfc6749 §3.3` | 3 |
 | v1 scopes (`.read`, `.write`, `.*`) are processed as `.rs`, `.cud`, `.cruds`, and returned as v1 when granted as v1 | SHOULD | `smart scopes-and-launch-context`, Scopes for requesting FHIR Resources | 3 |
 | Undefined or out-of-order interactions may be ignored, replaced or refused | MAY | same | 3 |
@@ -3013,7 +3015,27 @@ specification governs.
    ceiling and the user's roles allow (item 5), then the consent page shows
    the remaining scopes and the user approves them, narrows them by
    unticking any, or denies (an `access_denied` error response, `rfc6749
-   §4.1.2.1`). No client skips the page. Backend Services has no user and
+   §4.1.2.1`). One exception, the owner's decision of 2026-11-19 (#643),
+   which replaces "no client skips the page" for this case: an
+   administrator of the controller may approve a client once for the whole
+   organisation, as the client's `organisation_approval` (the approved
+   scope set, who approved, when), in the registration path, stored in
+   PostgreSQL so every replica answers alike. The approval is per client,
+   never a global mode, and covers only `user/` scopes with the launch,
+   OpenID, refresh and extension scopes that go with them, each within the
+   ceiling. A professional whose request names no `patient/` scope, whose
+   `fhirUser` is no `Patient`, `RelatedPerson` or `Person`, and whose
+   offered scopes the approval covers in full gets a code with no page; the
+   granted scope stays the intersection of the request, the ceiling, the
+   roles and the approval, and the resource server's access policy still
+   decides every request. Anything more shows the page for the whole
+   request, as a request beyond a remembered consent does. Each skipped
+   page commits a `consent-organisation-approved` record naming the
+   approver and the time; the management page lists the app as approved by
+   the organisation, with no withdraw form. Clearing or changing the
+   approval in the configuration withdraws it at the next start: every
+   grant issued on it is revoked with its tokens, with an
+   `organisation-approval-withdrawn` record. Backend Services has no user and
    no consent step (`smart backend-services`, Scopes: "The client is
    pre-authorized by the server"). A consent is remembered only when the
    user ticks to remember it, for that client and that scope set; a request
@@ -3246,6 +3268,11 @@ kind = "confidential_symmetric"
 secret_hash_file = "/run/secrets/portal-secret.phc"   # the Argon2id PHC hash, at least m=19456,t=2,p=1
 redirect_uris = ["https://portal.example.org/callback"]
 grant_types = ["authorization_code", "refresh_token"]   # never client_credentials
+
+[ferrosmart.client.organisation_approval]     # optional: the organisation's own app, no consent page for its staff (13.6 item 6)
+scopes = ["openid", "fhirUser", "launch", "user/Observation.rs"]   # user/, launch, OpenID, refresh and __ scopes, within the ceiling
+approved_by = "J. de Vries, information security"   # the administrator, as the controller names them
+approved_at = "2026-11-19T09:00:00Z"          # RFC 3339; a change of any key is a new approval
 
 [ferrosmart.branding]                          # content, never code (13.15)
 name = "Example Hospital"                     # the name the pages carry

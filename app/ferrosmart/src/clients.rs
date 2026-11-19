@@ -136,10 +136,11 @@ impl Approval {
     }
 }
 
-/// Returns whether an organisation may approve `scope` for its
-/// professionals: a `user/` scope, or a launch, OpenID or refresh scope
+/// Returns whether an organisation may approve `scope` for its staff.
+///
+/// A `user/` scope may be approved, with a launch, OpenID or refresh scope
 /// that goes with one. A `patient/` scope, whose data the person decides
-/// on, and a `system/` scope, which no person holds, are not
+/// on, and a `system/` scope, which no person holds, may not
 /// (`docs/architecture.md` §13.6 item 6).
 #[must_use]
 pub fn approvable(scope: &str) -> bool {
@@ -449,7 +450,9 @@ fn resolve_approval(
     let approved_at = approval
         .approved_at
         .parse::<jiff::Timestamp>()
-        .map_err(|_unparsed| rule("the `organisation_approval`'s `approved_at` is no RFC 3339 instant"))?
+        .map_err(|_unparsed| {
+            rule("the `organisation_approval`'s `approved_at` is no RFC 3339 instant")
+        })?
         .as_second();
     Ok(Approval {
         scopes: approval.scopes.clone(),

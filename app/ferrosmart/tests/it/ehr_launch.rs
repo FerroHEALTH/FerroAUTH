@@ -511,7 +511,10 @@ async fn an_approved_app_s_ehr_launch_by_a_professional_skips_the_consent_page()
     let (status, headers, _) = smart.get(&callback, Some(&cookie)).await;
     assert_eq!(StatusCode::SEE_OTHER, status);
     let back = location(&headers);
-    assert!(back.as_str().starts_with(REDIRECT), "no consent page: {back}");
+    assert!(
+        back.as_str().starts_with(REDIRECT),
+        "no consent page: {back}"
+    );
     let code = param(&back, "code").expect("a code");
     let exchange = [
         ("grant_type", "authorization_code"),
@@ -524,6 +527,10 @@ async fn an_approved_app_s_ehr_launch_by_a_professional_skips_the_consent_page()
     assert_eq!(StatusCode::OK, status, "{body}");
     let body: Value = serde_json::from_str(&body).expect("JSON");
     assert_eq!(json!(scope), body["scope"]);
-    assert_eq!(json!("123"), body["patient"], "the launch context comes along");
+    assert_eq!(
+        json!("123"),
+        body["patient"],
+        "the launch context comes along"
+    );
     smart.stop().await;
 }
