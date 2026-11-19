@@ -106,3 +106,5 @@ mod token_answer;
 mod token_endpoint_shape;
 #[cfg(feature = "fetch")]
 mod upstream_body;
+#[cfg(feature = "fetch")]
+mod verdict;
