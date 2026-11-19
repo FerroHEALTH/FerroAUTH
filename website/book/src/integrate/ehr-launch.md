@@ -31,8 +31,10 @@ grant_types = ["client_credentials"]
 
 ## Way 1: register the launch
 
-On each launch, the EHR posts the context to `{issuer}/launch`,
-authenticated with the client assertion it would send to the token
+On each launch, the EHR posts the context to `{issuer}/launch`, the URL
+FerroSMART's `.well-known/smart-configuration` and RFC 8414 metadata name
+`launch_registration_endpoint` (a member of FerroSMART's own; SMART defines
+none), authenticated with the client assertion it would send to the token
 endpoint: `iss` and `sub` its `client_id`, `aud` FerroSMART's token URL or
 issuer, `exp` at most five minutes ahead, a fresh `jti`, signed `RS384` or
 `ES384`, `typ` `JWT`.
