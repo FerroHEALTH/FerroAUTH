@@ -43,6 +43,17 @@ pub fn admits(listed: &[String], scope: &str) -> bool {
         .any(|allowed| allowed == scope || *allowed == v2)
 }
 
+/// Returns whether `scope` is an extension scope.
+///
+/// SMART App Launch 2.2.0, Scopes and Launch Context, Extensibility: "any
+/// string starting with `__` (two underscores)". A person is granted one
+/// only when the client's ceiling and one of their roles list it
+/// (`docs/architecture.md` §13.6 item 5).
+#[must_use]
+pub fn is_extension(scope: &str) -> bool {
+    scope.len() > 2 && scope.starts_with("__")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{admits, v2_form};
