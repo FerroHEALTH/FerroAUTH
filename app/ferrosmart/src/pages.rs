@@ -164,7 +164,14 @@ pub fn no_scope(state: &AppState, client: &Client, roles: &[&str], back: &str) -
         },
     );
     let page = Html::join([brand_lockup(state, &locale), page]);
-    respond(state, StatusCode::FORBIDDEN, &locale, title, page, &[])
+    respond(
+        state,
+        StatusCode::FORBIDDEN,
+        &locale,
+        title,
+        page,
+        Sources::default(),
+    )
 }
 
 /// Logs `error` with its whole chain and returns the server's fault page.
