@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+# FerroSMART in the third-party lane (#598, scripts/idp/third-party-fhir.sh):
+# the authorization server of a FHIR server that is no FerroHEALTH product,
+# behind a token validator that knows nothing of FerroHEALTH. The lane gives
+# the key files and the database with `--set`. No specification governs the
+# lane: our own design.
+
+[ferrosmart]
+issuer = "http://localhost:8080"
+# Short, so the lane can show the validator refusing a token past its `exp`
+# (RFC 9068 §4) without waiting minutes.
+access_token_lifetime = "10s"
+
+# The validator's listener, which is the base the FHIR server's clients name
+# and so the `aud` of its tokens (RFC 9068 §3).
+[[ferrosmart.resource]]
+base = "http://localhost:8090/fhir"
+kind = "fhir"
+
+# Another server, whose tokens the validator refuses.
+[[ferrosmart.resource]]
+base = "http://localhost:8099/fhir"
+kind = "fhir"
+
+[ferrosmart.upstream]
+issuer = "http://localhost:8180/realms/ferrosmart"
+client_id = "ferrosmart"
+scopes = ["openid"]
+fhir_user_claim = "fhir_user"
+role_claims = ["roles"]
+
+[ferrosmart.upstream.private_key_jwt]
+
+[ferrosmart.upstream.private_key_jwt.keys]
+private_key_file = "/run/secrets/upstream_assertion_key"
+
+[[ferrosmart.role]]
+name = "clinician"
+scopes = ["user/Patient.rs"]
+
+# The app of the person's standalone launch.
+[[ferrosmart.client]]
+client_id = "example-app"
+name = "Example SMART app"
+kind = "public"
+redirect_uris = ["http://localhost:9000/callback"]
+scopes = ["openid", "fhirUser", "user/Patient.rs"]
+grant_types = ["authorization_code"]
+
+# The Backend Services client, which also reads what an introspecting
+# resource server would (docs/architecture.md §13.6 item 8).
+[[ferrosmart.client]]
+client_id = "third-party-lane"
+name = "The third-party lane"
+kind = "confidential_asymmetric"
+scopes = ["system/Patient.rs", "system/introspect"]
+grant_types = ["client_credentials"]
