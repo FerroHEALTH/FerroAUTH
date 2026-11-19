@@ -43,18 +43,46 @@ On the branch `release/<tag>`:
    crates.io page, and any `cargo add <crate>@=` line of the repository
    `README.md` to the new version. The install lines move here and in no
    earlier pull request, since they name a version a product can install.
-3. **Cut the changelog.** Rename `## [Unreleased]` to
-   `## [X.Y.Z] - YYYY-MM-DD` and open a fresh, empty `## [Unreleased]` above
-   it. When a pending `## [X.Y.Z] - Unreleased` section stands, move any
-   entries of `[Unreleased]` into it and replace its `Unreleased` with the
-   date instead. The date is the day of the cut: the release notes count
-   the support period from it, and the plan refuses a heading without one.
-   Refresh the link references at the foot: `[Unreleased]`
-   compares from the new tag, and `[X.Y.Z]` compares the previous tag with
-   it. Read the section as the release notes, and reread the reason of a
-   Security section (§ Security entries).
+3. **Cut the changelog.** Run
+   `scripts/release/changelog.sh --assemble <crate> X.Y.Z YYYY-MM-DD`
+   (`<crate>` is `ferrosmart` for the server). It writes
+   `## [X.Y.Z] - YYYY-MM-DD` under a fresh, empty `## [Unreleased]` from the
+   fragments under `changelog.d/<crate>/` and the entries of a pending
+   `## [X.Y.Z] - Unreleased` section, in the Keep a Changelog order, moves
+   the `[Unreleased]` link to compare from the new tag, adds the `[X.Y.Z]`
+   link from the previous tag, and `git rm`s the fragments
+   (`changelog.d/README.md`). The date is the day of the cut: the release
+   notes count the support period from it, and the plan refuses a heading
+   without one. Write the release summary under the heading where one
+   helps, read the section as the release notes, and reread the reason of
+   a Security section (§ Security entries).
 4. **The gates pass.** The crate-version guard checks that the version, the
    lock and the changelog section agree.
+
+## Changelog fragments
+
+A pull request never edits `[Unreleased]` or a pending section: it adds a
+fragment, `changelog.d/<crate>/<issue>-<kebab-slug>.<section>.md`, so two
+open pull requests never conflict on a changelog (`changelog.d/README.md`).
+No specification governs the fragments: our own design, the one the
+FerroHEALTH products share. CI checks every fragment, runs the structure and
+Security checks over each changelog with its fragments folded in, asks a
+change to a user-visible surface for a fragment (`no-changelog` waives it),
+and refuses a change that writes under `[Unreleased]` or a pending section.
+The one changelog edit a pull request makes is the release cut (step 3) or
+the heading of a pending section (§ When the version moves).
+
+### The release window
+
+From the merge of a release pull request until its tag is pushed,
+`scripts/checks/release-window.sh` refuses a tree that holds a fragment of
+that crate: the tag goes on the release pull request's merge commit, and a
+fragment there would describe a change the notes leave out, which the plan
+refuses. A pull request with a fragment of that crate waits for the tag;
+fragments of the other crates pass. A release pull request whose merge group
+carries a fragment of its crate that landed after the cut merges `main` in,
+moves that entry into the dated section and deletes the fragment. Push the
+tag soon after the merge, so the window stays short.
 
 ## When the version moves
 
@@ -62,9 +90,9 @@ A version moves in the pull request that first needs it. The first change
 after a release that breaks a public API moves the minor version (`0.x.y`
 to `0.(x+1).0`) in its own pull request, because
 `scripts/checks/semver.sh` refuses the break otherwise, and opens the
-pending section `## [X.Y.Z] - Unreleased` under an empty `## [Unreleased]`.
-Later pull requests add their entries to that section, and the release pull
-request dates it (step 3). Every other release moves its version in the
+pending section `## [X.Y.Z] - Unreleased` under an empty `## [Unreleased]`,
+with no entry: its own entry and every later one are fragments, and the
+release pull request assembles and dates it (step 3). Every other release moves its version in the
 release pull request. `scripts/checks/crate-version-guard.sh` requires a
 section for the manifest version and reads a pending one and a dated one
 alike, and refuses a section a pull request dates or adds with a date
@@ -77,7 +105,8 @@ plan refuses a section whose heading carries no date.
 
 Two rules of Regulation (EU) 2024/2847 hold every Security section, and
 `scripts/checks/changelog-security.sh` checks both: CI runs it on every pull
-request over `[Unreleased]` and a pending section, and the release `plan`
+request over `[Unreleased]` and a pending section with the fragments folded
+in (`scripts/release/changelog.sh --check-preview`), and the release `plan`
 job over the section it cuts (`scripts/release/plan.sh`). A section
 released before the rules is never checked again.
 
@@ -146,6 +175,7 @@ tracker, and the pinned `cargo-semver-checks` installed
 | The crate's version names the tag's version | `plan.sh` |
 | The crate's public API breaks nothing its version does not allow, against its newest version on crates.io (`cargo-semver-checks` at the version `docs/VERSIONS.md` pins) | `scripts/checks/semver.sh` |
 | Every section of the changelog holds Keep a Changelog types, each once | `scripts/checks/changelog-structure.sh` |
+| No fragment of the crate is left under `changelog.d/<crate>/` | `plan.sh` |
 | `[Unreleased]` compares from the tag, and the cut version has its link | `plan.sh` |
 | The section being cut opens its `### Security` with the reason when it sits beside other changes, and every Security entry names a GHSA id or an existing `security/vex/` path | `scripts/checks/changelog-security.sh --section X.Y.Z` |
 | The crate README and the repository README each have an install line of the crate, and every one pins the version being released | `plan.sh` |
