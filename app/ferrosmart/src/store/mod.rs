@@ -14,6 +14,7 @@ pub mod consent;
 pub mod grant;
 pub mod launch;
 
+use std::collections::BTreeMap;
 use std::time::Duration;
 
 use secrecy::ExposeSecret as _;
@@ -223,29 +224,50 @@ impl Store {
         Ok(())
     }
 
-    /// Records that the Brands Bundle's contents hash to `digest` and
-    /// returns when they last changed, in milliseconds since the epoch: now
-    /// when the digest differs from the one stored, the stored instant
-    /// otherwise, so every replica serving the same contents names the same
-    /// instant.
+    /// Records the `digests` of the Brands Bundle, one for its contents and
+    /// one per resource, and returns when each last changed, in milliseconds
+    /// since the epoch: now where a digest differs from the one stored or is
+    /// new, the stored instant otherwise, so every replica serving the same
+    /// contents names the same instants. A resource `digests` no longer
+    /// names is forgotten.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when a statement fails.
-    pub async fn brands_changed(&self, digest: &str) -> Result<i64, StoreError> {
+    pub async fn brands_changed(
+        &self,
+        digests: &BTreeMap<String, String>,
+    ) -> Result<BTreeMap<String, i64>, StoreError> {
+        let resources: Vec<&str> = digests.keys().map(String::as_str).collect();
+        let values: Vec<&str> = digests.values().map(String::as_str).collect();
+        let mut tx = self.pool.begin().await?;
+        // NOTE: no specification governs this: our own design, one lock so two
+        // replicas starting together record one instant between them.
+        sqlx::query("LOCK TABLE brand_bundle IN SHARE ROW EXCLUSIVE MODE")
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM brand_bundle WHERE resource <> ALL($1)")
+            .bind(&resources)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
-            "INSERT INTO brand_bundle (singleton, digest, changed_at) VALUES (true, $1, now()) \
-             ON CONFLICT (singleton) DO UPDATE SET digest = EXCLUDED.digest, \
+            "INSERT INTO brand_bundle (resource, digest, changed_at) \
+             SELECT resource, digest, now() \
+             FROM unnest($1::text[], $2::text[]) AS given (resource, digest) \
+             ON CONFLICT (resource) DO UPDATE SET digest = EXCLUDED.digest, \
              changed_at = EXCLUDED.changed_at WHERE brand_bundle.digest <> EXCLUDED.digest",
         )
-        .bind(digest)
-        .execute(&self.pool)
+        .bind(&resources)
+        .bind(&values)
+        .execute(&mut *tx)
         .await?;
-        let changed: i64 = sqlx::query_scalar(
-            "SELECT floor(extract(epoch FROM changed_at) * 1000)::bigint FROM brand_bundle",
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT resource, floor(extract(epoch FROM changed_at) * 1000)::bigint \
+             FROM brand_bundle",
         )
-        .fetch_one(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
-        Ok(changed)
+        tx.commit().await?;
+        Ok(rows.into_iter().collect())
     }
 }
 

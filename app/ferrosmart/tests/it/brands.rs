@@ -15,7 +15,7 @@ use axum::body::Body;
 use ferrobridge_validator::release::R4;
 use ferrobridge_validator::set::PackageSet;
 use ferrobridge_validator::validate::Validator;
-use ferrosmart::brands::{Brands, Published};
+use ferrosmart::brands::{BUNDLE, Brands, Changed, Published};
 use ferrosmart::config::error::Error;
 use ferrosmart::server::{AppState, router};
 use ferrosmart::store::Store;
@@ -136,6 +136,22 @@ fn findings(validator: &Validator<'_, R4>, bundle: &Value) -> Vec<String> {
     found
 }
 
+/// Returns `brands` with every resource last changed at [`CHANGED`].
+fn changed(brands: &Brands) -> Changed {
+    let instants = brands
+        .digests()
+        .into_keys()
+        .map(|resource| (resource, CHANGED.to_owned()))
+        .collect();
+    Changed::new(brands, &instants).expect("every resource has its instant")
+}
+
+/// Returns the Bundle of `brands`, every resource last changed at
+/// [`CHANGED`].
+fn bundle(brands: &Brands) -> Value {
+    brands.bundle(&changed(brands))
+}
+
 /// Returns the Brands of the deployment `text` configures.
 fn brands(text: &str) -> Result<Option<Brands>, Box<Error>> {
     let keys = Keys::new();
@@ -172,7 +188,7 @@ fn the_bundle_built_from_configuration_holds_to_the_smart_profiles() {
     let set = package_set();
     let validator = Validator::new(&set);
     let brands = brands(BRAND).expect("resolves").expect("a brand");
-    let bundle = brands.bundle(CHANGED);
+    let bundle = bundle(&brands);
     assert_eq!(Vec::<String>::new(), findings(&validator, &bundle));
 }
 
@@ -180,10 +196,7 @@ fn the_bundle_built_from_configuration_holds_to_the_smart_profiles() {
 fn the_primary_brand_references_every_endpoint_and_the_affiliate_is_part_of_it() {
     // NOTE: SMART App Launch 2.2.0, Brands, Conformance Overview: a primary brand
     // SHALL reference each FHIR endpoint; the hierarchy is a SHOULD.
-    let bundle = brands(BRAND)
-        .expect("resolves")
-        .expect("a brand")
-        .bundle(CHANGED);
+    let bundle = bundle(&brands(BRAND).expect("resolves").expect("a brand"));
     assert_eq!(json!("collection"), bundle["type"]);
     assert_eq!(json!(CHANGED), bundle["timestamp"]);
     assert_eq!(json!(CHANGED), bundle["meta"]["lastUpdated"]);
@@ -260,12 +273,10 @@ contact = ["https://dev-portal.labs.example.com"]
         logo("eee"),
         logo("666")
     );
-    let written = brands(&lab)
-        .expect("resolves")
-        .expect("a brand")
-        .bundle(CHANGED);
-    // The example's ids, its narrative-free resources and the display of a
-    // reference are the publisher's; the rest is what the configuration wrote.
+    let written = bundle(&brands(&lab).expect("resolves").expect("a brand"));
+    // The example's ids, its narrative-free resources, the display of a
+    // reference and each resource's own last change are the publisher's; the
+    // rest is what the configuration wrote.
     let normalise = |value: &Value| {
         let text = value
             .to_string()
@@ -274,6 +285,7 @@ contact = ["https://dev-portal.labs.example.com"]
         without_display(&mut resource);
         if let Some(members) = resource.as_object_mut() {
             members.remove("id");
+            members.remove("meta");
         }
         resource
     };
@@ -407,7 +419,7 @@ async fn get_brands(
     let audit = audit(&settings);
     let mut state = AppState::new(settings, store, audit);
     if let Some(brands) = brands {
-        state = state.with_brands(Published::new(brands, CHANGED));
+        state = state.with_brands(Published::new(brands, &changed(brands)));
     }
     let mut request = Request::get("/brands");
     if let Some(tag) = matching {
@@ -459,7 +471,7 @@ async fn the_bundle_is_served_as_fhir_json_to_any_origin_with_a_weak_etag() {
     let etag = header_text(&headers, &header::ETAG).expect("an ETag");
     assert!(etag.starts_with("W/\""), "{etag}");
     let bundle: Value = serde_json::from_str(&body).expect("JSON");
-    assert_eq!(brands.bundle(CHANGED), bundle);
+    assert_eq!(self::bundle(&brands), bundle);
 }
 
 #[tokio::test]
@@ -489,30 +501,127 @@ async fn without_a_brand_the_route_is_absent() {
 }
 
 #[tokio::test]
-async fn the_last_change_moves_only_when_the_contents_change() {
+async fn the_last_change_moves_only_for_what_changed() {
     // NOTE: SMART App Launch 2.2.0, Brands, Conformance Overview: Bundle.timestamp is
-    // the timestamp of the last change to the contents, whatever restarts between.
+    // the last change to the contents, whatever restarts between, and a resource's
+    // meta.lastUpdated the more detailed one of a system tracking updates per resource.
     let database = Database::create().await;
     let store = Store::connect(&database.url, 2).await.expect("connects");
-    let first = store.brands_changed("digest-1").await.expect("recorded");
-    let again = store.brands_changed("digest-1").await.expect("recorded");
-    assert_eq!(first, again, "the same contents keep their instant");
+    let record = |brands: Brands| {
+        let store = store.clone();
+        async move {
+            let digests = brands.digests();
+            store.brands_changed(&digests).await.expect("recorded")
+        }
+    };
+    let first = record(brands(BRAND).expect("resolves").expect("a brand")).await;
+    assert_eq!(
+        vec![
+            BUNDLE,
+            "Endpoint/endpoint-1",
+            "Endpoint/endpoint-2",
+            "Organization/affiliate-1",
+            "Organization/brand",
+        ],
+        first.keys().map(String::as_str).collect::<Vec<_>>()
+    );
+    let again = record(brands(BRAND).expect("resolves").expect("a brand")).await;
+    assert_eq!(first, again, "the same contents keep their instants");
     tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-    let changed = store.brands_changed("digest-2").await.expect("recorded");
+    let renamed = BRAND.replace(
+        "Example Children's Clinic\"",
+        "Example Children's Practice\"",
+    );
+    assert_ne!(BRAND, renamed, "the affiliate is renamed");
+    let second = record(brands(&renamed).expect("resolves").expect("a brand")).await;
+    for (resource, moved) in [
+        (BUNDLE, true),
+        ("Organization/affiliate-1", true),
+        ("Organization/brand", false),
+        ("Endpoint/endpoint-1", false),
+        ("Endpoint/endpoint-2", false),
+    ] {
+        assert_eq!(moved, second[resource] > first[resource], "{resource}");
+    }
+    assert_eq!(second[BUNDLE], second["Organization/affiliate-1"]);
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let without = renamed
+        .split("[[ferrosmart.brand.affiliate]]")
+        .next()
+        .expect("the text before the affiliate")
+        .to_owned();
+    let third = record(brands(&without).expect("resolves").expect("a brand")).await;
     assert!(
-        changed > first,
-        "new contents move it: {first} then {changed}"
+        !third.contains_key("Organization/affiliate-1"),
+        "a removed resource is forgotten"
+    );
+    assert!(
+        third[BUNDLE] > second[BUNDLE],
+        "a removal changes the contents"
+    );
+    assert_eq!(first["Endpoint/endpoint-1"], third["Endpoint/endpoint-1"]);
+    database.drop(store).await;
+}
+
+#[tokio::test]
+async fn each_resource_is_served_with_its_own_last_change() {
+    let database = Database::create().await;
+    let store = Store::connect(&database.url, 2).await.expect("connects");
+    let before = brands(BRAND).expect("resolves").expect("a brand");
+    ferrosmart::brands::publish(&before, &store)
+        .await
+        .expect("published");
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let renamed = BRAND.replace(
+        "Example Children's Clinic\"",
+        "Example Children's Practice\"",
+    );
+    let after = brands(&renamed).expect("resolves").expect("a brand");
+    let published = ferrosmart::brands::publish(&after, &store)
+        .await
+        .expect("published");
+    let bundle: Value = serde_json::from_str(published.body()).expect("JSON");
+    let last = |index: usize| {
+        bundle["entry"][index]["resource"]["meta"]["lastUpdated"]
+            .as_str()
+            .expect("an instant")
+            .parse::<jiff::Timestamp>()
+            .expect("an RFC 3339 instant")
+    };
+    assert_eq!(
+        json!("Organization"),
+        bundle["entry"][1]["resource"]["resourceType"]
+    );
+    assert!(last(1) > last(0), "the affiliate changed after the brand");
+    assert_eq!(
+        bundle["timestamp"],
+        bundle["entry"][1]["resource"]["meta"]["lastUpdated"]
+    );
+    assert_eq!(bundle["timestamp"], bundle["meta"]["lastUpdated"]);
+    let set = package_set();
+    assert_eq!(
+        Vec::<String>::new(),
+        findings(&Validator::new(&set), &bundle)
     );
     database.drop(store).await;
 }
 
 #[test]
-fn the_digest_follows_the_contents() {
+fn the_digests_follow_the_contents() {
     let one = brands(BRAND).expect("resolves").expect("a brand");
     let same = brands(BRAND).expect("resolves").expect("a brand");
     let other = brands(&BRAND.replace("Example Health\"", "Example Care\""))
         .expect("resolves")
         .expect("a brand");
-    assert_eq!(one.digest(), same.digest());
-    assert_ne!(one.digest(), other.digest());
+    assert_eq!(one.digests(), same.digests());
+    assert_ne!(one.digests()[BUNDLE], other.digests()[BUNDLE]);
+    assert_ne!(
+        one.digests()["Organization/brand"],
+        other.digests()["Organization/brand"]
+    );
+    assert_eq!(
+        one.digests()["Endpoint/endpoint-2"],
+        other.digests()["Endpoint/endpoint-2"],
+        "an endpoint the change leaves alone"
+    );
 }

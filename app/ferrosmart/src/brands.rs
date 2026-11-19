@@ -14,7 +14,7 @@
 //! Which URL each resource server names in its own
 //! `user_access_brand_bundle` is that server's choice.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use axum::extract::State;
 use axum::response::{IntoResponse, Response};
@@ -248,42 +248,97 @@ impl Brands {
         })
     }
 
-    /// Returns the Bundle with `timestamp`, the instant of the last change
-    /// to its contents, as `Bundle.timestamp` and `Bundle.meta.lastUpdated`.
+    /// Returns the Bundle with `changed`: `Bundle.timestamp` and
+    /// `Bundle.meta.lastUpdated` carry the last change to the contents, and
+    /// each resource's `meta.lastUpdated` its own.
     #[must_use]
-    pub fn bundle(&self, timestamp: &str) -> Value {
+    pub fn bundle(&self, changed: &Changed) -> Value {
         let entries: Vec<Value> = self
             .entries
             .iter()
-            .map(|resource| {
-                let kind = resource
-                    .get("resourceType")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                let id = resource
-                    .get("id")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default();
-                json!({ "fullUrl": format!("{}/{kind}/{id}", self.root), "resource": resource })
+            .zip(&changed.resources)
+            .map(|(resource, instant)| {
+                let mut resource = resource.clone();
+                // NOTE: SMART App Launch 2.2.0, Brands, Conformance Overview: SHOULD populate
+                // Bundle.entry.resource.meta.lastUpdated when updates are tracked per resource.
+                if let Some(members) = resource.as_object_mut() {
+                    members.insert(String::from("meta"), json!({ "lastUpdated": instant }));
+                }
+                json!({ "fullUrl": format!("{}/{}", self.root, key(&resource)), "resource": resource })
             })
             .collect();
         // NOTE: SMART App Launch 2.2.0, Brands, Conformance Overview: the publisher SHALL
         // populate Bundle.timestamp; the Bundle profile requires meta.lastUpdated.
         json!({
             "resourceType": "Bundle",
-            "meta": { "lastUpdated": timestamp },
+            "meta": { "lastUpdated": changed.bundle },
             "type": "collection",
-            "timestamp": timestamp,
+            "timestamp": changed.bundle,
             "entry": entries,
         })
     }
 
-    /// Returns the digest of the contents, which moves when and only when
-    /// they change: the hex SHA-256 of the entries as JSON.
+    /// Returns the digest of the contents under [`BUNDLE`] and of each
+    /// resource under its `Type/id`, each the hex SHA-256 of its JSON, which
+    /// moves when and only when what it covers changes.
     #[must_use]
-    pub fn digest(&self) -> String {
-        let text = Value::Array(self.entries.clone()).to_string();
-        sha256_hex(text.as_bytes(), 32)
+    pub fn digests(&self) -> BTreeMap<String, String> {
+        let whole = Value::Array(self.entries.clone()).to_string();
+        let mut digests: BTreeMap<String, String> = self
+            .entries
+            .iter()
+            .map(|resource| {
+                (
+                    key(resource),
+                    sha256_hex(resource.to_string().as_bytes(), 32),
+                )
+            })
+            .collect();
+        digests.insert(BUNDLE.to_owned(), sha256_hex(whole.as_bytes(), 32));
+        digests
+    }
+}
+
+/// The key the contents as a whole are recorded under, beside the
+/// `Type/id` of each resource.
+pub const BUNDLE: &str = "Bundle";
+
+/// Returns the `Type/id` of `resource`.
+fn key(resource: &Value) -> String {
+    let member = |name: &str| {
+        resource
+            .get(name)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    };
+    format!("{}/{}", member("resourceType"), member("id"))
+}
+
+/// When a Brands Bundle's contents and each of its resources last changed,
+/// as FHIR instants.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Changed {
+    /// The last change to the contents.
+    bundle: String,
+    /// The last change to each resource, in the entries' order.
+    resources: Vec<String>,
+}
+
+impl Changed {
+    /// Returns the instants of `brands` from `instants`, which names one
+    /// under [`BUNDLE`] and one under each resource's `Type/id`, or `None`
+    /// when one is missing.
+    #[must_use]
+    pub fn new(brands: &Brands, instants: &BTreeMap<String, String>) -> Option<Self> {
+        let resources = brands
+            .entries
+            .iter()
+            .map(|resource| instants.get(&key(resource)).cloned())
+            .collect::<Option<Vec<String>>>()?;
+        Some(Self {
+            bundle: instants.get(BUNDLE)?.clone(),
+            resources,
+        })
     }
 }
 
@@ -297,10 +352,10 @@ pub struct Published {
 }
 
 impl Published {
-    /// Returns `brands` as served with `timestamp`.
+    /// Returns `brands` as served, last changed as `changed` records.
     #[must_use]
-    pub fn new(brands: &Brands, timestamp: &str) -> Self {
-        let body = brands.bundle(timestamp).to_string();
+    pub fn new(brands: &Brands, changed: &Changed) -> Self {
+        let body = brands.bundle(changed).to_string();
         // NOTE: no specification governs the tag's form: our own design, the first
         // half of the body's SHA-256, which moves with any change of the body.
         let tag = sha256_hex(body.as_bytes(), 16);
@@ -339,19 +394,23 @@ fn sha256_hex(input: &[u8], bytes: usize) -> String {
         })
 }
 
-/// Returns `brands` as served, with the instant of the last change to their
-/// contents the store records.
+/// Returns `brands` as served, with the instants the store records for the
+/// last change to their contents and to each resource.
 ///
 /// # Errors
-/// Returns [`StoreError`] when the store cannot record or read it.
+/// Returns [`StoreError`] when the store cannot record or read them.
 pub async fn publish(brands: &Brands, store: &Store) -> Result<Published, StoreError> {
-    let changed = store.brands_changed(&brands.digest()).await?;
-    let timestamp = jiff::Timestamp::from_millisecond(changed).map_err(|_out_of_range| {
-        StoreError::Corrupt {
-            client_id: String::from("brand_bundle"),
-        }
-    })?;
-    Ok(Published::new(brands, &timestamp.to_string()))
+    let corrupt = || StoreError::Corrupt {
+        client_id: String::from("brand_bundle"),
+    };
+    let mut instants = BTreeMap::new();
+    for (resource, millisecond) in store.brands_changed(&brands.digests()).await? {
+        let instant =
+            jiff::Timestamp::from_millisecond(millisecond).map_err(|_out_of_range| corrupt())?;
+        instants.insert(resource, instant.to_string());
+    }
+    let changed = Changed::new(brands, &instants).ok_or_else(corrupt)?;
+    Ok(Published::new(brands, &changed))
 }
 
 /// Checks the brand fields of `brand`, whose portals may offer the

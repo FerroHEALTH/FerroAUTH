@@ -19,8 +19,9 @@ and this project adheres to
   Endpoints): a primary brand that references every FHIR endpoint, its
   portals and its affiliated brands, as `application/fhir+json` with CORS
   for any origin and a weak `ETag` an `If-None-Match` answers with `304`.
-  `Bundle.timestamp` is the last change to the contents, which the store
-  keeps across restarts and replicas. The Bundle is held to the guide's
+  `Bundle.timestamp` is the last change to the contents and each resource's
+  `meta.lastUpdated` its own, which the store keeps across restarts and
+  replicas. The Bundle is held to the guide's
   profiles with `ferrobridge-validator` over the package set
   `scripts/vendor/fhir-packages.sh` fetches (#602).
 - The management page lists every app that holds a live `offline_access`

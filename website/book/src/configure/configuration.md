@@ -161,9 +161,11 @@ The table is the primary brand. Every FHIR server it publishes is a
 | `[[ferrosmart.brand.endpoint]]` | A FHIR server of the Bundle: `base`, one of the FHIR `[[ferrosmart.resource]]` bases; `name`; `fhir_version`, such as `["4.0.1"]`, at least one; and `contact`, at least one `https` page where developers configure access |
 | `[[ferrosmart.brand.affiliate]]` | An affiliated brand, part of the primary one, with the same keys but `endpoint` and `affiliate`, and portals of its own |
 
-`Bundle.timestamp` is the moment the contents last changed: FerroSMART
-keeps the contents' digest in its database, so a restart with the same
-table keeps the moment and every replica serves the same Bundle. Each FHIR
+`Bundle.timestamp` is the moment the contents last changed, and each
+resource's `meta.lastUpdated` the moment that brand or endpoint last
+changed: FerroSMART keeps a digest of the contents and of each resource in
+its database, so a restart with the same table keeps every moment and every
+replica serves the same Bundle. Each FHIR
 server names the Bundle in its own `.well-known/smart-configuration` as
 `user_access_brand_bundle`, with one of the brand's identifiers as
 `user_access_brand_identifier` when the Bundle holds more than one brand.
