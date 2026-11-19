@@ -250,6 +250,7 @@ pub(super) async fn approve(
             Basis::Organisation(approval) => Some(approval.approved_at),
             Basis::Person { .. } | Basis::Remembered => None,
         },
+        roles: pending.roles.clone(),
     };
     if let Err(error) = issue_code(state, &hash, &grant, basis, from).await {
         tracing::error!(error = %ferrohealth_server::run::chain(&error), "the code could not be stored");

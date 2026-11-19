@@ -93,6 +93,7 @@ async fn the_sweep_deletes_lapsed_refresh_tokens_and_keeps_a_fresh_grant() {
             access: Some(Access::Offline),
             upstream_session: None,
             approved_at: None,
+            roles: &[],
         })
         .await
         .expect("recorded");

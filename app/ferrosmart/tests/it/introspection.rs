@@ -278,6 +278,7 @@ impl Server {
                 access,
                 upstream_session: session,
                 approved_at: None,
+                roles: &[],
             })
             .await
             .expect("recorded");
@@ -516,6 +517,49 @@ async fn an_online_refresh_token_ends_with_its_upstream_session() {
     commit(tx).await;
     // NOTE: docs/architecture.md §13.6 item 7, online_access ends with the upstream login.
     assert_eq!(inactive(), server.introspect(&refresh).await);
+    server.stop().await;
+}
+
+// NOTE: RFC 9068 §2.2.3.1, roles are a person's; a Backend Services token has none.
+#[tokio::test]
+async fn a_backend_services_token_carries_no_roles() {
+    let server = Server::start().await;
+    let token = server.token("export", "system/Patient.rs", RESOURCE).await;
+    let claims: Value = jsonwebtoken::dangerous::insecure_decode_claims(&token).expect("claims");
+    assert_eq!(Value::Null, claims["roles"]);
+    assert_eq!(Value::Null, server.introspect(&token).await["roles"]);
+    server.stop().await;
+}
+
+// NOTE: RFC 9068 §2.2.3.1; the introspection answer carries what the JWT does.
+#[tokio::test]
+async fn a_person_s_token_answers_their_mapped_roles() {
+    let server = Server::start().await;
+    let id = unique();
+    let roles = [String::from("clinician"), String::from("emergency")];
+    server
+        .store
+        .create_grant(&NewGrant {
+            id: &id,
+            client_id: "portal",
+            subject: "alice",
+            fhir_user: Some("Practitioner/7"),
+            audience: RESOURCE,
+            scope: "openid user/Observation.rs",
+            context: &json!({}),
+            auth_time: Some(jiff::Timestamp::now().as_second()),
+            access: None,
+            upstream_session: None,
+            roles: &roles,
+            approved_at: None,
+        })
+        .await
+        .expect("recorded");
+    let token = server.access("portal", Some(&id), 300).await;
+    assert_eq!(
+        json!(["clinician", "emergency"]),
+        server.introspect(&token).await["roles"]
+    );
     server.stop().await;
 }
 

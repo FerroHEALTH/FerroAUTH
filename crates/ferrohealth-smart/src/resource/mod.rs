@@ -33,6 +33,7 @@ mod server;
 mod set;
 mod settings;
 mod token;
+mod verdict;
 
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -304,6 +305,8 @@ pub struct ResourceServer {
     resource_types: Option<ResourceTypes>,
     /// The product's values copied onto every caller this server admits.
     extensions: Extensions,
+    /// How many token signatures this server has checked.
+    signatures: std::sync::atomic::AtomicU64,
 }
 
 impl std::fmt::Debug for ResourceServer {

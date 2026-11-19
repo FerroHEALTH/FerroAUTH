@@ -9,6 +9,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 
 use http::Extensions;
 use url::Url;
@@ -96,6 +98,7 @@ impl ResourceServer {
             keys,
             resource_types: None,
             extensions: Extensions::new(),
+            signatures: AtomicU64::new(0),
         })
     }
 
@@ -241,6 +244,31 @@ impl ResourceServer {
         binding: &Binding,
     ) -> Result<Caller, Rejection> {
         token::validate(self, token, binding).await
+    }
+
+    /// Returns the cap, the entries and the estimated bytes of the verdicts
+    /// this server holds: per verified token its digest, its claims as JSON
+    /// and the key that verified it.
+    ///
+    /// A token's verdict is held until its `exp`, so the same token is
+    /// verified once; at most 10,000 verdicts in at most 16 MiB are held, a
+    /// full map dropping first the expired ones and then those that expire
+    /// soonest, and every one is dropped when the key set is read again and
+    /// has changed.
+    #[must_use]
+    pub fn cache_usage(&self) -> crate::usage::CacheUsage {
+        self.keys.verdicts().usage()
+    }
+
+    /// Counts one token signature checked.
+    pub(super) fn count_signature(&self) {
+        self.signatures.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Returns how many token signatures this server has checked.
+    #[cfg(test)]
+    pub(super) fn signatures(&self) -> u64 {
+        self.signatures.load(Ordering::Relaxed)
     }
 
     /// Returns the SMART discovery document of this resource server under

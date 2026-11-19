@@ -1161,10 +1161,14 @@ async fn the_management_page_lists_an_app_with_offline_access_and_withdraws_it()
     assert!(page.contains("No app keeps access to your data."), "{page}");
     smart.stop().await;
 }
-
 /// Starts FerroSMART whose app may refresh, and runs a launch asking for
 /// `access` (`offline_access` or `online_access`) to its token response.
 async fn launch_with(access: &str) -> (Smart, Value) {
+    launch_holding(access, &["clinician"]).await
+}
+
+/// Runs the launch of [`launch_with`] as a person holding `roles`.
+async fn launch_holding(access: &str, roles: &[&str]) -> (Smart, Value) {
     let smart = Smart::start_with(
         "[\"authorization_code\", \"refresh_token\"]",
         "[\"openid\", \"fhirUser\", \"user/Observation.rs\", \"offline_access\", \"online_access\"]",
@@ -1172,7 +1176,7 @@ async fn launch_with(access: &str) -> (Smart, Value) {
     )
     .await;
     let scope = format!("openid fhirUser user/Observation.rs {access}");
-    let (cookie, token) = to_consent_with(&smart, &["clinician"], &[("scope", &scope)]).await;
+    let (cookie, token) = to_consent_with(&smart, roles, &[("scope", &scope)]).await;
     let (status, headers, _) = smart
         .post(
             "/consent",
@@ -1215,6 +1219,33 @@ async fn refresh(smart: &Smart, token: &str) -> (StatusCode, Value) {
     ];
     let (status, _, body) = smart.post("/token", &form, None).await;
     (status, serde_json::from_str(&body).unwrap_or(Value::Null))
+}
+
+// NOTE: RFC 9068 §2.2.3.1, the roles attribute; the owner's decision on #649: the
+// roles FerroSMART maps, in a user flow, and through every refresh.
+#[tokio::test]
+async fn the_access_token_carries_the_person_s_mapped_roles_through_a_refresh() {
+    let (smart, body) = launch_holding("offline_access", &["reception", "clinician"]).await;
+    let roles = |body: &Value| -> Value {
+        let claims: Value = jsonwebtoken::dangerous::insecure_decode_claims(
+            body["access_token"].as_str().expect("a token"),
+        )
+        .expect("claims");
+        claims["roles"].clone()
+    };
+    assert_eq!(
+        json!(["clinician"]),
+        roles(&body),
+        "a role no [[ferrosmart.role]] names stays at the provider"
+    );
+    let (status, refreshed) = refresh(
+        &smart,
+        body["refresh_token"].as_str().expect("a refresh token"),
+    )
+    .await;
+    assert_eq!(StatusCode::OK, status, "{refreshed}");
+    assert_eq!(json!(["clinician"]), roles(&refreshed));
+    smart.stop().await;
 }
 
 #[tokio::test]

@@ -9,6 +9,11 @@
 //! (RFC 9068 §4); `exp`, `nbf` and `iat` hold within the clock skew
 //! (RFC 7519 §4.1.4, §4.1.5, §4.1.6). Every failure is the same
 //! [`Rejection::Invalid`] on the wire; its [`Reason`] reaches only the log.
+//!
+//! The verdict of a token that holds is kept until its `exp`
+//! ([`super::verdict`]), so the same token presented again is not verified
+//! again while the key that verified it is still in the issuer's set; its
+//! binding, its `iat` and its classification are checked on every request.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -38,6 +43,8 @@ use crate::resource::Caller;
 use crate::resource::Rejection;
 use crate::resource::ResourceServer;
 use crate::resource::ResourceTypes;
+use crate::resource::verdict;
+use crate::resource::verdict::Verified;
 use crate::scope::Scopes;
 use crate::sender::Binding;
 
@@ -45,6 +52,53 @@ use crate::sender::Binding;
 pub(super) async fn validate(
     server: &ResourceServer,
     token: &str,
+    binding: &Binding,
+) -> Result<Caller, Rejection> {
+    let key = verdict::digest(token);
+    if let Some(outcome) = held(server, &key, binding).await {
+        return outcome;
+    }
+    verify(server, token, key, binding).await
+}
+
+/// Returns the caller of the token whose digest is `key` from its held
+/// verdict, or `None` when `server` holds no verdict for it that still
+/// stands.
+///
+/// The key that verified the token is looked up in the set as a fresh
+/// check would, so a set past its maximum age is read again and a key it
+/// no longer publishes refuses the token as [`Reason::UnknownKey`].
+pub(super) async fn held(
+    server: &ResourceServer,
+    key: &[u8; 32],
+    binding: &Binding,
+) -> Option<Result<Caller, Rejection>> {
+    let verified = server
+        .keys
+        .verdicts()
+        .get(key, jiff::Timestamp::now().as_second())?;
+    match server
+        .keys
+        .holds(verified.kid.as_deref(), verified.alg)
+        .await
+    {
+        Err(source) => Some(Err(Rejection::Unavailable {
+            source: Arc::new(source),
+        })),
+        Ok(None) => Some(Err(invalid(Reason::UnknownKey))),
+        Ok(Some(generation)) if generation == verified.generation => {
+            Some(finish(server, verified.claims.clone(), binding).await)
+        }
+        Ok(Some(_)) => None,
+    }
+}
+
+/// Returns the caller `token`, whose digest is `key`, authenticates under
+/// `server`, its signature, header and claims checked.
+pub(super) async fn verify(
+    server: &ResourceServer,
+    token: &str,
+    key: [u8; 32],
     binding: &Binding,
 ) -> Result<Caller, Rejection> {
     let settings = server.settings();
@@ -58,7 +112,7 @@ pub(super) async fn validate(
     if !settings.profile.accepts_type(header.typ.as_deref()) {
         return Err(invalid(Reason::Type));
     }
-    let key = server
+    let (decoding, generation) = server
         .keys
         .find(header.kid.as_deref(), header.alg)
         .await
@@ -72,7 +126,8 @@ pub(super) async fn validate(
     validation.set_required_spec_claims(&["exp", "iss", "aud", "sub"]);
     validation.validate_nbf = true;
     validation.leeway = settings.clock_skew.as_secs();
-    let data = jsonwebtoken::decode::<Map<String, Value>>(token, &key, &validation)
+    server.count_signature();
+    let data = jsonwebtoken::decode::<Map<String, Value>>(token, &decoding, &validation)
         .map_err(|error| invalid(reason(error.kind())))?;
     let claims = data.claims;
     if settings
@@ -83,6 +138,31 @@ pub(super) async fn validate(
     {
         return Err(invalid(Reason::MissingClaim));
     }
+    if let Some(exp) = claims.get("exp").and_then(Value::as_i64) {
+        server.keys.verdicts().hold(
+            key,
+            Verified {
+                claims: claims.clone(),
+                alg: header.alg,
+                kid: header.kid,
+                generation,
+            },
+            exp,
+            jiff::Timestamp::now().as_second(),
+        );
+    }
+    finish(server, claims, binding).await
+}
+
+/// Returns the caller the verified `claims` describe under `server`, the
+/// steps that run on every request: the binding to what `binding` proves,
+/// the subject and the admission.
+async fn finish(
+    server: &ResourceServer,
+    claims: Map<String, Value>,
+    binding: &Binding,
+) -> Result<Caller, Rejection> {
+    let settings = server.settings();
     crate::sender::confirm(settings.sender_constraint, &claims, binding)
         .map_err(|check| invalid(Reason::Sender(check)))?;
     let subject = text(&claims, "sub").ok_or_else(|| invalid(Reason::Subject))?;
@@ -303,5 +383,133 @@ const fn reason(kind: &ErrorKind) -> Reason {
         ErrorKind::MissingRequiredClaim(_) => Reason::MissingClaim,
         ErrorKind::InvalidAlgorithm => Reason::Algorithm,
         _ => Reason::Malformed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use aws_lc_rs::rand::SystemRandom;
+    use aws_lc_rs::signature::ECDSA_P256_SHA256_FIXED_SIGNING;
+    use aws_lc_rs::signature::EcdsaKeyPair;
+    use jsonwebtoken::Algorithm;
+    use jsonwebtoken::EncodingKey;
+    use jsonwebtoken::Header;
+    use jsonwebtoken::jwk::Jwk;
+
+    use crate::kind::IssuerKind;
+    use crate::resource::ResourceServer;
+    use crate::resource::Settings;
+
+    const ISSUER: &str = "https://issuer.example";
+    const AUDIENCE: &str = "https://ehr.example";
+
+    /// A signing key generated for the case, with its public JWK.
+    struct Key {
+        kid: &'static str,
+        encoding: EncodingKey,
+        jwk: serde_json::Value,
+    }
+
+    fn key(kid: &'static str) -> Key {
+        let pkcs8 =
+            EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &SystemRandom::new())
+                .expect("a key pair");
+        let encoding = EncodingKey::from_ec_der(pkcs8.as_ref());
+        let mut jwk = serde_json::to_value(
+            Jwk::from_encoding_key(&encoding, Algorithm::ES256).expect("a public JWK"),
+        )
+        .expect("the JWK serializes");
+        if let Some(members) = jwk.as_object_mut() {
+            members.insert(String::from("kid"), serde_json::json!(kid));
+        }
+        Key { kid, encoding, jwk }
+    }
+
+    fn publish(path: &std::path::Path, keys: &[&Key]) {
+        let set: Vec<_> = keys.iter().map(|key| key.jwk.clone()).collect();
+        std::fs::write(path, serde_json::json!({ "keys": set }).to_string())
+            .expect("the key set file is written");
+    }
+
+    fn mint(key: &Key, jti: &str) -> String {
+        let now = jiff::Timestamp::now().as_second();
+        let mut header = Header::new(Algorithm::ES256);
+        header.kid = Some(key.kid.to_owned());
+        header.typ = Some(String::from("at+jwt"));
+        let claims = serde_json::json!({
+            "iss": ISSUER,
+            "aud": AUDIENCE,
+            "sub": "synthetic-sub",
+            "client_id": "synthetic-client",
+            "iat": now,
+            "exp": now + 300,
+            "jti": jti,
+            "scope": "user/Observation.rs"
+        });
+        jsonwebtoken::encode(&header, &claims, &key.encoding).expect("the token signs")
+    }
+
+    async fn server(path: &std::path::Path, max_age: Duration) -> ResourceServer {
+        let mut settings = Settings::new(ISSUER, AUDIENCE, IssuerKind::Persons);
+        settings.profile.first_party_clients = vec![String::from("synthetic-client")];
+        settings.jwks_file = Some(path.to_owned());
+        settings.jwks_max_age = max_age;
+        settings.jwks_refresh_interval = Duration::from_secs(3600);
+        ResourceServer::discover(settings)
+            .await
+            .expect("the key set file is read")
+    }
+
+    #[tokio::test]
+    async fn a_token_presented_again_is_not_verified_again() {
+        let signer = key("k1");
+        let file = tempfile::NamedTempFile::new().expect("a key set file");
+        publish(file.path(), &[&signer]);
+        let server = server(file.path(), Duration::from_secs(600)).await;
+        let token = mint(&signer, "jti-1");
+        let first = server.authenticate(&token).await.expect("the token holds");
+        let second = server.authenticate(&token).await.expect("the token holds");
+        assert_eq!(first, second, "the same caller both times");
+        assert_eq!(
+            1,
+            server.signatures(),
+            "one signature check for two requests"
+        );
+        server
+            .authenticate(&mint(&signer, "jti-2"))
+            .await
+            .expect("the token holds");
+        assert_eq!(2, server.signatures(), "another token is verified");
+        assert_eq!(2, server.cache_usage().entries);
+    }
+
+    #[tokio::test]
+    async fn a_key_set_read_again_unchanged_keeps_the_verdicts() {
+        let signer = key("k1");
+        let file = tempfile::NamedTempFile::new().expect("a key set file");
+        publish(file.path(), &[&signer]);
+        let server = server(file.path(), Duration::ZERO).await;
+        let token = mint(&signer, "jti-1");
+        for _ in 0..3 {
+            server.authenticate(&token).await.expect("the token holds");
+        }
+        assert_eq!(1, server.signatures(), "the set read again is the same set");
+    }
+
+    #[tokio::test]
+    async fn a_key_set_read_again_changed_drops_every_verdict() {
+        let signer = key("k1");
+        let added = key("k2");
+        let file = tempfile::NamedTempFile::new().expect("a key set file");
+        publish(file.path(), &[&signer]);
+        let server = server(file.path(), Duration::ZERO).await;
+        let token = mint(&signer, "jti-1");
+        server.authenticate(&token).await.expect("the token holds");
+        publish(file.path(), &[&signer, &added]);
+        server.authenticate(&token).await.expect("the token holds");
+        assert_eq!(2, server.signatures(), "the changed set verifies again");
+        assert_eq!(1, server.cache_usage().entries);
     }
 }

@@ -51,6 +51,8 @@ pub(super) async fn client_credentials(state: &AppState, form: &Params) -> Resul
             identity: None,
             under: None,
             context: &Map::new(),
+            // NOTE: RFC 9068 §2.2.3.1, roles are a person's; Backend Services has none.
+            roles: &[],
         },
     )
 }
@@ -163,6 +165,7 @@ pub(super) async fn authorization_code(
             identity: openid.then_some((grant.nonce.as_deref(), grant.auth_time)),
             under: Some(&launch.grant_id),
             context: &launch.context,
+            roles: &grant.roles,
         },
     )?;
     issued.response.refresh_token = launch.refresh_token;

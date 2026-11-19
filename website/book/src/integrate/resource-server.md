@@ -58,7 +58,14 @@ The server checks each token as an RFC 9068 JWT:
 - `typ` `at+jwt`, `iss` FerroSMART's issuer, `aud` its own base, `exp`;
 - the `scope` claim against what the request needs, and the context
   claims `patient`, `encounter`, `fhirUser` and `ehrId` for whose data it
-  is.
+  is;
+- the `roles` claim (RFC 9068 §2.2.3.1), when the server takes roles from
+  its issuer: the person's roles at the identity provider that a
+  `[[ferrosmart.role]]` names, carried by every token of a user flow and
+  never by a Backend Services token. The server decides itself whether it
+  trusts FerroSMART for roles (FerroEHR's `role_issuers`), and a privileged
+  role such as an emergency access role needs its own `[[ferrosmart.role]]`
+  table to reach it.
 
 A server that cannot read JWTs introspects instead
 ([the flows](flows.md#refresh-introspection-and-revocation)), as a

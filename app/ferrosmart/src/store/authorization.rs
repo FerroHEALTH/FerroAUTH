@@ -15,7 +15,7 @@ use crate::store::{Code, Login, Pending, Purpose, Store, StoreError, Transaction
 const PENDING: &str = "SELECT id, client_id, redirect_uri, scope, state, nonce, code_challenge, \
     audience, upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
     display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
-    upstream_session, launch_context FROM pending_authorization";
+    upstream_session, launch_context, roles FROM pending_authorization";
 
 impl Store {
     /// Records the authorization request `pending`.
@@ -126,7 +126,7 @@ impl Store {
     pub async fn logged_in(&self, id: &str, login: &Login) -> Result<(), StoreError> {
         sqlx::query(
             "UPDATE pending_authorization SET subject = $2, fhir_user = $3, display_name = $4, \
-             offered_scope = $5, auth_time = $6, upstream_session = $7 WHERE id = $1",
+             offered_scope = $5, auth_time = $6, upstream_session = $7, roles = $8 WHERE id = $1",
         )
         .bind(id)
         .bind(&login.subject)
@@ -135,6 +135,7 @@ impl Store {
         .bind(&login.offered_scope)
         .bind(login.auth_time)
         .bind(&login.upstream_session)
+        .bind(&login.roles)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -151,7 +152,7 @@ impl Store {
              RETURNING id, client_id, redirect_uri, scope, state, nonce, code_challenge, audience, \
              upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
              display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
-             upstream_session, launch_context",
+             upstream_session, launch_context, roles",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -168,7 +169,7 @@ impl Store {
         let row = sqlx::query(
             "SELECT client_id, redirect_uri, code_challenge, audience, subject, fhir_user, scope, \
              nonce, auth_time, extract(epoch FROM expires_at)::bigint AS expires, upstream_session, \
-             redeemed_at IS NOT NULL AS redeemed, launch_context, \
+             redeemed_at IS NOT NULL AS redeemed, launch_context, roles, \
              extract(epoch FROM approved_at)::bigint AS approved_at FROM authorization_code \
              WHERE code_hash = $1 AND expires_at > now()",
         )
@@ -191,6 +192,7 @@ impl Store {
                     upstream_session: row.try_get("upstream_session")?,
                     launch_context: launch_context(&row)?,
                     approved_at: row.try_get("approved_at")?,
+                    roles: row.try_get("roles")?,
                 },
                 row.try_get("redeemed")?,
             ))
@@ -225,9 +227,9 @@ impl Transaction {
         sqlx::query(
             "INSERT INTO authorization_code (code_hash, client_id, redirect_uri, code_challenge, \
              audience, subject, fhir_user, scope, nonce, auth_time, expires_at, upstream_session, \
-             launch_context, approved_at) \
+             launch_context, roles, approved_at) \
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11), $12, $13, \
-             to_timestamp($14))",
+             $14, to_timestamp($15))",
         )
         .bind(hash)
         .bind(&code.client_id)
@@ -242,6 +244,7 @@ impl Transaction {
         .bind(code.expires_at)
         .bind(&code.upstream_session)
         .bind(code.launch_context.as_ref().map(Json))
+        .bind(&code.roles)
         .bind(code.approved_at)
         .execute(&mut *self.tx)
         .await?;
@@ -295,6 +298,7 @@ fn read_pending(row: &sqlx::postgres::PgRow) -> Result<Pending, StoreError> {
         purpose,
         upstream_session: row.try_get("upstream_session")?,
         launch_context: launch_context(row)?,
+        roles: row.try_get("roles")?,
     })
 }
 

@@ -62,6 +62,9 @@ pub struct NewGrant<'a> {
     /// The time of the organisation approval it was given on, in seconds
     /// since the epoch, which withdrawing the approval revokes it by.
     pub approved_at: Option<i64>,
+    /// The person's mapped roles, which every access token issued under
+    /// the grant carries (RFC 9068 §2.2.3.1).
+    pub roles: &'a [String],
 }
 
 /// What introspection reads of a grant.
@@ -83,13 +86,15 @@ pub struct GrantRecord {
     pub context: Value,
     /// The refresh access granted, if any.
     pub access: Option<Access>,
+    /// The person's mapped roles.
+    pub roles: Vec<String>,
 }
 
 /// The outcome of redeeming a refresh token.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Rotation {
     /// The token was live: it is used now, and its successor recorded.
-    Rotated(GrantRecord),
+    Rotated(Box<GrantRecord>),
     /// The token was rotated before: its grant is revoked now, with every
     /// token under it (RFC 9700 §4.14.2).
     Reused {
@@ -149,7 +154,7 @@ pub struct RefreshRecord {
 /// The grant columns a joined query reads, prefixed `g_`.
 const GRANT_COLUMNS: &str = "g.id AS g_id, g.client_id AS g_client_id, g.subject AS g_subject, \
     g.fhir_user AS g_fhir_user, g.audience AS g_audience, g.scope AS g_scope, g.context AS g_context, \
-    g.access AS g_access";
+    g.access AS g_access, g.roles AS g_roles";
 
 impl Store {
     /// Records the grant `grant`.
@@ -159,8 +164,8 @@ impl Store {
     pub async fn create_grant(&self, grant: &NewGrant<'_>) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO authorization_grant (id, client_id, subject, fhir_user, audience, scope, \
-             context, auth_time, access, upstream_session, approved_at) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, to_timestamp($11))",
+             context, auth_time, access, upstream_session, roles, approved_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, to_timestamp($12))",
         )
         .bind(grant.id)
         .bind(grant.client_id)
@@ -172,6 +177,7 @@ impl Store {
         .bind(grant.auth_time)
         .bind(grant.access.map(Access::as_str))
         .bind(grant.upstream_session)
+        .bind(grant.roles)
         .bind(grant.approved_at)
         .execute(&self.pool)
         .await?;
@@ -317,6 +323,7 @@ fn read_grant(row: &sqlx::postgres::PgRow) -> Result<GrantRecord, StoreError> {
         audience: row.try_get("g_audience")?,
         scope: row.try_get("g_scope")?,
         context,
+        roles: row.try_get("g_roles")?,
         id,
     })
 }
@@ -447,7 +454,7 @@ impl Transaction {
         .bind(expires_at)
         .execute(&mut *self.tx)
         .await?;
-        Ok(Rotation::Rotated(grant))
+        Ok(Rotation::Rotated(Box::new(grant)))
     }
     /// Revokes the grant `grant_id` with every refresh and access token
     /// issued under it, in one transaction, and returns whether the grant

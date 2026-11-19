@@ -12,6 +12,9 @@
 //! the previous set in use for the keys it holds and is not repeated inside
 //! the interval (no specification governs the cache: our own design).
 //! A set in which any object repeats a member name is refused (RFC 8259 §4).
+//! A read that finds the keys changed drops every held verdict
+//! ([`super::verdict`]), so no token is admitted on a key the set no longer
+//! publishes.
 
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -35,6 +38,7 @@ use url::Url;
 #[cfg(feature = "fetch")]
 use crate::metadata::Http;
 use crate::resource::ResourceError;
+use crate::resource::verdict::Verdicts;
 
 /// Where a key set is read from.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,6 +73,9 @@ struct Key {
     family: AlgorithmFamily,
     /// The verification key.
     verifier: DecodingKey,
+    /// The set member the key was read from, which tells one read of the
+    /// set from another.
+    member: serde_json::Value,
 }
 
 impl std::fmt::Debug for Key {
@@ -96,6 +103,8 @@ struct Cached {
     read_at: Instant,
     /// When a read was last tried, whether or not it succeeded.
     tried_at: Instant,
+    /// How many reads found the keys changed since the first.
+    generation: u64,
 }
 
 /// The key set of one authorization server.
@@ -114,6 +123,8 @@ pub(super) struct KeySet {
     /// The keys as last read; the write lock is held across a read of the
     /// set, so concurrent misses share one fetch.
     cached: tokio::sync::RwLock<Cached>,
+    /// The verdicts of the tokens these keys verified.
+    verdicts: Verdicts,
 }
 
 impl KeySet {
@@ -141,8 +152,15 @@ impl KeySet {
                 keys: Arc::from(keys),
                 read_at: now,
                 tried_at: now,
+                generation: 0,
             }),
+            verdicts: Verdicts::new(super::verdict::CAPACITY, super::verdict::BYTE_CAPACITY),
         })
+    }
+
+    /// Returns the verdicts of the tokens these keys verified.
+    pub(super) const fn verdicts(&self) -> &Verdicts {
+        &self.verdicts
     }
 
     /// Returns how many usable keys the set holds.
@@ -155,7 +173,8 @@ impl KeySet {
         &self.source
     }
 
-    /// Returns the key a token signed with `alg` under `kid` verifies with.
+    /// Returns the key a token signed with `alg` under `kid` verifies with,
+    /// and the generation of the set that holds it.
     ///
     /// A held set older than its maximum age is read again first; a miss
     /// reads the set again unless it was read within the interval.
@@ -165,13 +184,38 @@ impl KeySet {
         &self,
         kid: Option<&str>,
         alg: Algorithm,
-    ) -> Result<Option<DecodingKey>, ResourceError> {
+    ) -> Result<Option<(DecodingKey, u64)>, ResourceError> {
+        self.locate(kid, alg, |key, generation| {
+            (key.verifier.clone(), generation)
+        })
+        .await
+    }
+
+    /// Returns the generation of the set when it holds the key a token
+    /// signed with `alg` under `kid` verifies with, reading the set as
+    /// [`KeySet::find`] does.
+    pub(super) async fn holds(
+        &self,
+        kid: Option<&str>,
+        alg: Algorithm,
+    ) -> Result<Option<u64>, ResourceError> {
+        self.locate(kid, alg, |_, generation| generation).await
+    }
+
+    /// Returns what `read` takes from the key a token signed with `alg`
+    /// under `kid` verifies with and the generation of the set holding it.
+    async fn locate<T>(
+        &self,
+        kid: Option<&str>,
+        alg: Algorithm,
+        read: impl Fn(&Key, u64) -> T,
+    ) -> Result<Option<T>, ResourceError> {
         {
             let cached = self.cached.read().await;
             if cached.read_at.elapsed() < self.max_age
                 && let Some(key) = select(&cached.keys, kid, alg)
             {
-                return Ok(Some(key));
+                return Ok(Some(read(key, cached.generation)));
             }
         }
         let mut cached = self.cached.write().await;
@@ -180,14 +224,14 @@ impl KeySet {
             outcome = self.refresh(&mut cached).await;
         }
         if let Some(key) = select(&cached.keys, kid, alg) {
-            return Ok(Some(key));
+            return Ok(Some(read(key, cached.generation)));
         }
         if cached.tried_at.elapsed() < self.interval {
             return outcome.map(|()| None);
         }
         tracing::info!(source = %self.source, "a token names a key the set does not hold; reading the set again");
         self.refresh(&mut cached).await?;
-        Ok(select(&cached.keys, kid, alg))
+        Ok(select(&cached.keys, kid, alg).map(|key| read(key, cached.generation)))
     }
 
     /// Reads the set into `cached`, unless a read was tried within the
@@ -210,6 +254,10 @@ impl KeySet {
         .await
         {
             Ok(keys) => {
+                if !same(&cached.keys, &keys) {
+                    cached.generation = cached.generation.saturating_add(1);
+                    self.verdicts.clear(cached.generation);
+                }
                 cached.keys = Arc::from(keys);
                 cached.read_at = cached.tried_at;
                 Ok(())
@@ -222,23 +270,30 @@ impl KeySet {
     }
 }
 
+/// Returns whether `held` and `read` are the same keys in the same order.
+fn same(held: &[Key], read: &[Key]) -> bool {
+    held.len() == read.len()
+        && held
+            .iter()
+            .zip(read)
+            .all(|(held, read)| held.member == read.member)
+}
+
 /// Returns the key of `keys` that verifies `alg` under `kid`.
 ///
 /// A token without a `kid` (RFC 7515 §4.1.4 makes it optional) verifies with
 /// the one key of its family when the set holds exactly one; two or more
 /// candidates verify nothing, so a rotation never decides which key
 /// verifies a request.
-fn select(keys: &[Key], kid: Option<&str>, alg: Algorithm) -> Option<DecodingKey> {
+fn select<'a>(keys: &'a [Key], kid: Option<&str>, alg: Algorithm) -> Option<&'a Key> {
     let mut candidates = keys
         .iter()
         .filter(|key| key.family == alg.family() && key.alg.is_none_or(|named| named == alg));
     if let Some(kid) = kid {
-        return candidates
-            .find(|key| key.kid.as_deref() == Some(kid))
-            .map(|key| key.verifier.clone());
+        return candidates.find(|key| key.kid.as_deref() == Some(kid));
     }
     let only = candidates.next()?;
-    candidates.next().is_none().then(|| only.verifier.clone())
+    candidates.next().is_none().then_some(only)
 }
 
 /// Reads the set at `source` and keeps its usable signing keys.
@@ -330,6 +385,7 @@ fn usable(member: &serde_json::Value) -> Option<Key> {
         alg,
         family,
         verifier,
+        member: member.clone(),
     })
 }
 

@@ -307,6 +307,24 @@ The checks, in order, each a refusal when it fails:
    unique in the context of the issuer", which a blank value does not. The
    gate holds the same rule over a caller any `Verifier` returns.
 
+Steps 1 to 8 are a verdict on the token alone, so the resource server keeps
+it: the claims of a token that passed are held under the SHA-256 of the
+token, never the token itself, and the same token presented again is not
+verified again. A held verdict ends at the token's `exp` and never later
+(`rfc7519 §4.1.4`), without the skew; after it the token takes the full
+check, which refuses it as today. Before a held verdict answers, the key
+that verified the token is looked up in the set exactly as step 4 does, so
+a set past its maximum age is read again and a token whose key the issuer
+no longer publishes is refused. A read that finds the set changed drops
+every held verdict. The steps that read the request or the deployment run
+on every request, a held verdict included: the binding (3.15), `iat`, the
+subject and the classification. At most 10 000 verdicts in at most 16 MiB
+are held, a full map dropping the expired ones and then those that expire
+soonest, reported by `ResourceServer::cache_usage` and summed over a set by
+`IssuerSet::verdict_usage`. An introspected issuer (3.10) keeps its own
+cache and its own per-request rules. No specification asks for a signature
+to be recomputed per request: our own design (FerroHEALTH/FerroEHR#6049).
+
 What the library then reads from a valid token: `sub`, `client_id`, `scope`
 (the space-delimited string of `rfc6749 §3.3`, which `rfc9068 §2.2.3` carries
 as the `scope` claim of RFC 8693), and `patient`. Two of these need a note:
@@ -469,12 +487,14 @@ re-derivation that fails drops the entry, and no entry admits past
 `cache_ttl` from the derivation that admitted it (#498). No specification
 governs the cache: our own design, FerroEHR's, moved into the crate.
 
-Three caches of the crate grow with traffic: this one, the introspection
-response cache (3.10, at most `cache_capacity` responses) and the records of
+Four caches of the crate grow with traffic: this one, the verdicts of
+verified tokens (3.3, at most 10 000), the introspection response cache
+(3.10, at most `cache_capacity` responses) and the records of
 `MemoryReplayStore` (3.15, at most 100 000 unless the product sets another
 cap). Each reports its cap, its entries and an estimate of their bytes as a
 `usage::CacheUsage` (`PasswordStore::cache_usage`,
-`Introspector::cache_usage`, `MemoryReplayStore::cache_usage`), which a
+`ResourceServer::cache_usage`, `Introspector::cache_usage`,
+`MemoryReplayStore::cache_usage`), which a
 product copies into its own gauges; the crate links no metrics library
 (FerroHEALTH/FerroSMART#630). The estimate counts each key and value with
 the heap it owns and leaves out the collection's own nodes. No
@@ -2835,7 +2855,18 @@ specification governs.
    `encounter`, `fhirUser` and, for an openEHR `aud`, `ehrId` as access
    token claims beside the RFC 9068 set, names `rfc9068 §2.2.2` ("arbitrary
    attributes") as the ground, and keeps the claims to what the token
-   response carried. Our own design.
+   response carried. Our own design. In a user flow the token also carries
+   the person's `roles` (`rfc9068 §2.2.3.1`: an authorization server that
+   includes such attributes "SHOULD use the "groups", "roles", and
+   "entitlements" attributes" of `rfc7643 §4.1.2`), and so does the
+   introspection response: the roles the upstream ID Token's
+   `role_claims` carry that a `[[ferrosmart.role]]` names, sorted, fixed at
+   login and kept through every refresh, never a value the client asks
+   for. A role no table names stays at the provider. Backend Services
+   tokens carry none. SMART "leaves access token formats out of scope"
+   (`smart scopes-and-launch-context`), so the claim set is ours; whether a
+   resource server trusts FerroSMART for roles is its own decision (owner,
+   2026-11-19, #649).
 3. **The EHR launch API.** In an EHR launch "an opaque handle to the EHR
    context is passed along to the app" and "The server will provide the
    application with EHR context based on this handle" (`smart app-launch`,
