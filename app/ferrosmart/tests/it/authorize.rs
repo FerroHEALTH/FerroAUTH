@@ -645,6 +645,61 @@ async fn a_request_the_endpoint_cannot_trust_is_shown_never_redirected() {
     smart.stop().await;
 }
 
+// NOTE: SMART App Launch 2.2.0 requires aud of the app; with one base configured
+// FerroSMART defaults a missing one to it, as the token endpoint does (#670).
+#[tokio::test]
+async fn a_request_without_aud_defaults_to_the_one_configured_base() {
+    let smart = Smart::start().await;
+    let (status, headers, _) = smart.get(&authorize_path(&[("aud", "")]), None).await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let upstream = location(&headers);
+    assert!(
+        param(&upstream, "error").is_none() && param(&upstream, "nonce").is_some(),
+        "on to the login: {upstream}"
+    );
+    let (_, headers, _) = smart
+        .get(
+            &authorize_path(&[("aud", "https://other.example.org/fhir")]),
+            None,
+        )
+        .await;
+    assert_eq!(
+        Some(String::from("invalid_request")),
+        param(&location(&headers), "error"),
+        "a wrong aud is refused with one base too"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_request_without_aud_is_refused_with_two_bases() {
+    let smart = Smart::start_over(
+        "[\"authorization_code\"]",
+        "[\"openid\", \"user/Observation.rs\"]",
+        "[\"user/Observation.rs\"]",
+        &format!(
+            "[[ferrosmart.resource]]\nbase = {RESOURCE:?}\n\
+             [[ferrosmart.resource]]\nbase = \"https://second.example.org/fhir\"\n"
+        ),
+    )
+    .await;
+    let (_, headers, _) = smart.get(&authorize_path(&[("aud", "")]), None).await;
+    let back = location(&headers);
+    assert!(back.as_str().starts_with(REDIRECT), "{back}");
+    assert_eq!(Some(String::from("invalid_request")), param(&back, "error"));
+    let (_, headers, _) = smart
+        .get(
+            &authorize_path(&[("aud", "https://second.example.org/fhir")]),
+            None,
+        )
+        .await;
+    assert!(
+        param(&location(&headers), "error").is_none(),
+        "a named base"
+    );
+    smart.stop().await;
+}
+
 #[tokio::test]
 async fn a_request_that_breaks_the_profile_is_sent_back_with_its_error() {
     let smart = Smart::start().await;
