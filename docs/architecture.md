@@ -2973,7 +2973,11 @@ specification governs.
    external picker URL would be a hand-off of our own invention with its
    own threat surface. FerroSMART draws the picker itself (#516), between
    the login and the consent, for a standalone launch whose client may ask
-   for `launch/patient` at a FHIR resource server: a server-rendered form
+   for `launch/patient` at a FHIR resource server. A standalone request
+   that asks a `patient/` scope without `launch/patient` is read as asking
+   it, and the granted scope names it (`smart scopes-and-launch-context`,
+   Standalone apps: the server MAY infer `launch/patient`; owner,
+   2026-11-19, #669). The picker is a server-rendered form
    over a FHIR R4 search (`GET [base]/Patient?name=…&identifier=…`). The
    search runs as the signed-in person, never as a system: FerroSMART
    issues itself a token whose `sub` is the person's pairwise subject and

@@ -1595,6 +1595,67 @@ pub(crate) fn form_token(page: &str) -> String {
         .to_owned()
 }
 
+// NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Standalone apps: the
+// server may infer launch/patient for a patient/ scope (#669).
+#[tokio::test]
+async fn a_standalone_patient_scope_without_launch_patient_goes_to_the_picker() {
+    let (smart, fhir, _) = picker_launch().await;
+    let base = format!("{}/fhir", fhir.uri());
+    let cookie = to_picker_asking(
+        &smart,
+        &base,
+        "openid fhirUser patient/Observation.rs",
+        "synthetic-person",
+        "Practitioner/synthetic-1",
+    )
+    .await;
+    let (_, _, page) = smart.get("/picker?name=Synthetic", Some(&cookie)).await;
+    let token = form_token(&page);
+    let (_, headers, _) = smart
+        .post(
+            "/picker",
+            &[("form_token", &token), ("patient", "p-1")],
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!("/consent", location(&headers).path());
+    let (_, _, page) = smart.get("/consent", Some(&cookie)).await;
+    assert!(page.contains("value=\"patient/Observation.rs\""), "{page}");
+    let token = form_token(&page);
+    let (_, headers, _) = smart
+        .post(
+            "/consent",
+            &[
+                ("form_token", token.as_str()),
+                ("decision", "approve"),
+                ("scope", "openid"),
+                ("scope", "fhirUser"),
+                ("scope", "launch/patient"),
+                ("scope", "patient/Observation.rs"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        json!("openid fhirUser patient/Observation.rs launch/patient"),
+        body["scope"],
+        "the granted scope names the inferred launch/patient"
+    );
+    assert_eq!(json!("p-1"), body["patient"]);
+    smart.stop().await;
+}
+
 #[tokio::test]
 async fn a_standalone_launch_picks_a_patient_the_person_may_see() {
     let (smart, fhir, seen) = picker_launch().await;

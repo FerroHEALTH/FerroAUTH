@@ -54,9 +54,43 @@ pub fn is_extension(scope: &str) -> bool {
     scope.len() > 2 && scope.starts_with("__")
 }
 
+/// Returns the scope of a standalone request, `requested`, with
+/// `launch/patient` added when it asks a `patient/` scope without it.
+///
+/// A `patient/` scope needs a patient in context, and SMART lets the server
+/// infer `launch/patient` for a standalone app that did not ask it (SMART
+/// App Launch 2.2.0, Scopes and Launch Context, Standalone apps: the EHR
+/// "may infer" it), so the picker supplies the patient instead of the
+/// `patient/` scopes being dropped (`docs/architecture.md` §13.6 item 4).
+#[must_use]
+pub fn with_inferred_patient(requested: &str) -> String {
+    let mut scopes = requested.split(' ').filter(|scope| !scope.is_empty());
+    let asks_patient = scopes.clone().any(|scope| scope.starts_with("patient/"));
+    if asks_patient && !scopes.any(|scope| scope == "launch/patient") {
+        format!("{} launch/patient", requested.trim_end())
+    } else {
+        requested.to_owned()
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{admits, v2_form};
+    use super::{admits, v2_form, with_inferred_patient};
+
+    #[test]
+    fn a_standalone_patient_scope_infers_launch_patient() {
+        assert_eq!(
+            "openid patient/Observation.rs launch/patient",
+            with_inferred_patient("openid patient/Observation.rs")
+        );
+        for unchanged in [
+            "openid launch/patient patient/Observation.rs",
+            "openid user/Observation.rs",
+            "openid",
+        ] {
+            assert_eq!(unchanged, with_inferred_patient(unchanged));
+        }
+    }
 
     #[test]
     fn the_v1_suffixes_read_as_their_v2_letters() {

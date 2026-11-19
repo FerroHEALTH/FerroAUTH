@@ -14,6 +14,11 @@ and this project adheres to
 
 ### Added
 
+- A standalone authorization request that asks a `patient/` scope without
+  `launch/patient` is read as asking `launch/patient`, so the patient picker
+  supplies the patient instead of the `patient/` scopes being dropped, and
+  the granted `scope` names the inferred `launch/patient` (SMART App Launch
+  2.2.0, Scopes and Launch Context, Standalone apps) (#669).
 - An administrator can mark an approved app as the organisation's own with
   `first_party = true` on its `[ferrosmart.client.organisation_approval]`.
   Its approval may then list `patient/` scopes, and a patient, related

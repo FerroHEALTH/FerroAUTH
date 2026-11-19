@@ -146,6 +146,13 @@ async fn begin(
         }
         None => None,
     };
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Standalone apps: the
+    // server may infer launch/patient; an EHR launch's context comes from launch.
+    let scope = if launch_context.is_none() {
+        crate::scopes::with_inferred_patient(scope)
+    } else {
+        scope.to_owned()
+    };
     let party = state
         .relying_party()
         .ok_or(Stop::Deny(Denial::request("no login is configured")))?;
@@ -155,7 +162,7 @@ async fn begin(
         id: id.clone(),
         client_id: Some(client.client_id.clone()),
         redirect_uri: redirect_uri.to_owned(),
-        scope: scope.to_owned(),
+        scope,
         state: client_state.to_owned(),
         nonce: params.get("nonce").map(str::to_owned),
         code_challenge: challenge.to_owned(),
