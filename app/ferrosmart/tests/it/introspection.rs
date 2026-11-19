@@ -36,9 +36,11 @@ const JWT_BEARER: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer
 /// The answer of one request: the status, the headers and the JSON body.
 pub(crate) type Answer = (StatusCode, http::HeaderMap, Value);
 
-/// A running server over a fresh database with four clients: `export`, a
+/// A running server over a fresh database with six clients: `export`, a
 /// Backend Services client; `rs`, a resource server that may introspect;
-/// `portal`, a confidential app; and `app`, a public one.
+/// `portal`, a confidential app; `vault`, a confidential symmetric app;
+/// `gateway`, a confidential symmetric client that may introspect; and
+/// `app`, a public one.
 pub(crate) struct Server {
     /// The application.
     app: Router,
@@ -75,6 +77,9 @@ impl Server {
         let secret_hash = keys.dir.path().join("vault.phc");
         std::fs::write(&secret_hash, phc(VAULT_SECRET)).expect("written");
         let secret_hash = secret_hash.display().to_string();
+        let gateway_hash = keys.dir.path().join("gateway.phc");
+        std::fs::write(&gateway_hash, phc(GATEWAY_SECRET)).expect("written");
+        let gateway_hash = gateway_hash.display().to_string();
         let text = format!(
             "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
              [[ferrosmart.client]]\nclient_id = \"export\"\nkind = \"confidential_asymmetric\"\njwks_file = {set:?}\n\
@@ -87,6 +92,9 @@ impl Server {
              [[ferrosmart.client]]\nclient_id = \"vault\"\nkind = \"confidential_symmetric\"\n\
              secret_hash_file = {secret_hash:?}\nredirect_uris = [\"https://vault.example.org/callback\"]\n\
              grant_types = [\"authorization_code\", \"refresh_token\"]\n\
+             [[ferrosmart.client]]\nclient_id = \"gateway\"\nkind = \"confidential_symmetric\"\n\
+             secret_hash_file = {gateway_hash:?}\nredirect_uris = [\"https://gateway.example.org/callback\"]\n\
+             scopes = [\"system/introspect\"]\ngrant_types = [\"authorization_code\"]\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\
              redirect_uris = [\"https://app.example.org/callback\"]\n\
              grant_types = [\"authorization_code\", \"refresh_token\"]",
@@ -338,6 +346,9 @@ impl Server {
 
 /// The secret of the confidential symmetric client `vault`.
 pub(crate) const VAULT_SECRET: &str = "synthetic vault secret";
+
+/// The secret of the confidential symmetric client `gateway`.
+pub(crate) const GATEWAY_SECRET: &str = "synthetic gateway secret";
 
 /// Returns the Argon2id PHC hash of `secret` at the OWASP floor.
 pub(crate) fn phc(secret: &str) -> String {

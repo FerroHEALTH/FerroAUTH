@@ -101,14 +101,9 @@ impl Refusal {
     /// `WWW-Authenticate` response header field matching the authentication
     /// scheme used by the client" (RFC 6749 §5.2, `invalid_client`).
     pub(crate) fn answer(self, headers: &HeaderMap) -> Response {
-        let basic = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.split_once(' '))
-            .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("Basic"));
         let invalid_client = self.error == "invalid_client";
         let mut response = self.into_response();
-        if basic && invalid_client {
+        if uses_basic(headers) && invalid_client {
             *response.status_mut() = StatusCode::UNAUTHORIZED;
             response
                 .headers_mut()
@@ -116,6 +111,16 @@ impl Refusal {
         }
         response
     }
+}
+
+/// Returns whether the `Authorization` header of `headers` uses the HTTP
+/// Basic scheme (RFC 7617 §2), as a client secret does (RFC 6749 §2.3.1).
+pub(crate) fn uses_basic(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split_once(' '))
+        .is_some_and(|(scheme, _)| scheme.eq_ignore_ascii_case("Basic"))
 }
 
 /// `POST {issuer}/token`.

@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+# Apache APISIX in the third-party lane (#639, scripts/idp/third-party-fhir.sh):
+# a gateway in standalone mode, its routes read from apisix.yaml beside this
+# file, with no etcd and no Admin API. It listens on 8092 in front of the
+# same FHIR server Envoy guards. No specification governs the file: our own
+# design.
+apisix:
+  node_listen: 8092
+  enable_admin: false
+  ssl:
+    enable: false
+deployment:
+  role: data_plane
+  role_data_plane:
+    config_provider: yaml

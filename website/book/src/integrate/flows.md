@@ -152,9 +152,13 @@ the person's login at the identity provider ends through back-channel
 logout.
 
 **Introspection.** `POST {issuer}/introspect` (RFC 7662) answers for any
-token FerroSMART issued. The caller is a client that authenticates as at
-the token endpoint, or presents a bearer token FerroSMART issued for its
-own issuer; either way it holds `system/introspect` in its ceiling. An
+token FerroSMART issued. The caller is a confidential client that
+authenticates as at the token endpoint, by its `private_key_jwt` assertion
+or its client secret (HTTP Basic or the form), or presents a bearer token
+FerroSMART issued for its own issuer; either way it holds
+`system/introspect` in its ceiling. A gateway that introspects with
+`client_secret_basic`, such as Apache APISIX, registers as a confidential
+symmetric client. A public client cannot introspect. An
 active token's answer carries `active: true`, `scope`, `client_id`, `exp`,
 the launch context of the original response, and `iss` and `sub` of an ID
 Token that was issued; anything else answers `{"active": false}` alone.

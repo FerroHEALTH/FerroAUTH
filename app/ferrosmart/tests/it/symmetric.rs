@@ -1,7 +1,8 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! A confidential symmetric client at the token and revocation endpoints:
+//! A confidential symmetric client at the token, revocation and
+//! introspection endpoints:
 //! SMART App Launch 2.2.0, Client Authentication: Symmetric, with the
 //! client secret sent by HTTP Basic or in the form (RFC 6749 §2.3.1).
 
@@ -11,7 +12,8 @@ use ferrosmart::store::grant::Access;
 use http::{StatusCode, header};
 use serde_json::{Value, json};
 
-use crate::introspection::{Answer, Server, VAULT_SECRET, inactive, phc};
+use crate::introspection::{Answer, GATEWAY_SECRET, Server, VAULT_SECRET, inactive, phc};
+use crate::support::RESOURCE;
 
 /// Returns the `Authorization` value of `client_id` and `secret` by HTTP
 /// Basic, each form-urlencoded first (RFC 6749 §2.3.1).
@@ -184,4 +186,111 @@ fn the_hash_secret_command_makes_a_hash_at_the_floor_with_a_fresh_salt() {
     let other = phc(VAULT_SECRET);
     assert!(one.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"), "{one}");
     assert_ne!(one, other, "a fresh salt each time");
+}
+
+/// Returns the form introspecting `token`.
+fn introspect(token: &str) -> Vec<(String, String)> {
+    vec![(String::from("token"), token.to_owned())]
+}
+
+/// Returns the `WWW-Authenticate` of `answer`.
+fn challenge(answer: &Answer) -> Option<&str> {
+    answer
+        .1
+        .get(header::WWW_AUTHENTICATE)
+        .and_then(|value| value.to_str().ok())
+}
+
+// NOTE: RFC 7662 §2.1, client authentication as RFC 6749 describes it, which
+// docs/architecture.md §13.6 item 8 takes as at the token endpoint.
+#[tokio::test]
+async fn a_symmetric_client_with_the_right_introspects_by_its_secret() {
+    let server = Server::start().await;
+    let target = server.token("export", "system/Patient.rs", RESOURCE).await;
+    let answer = server
+        .post_authorized(
+            "/introspect",
+            &introspect(&target),
+            Some(basic("gateway", GATEWAY_SECRET)),
+        )
+        .await;
+    assert_eq!(StatusCode::OK, answer.0, "{:?}", answer.2);
+    assert_eq!(json!(true), answer.2["active"]);
+    assert_eq!(json!("export"), answer.2["client_id"]);
+    let mut form = introspect(&target);
+    form.push((String::from("client_id"), String::from("gateway")));
+    form.push((String::from("client_secret"), String::from(GATEWAY_SECRET)));
+    let answer = server.post("/introspect", &form, None).await;
+    assert_eq!(StatusCode::OK, answer.0, "{:?}", answer.2);
+    assert_eq!(json!(true), answer.2["active"]);
+    server.stop().await;
+}
+
+// NOTE: RFC 7662 §2.3, invalid client credentials answer 401 as RFC 6749 §5.2
+// describes, with the Basic scheme challenged when the client used it.
+#[tokio::test]
+async fn a_symmetric_client_that_may_not_introspect_is_refused_with_a_401() {
+    let server = Server::start().await;
+    let target = server.token("export", "system/Patient.rs", RESOURCE).await;
+    let cases = [
+        (
+            basic("gateway", "not the secret"),
+            "invalid_client",
+            "a wrong secret",
+        ),
+        (
+            basic("app", GATEWAY_SECRET),
+            "invalid_client",
+            "a public client, which has no secret",
+        ),
+        (
+            basic("vault", VAULT_SECRET),
+            "unauthorized_client",
+            "a client whose ceiling lacks system/introspect",
+        ),
+    ];
+    for (authorization, expected, case) in cases {
+        let answer = server
+            .post_authorized("/introspect", &introspect(&target), Some(authorization))
+            .await;
+        assert_eq!(StatusCode::UNAUTHORIZED, answer.0, "{case}: {:?}", answer.2);
+        assert_eq!(json!(expected), error(&answer), "{case}");
+        assert_eq!(Some("Basic"), challenge(&answer), "{case}");
+        assert_eq!(Value::Null, answer.2["active"], "{case}");
+    }
+    let mut form = introspect(&target);
+    form.push((String::from("client_id"), String::from("gateway")));
+    form.push((
+        String::from("client_secret"),
+        String::from("not the secret"),
+    ));
+    let answer = server.post("/introspect", &form, None).await;
+    assert_eq!(StatusCode::UNAUTHORIZED, answer.0, "{:?}", answer.2);
+    assert_eq!(json!("invalid_client"), error(&answer));
+    let mut form = introspect(&target);
+    form.push((String::from("client_id"), String::from("app")));
+    let answer = server.post("/introspect", &form, None).await;
+    assert_eq!(
+        StatusCode::UNAUTHORIZED,
+        answer.0,
+        "a public client cannot authenticate"
+    );
+    assert_eq!(json!("invalid_client"), error(&answer));
+    server.stop().await;
+}
+
+// NOTE: RFC 6749 §2.3, "The client MUST NOT use more than one authentication
+// method in each request", at the introspection endpoint too.
+#[tokio::test]
+async fn introspection_with_two_authentication_methods_is_malformed() {
+    let server = Server::start().await;
+    let target = server.token("export", "system/Patient.rs", RESOURCE).await;
+    let mut form = introspect(&target);
+    form.extend(server.credentials("rs"));
+    let answer = server
+        .post_authorized("/introspect", &form, Some(basic("gateway", GATEWAY_SECRET)))
+        .await;
+    assert_eq!(StatusCode::BAD_REQUEST, answer.0, "{:?}", answer.2);
+    assert_eq!(json!("invalid_request"), error(&answer));
+    server.stop().await;
 }
