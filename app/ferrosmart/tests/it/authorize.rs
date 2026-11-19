@@ -772,6 +772,136 @@ async fn a_consent_form_cannot_add_a_scope_that_was_not_offered() {
     smart.stop().await;
 }
 
+/// Runs a login asking `scope` whose upstream ID Token carries `extra`, then
+/// approves, and returns the token response.
+async fn with_claims(smart: &Smart, scope: &str, extra: &Value) -> Value {
+    let (_, headers, _) = smart.get(&authorize_path(&[("scope", scope)]), None).await;
+    let upstream = location(&headers);
+    let cookie = set_cookie(&headers);
+    let mut claims = json!({
+        "sub": "synthetic-person", "roles": ["clinician"],
+        "fhir_user": "Practitioner/synthetic-1",
+        "nonce": param(&upstream, "nonce").expect("a nonce")
+    });
+    if let (Some(base), Some(over)) = (claims.as_object_mut(), extra.as_object()) {
+        base.extend(over.clone());
+    }
+    smart.provider.answer_claims(&claims).await;
+    let callback = format!(
+        "/callback?code=synthetic-upstream-code&state={}",
+        param(&upstream, "state").expect("a state")
+    );
+    smart.get(&callback, Some(&cookie)).await;
+    let (_, _, page) = smart.get("/consent", Some(&cookie)).await;
+    let token = form_token(&page);
+    let (_, headers, _) = smart
+        .post(
+            "/consent",
+            &[("form_token", token.as_str()), ("decision", "approve")],
+            Some(&cookie),
+        )
+        .await;
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    serde_json::from_str(&body).expect("JSON")
+}
+
+/// Returns the claims of the JWT `name` of the token response `body`.
+fn jwt_claims(body: &Value, name: &str) -> Value {
+    let token = body.get(name).and_then(Value::as_str).expect("a token");
+    jsonwebtoken::dangerous::insecure_decode_claims(token).expect("claims")
+}
+
+// NOTE: OpenID Connect Core 1.0 §5.4, profile asks for name and
+// preferred_username, email for email and email_verified (#676).
+#[tokio::test]
+async fn profile_and_email_pass_the_upstream_claims_into_the_id_token() {
+    let smart = Smart::start_with(
+        "[\"authorization_code\"]",
+        "[\"openid\", \"fhirUser\", \"profile\", \"email\", \"user/Observation.rs\"]",
+        "[\"user/Observation.rs\"]",
+    )
+    .await;
+    let upstream = json!({
+        "name": "Synthetic Clinician", "preferred_username": "sclinician",
+        "email": "clinician@example.org", "email_verified": true
+    });
+    let body = with_claims(&smart, "openid fhirUser profile email", &upstream).await;
+    assert_eq!(json!("openid fhirUser profile email"), body["scope"]);
+    let id = jwt_claims(&body, "id_token");
+    assert_eq!(json!("Synthetic Clinician"), id["name"]);
+    assert_eq!(json!("sclinician"), id["preferred_username"]);
+    assert_eq!(json!("clinician@example.org"), id["email"]);
+    assert_eq!(json!(true), id["email_verified"]);
+    let access = jwt_claims(&body, "access_token");
+    for claim in ["name", "preferred_username", "email", "email_verified"] {
+        assert!(
+            access.get(claim).is_none(),
+            "never in the access token: {claim}"
+        );
+    }
+
+    let body = with_claims(&smart, "openid profile", &upstream).await;
+    let id = jwt_claims(&body, "id_token");
+    assert_eq!(json!("sclinician"), id["preferred_username"]);
+    assert!(
+        id.get("email").is_none() && id.get("email_verified").is_none(),
+        "{id}"
+    );
+
+    let body = with_claims(&smart, "openid", &upstream).await;
+    let id = jwt_claims(&body, "id_token");
+    assert!(
+        id.get("name").is_none() && id.get("email").is_none(),
+        "{id}"
+    );
+
+    let body = with_claims(&smart, "openid profile email", &json!({})).await;
+    let id = jwt_claims(&body, "id_token");
+    for claim in ["name", "preferred_username", "email", "email_verified"] {
+        assert!(
+            id.get(claim).is_none(),
+            "absent upstream, absent here: {claim}"
+        );
+    }
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn profile_and_email_are_offered_within_the_ceiling_and_listed_in_discovery() {
+    let smart = Smart::start().await;
+    let (_, _, document) = smart.get("/.well-known/openid-configuration", None).await;
+    let document: Value = serde_json::from_str(&document).expect("JSON");
+    for scope in ["profile", "email"] {
+        assert!(
+            document["scopes_supported"]
+                .as_array()
+                .is_some_and(|listed| listed.contains(&json!(scope))),
+            "{scope}: {document}"
+        );
+    }
+    for claim in ["name", "preferred_username", "email", "email_verified"] {
+        assert!(
+            document["claims_supported"]
+                .as_array()
+                .is_some_and(|listed| listed.contains(&json!(claim))),
+            "{claim}: {document}"
+        );
+    }
+    // NOTE: the default client's ceiling names neither, so neither is granted.
+    let body = with_claims(&smart, "openid profile email", &json!({"name": "X"})).await;
+    assert_eq!(json!("openid"), body["scope"]);
+    smart.stop().await;
+}
+
 #[tokio::test]
 async fn a_declined_consent_sends_access_denied_back() {
     let smart = Smart::start().await;
@@ -2498,6 +2628,8 @@ async fn the_document_lists_exactly_the_capabilities_the_server_supports() {
         json!([
             "openid",
             "fhirUser",
+            "profile",
+            "email",
             "launch",
             "launch/patient",
             "launch/encounter",
