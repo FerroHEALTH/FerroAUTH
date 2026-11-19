@@ -96,7 +96,7 @@ with the matrix.
 | Item | Pin | Ground |
 |---|---|---|
 | SMART App Launch | 2.2.0 (STU 2.2, on FHIR R4 4.0.1) | The registry's `latest` on 2026-10-19 and the current 2.x publication; the 2.x line is where the `cruds` scope grammar, the `.well-known/smart-configuration` document and the asymmetric client profile live. Vendored as the package `hl7.fhir.uv.smart-app-launch` 2.2.0 and the page sources at the release tag. |
-| IETF RFCs | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693, 3986, 6819, 7518, 7591, 8252, 9126, 9207, 9864, 10070 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is the `authorization_details` a client grant sends and reads back (3.5); the resource server reads no `authorization_details` claim (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroSMART#215, #217). RFC 3986 §6.2.2 and §6.2.3 are the normalizations RFC 9449 §4.3 has a server apply before it compares the `htu` (3.15), and §4.2 the network-path reference the session's return path refuses (FerroHEALTH/FerroSMART#235). RFC 6819, 7518, 7591, 8252, 9126, 9207, 9864 and 10070 are what FerroSMART, the authorization server of section 13, cites beyond the resource server's set: the threat model, the algorithms and their fully-specified names, dynamic registration, native apps, pushed authorization requests, the `iss` authorization response parameter, and RFC 10070's audience rule for client assertions, which updates RFC 7521, 7522, 7523 and 9126 and conflicts with SMART 2.2 (13.6). |
+| IETF RFCs | RFC 6749, 6750, 7515, 7517, 7519, 7523, 7617, 7662, 8414, 8725, 9068, 9700, 8707, 7638, 9449, 8705, 9470, 8259, 6454, 7636, 7009, 7643, 9396, 7521, 7522, 8693, 3986, 6819, 7518, 7591, 8252, 9126, 9207, 9864, 10070, 9110 | None is obsoleted (the vendor script refuses an obsoleted pin). RFC 9700 updates 6749 and 6750 and RFC 8725 updates 7519, so each is read with its update. RFC 8707 is the `resource` parameter the client credentials client sends and RFC 7638 the thumbprint that names the product's own JWK. RFC 8705 §2 and §5 are the mutual-TLS client authentication of the token client (3.5), and §3 the certificate-bound tokens of 3.15. RFC 9470 is the step-up challenge of 3.7. RFC 8259 §4 is the repeated member name a metadata document is refused for, and RFC 6454 §4 and §5 the origin the opt-in endpoint check of 3.1 compares. RFC 7636 (PKCE) and RFC 7009 (token revocation) are the code exchange and the revocation of the `oidc` relying party. RFC 9449 (DPoP) is the proof-bound tokens of 3.15. RFC 7662 is in the set because section 6 says why introspection is not the default. RFC 7643 §2.4 and §4.1.2 are the SCIM `roles` and `entitlements` forms the role claims of 3.11 read. RFC 9396 (rich authorization requests, which SMART marks experimental) is the `authorization_details` a client grant sends and reads back (3.5); the resource server reads no `authorization_details` claim (3.11). RFC 8693 (token exchange, `act` in §4.1) and RFC 7521, the assertion framework that RFC 7523 profiles for the JWT bearer grant, with RFC 7522 its SAML 2.0 profile beside it, are the onward grants and the delegation of the caller classification (FerroHEALTH/FerroSMART#215, #217). RFC 3986 §6.2.2 and §6.2.3 are the normalizations RFC 9449 §4.3 has a server apply before it compares the `htu` (3.15), and §4.2 the network-path reference the session's return path refuses (FerroHEALTH/FerroSMART#235). RFC 6819, 7518, 7591, 8252, 9126, 9207, 9864 and 10070 are what FerroSMART, the authorization server of section 13, cites beyond the resource server's set: the threat model, the algorithms and their fully-specified names, dynamic registration, native apps, pushed authorization requests, the `iss` authorization response parameter, and RFC 10070's audience rule for client assertions, which updates RFC 7521, 7522, 7523 and 9126 and conflicts with SMART 2.2 (13.6). RFC 9110 §8.8.3 and §13.1.2 are the weak entity tag and the conditional GET of the Brands Bundle (13.23, §8). |
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; the authorization code flow (§3.1) and the ID Token check (§3.1.3.7) of the `oidc` relying party. |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the end-session request (§2) and the `end_session_endpoint` metadata (§2.1) of the `oidc` relying party. |
@@ -2645,10 +2645,10 @@ Level is the specification's keyword. Step is the FerroSMART sub-issue
 that delivers the row: 2 core and Backend Services (#514), 3 the
 authorization code flow (#515), 4 the patient picker (#516), 5 the EHR
 launch API (#517), 6 refresh, introspection and revocation (#518). The
-User Access Brands rows (`smart brands`) are not listed: they bind a
-publisher of a Brand Bundle, which FerroSMART is not, and the
-`user_access_brand_*` metadata belongs in each FHIR server's own document
-(13.8).
+User Access Brands rows (`smart brands`) are in 13.23: FerroSMART
+publishes the deployment's Brand Bundle at `{issuer}/brands` (#602), and
+the `user_access_brand_*` metadata belongs in each FHIR server's own
+document (13.8).
 
 **Discovery and metadata**
 
@@ -3117,6 +3117,7 @@ differently.
 | `POST /revoke` | RFC 7009 | `rfc7009 §2` |
 | `POST /launch` | the EHR launch API | our own design (13.6) |
 | `GET /manage` | the user's grants, with revoke (`management_endpoint`) | `smart conformance`, Metadata |
+| `GET /brands` | the deployment's User Access Brands Bundle, when `[ferrosmart.brand]` is set | `smart brands`, Conformance Overview |
 | `/admin/clients`, `/admin/keys` | the registry and the key ring, behind a `ferrohealth-smart` guard | our own design |
 | `/healthz`, `/readyz` | `ferrohealth-health` | the family |
 
@@ -3146,6 +3147,7 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 | `consent` | subject, client | the scope set the user chose to remember, times, revocation |
 | `upstream_session` | id | upstream issuer, upstream `sid` and `sub`, last seen, end |
 | `seen_jti` | issuer, `jti` | client assertions and launch JWTs, until their `exp` |
+| `brand_bundle` | one row for the contents and one per resource, by `Type/id` | the digest a replica last started with, and when it became so: the Bundle's `timestamp` and each resource's `meta.lastUpdated` |
 
 Expired rows are deleted by a sweep on each replica under a PostgreSQL
 advisory lock. The migrations ship in the binary and run at start under
@@ -3214,6 +3216,26 @@ grant_types = ["authorization_code", "refresh_token"]   # never client_credentia
 name = "Example Hospital"                     # the name the pages carry
 smart_style_url = "https://ehr.example.org/smart-style.json"  # an app's token response carries it
 consent_text = "We log every access in your record's audit trail."  # the deployment's own words
+
+[ferrosmart.brand]                             # optional: the User Access Brands Bundle at {issuer}/brands (13.23, §8)
+name = "Example Hospital"                     # Organization.name
+website = "https://example.org"               # Organization.telecom, the brand's own website
+identifier = [{ system = "urn:ietf:rfc:3986", value = "https://example.org" }]   # unique across the brands
+category = ["prov"]                           # codes of ValueSet/user-access-category
+logo = "https://example.org/logo.svg"         # https or data; logo_license beside it
+# alias = [...], address = [{ line, city, state, postal_code, country }]
+
+[[ferrosmart.brand.portal]]                    # organization-portal, as many as the brand offers
+name = "Patient Portal"
+url = "https://portal.example.org"
+endpoints = ["https://ehr.example.org/fhir"]   # bases of [[ferrosmart.brand.endpoint]]
+
+[[ferrosmart.brand.endpoint]]                  # one Endpoint per FHIR [[ferrosmart.resource]] base it names
+base = "https://ehr.example.org/fhir"
+fhir_version = ["4.0.1"]
+contact = ["https://developer.example.org"]   # where developers configure access
+
+# [[ferrosmart.brand.affiliate]]               # an affiliated brand, partOf the primary one, with its own portals
 
 [ferrosmart.audit]                             # every login and token request (13.2), kept in the store
 source_id = "smart.example.org"               # AuditEvent.source.observer; empty: the issuer's host
@@ -3877,7 +3899,7 @@ SHALL support all scopes listed here"), `response_types_supported`
 (`S256` alone). `registration_endpoint` and `associated_endpoints` are
 absent, since FerroSMART has neither, and `user_access_brand_bundle` and
 `user_access_brand_identifier` belong in each FHIR server's document
-(13.5).
+(13.5), which may name FerroSMART's `{issuer}/brands`.
 
 **§2.1 App Launch and §2.2 Scopes and Launch Context** (`smart
 app-launch`, `smart scopes-and-launch-context`). One row per SHALL and
@@ -3993,6 +4015,39 @@ given. The practices for app developers are the apps'.
 | Avoid jargon such as "Encounters" | applied: the consent and management pages put plain words before the resource type (`resource-*` messages of the catalog), the type kept for the clinician who knows it | `authorize::the_management_page_lists_an_app_with_offline_access_and_withdraws_it` |
 | Explain experimental query-based scopes plainly | applied: a query-constrained scope is granted only when a client's ceiling and a role list it as written, and the consent page shows its constraint in words (FerroUI's scope grant, "Only where") | none |
 
+**§8 User-access Brands and Endpoints** (`smart brands`, Conformance
+Overview, and the profiles `UserAccessBrandsBundle`, `UserAccessBrand`
+and `UserAccessEndpoint`). FerroSMART is the deployment's Brand Bundle
+Publisher when `[ferrosmart.brand]` is set: it serves the Bundle at
+`GET {issuer}/brands` as `application/fhir+json`, built from that table
+(13.10). One row per SHALL and SHOULD; a requirement on the Health Data
+Provider, the SMART on FHIR server or the app names who holds it. The
+Bundle is held to the guide's profiles by `ferrobridge-validator` over the
+package set `scripts/vendor/fhir-packages.sh` fetches (`docs/VERSIONS.md`,
+FHIR packages), and the guide's four example bundles are read the same way
+as test vectors.
+
+| Requirement | Level | Holder and status | Test |
+|---|---|---|---|
+| An Organization identifier with `system` `urn:ietf:rfc:3986` and the brand's HTTPS web presence as `value` (Health Data Provider) | RECOMMENDED | the provider's: `identifier` takes any customer-supplied `system` and `value` | `brands::the_national_lab_example_is_written_by_configuration` |
+| A primary brand that references each FHIR endpoint in the Bundle (Brand Bundle Publisher) | SHALL | met: the primary brand's `endpoint` lists every `[[ferrosmart.brand.endpoint]]` | `brands::the_primary_brand_references_every_endpoint_and_the_affiliate_is_part_of_it` |
+| A more detailed brand hierarchy | SHOULD | met: each `[[ferrosmart.brand.affiliate]]` is an Organization `partOf` the primary brand, with its own portals and the endpoints they offer | `brands::the_primary_brand_references_every_endpoint_and_the_affiliate_is_part_of_it` |
+| `Bundle.timestamp` advertises the last change to the contents | SHALL | met: the store records the contents' digest and the instant it last moved (`brand_bundle`, 13.9), so a restart with the same contents keeps the instant and every replica serves the same one; a removed resource moves it too; `Bundle.meta.lastUpdated`, which the profile requires, carries it too | `brands::the_last_change_moves_only_for_what_changed`, `brands::the_primary_brand_references_every_endpoint_and_the_affiliate_is_part_of_it` |
+| `Bundle.entry.resource.meta.lastUpdated` per resource | SHOULD | met: the store records a digest and an instant per resource beside the contents' (`brand_bundle`, 13.9), so a change of configuration moves only the resources it changed, and each is served with its own instant | `brands::the_last_change_moves_only_for_what_changed`, `brands::each_resource_is_served_with_its_own_last_change` |
+| CORS for every GET of the artifacts | SHALL | met: `Access-Control-Allow-Origin: *`, with `ETag` exposed to a browser app | `brands::the_bundle_is_served_as_fhir_json_to_any_origin_with_a_weak_etag` |
+| A weak `ETag` on every Brand Bundle response | SHOULD | met: `W/` and half the SHA-256 of the body, on the `200` and the `304`; an `If-None-Match` naming it, weakly compared (RFC 9110 §13.1.2), answers `304` | `brands::the_bundle_is_served_as_fhir_json_to_any_origin_with_a_weak_etag`, `brands::a_request_naming_the_etag_is_answered_not_modified` |
+| Every Must-Support element of `UserAccessBrand` and `UserAccessEndpoint` can be managed | SHALL | met: a key per element (name, website, identifier, alias, category, logo and its licence, address, portals with name, description, URL, logo, licence and endpoints, `partOf` through `affiliate`, endpoint address, FHIR versions and contacts); status, connection type and payload type are fixed by the profile or active | `brands::the_bundle_built_from_configuration_holds_to_the_smart_profiles` |
+| Customer-supplied Organization identifiers, `system` and `value` | SHALL | met; an identifier given to two brands is refused, since a server's brand identifier must match exactly one | `brands::a_brand_breaking_a_rule_is_refused` |
+| Data Absent Reasons only `asked-declined` or `asked-unknown` | MAY, SHALL NOT | met: FerroSMART writes no Data Absent Reason; the website, the one 1..1 element a provider may lack, is required | `brands::a_brand_breaking_a_rule_is_refused` |
+| `user_access_brand_bundle` and `user_access_brand_identifier` in the SMART configuration, the identifier with a `value` and a `system`, matching exactly one Organization identifier (SMART on FHIR Server) | SHOULD, SHALL | each FHIR server's: its own document may name `{issuer}/brands` and one of the configured identifiers; FerroSMART's document describes no FHIR endpoint and names neither | none |
+| The app sends `If-None-Match`, caches by ETag, and prefers the resources its server's document links (App) | SHOULD, SHALL | the app's | none |
+
+The fullUrl of each entry is `{issuer}/brands/<type>/<id>`, a RESTful URL
+the relative references of the Bundle resolve against (FHIR R4,
+Bundle, Resolving references in Bundles); FerroSMART serves no resource at it, which the
+specification allows of a `fullUrl`. The ids are `brand`, `affiliate-N`
+and `endpoint-N` in the order of the configuration: our own design.
+
 **Sections**
 
 | Section | Status |
@@ -4010,7 +4065,7 @@ given. The practices for app developers are the apps'.
 | §4.1 Client Authentication: Asymmetric, §4.2 Symmetric | symmetric built; in audit |
 | §5 Token Introspection | below |
 | §7 Best Practices | below |
-| §8 User-access Brands and Endpoints | to build |
+| §8 User-access Brands and Endpoints | below |
 | §9 Examples | test vectors in `app/ferrosmart/tests/it/ig_examples.rs`: the worked RS384 and ES384 assertions and the app launch and Backend Services ES384 assertions verify against their published keys through the token endpoint (each refused only as expired), the symmetric example's Basic credentials authenticate, and the worked ID Token verifies with the page's key and reads as shown; the sandbox's HS256 codes and tokens and the logins are not replayable, and the file says why (#609) |
 
 **App State** (`smart app-state`, Discovery). An EHR advertises

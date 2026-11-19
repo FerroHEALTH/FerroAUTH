@@ -329,6 +329,18 @@ jobs:
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-nextest
+      # The Brands Bundle case reads the FHIR packages the SMART package
+      # depends on, fetched at build time and never committed (#602).
+      - name: Read the pinned FHIR packages
+        id: fhir-packages
+        run: echo "key=$(bash scripts/vendor/fhir-packages.sh --cache-key)" >> "$GITHUB_OUTPUT"
+      - name: Restore the FHIR packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: docs/specs/fhir-packages/*/package.tgz
+          key: ${{ steps.fhir-packages.outputs.key }}
+      - name: Fetch and verify the FHIR packages
+        run: bash scripts/vendor/fhir-packages.sh
       - run: cargo nextest run --workspace --locked
       # The vendor adapter suite runs after the generic one, with only its feature.
       - run: cargo nextest run -p ferrohealth-smart --features idp-entra --locked --no-tests=fail -E 'test(/^party::entra::/)'

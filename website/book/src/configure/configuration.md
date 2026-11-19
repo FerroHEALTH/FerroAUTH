@@ -136,6 +136,59 @@ The deployment's own words on the pages. Content, never code.
 | `consent_text` | The deployment's words on the consent page, such as what it does with the access a person gives |
 | `smart_style_url` | The `smart_style_url` every token response carries: an `https` URL of the deployment's SMART style document; empty for none |
 
+## `[ferrosmart.brand]`
+
+The deployment's User Access Brands Bundle (SMART App Launch 2.2.0, User
+Access Brands and Endpoints): the cards an app shows so a person can find
+the hospital and connect to it. With this table FerroSMART serves the
+Bundle at `GET {issuer}/brands` as `application/fhir+json`, readable from
+any origin, with a weak `ETag` that a request's `If-None-Match` answers with
+`304`. Without it the route is absent.
+
+The table is the primary brand. Every FHIR server it publishes is a
+`[[ferrosmart.brand.endpoint]]`, which the primary brand references.
+
+| Key | What it is |
+|---|---|
+| `name` | The name people recognize the brand by. Required |
+| `website` | The brand's own `https` website, apart from any portal. Required |
+| `identifier` | The identifiers apps merge brands by, each `{ system, value }`; SMART recommends `system = "urn:ietf:rfc:3986"` with the website's origin, without `www.`, as `value`. An identifier belongs to one brand |
+| `alias` | Other names people may search by, such as a former name |
+| `category` | Codes of SMART's `user-access-category`: `prov`, `ins`, `laboratory`, `imaging`, `pharmacy`, `health-information-network`, `health-data-aggregator` |
+| `logo`, `logo_license` | The brand's logo, an `https` or `data` URL, and the `https` page of its terms of use |
+| `address` | The places of the brand, each `{ line, city, state, postal_code, country }` |
+| `[[ferrosmart.brand.portal]]` | A portal people manage their account in: `name`, `description` (Markdown), `url`, `logo`, `logo_license`, and `endpoints`, the bases of the endpoints it offers |
+| `[[ferrosmart.brand.endpoint]]` | A FHIR server of the Bundle: `base`, one of the FHIR `[[ferrosmart.resource]]` bases; `name`; `fhir_version`, such as `["4.0.1"]`, at least one; and `contact`, at least one `https` page where developers configure access |
+| `[[ferrosmart.brand.affiliate]]` | An affiliated brand, part of the primary one, with the same keys but `endpoint` and `affiliate`, and portals of its own |
+
+`Bundle.timestamp` is the moment the contents last changed, and each
+resource's `meta.lastUpdated` the moment that brand or endpoint last
+changed: FerroSMART keeps a digest of the contents and of each resource in
+its database, so a restart with the same table keeps every moment and every
+replica serves the same Bundle. Each FHIR
+server names the Bundle in its own `.well-known/smart-configuration` as
+`user_access_brand_bundle`, with one of the brand's identifiers as
+`user_access_brand_identifier` when the Bundle holds more than one brand.
+
+```toml
+[ferrosmart.brand]
+name = "Example Hospital"
+website = "https://example.org"
+identifier = [{ system = "urn:ietf:rfc:3986", value = "https://example.org" }]
+category = ["prov"]
+logo = "https://example.org/logo.svg"
+
+[[ferrosmart.brand.portal]]
+name = "Patient Portal"
+url = "https://portal.example.org"
+endpoints = ["https://ehr.example.org/fhir"]
+
+[[ferrosmart.brand.endpoint]]
+base = "https://ehr.example.org/fhir"
+fhir_version = ["4.0.1"]
+contact = ["https://developer.example.org"]
+```
+
 ## `[ferrosmart.audit]`
 
 How FerroSMART names itself in its [audit records](../operate/audit.md), and
