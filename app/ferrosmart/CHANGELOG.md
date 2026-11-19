@@ -14,6 +14,11 @@ and this project adheres to
 
 ### Added
 
+- An authorization request without `aud` (or `resource`) defaults to the
+  resource server when the deployment configures exactly one, as the token
+  endpoint already defaults `resource`; with two or more it is still refused,
+  and a wrong `aud` is refused either way. Apps should still send `aud`, as
+  SMART App Launch 2.2.0 requires (#670).
 - A standalone authorization request that asks a `patient/` scope without
   `launch/patient` is read as asking `launch/patient`, so the patient picker
   supplies the patient instead of the `patient/` scopes being dropped, and
