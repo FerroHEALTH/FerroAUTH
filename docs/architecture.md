@@ -3073,8 +3073,17 @@ specification governs.
    2026-11-16): policy first narrows the request to what the client's
    ceiling and the user's roles allow (item 5), then the consent page shows
    the remaining scopes and the user approves them, narrows them by
-   unticking any, or denies (an `access_denied` error response, `rfc6749
-   §4.1.2.1`). One exception, the owner's decision of 2026-11-19 (#643),
+   unticking any resource scope, or denies (an `access_denied` error
+   response, `rfc6749 §4.1.2.1`). Identity, launch and refresh scopes
+   (`openid`, `fhirUser`, `profile`, `email`, `launch`, `launch/*`,
+   `offline_access`, `online_access`) are fixed lines with no box, granted
+   with the app whatever the form posts, since unticking one breaks the app
+   and keeps no data back; `patient/`, `user/` and extension scopes keep
+   their boxes (owner, 2026-11-19, #668; `smart app-launch` §7 Best
+   Practices, non-normative, asks for plain descriptions; the split is our
+   own design). The page also shows what the client registers about the app
+   (`rfc7591 §2`): `client_uri` linked as the app's home page, `logo_uri`
+   drawn, `policy_uri` and `tos_uri` linked. One exception, the owner's decision of 2026-11-19 (#643),
    which replaces "no client skips the page" for this case: an
    administrator of the controller may approve a client once for the whole
    organisation, as the client's `organisation_approval` (the approved
@@ -3386,6 +3395,7 @@ kind = "confidential_symmetric"
 secret_hash_file = "/run/secrets/portal-secret.phc"   # the Argon2id PHC hash, at least m=19456,t=2,p=1
 redirect_uris = ["https://portal.example.org/callback"]
 launch_uri = "https://portal.example.org/launch"   # optional: the app's launch URL, which POST /launch may name (13.17)
+client_uri = "https://portal.example.org/"    # optional, with logo_uri, policy_uri and tos_uri: shown on the consent page (RFC 7591 §2)
 grant_types = ["authorization_code", "refresh_token"]   # never client_credentials
 
 [ferrosmart.client.organisation_approval]     # optional: the organisation's own app, no consent page for its staff (13.6 item 6)
@@ -3603,7 +3613,8 @@ script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self';
 form-action 'self'; frame-ancestors 'none'; base-uri 'none'` (`rfc9700
 §4.16`), and the consent page adds to `form-action` the origin of that
 request's registered redirect URI alone, since CSP Level 3 §6.4.2 applies
-`form-action` to the redirect that follows the post.
+`form-action` to the redirect that follows the post, and to `img-src` the
+origin of the client's registered `logo_uri` alone (#668).
 
 A component, pattern or locale the screens need and FerroUI lacks is
 added in FerroUI as a general component, through FerroUI's own tracker and
@@ -4135,7 +4146,7 @@ who holds it; FerroSMART's own rows name the case that holds them.
 | Every app registers fixed, fully specified redirect URIs and launch URLs (Register App with EHR) | SHALL | met for redirect URIs: an authorization code client registers absolute ones, matched exactly; a launch URL is the EHR's | `clients::an_authorization_code_client_registers_absolute_redirect_uris` |
 | The `state` parameter is used against CSRF and session fixation (Obtain authorization code) | SHALL | the app's; FerroSMART requires it and echoes it | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
 | The server supports the `aud` parameter (Obtain authorization code) | SHALL | met: `aud` names a configured resource server, else the request is refused | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
-| The app limits its scopes to the minimum (Obtain authorization code) | SHOULD | the app's; the consent page lets the person untick any scope | `authorize::the_consent_page_offers_what_the_ceiling_and_the_roles_allow` |
+| The app limits its scopes to the minimum (Obtain authorization code) | SHOULD | the app's; the consent page lets the person untick any resource scope | `authorize::the_consent_page_offers_what_the_ceiling_and_the_roles_allow` |
 | The authorization endpoint supports GET and POST (Obtain authorization code) | SHALL | met | `authorize::an_authorization_request_by_post_is_the_get_s_twin` |
 | Confidential clients use asymmetric authentication if available (Obtain access token) | SHOULD | the client's; both profiles are offered (§4.1, §4.2) | `token::a_backend_services_client_gets_an_rfc_9068_token` |
 | The token response is JSON with `access_token`, `token_type`, `expires_in`, `scope` and the granted context (Obtain access token, Response) | SHALL | met | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
@@ -4147,7 +4158,7 @@ who holds it; FerroSMART's own rows name the case that holds them.
 | v1 scopes: advertise `permission-v1`, process `.read`, `.write`, `.*` as `.rs`, `.cud`, `.cruds`, return v1 when v1 was granted (Scopes for requesting FHIR Resources) | SHOULD | met | `authorize::a_v1_scope_is_offered_by_its_v2_form_and_granted_as_asked` |
 | A server that links Patients through `Patient.link` documents its authorization behaviour (Patient-specific scopes) | SHALL | the resource server's; FerroSMART reads no `Patient.link` | none |
 | An unsupported `?role=` gets any launch context of the resource type (Scopes for requesting context data) | SHOULD | met for an EHR launch: the EHR's `fhirContext` items return under `launch` whatever role was asked; a standalone launch offers no `launch/` scope beyond `launch/patient` and `launch/encounter` | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
-| A granted `patient/` scope has a patient in context (Apps that launch from the EHR; Standalone apps) | SHALL | met: `patient/` scopes are offered only with a patient from the EHR launch or the picker, and dropped when the context is | `ehr_launch::a_launch_needs_the_launch_scope_and_unticking_it_drops_the_context`, `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
+| A granted `patient/` scope has a patient in context (Apps that launch from the EHR; Standalone apps) | SHALL | met: `patient/` scopes are offered only with a patient from the EHR launch or the picker, and the launch scopes that carry the context are fixed lines the form cannot drop | `ehr_launch::a_launch_needs_the_launch_scope_and_a_form_cannot_drop_the_context`, `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
 | A standalone app's `launch/patient` and `launch/encounter` are provided (Standalone apps) | SHOULD | met: the picker chooses the patient at a FHIR base and at an openEHR base with a `subject_namespace` (with a `fhir_base`, the FHIR `Patient` and their EHR together), and one of the patient's encounters at a FHIR base; the person may go on without an encounter, which drops `launch/encounter` from the offer. At an openEHR base no encounter is chosen: openEHR has no Encounter resource, and the SMART on openEHR draft's context is the `ehrId` (Context Selection) | `authorize::encounter_picker::a_standalone_launch_picks_an_encounter_of_the_chosen_patient`, `authorize::encounter_picker::a_person_may_go_on_without_an_encounter`, `authorize::ehr_picker::a_standalone_launch_at_an_openehr_server_picks_the_ehr_the_person_may_see`, `authorize::paired_picker::a_standalone_launch_at_a_paired_openehr_base_picks_the_patient_and_their_ehr` |
 | Each `fhirContext` item has `reference`, `canonical` or `identifier`; a `role` is never empty (Launch context arrives with your access_token, fhirContext) | SHALL | met: an EHR's launch registration breaking either is refused | `launch::a_launch_registration_breaking_a_rule_is_refused` |
 | The app shows a default UI without a style; the style URL serves a SMART Style object; a changed style gets a new URL (Styling) | SHOULD, SHALL | the app's and the deployment's: `smart_style_url` is configuration, `https` only, and a new style document is published at a new URL | `config::a_style_url_other_than_https_is_refused` |
