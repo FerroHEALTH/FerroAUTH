@@ -2954,9 +2954,31 @@ specification governs.
    launch context, and each lookup is an access record naming the patient
    by the identifier and namespace and the EHR it reached, with the
    operation id in the `urn:openehr:its-rest:operation` system. No FHIR
-   `Patient` id is known at an openEHR base, so the context carries
-   `ehrId` and no `patient`. The form and the single namespace per base
-   are our own design.
+   `Patient` id is known at an openEHR base on its own, so the context
+   carries `ehrId` and no `patient`. The form and the single namespace per
+   base are our own design.
+
+   A platform names its FHIR server as the `org.fhir.rest` service beside
+   the required `org.openehr.rest` one (`soe master04`, Services), and
+   `ehrId` is "the openEHR `EHR` instance associated with the selected
+   FHIR `Patient` resource" (`soe master07`, Context Selection). An openEHR
+   base whose `[[ferrosmart.resource]]` table names that server as its
+   `fhir_base`, one of the configured FHIR bases, is paired with it (#574).
+   At a paired base the picker is the FHIR one: the person searches the
+   FHIR server and chooses a patient, the choice is read again as them
+   there, and FerroSMART looks the EHR up at the openEHR base by the value
+   of the patient's `Patient.identifier` whose `system` is the table's
+   `subject_system`, in the `subject_namespace`. Each request keeps the
+   guard above with a token for the one server it goes to: `aud` the FHIR
+   base and `user/Patient.rs` for the search and the read, `aud` the
+   openEHR base and `user/composition-*.r` for the lookup. The context then
+   carries both `patient` and `ehrId`. An identifier whose `use` is `old`
+   names no current subject (FHIR R4, `Identifier.use`); a patient with no
+   identifier of the system, or whose EHR the person may not see, gets the
+   picker again with words that say so and enters no context; two current
+   identifiers of the system with different values, or a failed lookup,
+   are an error page. The draft does not say how a `Patient` names its
+   EHR's subject, so the identifier system per base is our own design.
 5. **Scope narrowing.** The granted scope is the intersection of the
    request, the client's registered ceiling, the user's roles mapped to
    scopes by configuration, and the consent the user gave; SMART allows the
@@ -3177,6 +3199,8 @@ previous_key_overlap = "1h"                   # "0s": published while it is conf
 base = "https://ehr.example.org/fhir"
 kind = "fhir"                                 # or "openehr"
 # subject_namespace = "examples"              # openEHR only: the EHR subjects' namespace the picker looks up in
+# fhir_base = "https://ehr.example.org/fhir"  # openEHR only: the platform's FHIR base the picker finds the patient at
+# subject_system = "urn:example:mrn"          # with fhir_base: the Patient.identifier system that names the EHR's subject
 
 [ferrosmart.upstream]                         # any OpenID Connect provider, discovered at start
 issuer = "https://idp.example.org/realms/hospital"
@@ -3928,7 +3952,7 @@ who holds it; FerroSMART's own rows name the case that holds them.
 | A server that links Patients through `Patient.link` documents its authorization behaviour (Patient-specific scopes) | SHALL | the resource server's; FerroSMART reads no `Patient.link` | none |
 | An unsupported `?role=` gets any launch context of the resource type (Scopes for requesting context data) | SHOULD | met for an EHR launch: the EHR's `fhirContext` items return under `launch` whatever role was asked; a standalone launch offers no `launch/` scope beyond `launch/patient` and `launch/encounter` | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
 | A granted `patient/` scope has a patient in context (Apps that launch from the EHR; Standalone apps) | SHALL | met: `patient/` scopes are offered only with a patient from the EHR launch or the picker, and dropped when the context is | `ehr_launch::a_launch_needs_the_launch_scope_and_unticking_it_drops_the_context`, `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
-| A standalone app's `launch/patient` and `launch/encounter` are provided (Standalone apps) | SHOULD | met: the picker chooses the patient at a FHIR base and at an openEHR base with a `subject_namespace`, and one of the patient's encounters at a FHIR base; the person may go on without an encounter, which drops `launch/encounter` from the offer. At an openEHR base no encounter is chosen: openEHR has no Encounter resource, and the SMART on openEHR draft's context is the `ehrId` (Context Selection) | `authorize::encounter_picker::a_standalone_launch_picks_an_encounter_of_the_chosen_patient`, `authorize::encounter_picker::a_person_may_go_on_without_an_encounter`, `authorize::ehr_picker::a_standalone_launch_at_an_openehr_server_picks_the_ehr_the_person_may_see` |
+| A standalone app's `launch/patient` and `launch/encounter` are provided (Standalone apps) | SHOULD | met: the picker chooses the patient at a FHIR base and at an openEHR base with a `subject_namespace` (with a `fhir_base`, the FHIR `Patient` and their EHR together), and one of the patient's encounters at a FHIR base; the person may go on without an encounter, which drops `launch/encounter` from the offer. At an openEHR base no encounter is chosen: openEHR has no Encounter resource, and the SMART on openEHR draft's context is the `ehrId` (Context Selection) | `authorize::encounter_picker::a_standalone_launch_picks_an_encounter_of_the_chosen_patient`, `authorize::encounter_picker::a_person_may_go_on_without_an_encounter`, `authorize::ehr_picker::a_standalone_launch_at_an_openehr_server_picks_the_ehr_the_person_may_see`, `authorize::paired_picker::a_standalone_launch_at_a_paired_openehr_base_picks_the_patient_and_their_ehr` |
 | Each `fhirContext` item has `reference`, `canonical` or `identifier`; a `role` is never empty (Launch context arrives with your access_token, fhirContext) | SHALL | met: an EHR's launch registration breaking either is refused | `launch::a_launch_registration_breaking_a_rule_is_refused` |
 | The app shows a default UI without a style; the style URL serves a SMART Style object; a changed style gets a new URL (Styling) | SHOULD, SHALL | the app's and the deployment's: `smart_style_url` is configuration, `https` only, and a new style document is published at a new URL | `config::a_style_url_other_than_https_is_refused` |
 | OpenID Connect: the Authorization Code Flow (Scopes for requesting identity data) | SHALL | met: `code` alone | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |

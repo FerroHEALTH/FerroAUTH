@@ -59,8 +59,8 @@ pub(super) async fn choose(
         Ok(None) => return pages::picker(state, headers, pending, None, None, Some(NO_EHR)),
         Err(error) => return pages::server_error(state, &error),
     };
-    // NOTE: SMART on openEHR draft, Context Selection, `ehrId` is "the openEHR EHR
-    // instance associated with the selected FHIR Patient", looked up as the person.
+    // NOTE: SMART on openEHR draft, Context Selection, `ehrId` names the EHR of the
+    // selected FHIR Patient, which is looked up as the person.
     match openehr::by_subject(state, pending, from, namespace, subject_id).await {
         Ok(Some(found)) => {
             let context = Context {

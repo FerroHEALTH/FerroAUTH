@@ -232,14 +232,7 @@ pub async fn picker_get(
         }
         pairs.append_pair("_count", &MAX_RESULTS.to_string());
     }
-    match as_person(
-        &state,
-        &pending,
-        from,
-        &fhir_ask(&url, base, Action::Query),
-    )
-    .await
-    {
+    match as_person(&state, &pending, from, &fhir_ask(&url, base, Action::Query)).await {
         Ok(Value::Object(bundle)) if bundle.get("resourceType") == Some(&Value::from("Bundle")) => {
             let found = patients(&Value::Object(bundle));
             pages::picker(
@@ -320,14 +313,7 @@ async fn read_patient(
         .map_err(|error| Box::new(pages::server_error(state, &error)))?;
     // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `patient` is the
     // id of a patient the person may see, so the choice is read again as them.
-    match as_person(
-        state,
-        pending,
-        from,
-        &fhir_ask(&url, base, Action::Read),
-    )
-    .await
-    {
+    match as_person(state, pending, from, &fhir_ask(&url, base, Action::Read)).await {
         Ok(resource) if resource.get("id").and_then(Value::as_str) == Some(id) => Ok(resource),
         Ok(_) => Err(Box::new(pages::server_error(
             state,

@@ -25,7 +25,11 @@ reach: the server's own `.well-known/smart-configuration` names FerroSMART's
    (`GET [base]/Patient`); at an openEHR server whose
    `[[ferrosmart.resource]]` names a `subject_namespace`, the person enters
    the patient's identifier and FerroSMART looks the EHR up
-   (`GET [base]/ehr?subject_id=…&subject_namespace=…`). The search runs as
+   (`GET [base]/ehr?subject_id=…&subject_namespace=…`). At an openEHR
+   server paired with its platform's FHIR server (`fhir_base`), the person
+   searches the FHIR server instead, and FerroSMART looks the chosen
+   patient's EHR up by the identifier `subject_system` names, so the
+   context carries both `patient` and `ehrId`. The search runs as
    the person, with a token of their own for that one server that lives 30
    seconds and is revoked after the request, so the server's rules decide
    which patients they see. The chosen patient is read again as them before

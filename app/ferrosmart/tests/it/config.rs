@@ -338,16 +338,12 @@ fn a_fhir_base_pairs_an_openehr_base_with_a_configured_fhir_server() {
         "the FHIR base is paired with nothing"
     );
     let refused = [
-        (
-            "no FHIR base of that URL is configured",
-            openehr(&paired),
-        ),
+        ("no FHIR base of that URL is configured", openehr(&paired)),
         (
             "the paired base is itself openEHR",
             format!(
-                "{}{}",
-                openehr(&paired),
-                format!("[[ferrosmart.resource]]\nbase = {FHIR:?}\nkind = \"openehr\"\n")
+                "{}[[ferrosmart.resource]]\nbase = {FHIR:?}\nkind = \"openehr\"\n",
+                openehr(&paired)
             ),
         ),
         (

@@ -121,7 +121,7 @@ pub async fn choose(state: &AppState, pending: &Pending, from: IpAddr, form: &Pa
     let Some(patient) = form.get("patient").filter(|id| is_fhir_id(id)) else {
         return pages::fault(state, Fault::BadRequest);
     };
-    if let Err(response) = read_patient(state, pending, from, patient).await {
+    if let Err(response) = read_patient(state, pending, from, &pending.audience, patient).await {
         return *response;
     }
     let mut context = Context {
