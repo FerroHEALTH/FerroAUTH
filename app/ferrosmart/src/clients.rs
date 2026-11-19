@@ -113,6 +113,12 @@ pub struct ApprovalSection {
     pub approved_by: String,
     /// When they approved, an RFC 3339 instant.
     pub approved_at: String,
+    /// Whether the app is the organisation's own (first party), which the
+    /// approval may then cover `patient/` scopes for and a patient's own
+    /// login too; the mark is set and cleared with the approval, by its
+    /// approver at its time.
+    #[serde(default)]
+    pub first_party: bool,
 }
 
 /// A client's approval for the whole organisation, checked.
@@ -124,6 +130,8 @@ pub struct Approval {
     pub approved_by: String,
     /// When, in seconds since the epoch.
     pub approved_at: i64,
+    /// Whether the app is the organisation's own (first party).
+    pub first_party: bool,
 }
 
 impl Approval {
@@ -136,15 +144,17 @@ impl Approval {
     }
 }
 
-/// Returns whether an organisation may approve `scope` for its staff.
+/// Returns whether an organisation may approve `scope`, for its staff or,
+/// for its `first_party` app, for its patients too.
 ///
 /// A `user/` scope may be approved, with a launch, OpenID, refresh or
 /// extension scope that goes with one. A `patient/` scope, whose data the
-/// person decides on, and a `system/` scope, which no person holds, may not
-/// (`docs/architecture.md` §13.6 item 6).
+/// person decides on, only for the organisation's own app, and a `system/`
+/// scope, which no person holds, never (`docs/architecture.md` §13.6 item 6).
 #[must_use]
-pub fn approvable(scope: &str) -> bool {
+pub fn approvable(scope: &str, first_party: bool) -> bool {
     scope.starts_with("user/")
+        || (first_party && scope.starts_with("patient/"))
         || crate::scopes::is_extension(scope)
         || matches!(
             scope,
@@ -431,9 +441,13 @@ fn resolve_approval(
     if approval.scopes.is_empty() {
         return Err(rule("the `organisation_approval` approves no scope"));
     }
-    if approval.scopes.iter().any(|scope| !approvable(scope)) {
+    if approval
+        .scopes
+        .iter()
+        .any(|scope| !approvable(scope, approval.first_party))
+    {
         return Err(rule(
-            "the `organisation_approval` lists a scope no organisation approves: only `user/`, launch, OpenID, refresh and `__` extension scopes",
+            "the `organisation_approval` lists a scope no organisation approves: only `user/` (and `patient/` for a `first_party` app), launch, OpenID, refresh and `__` extension scopes",
         ));
     }
     if !approval
@@ -459,6 +473,7 @@ fn resolve_approval(
         scopes: approval.scopes.clone(),
         approved_by: approval.approved_by.clone(),
         approved_at,
+        first_party: approval.first_party,
     })
 }
 
