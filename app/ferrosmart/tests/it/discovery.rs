@@ -71,6 +71,11 @@ async fn the_rfc_8414_metadata_names_the_issuer_and_only_what_is_supported() {
     // NOTE: RFC 8414 §2, REQUIRED; no authorization endpoint lists no type yet.
     assert_eq!(json!([]), body["response_types_supported"]);
     assert_eq!(Value::Null, body["authorization_endpoint"]);
+    assert_eq!(
+        Value::Null,
+        body["launch_registration_endpoint"],
+        "no app launch, so no launch to register"
+    );
 }
 
 #[tokio::test]
@@ -157,6 +162,11 @@ async fn the_smart_configuration_is_json_whatever_the_accept_header() {
         body["token_endpoint_auth_signing_alg_values_supported"]
     );
     assert_eq!(Value::Null, body["authorization_endpoint"]);
+    assert_eq!(
+        Value::Null,
+        body["launch_registration_endpoint"],
+        "no app launch, so no launch to register"
+    );
 }
 
 #[tokio::test]

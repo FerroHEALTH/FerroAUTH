@@ -2692,6 +2692,7 @@ document (13.8).
 | A SMART configuration document at FerroSMART's own `/.well-known/smart-configuration`, as `application/json` whatever the `Accept` header, every endpoint URL absolute | SHALL | `smart conformance`, Using well-known | 2 |
 | The document carries `token_endpoint`, `grant_types_supported`, `capabilities` and `code_challenge_methods_supported` with `S256` and never `plain`; `authorization_endpoint` with a launch capability; `issuer` and `jwks_uri` with `sso-openid-connect` | REQUIRED, CONDITIONAL | `smart conformance`, Metadata | 2 |
 | `introspection_endpoint`, `revocation_endpoint`, `scopes_supported`, `response_types_supported`, `management_endpoint` | RECOMMENDED | `smart conformance`, Metadata | 2, 6 |
+| `launch_registration_endpoint`, the EHR launch API of 13.17, with the app launch | our own design (additional metadata) | `smart conformance`, Metadata; `rfc8414 §2` | 3 |
 | Every scope in `scopes_supported` is supported | SHALL | `smart conformance`, Metadata | 3 |
 | With `client-confidential-asymmetric`: `token_endpoint`, `scopes_supported`, `token_endpoint_auth_methods_supported` with `private_key_jwt`, `token_endpoint_auth_signing_alg_values_supported` with `RS384` or `ES384` | SHALL | `smart client-confidential-asymmetric`, Advertising server support | 2 |
 | `authorization_response_iss_parameter_supported` is `true` and every authorization response carries `iss` | MUST (when advertised) | `rfc9207 §2`, `§3` | 3 |
@@ -3616,7 +3617,14 @@ the rest is FerroSMART's own API of 13.6 item 3.
 
 2. **On each launch, get a `launch` value**, one per click and never
    reused, in one of two ways.
-   - Register the context at FerroSMART. The client assertion is the one
+   - Register the context at FerroSMART, at the URL its discovery
+     documents name `launch_registration_endpoint` (`{issuer}/launch`),
+     in `.well-known/smart-configuration` and in the RFC 8414 metadata
+     whenever the app launch is configured. SMART defines no member for
+     it; SMART App Launch 2.2.0, Conformance, Metadata lets a server add
+     metadata, and `rfc8414 §2` says "Additional authorization server
+     metadata parameters MAY also be used". The name is our own design
+     (#657). The client assertion is the one
      the EHR would send to the token endpoint: `iss` and `sub` its
      `client_id`, `aud` FerroSMART's token URL or issuer, `exp` at most
      five minutes ahead, a fresh `jti`, signed `RS384` or `ES384`, `typ`
