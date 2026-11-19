@@ -247,6 +247,9 @@ pub enum Event {
     /// A code issued with no consent page, on the client's organisation
     /// approval (`docs/architecture.md` §13.6 item 6).
     ConsentApproved,
+    /// A code issued with no consent page, on the organisation approval of
+    /// its own (first-party) app (`docs/architecture.md` §13.6 item 6).
+    ConsentFirstParty,
     /// A client's organisation approval withdrawn, with the grants issued
     /// on it.
     ApprovalWithdrawn,
@@ -291,6 +294,7 @@ impl Event {
             Self::ConsentRemembered => "consent-remembered",
             Self::ConsentWithdrawn => "consent-withdrawn",
             Self::ConsentApproved => "consent-organisation-approved",
+            Self::ConsentFirstParty => "consent-first-party-approved",
             Self::ApprovalWithdrawn => "organisation-approval-withdrawn",
             Self::TokenRevoked => "token-revoked",
             Self::GrantRevoked => "grant-revoked",
@@ -322,6 +326,7 @@ impl Event {
             Self::ConsentRemembered => "Consent remembered",
             Self::ConsentWithdrawn => "Consent withdrawn",
             Self::ConsentApproved => "Consent by organisation approval",
+            Self::ConsentFirstParty => "Consent by first-party approval",
             Self::ApprovalWithdrawn => "Organisation approval withdrawn",
             Self::TokenRevoked => "Access token revoked",
             Self::GrantRevoked => "Grant revoked",
@@ -351,7 +356,7 @@ impl Event {
             Self::RefreshRotated | Self::RefreshRepeated | Self::LaunchRedeemed => {
                 (USER_AUTHENTICATION, vec![own], "E")
             }
-            Self::ConsentRemembered | Self::ConsentApproved => {
+            Self::ConsentRemembered | Self::ConsentApproved | Self::ConsentFirstParty => {
                 (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "C")
             }
             Self::ConsentWithdrawn | Self::ApprovalWithdrawn => {

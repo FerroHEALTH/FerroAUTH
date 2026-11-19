@@ -2610,6 +2610,7 @@ discovery and token shapes for the two SaaS providers.
   | a consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
   | a consent withdrawn, with what it covered | `110113` | `110137`, `consent-withdrawn` | `D` |
   | a code issued with no page, on the client's organisation approval (13.6 item 6) | `110113` | `110137`, `consent-organisation-approved` | `C` |
+  | a code issued with no page, on the first-party approval of the organisation's own app (13.6 item 6) | `110113` | `110137`, `consent-first-party-approved` | `C` |
   | an organisation approval withdrawn, with the grants issued on it | `110113` | `110137`, `organisation-approval-withdrawn` | `D` |
   | an access token revoked (RFC 7009) | `110113` | `token-revoked` | `D` |
   | a grant revoked by its refresh token (RFC 7009 §2.1) | `110113` | `grant-revoked` | `D` |
@@ -2730,7 +2731,7 @@ document (13.8).
 | An invalid `client_id` or `redirect_uri` is shown to the user and never redirected | MUST NOT redirect | `rfc6749 §4.1.2.1`; `rfc9700 §4.11` | 3 |
 | `state` returned exactly as received | REQUIRED | `smart app-launch`, Obtain authorization code, Response; `rfc6749 §4.1.2` | 3 |
 | The code expires shortly after issue (FerroSMART: 60 seconds), is single-use, and a second valid use is denied and revokes what it issued | SHOULD; MUST deny, SHOULD revoke | `smart app-launch`, Response; `rfc6749 §4.1.2`; `oauth21 §4.1.3`, `§7.5.3` | 3 |
-| The decision to grant or deny is the server's, by local policy and optionally the user's input (FerroSMART asks the user every time, except a professional within an organisation approval of the client, 13.6 item 6); a denial is an `access_denied` error response | SHALL | `smart app-launch`, Response; `rfc6749 §4.1.2.1` | 3 |
+| The decision to grant or deny is the server's, by local policy and optionally the user's input (FerroSMART asks the user every time, except a professional within an organisation approval of the client, and any person within the approval of the organisation's own first-party app, 13.6 item 6); a denial is an `access_denied` error response | SHALL | `smart app-launch`, Response; `rfc6749 §4.1.2.1` | 3 |
 | The granted scope may differ from the request and is reported | MAY, SHALL report | `smart app-launch`, Obtain access token, Response; `rfc6749 §3.3` | 3 |
 | v1 scopes (`.read`, `.write`, `.*`) are processed as `.rs`, `.cud`, `.cruds`, and returned as v1 when granted as v1 | SHOULD | `smart scopes-and-launch-context`, Scopes for requesting FHIR Resources | 3 |
 | Undefined or out-of-order interactions may be ignored, replaced or refused | MAY | same | 3 |
@@ -3085,10 +3086,28 @@ specification governs.
    granted scope stays the intersection of the request, the ceiling, the
    roles and the approval, and the resource server's access policy still
    decides every request. Anything more shows the page for the whole
-   request, as a request beyond a remembered consent does. Each skipped
-   page commits a `consent-organisation-approved` record naming the
-   approver and the time; the management page lists the app as approved by
-   the organisation, with no withdraw form. Clearing or changing the
+   request, as a request beyond a remembered consent does. A second case,
+   the owner's decision of 2026-11-19 (#666): the administrator may mark
+   the approved app as the organisation's own, `first_party = true` on the
+   approval, set and cleared with it, so the approval's approver and time
+   are the mark's and a changed mark is a new approval. A first-party
+   approval may also cover `patient/` scopes, and it skips the page for a
+   patient, related person or person (`fhirUser` of type `Patient`,
+   `RelatedPerson` or `Person`) as for a professional, whenever it covers
+   every scope offered. The ground is the controller's: its own app
+   processes the patient's data under the controller's legal basis (GDPR
+   Art. 9(2)(h)), and the OAuth consent page is no GDPR consent and adds no
+   ground for it. A third-party app is the patient's choice to let another
+   party read their data, so a client without the mark keeps the page for
+   every patient, and the patient approves it and withdraws it at the
+   `management_endpoint` (Regulation (EU) 2025/327 gives the natural person
+   the say over sharing with others). The granted scope is still never
+   wider than the request, the ceiling, the roles or patient context and
+   the approval. Each skipped page commits a `consent-organisation-approved`
+   record, or `consent-first-party-approved` for a first-party approval,
+   naming the approver and the time; the management page lists the app as
+   approved by the organisation, or as the organisation's own app, with no
+   withdraw form. Clearing or changing the
    approval in the configuration withdraws it at the next start: every
    grant issued on it is revoked with its tokens, with an
    `organisation-approval-withdrawn` record. Backend Services has no user and
@@ -3354,6 +3373,7 @@ grant_types = ["authorization_code", "refresh_token"]   # never client_credentia
 scopes = ["openid", "fhirUser", "launch", "user/Observation.rs"]   # user/, launch, OpenID, refresh and __ scopes, within the ceiling
 approved_by = "J. de Vries, information security"   # the administrator, as the controller names them
 approved_at = "2026-11-19T09:00:00Z"          # RFC 3339; a change of any key is a new approval
+# first_party = true                           # the organisation's own app: patient/ scopes too, and no page for a patient
 
 [ferrosmart.branding]                          # content, never code (13.15)
 name = "Example Hospital"                     # the name the pages carry
