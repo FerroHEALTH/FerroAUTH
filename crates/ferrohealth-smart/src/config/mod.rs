@@ -610,6 +610,9 @@ pub struct IssuerEntry {
     /// [`ProfileKeys::act_represents_patient`](crate::profile::ProfileKeys::act_represents_patient).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub act_represents_patient: Option<bool>,
+    /// [`ProfileKeys::fhir_user_patient`](crate::profile::ProfileKeys::fhir_user_patient).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fhir_user_patient: Option<bool>,
     /// [`ProfileKeys::token_types`](crate::profile::ProfileKeys::token_types).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_types: Option<Vec<String>>,

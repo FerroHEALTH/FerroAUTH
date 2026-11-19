@@ -246,8 +246,12 @@ check_changelog_structure() { bash scripts/checks/changelog-structure.sh "$CHANG
 # The cut assembled every fragment of the crate into its section
 # (scripts/release/changelog.sh --assemble), so none is left at the tag.
 check_changelog_fragments() {
-  local left path
-  left="$(find "changelog.d/$CRATE" -maxdepth 1 -type f 2>/dev/null | sort)"
+  local left="" path
+  # Git keeps no empty directory, so the cut that removes the last fragment
+  # removes the directory too.
+  if [[ -d "changelog.d/$CRATE" ]]; then
+    left="$(find "changelog.d/$CRATE" -maxdepth 1 -type f | sort)"
+  fi
   if [[ -n "$left" ]]; then
     echo "::error::changelog.d/$CRATE/ still holds fragments the cut did not assemble; run scripts/release/changelog.sh --assemble $CRATE $VERSION <date> on the release branch:" >&2
     while IFS= read -r path; do echo "  $path"; done <<<"$left" >&2
@@ -522,6 +526,10 @@ self_test() {
   echo '- Another crate.' > "$stub/changelog.d/ferrohealth-authz/1-other.added.md"
   got="$(cd "$stub" && CRATE=ferrosmart VERSION=0.2.0 check_changelog_fragments 2> /dev/null || echo "$refused")"
   expect "another crate's fragment leaves the cut alone" "$got" "changelog.d/ferrosmart/ holds no fragment"
+  rmdir "$stub/changelog.d/ferrosmart"
+  got="$(cd "$stub" && CRATE=ferrosmart VERSION=0.2.0 check_changelog_fragments 2> /dev/null || echo "$refused")"
+  expect "the cut removed the crate's directory with its last fragment" "$got" "changelog.d/ferrosmart/ holds no fragment"
+  mkdir "$stub/changelog.d/ferrosmart"
   echo '- Left behind.' > "$stub/changelog.d/ferrosmart/2-left.added.md"
   got="$(cd "$stub" && CRATE=ferrosmart VERSION=0.2.0 check_changelog_fragments 2> /dev/null || echo "$refused")"
   expect "a fragment the cut left behind" "$got" "$refused"

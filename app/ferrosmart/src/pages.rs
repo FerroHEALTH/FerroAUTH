@@ -16,7 +16,7 @@ use ferrohealth_ui::serve::Assets;
 use ferrohealth_ui::style::Brand;
 use ferrohealth_ui::theme::Preferences;
 use ferrohealth_ui::view::button::{Variant, label};
-use ferrohealth_ui::view::error_page::{ErrorPage, Status, error_page};
+use ferrohealth_ui::view::error_page::{ErrorPage, Status, Way, error_page};
 use ferrohealth_ui::view::form::{check, check_field, field, fieldset};
 use ferrohealth_ui::view::scope::{ScopeGrant, scope_grants};
 use ferrohealth_ui::view::shell::{
@@ -57,6 +57,9 @@ pub enum Fault {
     OtherBrowser,
     /// The request could not be read.
     BadRequest,
+    /// The person's own record, which their `fhirUser` names, cannot be
+    /// read as them, or has no EHR they may see.
+    NoOwnRecord,
     /// The server failed.
     Server,
 }
@@ -88,6 +91,12 @@ impl Fault {
                 StatusCode::BAD_REQUEST,
                 "fault-bad-request",
                 "fault-bad-request-body",
+            ),
+            Self::NoOwnRecord => (
+                Status::Forbidden,
+                StatusCode::FORBIDDEN,
+                "fault-own-record",
+                "fault-own-record-body",
             ),
             Self::Server => (
                 Status::Fault,
@@ -127,6 +136,53 @@ pub fn fault(state: &AppState, fault: Fault) -> Response {
     let title = locale.lookup(&*CATALOG, title);
     let page = Html::join([brand_lockup(state, &locale), page]);
     respond(state, code, &locale, title, page, Sources::default())
+}
+
+/// Returns the page that tells the person no scope `client` asked is theirs.
+///
+/// It names the configured `roles` that would grant one, with one way on:
+/// back to the app at `back`, which carries `access_denied`.
+#[must_use]
+pub fn no_scope(state: &AppState, client: &Client, roles: &[&str], back: &str) -> Response {
+    let locale = Locale::default().with_catalog(&*CATALOG);
+    let client_name = Arg::from(client.name.as_str());
+    let with = |id: &str, args: &[(&'static str, Arg)]| locale.lookup_with(&*CATALOG, id, args);
+    let title = with("no-scope-title", &[("client", client_name.clone())]);
+    let body = if roles.is_empty() {
+        with("no-scope-body-client", &[("client", client_name.clone())])
+    } else {
+        with(
+            "no-scope-body-role",
+            &[
+                ("client", client_name.clone()),
+                ("roles", Arg::from(roles.join(", "))),
+            ],
+        )
+    };
+    let page = error_page(
+        &locale,
+        ErrorPage {
+            status: Status::Forbidden,
+            title: title.clone(),
+            body: Html::text(body),
+            hint: None,
+            ways: vec![Way {
+                label: with("no-scope-back", &[("client", client_name)]),
+                href: back.to_owned(),
+                glyph: None,
+            }],
+            detail: None,
+        },
+    );
+    let page = Html::join([brand_lockup(state, &locale), page]);
+    respond(
+        state,
+        StatusCode::FORBIDDEN,
+        &locale,
+        title,
+        page,
+        Sources::default(),
+    )
 }
 
 /// Logs `error` with its whole chain and returns the server's fault page.
@@ -192,6 +248,7 @@ pub fn consent(
                 &fixed,
             )
         },
+        unknown_user(&locale, pending, &client_name),
         own_words,
         form,
     ]);
@@ -319,6 +376,22 @@ struct Sources<'a> {
     form: &'a [String],
     /// The origins its images load from.
     img: &'a [String],
+}
+
+/// Returns the line that tells the person the app asked who they are as a
+/// FHIR resource and FerroSMART does not know it, or nothing
+/// (`docs/architecture.md` §13.6 item 9).
+fn unknown_user(locale: &Locale, pending: &Pending, client_name: &Arg) -> Html {
+    let asked = pending.scope.split(' ').any(|scope| scope == "fhirUser");
+    if !asked || pending.fhir_user.is_some() {
+        return Html::empty();
+    }
+    let words = locale.lookup_with(
+        &*CATALOG,
+        "consent-no-fhir-user",
+        &[("client", client_name.clone())],
+    );
+    Html::raw(format!("<p>{}</p>", Html::text(words)))
 }
 
 /// Returns the patient picker page of `pending`: the search form, filled

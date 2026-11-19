@@ -86,8 +86,11 @@ pub struct Actor {
 #[derive(Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum CallerKind {
-    /// The patient, on a `patients` issuer, the token naming only the
-    /// record subject.
+    /// The patient: on a `patients` issuer, the token naming only the
+    /// record subject; on a `persons` issuer whose profile sets
+    /// `fhir_user_patient`, a token through an admitted client whose
+    /// `fhirUser` is the `Patient` its `patient` claim names, with only
+    /// `patient/` scopes.
     Patient,
     /// A machine: an app-only token by the issuer's profile.
     System,
@@ -362,6 +365,9 @@ enum Person {
         client: String,
         /// The represented subject and the ground, as asserted.
         represented: Option<(String, Option<String>)>,
+        /// Whether the token is the patient's own under the profile's
+        /// `fhir_user_patient`, once its client is admitted.
+        own: bool,
     },
 }
 
@@ -391,12 +397,13 @@ pub(crate) async fn classify(
                 Person::Client {
                     client,
                     represented,
+                    own,
                 } => {
                     let answer = standing
                         .client(profile, Issued::new(issuer, &client))
                         .await
                         .map_err(Refused::Standing)?;
-                    through(answer, represented)?
+                    through(answer, represented, own)?
                 }
             };
             guested(person, guest)
@@ -432,7 +439,8 @@ pub(crate) fn classify_listed(
                 Person::Client {
                     client,
                     represented,
-                } => through(standing::listed_client(profile, &client), represented)?,
+                    own,
+                } => through(standing::listed_client(profile, &client), represented, own)?,
             };
             guested(person, guest)
         }
@@ -488,20 +496,10 @@ fn read(
     }
     let step = match kind {
         IssuerKind::Patients => {
-            let scope =
-                profile
-                    .scope_claim
-                    .read(claims)
-                    .map_err(|_form| Unclassified::ScopeForm {
-                        claim: profile.scope_claim.claim.clone(),
-                    })?;
+            let context = patient_context(profile, claims)?;
             // NOTE: SMART on openEHR `master08-scopes`: the `patient` context alone,
             // with no `user/` or `system/` grant, names only the record subject.
-            if !app_only
-                && grants_in(&scope, "patient")
-                && !grants_in(&scope, "user")
-                && !grants_in(&scope, "system")
-            {
+            if !app_only && context {
                 Step::Known(patient(profile, claims, issuer)?)
             } else {
                 return Err(Unclassified::NotPatientContext);
@@ -554,7 +552,8 @@ fn app_only(
 }
 
 /// Returns what a `persons` token that is not app-only says about its
-/// person: its current actor, or its client and the subject it represents.
+/// person: its current actor, or its client, the subject it represents and
+/// whether it is the patient's own.
 fn person(
     profile: &Profile,
     claims: &Map<String, Value>,
@@ -562,6 +561,10 @@ fn person(
     issuer: &str,
 ) -> Result<Person, Unclassified> {
     let client = client.ok_or(Unclassified::NoClient)?;
+    // NOTE: no specification governs who asks under a `patient/` scope (SMART App
+    // Launch 2.2.0, Patient-specific scopes): our own design (#681).
+    let own =
+        profile.fhir_user_patient && fhir_user_patient(claims) && patient_context(profile, claims)?;
     let represented = profile.representation.as_ref().and_then(|representation| {
         text(claims, &representation.claim).map(|represented| {
             let ground = representation
@@ -584,7 +587,38 @@ fn person(
     Ok(Person::Client {
         client: client.to_owned(),
         represented,
+        own,
     })
+}
+
+/// Returns whether the scopes of `claims` name the `patient` context alone:
+/// a `patient/` grant, and no `user/` or `system/` one.
+fn patient_context(profile: &Profile, claims: &Map<String, Value>) -> Result<bool, Unclassified> {
+    let scope = profile
+        .scope_claim
+        .read(claims)
+        .map_err(|_form| Unclassified::ScopeForm {
+            claim: profile.scope_claim.claim.clone(),
+        })?;
+    Ok(grants_in(&scope, "patient") && !grants_in(&scope, "user") && !grants_in(&scope, "system"))
+}
+
+/// Returns whether the `fhirUser` of `claims` is the `Patient` its `patient`
+/// claim names, by a relative (`Patient/<x>`) or an absolute URL.
+fn fhir_user_patient(claims: &Map<String, Value>) -> bool {
+    // NOTE: SMART App Launch 2.2.0, Scopes for requesting identity data: the
+    // `fhirUser` URL MAY be absolute or relative to the FHIR base.
+    let (Some(fhir_user), Some(patient)) = (text(claims, "fhirUser"), text(claims, "patient"))
+    else {
+        return false;
+    };
+    if patient.contains('/') {
+        return false;
+    }
+    fhir_user
+        .strip_suffix(patient.as_str())
+        .and_then(|rest| rest.strip_suffix("Patient/"))
+        .is_some_and(|base| base.is_empty() || (base.ends_with('/') && base.contains("://")))
 }
 
 /// Returns the kind of a person acting through `actor`, a declared delegate
@@ -598,12 +632,17 @@ fn delegated(actor: Actor, listed: bool) -> Result<CallerKind, Unclassified> {
 }
 
 /// Returns the kind of a person signing in through a client of `standing`,
-/// asserting the `represented` subject when one is.
+/// asserting the `represented` subject when one is: the patient when the
+/// token is the patient's `own` and asserts none.
 fn through(
     standing: ClientStanding,
     represented: Option<(String, Option<String>)>,
+    own: bool,
 ) -> Result<CallerKind, Unclassified> {
     match (standing, represented) {
+        (ClientStanding::FirstParty | ClientStanding::Delegate, None) if own => {
+            Ok(CallerKind::Patient)
+        }
         (ClientStanding::FirstParty, Some((represented, ground))) => {
             Ok(CallerKind::Representative {
                 represented,

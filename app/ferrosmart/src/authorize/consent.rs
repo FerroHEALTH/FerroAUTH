@@ -25,6 +25,18 @@ use super::{
     registered, see_other, set_cookie, sha256,
 };
 
+/// What the person's `fhirUser` says of them at the request's resource
+/// server.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FhirUser {
+    /// The provider carries no `fhirUser`.
+    Absent,
+    /// A `fhirUser` that is not the person's own `Patient` at this server.
+    Present,
+    /// The person is the `Patient` their `fhirUser` names at this server.
+    ThePatient,
+}
+
 /// Returns the scopes the consent page offers the person.
 ///
 /// Of the requested scopes it offers `openid` and `fhirUser` when the client may ask for them (and the
@@ -44,14 +56,17 @@ use super::{
 /// of the patient's encounters (#604). The picker chooses an encounter only
 /// with a patient, so `launch/encounter` alone is not offered. An extension
 /// scope (`__`-prefixed) is offered when the ceiling and a role list it
-/// (#647). Matching a scope as written is our own design.
+/// (#647). A person whose `fhirUser` is their own `Patient` at the server
+/// is offered the `patient/` scopes the ceiling allows without a role,
+/// since those reach their own record alone (#673). Matching a scope as
+/// written is our own design.
 #[must_use]
 pub fn offer(
     requested: &str,
     client: &Client,
     held: &[String],
     roles: &std::collections::BTreeMap<String, Vec<String>>,
-    has_fhir_user: bool,
+    fhir_user: FhirUser,
     context: Option<&Context>,
     picker: crate::picker::Reach,
 ) -> Vec<String> {
@@ -78,14 +93,20 @@ pub fn offer(
     let mut offered: Vec<String> = Vec::new();
     for scope in requested.split(' ').filter(|scope| !scope.is_empty()) {
         let admitted = match scope {
-            "openid" => ceiling(scope),
-            "fhirUser" => ceiling(scope) && has_fhir_user,
+            // NOTE: OpenID Connect Core 1.0 §5.4, profile and email ask for the
+            // standard claims the upstream ID Token carries.
+            "openid" | "profile" | "email" => ceiling(scope),
+            "fhirUser" => ceiling(scope) && fhir_user != FhirUser::Absent,
             user if user.starts_with("user/") => ceiling(user) && granted_by_role(user),
             "launch" => ceiling(scope) && context.is_some(),
             "launch/patient" => ceiling(scope) && patient,
             "launch/encounter" => ceiling(scope) && encounter,
             single if single.starts_with("patient/") => {
-                patient && ceiling(single) && granted_by_role(single)
+                // NOTE: docs/architecture.md §13.6 item 4 (owner, 2026-11-19, #673): a
+                // patient's own patient/ scopes need no role, as they reach that record alone.
+                patient
+                    && ceiling(single)
+                    && (granted_by_role(single) || fhir_user == FhirUser::ThePatient)
             }
             // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Extensibility, an
             // extension scope is the server's own; a role grants it, never the request alone.
@@ -106,7 +127,7 @@ pub fn offer(
     // NOTE: OpenID Connect Core 1.0 §3.1.2.1, `fhirUser` arrives in an ID Token,
     // which only `openid` asks for.
     if !offered.iter().any(|scope| scope == "openid") {
-        offered.retain(|scope| scope != "fhirUser");
+        offered.retain(|scope| !matches!(scope.as_str(), "fhirUser" | "profile" | "email"));
     }
     offered
 }
@@ -203,7 +224,7 @@ pub(super) async fn approve(
         .filter(|scope| crate::scopes::is_fixed(scope) || selected.contains(scope))
         .collect();
     if !granted.contains(&"openid") {
-        granted.retain(|scope| *scope != "fhirUser");
+        granted.retain(|scope| !matches!(*scope, "fhirUser" | "profile" | "email"));
     }
     // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, an EHR launch's context
     // comes under `launch`, a standalone one's under `launch/patient` from the picker.
@@ -251,6 +272,7 @@ pub(super) async fn approve(
             Basis::Person { .. } | Basis::Remembered => None,
         },
         roles: pending.roles.clone(),
+        person_claims: pending.person_claims.granted(&granted.join(" ")),
     };
     if let Err(error) = issue_code(state, &hash, &grant, basis, from).await {
         tracing::error!(error = %ferrohealth_server::run::chain(&error), "the code could not be stored");
