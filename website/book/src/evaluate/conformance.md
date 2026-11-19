@@ -117,7 +117,10 @@ and the architecture records it as its own design:
   person remembered that choice for that client, or an administrator
   approved the client for the organisation's professionals and the
   request stays within that approval (no `patient/` scope, no patient's
-  own login). An app's `prompt=consent` always shows the page.
+  own login), or marked it as the organisation's own app (`first_party`),
+  whose approval covers its patients too. An app of another party always
+  shows a patient the page. An app's `prompt=consent` always shows the
+  page.
 - **`online_access`.** An online refresh token ends when the person's login
   at the identity provider ends, signalled by back-channel logout, or after
   `online_idle` unused.

@@ -30,6 +30,17 @@ async fn start(scopes: &str) -> Smart {
     .await
 }
 
+/// Starts FerroSMART whose app is the organisation's own (first party),
+/// approved for `scopes`.
+async fn start_first_party(scopes: &str) -> Smart {
+    Smart::start_with(
+        "[\"authorization_code\"]",
+        &format!("{}\nfirst_party = true", approved(scopes)),
+        "[\"user/Observation.rs\", \"patient/Observation.rs\"]",
+    )
+    .await
+}
+
 /// Runs the authorization request asking for `scope` and the login of the
 /// person whose `fhirUser` is `fhir_user`, and returns where the callback
 /// sends the browser.
@@ -222,7 +233,7 @@ async fn a_patient_s_own_login_shows_the_page() {
 
 #[test]
 fn an_approval_beyond_the_ceiling_or_of_a_patient_scope_is_refused() {
-    let section = |scopes: &[&str]| ClientSection {
+    let section = |scopes: &[&str], first_party: bool| ClientSection {
         client_id: String::from("app"),
         kind: ClientKind::Public,
         redirect_uris: vec![String::from(REDIRECT)],
@@ -235,19 +246,136 @@ fn an_approval_beyond_the_ceiling_or_of_a_patient_scope_is_refused() {
             scopes: scopes.iter().map(|scope| String::from(*scope)).collect(),
             approved_by: String::from("Synthetic Administrator"),
             approved_at: String::from("2026-11-19T09:00:00Z"),
+            first_party,
         }),
         ..ClientSection::default()
     };
     assert!(
-        resolve(&[section(&["openid", "user/Observation.rs"])]).is_ok(),
+        resolve(&[section(&["openid", "user/Observation.rs"], false)]).is_ok(),
         "a user/ scope within the ceiling"
     );
+    assert!(
+        resolve(&[section(&["openid", "patient/Observation.rs"], true)]).is_ok(),
+        "a patient/ scope within the ceiling, for the organisation's own app"
+    );
+    for refused in [&["user/Patient.rs"][..], &["system/Observation.rs"][..]] {
+        assert!(resolve(&[section(refused, true)]).is_err(), "{refused:?}");
+    }
     for refused in [
         &["patient/Observation.rs"][..],
         &["user/Patient.rs"][..],
         &["system/Observation.rs"][..],
         &[][..],
     ] {
-        assert!(resolve(&[section(refused)]).is_err(), "{refused:?}");
+        assert!(resolve(&[section(refused, false)]).is_err(), "{refused:?}");
     }
+}
+
+#[tokio::test]
+async fn a_patient_s_launch_of_a_first_party_app_skips_the_page_and_is_withdrawn_by_the_administrator()
+ {
+    let smart = start_first_party("[\"openid\", \"fhirUser\", \"patient/Observation.rs\"]").await;
+    let back = login(
+        &smart,
+        "openid fhirUser patient/Observation.rs",
+        "Patient/synthetic-2",
+    )
+    .await;
+    assert!(
+        back.as_str().starts_with(REDIRECT),
+        "no consent page for the organisation's own app: {back}"
+    );
+    let body = exchange(&smart, &back).await;
+    // NOTE: docs/architecture.md §13.6 item 5, a standalone launch with no patient
+    // chosen offers no patient/ scope; the EHR launch case holds one with a patient.
+    assert_eq!(json!("openid fhirUser"), body["scope"]);
+    // NOTE: docs/architecture.md §13.2, the skipped page writes its record with
+    // the first-party approval as its basis.
+    let kept = records(&smart.store).await;
+    assert!(
+        events(&kept).contains(&String::from("consent-first-party-approved")),
+        "{:?}",
+        events(&kept)
+    );
+    assert!(
+        !events(&kept).contains(&String::from("consent-organisation-approved")),
+        "the basis is the first-party approval"
+    );
+
+    // NOTE: SMART App Launch 2.2.0, Conformance, management_endpoint: the app is
+    // listed as the organisation's own, and the patient cannot withdraw it.
+    let (_cookie, page) = manage_visit(&smart).await;
+    assert!(page.contains("This is your organisation"), "{page}");
+    assert!(
+        !page.contains("name=\"client_id\""),
+        "the patient cannot withdraw it"
+    );
+
+    // NOTE: docs/architecture.md §13.6 item 6, the administrator clears the mark,
+    // a new approval: what was issued on the first-party approval is revoked.
+    let claims: Value = jsonwebtoken::dangerous::insecure_decode_claims(
+        body["access_token"].as_str().expect("a token"),
+    )
+    .expect("claims");
+    let jti = claims["jti"].as_str().expect("a jti");
+    let mut cleared = smart.settings.clients.clone();
+    for client in &mut cleared {
+        if let Some(approval) = client.approval.as_mut() {
+            approval.first_party = false;
+            approval.scopes = vec![String::from("openid"), String::from("fhirUser")];
+        }
+    }
+    let issuer = smart.settings.endpoint_url("");
+    let origin = ferrosmart::approvals::Origin {
+        issuer: &smart.settings.issuer,
+        endpoint: &issuer,
+        host: std::net::IpAddr::from([127, 0, 0, 1]),
+    };
+    let withdrawn = ferrosmart::approvals::withdraw_lapsed(
+        &smart.store,
+        &audit(&smart.settings),
+        &cleared,
+        origin,
+    )
+    .await
+    .expect("withdrawn");
+    assert_eq!(vec![String::from("app")], withdrawn, "the changed approval");
+    smart.store.register(&cleared).await.expect("registered");
+    let record = smart
+        .store
+        .access_token(jti)
+        .await
+        .expect("read")
+        .expect("recorded");
+    assert!(
+        !record.active,
+        "the token issued on the approval is revoked"
+    );
+    let back = login(&smart, "openid fhirUser", "Patient/synthetic-2").await;
+    assert_eq!(
+        "/consent",
+        back.path(),
+        "a patient sees the page once the app is no longer first party"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_patient_s_request_beyond_a_first_party_approval_shows_the_page() {
+    let smart = start_first_party("[\"openid\"]").await;
+    let back = login(&smart, "openid fhirUser", "Patient/synthetic-2").await;
+    assert_eq!("/consent", back.path(), "beyond the approved set");
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_patient_s_launch_of_a_third_party_approved_app_shows_the_page() {
+    let smart = start("[\"openid\", \"fhirUser\", \"user/Observation.rs\"]").await;
+    let back = login(&smart, "openid fhirUser", "Patient/synthetic-2").await;
+    assert_eq!(
+        "/consent",
+        back.path(),
+        "an app without the first-party mark never skips a patient's page"
+    );
+    smart.stop().await;
 }
