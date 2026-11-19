@@ -11,6 +11,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.30.1] - 2026-11-19
+
 ### Added
 
 - `usage::CacheUsage` reports the cap, the entries and an estimate of the
@@ -2398,7 +2400,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.1...HEAD
+[0.30.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.0...ferrohealth-smart-v0.30.1
 [0.30.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.2...ferrohealth-smart-v0.30.0
 [0.29.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.1...ferrohealth-smart-v0.29.2
 [0.29.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.0...ferrohealth-smart-v0.29.1
