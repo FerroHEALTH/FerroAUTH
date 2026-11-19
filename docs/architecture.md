@@ -2884,13 +2884,28 @@ specification governs.
      §2`): an `application/x-www-form-urlencoded` body in which the EHR
      authenticates with its `private_key_jwt` assertion exactly as at the
      token endpoint (`client_assertion_type`, `client_assertion`; 13.6 item
-     1), and names `app_client_id` (the registered app of the
-     authorization code grant it launches), `resource` (the base the app
+     1), and names the registered app of the authorization code grant it
+     launches by exactly one of `app_client_id` and `app_launch_uri` (both
+     or neither is `invalid_request`), `resource` (the base the app
      receives as `iss`, `rfc8707 §2`) and the context: `patient`,
      `encounter`, `fhirContext` (the JSON array of the token response, as
      `rfc9396 §3` carries a JSON parameter in a form), `intent`,
-     `need_patient_banner` (`true` or `false`), `tenant` and, for an
-     openEHR base only, `ehrId`. `smart_style_url` is not a launch
+     `need_patient_banner` (`true` or `false`), `tenant`, `appContext` and,
+     for an openEHR base only, `ehrId`. A SMART Task names the app it asks
+     for only by its launch URL (`smart task-launch`,
+     `smartonfhir-application`), so a client may register `launch_uri`, an
+     absolute `https` URL, which `app_launch_uri` names: both are compared
+     after `rfc3986 §6.2.2` syntax-based normalization, two clients may not
+     register one (the configuration is refused), and a URL no client
+     registered is `invalid_request` naming `app_launch_uri`. The key
+     follows OpenID Connect Dynamic Client Registration 1.0 §2's
+     `initiate_login_uri`; both are our own design (#659). `appContext` is
+     a Task's `smartonfhir-appcontext`, "to be included in the token
+     response" (`smart task-launch`): a string of at most 8192 bytes, passed
+     on unchanged and never logged, which the token response, a refresh and
+     the introspection response carry as `appContext` like the other
+     launch context parameters. SMART's table of launch context parameters
+     does not list it, so carrying it as one is our own design (#660). `smart_style_url` is not a launch
      parameter: it is the deployment's, from `[ferrosmart.branding]`. Any other parameter
      is refused, so a misspelt context parameter never vanishes. The
      context is checked against `smart scopes-and-launch-context`,
@@ -3340,6 +3355,7 @@ client_id = "portal"
 kind = "confidential_symmetric"
 secret_hash_file = "/run/secrets/portal-secret.phc"   # the Argon2id PHC hash, at least m=19456,t=2,p=1
 redirect_uris = ["https://portal.example.org/callback"]
+launch_uri = "https://portal.example.org/launch"   # optional: the app's launch URL, which POST /launch may name (13.17)
 grant_types = ["authorization_code", "refresh_token"]   # never client_credentials
 
 [ferrosmart.client.organisation_approval]     # optional: the organisation's own app, no consent page for its staff (13.6 item 6)

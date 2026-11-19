@@ -40,7 +40,22 @@ pub struct Context {
     /// The openEHR EHR in context, for an openEHR resource server.
     #[serde(rename = "ehrId", skip_serializing_if = "Option::is_none")]
     pub ehr_id: Option<String>,
+    /// The application context of a SMART Task's EHR launch, "to be
+    /// included in the token response" (SMART App Launch 2.2.0, Task
+    /// profile for requesting a SMART launch, `smartonfhir-appcontext`),
+    /// passed on as given; carried as a launch context parameter is our own
+    /// design.
+    #[expect(
+        clippy::struct_field_names,
+        reason = "`appContext` is the input's name in SMART App Launch 2.2.0's Task profile"
+    )]
+    #[serde(rename = "appContext", skip_serializing_if = "Option::is_none")]
+    pub app_context: Option<String>,
 }
+
+/// The longest `appContext` a launch takes, in bytes: our own bound, since
+/// neither SMART nor CDS Hooks sets one.
+pub const MAX_APP_CONTEXT_BYTES: usize = 8192;
 
 impl std::fmt::Debug for Context {
     // NOTE: CLAUDE.md, no claim beyond sub, client_id and iss reaches a Debug
@@ -54,6 +69,7 @@ impl std::fmt::Debug for Context {
             .field("need_patient_banner", &self.need_patient_banner.is_some())
             .field("tenant", &self.tenant.is_some())
             .field("ehr_id", &self.ehr_id.is_some())
+            .field("app_context", &self.app_context.is_some())
             .finish()
     }
 }
@@ -71,12 +87,20 @@ impl Context {
             &self.intent,
             &self.tenant,
             &self.ehr_id,
+            &self.app_context,
         ];
         if present
             .iter()
             .any(|value| value.as_deref().is_some_and(str::is_empty))
         {
             return Err("a context parameter is empty");
+        }
+        if self
+            .app_context
+            .as_ref()
+            .is_some_and(|context| context.len() > MAX_APP_CONTEXT_BYTES)
+        {
+            return Err("the appContext is longer than this server takes");
         }
         // NOTE: SMART on openEHR draft, Context Selection, `ehrId` names an EHR of
         // the openEHR server the token is for.

@@ -11,6 +11,12 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `uri::normalized` and `uri::normalize_percent`: the RFC 3986 §6.2.2
+  syntax-based normalization the DPoP `htu` check applies, public so
+  FerroSMART compares a registered launch URL the same way.
+
 ## [0.30.1] - 2026-11-19
 
 ### Added
