@@ -52,8 +52,9 @@
 #   4f. the screenshots  scripts/release/journey-tools.sh carries the Chrome
 #                        for Testing release and the four zip digests of
 #                        the matrix, and Cargo.toml the thirtyfour version.
-#   4g. third-party lane the HAPI FHIR and Envoy images the lane runs are
-#                        pinned by digest, and the lane reads both rows.
+#   4g. third-party lane the HAPI FHIR, Envoy and APISIX images the lane
+#                        runs are pinned by digest, and the lane reads each
+#                        row.
 #   4h. OIDF lane        the conformance suite, its TLS front and MongoDB
 #                        are pinned by digest, and the lane reads the rows.
 #   5. the licence       no first-party file claims a licence other than
@@ -421,7 +422,7 @@ grep -qE "^thirtyfour = \{ version = \"${pin//./\\.}\"," Cargo.toml ||
 # ---- 4g. the third-party lane's images --------------------------------------
 before="$failures"
 third_party="scripts/idp/third-party-fhir.sh"
-for item in "HAPI FHIR server image" "Envoy token validator image"; do
+for item in "HAPI FHIR server image" "Envoy token validator image" "APISIX introspecting gateway image"; do
   grep -qE '^[^ ]+@sha256:[0-9a-f]{64},' <<< "$(corpus_pin_cell "$item")" ||
     fail "docs/VERSIONS.md does not pin the $item by tag and digest"
   grep -qF "pinned_image '$item'" "$third_party" ||

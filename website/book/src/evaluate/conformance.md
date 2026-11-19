@@ -102,9 +102,9 @@ and the architecture records it as its own design:
   resource server.
 - **Refresh rotation for every client.** Each refresh rotates the token, and
   a rotated token presented again revokes the whole grant.
-- **Introspection.** A client authenticated as at the token endpoint, or a
-  bearer token FerroSMART issued, each holding the scope
-  `system/introspect`.
+- **Introspection.** A confidential client authenticated as at the token
+  endpoint (its assertion or its secret), or a bearer token FerroSMART
+  issued, each holding the scope `system/introspect` (RFC 7662 §2.1).
 
 ## The test kit in CI
 

@@ -149,10 +149,12 @@ fn configured_capabilities(settings: &Settings) -> Vec<String> {
 /// introspection and revocation endpoints authenticate a client, which
 /// RFC 8414 §2 has default to `client_secret_basic` when absent.
 ///
-/// The introspection endpoint takes a client's `private_key_jwt` assertion
-/// (or a bearer token, which is no client authentication method); the
-/// revocation endpoint takes it too, a client secret, and `none` with the
-/// `client_id` of a public client (RFC 7009 §2.1, RFC 6749 §2.3).
+/// The introspection endpoint takes a confidential client as the token
+/// endpoint does, by its `private_key_jwt` assertion or its client secret
+/// (or a bearer token, which is no client authentication method;
+/// `docs/architecture.md` §13.6 item 8); the revocation endpoint takes the
+/// same, and `none` with the `client_id` of a public client (RFC 7009 §2.1,
+/// RFC 6749 §2.3).
 ///
 /// # Panics
 ///
@@ -169,7 +171,11 @@ pub fn metadata_document(metadata: &ServerMetadata) -> Value {
     if let Some(members) = document.as_object_mut() {
         members.insert(
             String::from("introspection_endpoint_auth_methods_supported"),
-            json!(["private_key_jwt"]),
+            json!([
+                "private_key_jwt",
+                "client_secret_basic",
+                "client_secret_post"
+            ]),
         );
         members.insert(
             String::from("introspection_endpoint_auth_signing_alg_values_supported"),
