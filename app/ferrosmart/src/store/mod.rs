@@ -22,8 +22,9 @@ use secrecy::ExposeSecret as _;
 use serde_json::Value;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::{Postgres, Row as _};
+use url::Url;
 
-use crate::clients::{Approval, Client, ClientKeys, ClientKind, GrantType, SecretHash};
+use crate::clients::{About, Approval, Client, ClientKeys, ClientKind, GrantType, SecretHash};
 use crate::launch::context::Context;
 
 /// How long a request waits for a connection before the store answers that
@@ -136,7 +137,8 @@ impl Store {
     pub async fn client(&self, client_id: &str) -> Result<Option<Client>, StoreError> {
         self.client_by(
             "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
-             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at \
+             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at, \
+             client_uri, logo_uri, policy_uri, tos_uri \
              FROM client WHERE client_id = $1",
             client_id,
         )
@@ -151,7 +153,8 @@ impl Store {
     pub async fn client_launched_at(&self, launch_uri: &str) -> Result<Option<Client>, StoreError> {
         self.client_by(
             "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
-             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at \
+             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at, \
+             client_uri, logo_uri, policy_uri, tos_uri \
              FROM client WHERE launch_uri = $1",
             launch_uri,
         )
@@ -321,11 +324,12 @@ async fn upsert(
         .collect();
     sqlx::query(
         "INSERT INTO client (client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types, secret_hash, \
-         launch_uri, approved_scope, approved_by, approved_at, source) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), 'config') \
+         launch_uri, approved_scope, approved_by, approved_at, client_uri, logo_uri, policy_uri, tos_uri, source) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14, $15, $16, $17, 'config') \
          ON CONFLICT (client_id) DO UPDATE SET name = $2, kind = $3, jwks_uri = $4, jwks = $5, \
          redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, launch_uri = $10, \
          approved_scope = $11, approved_by = $12, approved_at = to_timestamp($13), \
+         client_uri = $14, logo_uri = $15, policy_uri = $16, tos_uri = $17, \
          source = 'config', updated_at = now()",
     )
     .bind(&client.client_id)
@@ -341,6 +345,10 @@ async fn upsert(
     .bind(client.approval.as_ref().map(|approval| &approval.scopes))
     .bind(client.approval.as_ref().map(|approval| &approval.approved_by))
     .bind(client.approval.as_ref().map(|approval| approval.approved_at))
+    .bind(client.about.home.as_ref().map(Url::as_str))
+    .bind(client.about.logo.as_ref().map(Url::as_str))
+    .bind(client.about.policy.as_ref().map(Url::as_str))
+    .bind(client.about.terms.as_ref().map(Url::as_str))
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -403,8 +411,25 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
         grant_types,
         launch_uri: row.try_get("launch_uri")?,
         approval,
+        about: About {
+            home: read_url(row, "client_uri", &corrupt)?,
+            logo: read_url(row, "logo_uri", &corrupt)?,
+            policy: read_url(row, "policy_uri", &corrupt)?,
+            terms: read_url(row, "tos_uri", &corrupt)?,
+        },
         client_id,
     })
+}
+
+/// Reads the URL column `column` of a `client` row, none when it is null.
+fn read_url(
+    row: &sqlx::postgres::PgRow,
+    column: &str,
+    corrupt: &dyn Fn() -> StoreError,
+) -> Result<Option<Url>, StoreError> {
+    row.try_get::<Option<String>, _>(column)?
+        .map(|url| url.parse().map_err(|_unparsed| corrupt()))
+        .transpose()
 }
 
 /// What the store records of an issued access token.

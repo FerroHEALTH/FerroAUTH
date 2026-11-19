@@ -205,6 +205,8 @@ impl Smart {
              [ferrosmart.branding]\nsmart_style_url = {STYLE:?}\n{resource}\
              [[ferrosmart.role]]\nname = \"clinician\"\nscopes = {role}\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nname = \"Synthetic App\"\nkind = \"public\"\n\
+             client_uri = \"https://app.example.org/\"\nlogo_uri = \"https://cdn.example.org/app.png\"\n\
+             policy_uri = \"https://app.example.org/privacy\"\ntos_uri = \"https://app.example.org/terms\"\n\
              redirect_uris = [{REDIRECT:?}]\ngrant_types = {grants}\nscopes = {ceiling}",
             secrecy::ExposeSecret::expose_secret(&database.url),
             provider.server.uri()
@@ -589,6 +591,108 @@ async fn a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens() {
     smart.stop().await;
 }
 
+// NOTE: docs/architecture.md §13.6 item 3 (owner, 2026-11-19, #668): identity,
+// launch and refresh scopes are fixed lines; resource scopes keep their boxes.
+#[tokio::test]
+async fn the_consent_page_draws_identity_scopes_as_fixed_lines_and_the_app_s_links() {
+    let smart = Smart::start().await;
+    let (cookie, _token) = to_consent(&smart, &["clinician"]).await;
+    let (_, headers, page) = smart.get("/consent", Some(&cookie)).await;
+    for fixed in ["openid", "fhirUser"] {
+        assert!(
+            !page.contains(&format!("value=\"{fixed}\"")),
+            "no box: {page}"
+        );
+        assert!(
+            page.contains(&format!("<code class=\"fui-scope-raw\">{fixed}</code>")),
+            "a fixed line: {page}"
+        );
+    }
+    assert!(
+        page.contains("value=\"user/Observation.rs\" checked"),
+        "{page}"
+    );
+    // NOTE: RFC 7591 §2, client_uri, logo_uri, policy_uri and tos_uri.
+    for link in [
+        "href=\"https://app.example.org/\"",
+        "href=\"https://app.example.org/privacy\"",
+        "href=\"https://app.example.org/terms\"",
+        "<img src=\"https://cdn.example.org/app.png\" alt=\"Logo of Synthetic App\"",
+    ] {
+        assert!(page.contains(link), "{link}: {page}");
+    }
+    let policy = headers
+        .get(header::CONTENT_SECURITY_POLICY)
+        .and_then(|value| value.to_str().ok())
+        .expect("a policy");
+    assert!(
+        policy.contains("img-src 'self' https://cdn.example.org;"),
+        "the logo's origin alone: {policy}"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_consent_form_without_its_fixed_scopes_still_grants_them() {
+    let smart = Smart::start().await;
+    let (cookie, token) = to_consent(&smart, &["clinician"]).await;
+    let (status, headers, _) = smart
+        .post(
+            "/consent",
+            &[("form_token", &token), ("decision", "approve")],
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let code = param(&location(&headers), "code").expect("a code: the fixed scopes are granted");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        json!("openid fhirUser"),
+        body["scope"],
+        "every resource scope unticked, the identity scopes kept"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_consent_form_cannot_add_a_scope_that_was_not_offered() {
+    let smart = Smart::start().await;
+    let (cookie, token) = to_consent(&smart, &["clinician"]).await;
+    let (_, headers, _) = smart
+        .post(
+            "/consent",
+            &[
+                ("form_token", &token),
+                ("decision", "approve"),
+                ("scope", "user/Patient.rs"),
+                ("scope", "offline_access"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (_, _, body) = smart.post("/token", &exchange, None).await;
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(json!("openid fhirUser"), body["scope"], "{body}");
+    smart.stop().await;
+}
+
 #[tokio::test]
 async fn a_declined_consent_sends_access_denied_back() {
     let smart = Smart::start().await;
@@ -774,7 +878,12 @@ async fn a_code_exchange_that_does_not_hold_is_refused_and_burns_nothing() {
     let (status, _, body) = smart.post("/token", &exchange, None).await;
     assert_eq!(StatusCode::OK, status, "{body}");
     let body: Value = serde_json::from_str(&body).expect("JSON");
-    assert!(body.get("id_token").is_none(), "no openid, no ID Token");
+    // NOTE: docs/architecture.md §13.6 item 3, openid is a fixed line, granted
+    // with the app though the form left it out.
+    assert!(
+        body.get("id_token").is_some(),
+        "openid is granted, so an ID Token"
+    );
     smart.stop().await;
 }
 
@@ -870,7 +979,7 @@ async fn a_person_is_granted_an_extension_scope_that_the_ceiling_and_a_role_list
     assert_eq!(StatusCode::OK, status, "{body}");
     let body: Value = serde_json::from_str(&body).expect("JSON");
     assert_eq!(
-        json!("openid user/Observation.rs __ferroehr.platform"),
+        json!("openid fhirUser user/Observation.rs __ferroehr.platform"),
         body["scope"]
     );
     let claims: Value = jsonwebtoken::dangerous::insecure_decode_claims(
@@ -878,7 +987,7 @@ async fn a_person_is_granted_an_extension_scope_that_the_ceiling_and_a_role_list
     )
     .expect("claims");
     assert_eq!(
-        json!("openid user/Observation.rs __ferroehr.platform"),
+        json!("openid fhirUser user/Observation.rs __ferroehr.platform"),
         claims["scope"]
     );
     smart.stop().await;

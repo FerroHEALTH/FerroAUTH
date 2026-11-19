@@ -212,7 +212,12 @@ async fn a_standalone_launch_picks_an_encounter_of_the_chosen_patient() {
     assert_eq!(StatusCode::SEE_OTHER, status);
     assert_eq!("/consent", location(&headers).path());
     let (_, _, consent) = smart.get("/consent", Some(&cookie)).await;
-    assert!(consent.contains("value=\"launch/encounter\""), "{consent}");
+    // NOTE: docs/architecture.md §13.6 item 3, launch/encounter is a fixed line.
+    assert!(
+        consent.contains("launch/<wbr>encounter")
+            && !consent.contains("value=\"launch/encounter\""),
+        "{consent}"
+    );
     let body = approve_all(&smart, &cookie).await;
     // NOTE: SMART App Launch 2.2.0, Launch context arrives with your access_token.
     assert_eq!(json!("p-1"), body["patient"]);
