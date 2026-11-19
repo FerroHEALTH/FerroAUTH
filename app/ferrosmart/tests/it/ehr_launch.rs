@@ -478,6 +478,27 @@ async fn a_launch_needs_the_launch_scope_and_unticking_it_drops_the_context() {
     smart.stop().await;
 }
 
+// NOTE: SMART App Launch 2.2.0, Conformance, Metadata, and RFC 8414 §2, additional
+// metadata; docs/architecture.md §13.17 names the member, our own design.
+#[tokio::test]
+async fn both_documents_name_the_launch_registration_endpoint() {
+    let smart = Smart::start().await;
+    for path in [
+        "/.well-known/smart-configuration",
+        "/.well-known/oauth-authorization-server",
+    ] {
+        let (status, _, document) = smart.get(path, None).await;
+        assert_eq!(StatusCode::OK, status, "{path}");
+        let document: Value = serde_json::from_str(&document).expect("JSON");
+        assert_eq!(
+            json!(format!("{ISSUER}/launch")),
+            document["launch_registration_endpoint"],
+            "{path}"
+        );
+    }
+    smart.stop().await;
+}
+
 // NOTE: docs/architecture.md §13.6 item 6; SMART App Launch 2.2.0, Obtain
 // authorization code, Response: the server's local policy may stand in for the
 // end-user's input, here the organisation's approval of the app.

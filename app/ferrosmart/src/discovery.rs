@@ -209,6 +209,7 @@ pub fn metadata_document(metadata: &ServerMetadata) -> Value {
             json!(ASSERTION_ALGORITHMS),
         );
     }
+    add_launch_registration(&mut document, metadata);
     document
 }
 
@@ -236,7 +237,33 @@ pub fn smart_configuration(settings: &Settings, metadata: &ServerMetadata, login
         );
         members.insert(String::from("management_endpoint"), Value::String(manage));
     }
+    add_launch_registration(&mut document, metadata);
     document
+}
+
+/// Adds `launch_registration_endpoint`, FerroSMART's EHR launch API (`POST
+/// {issuer}/launch`, `docs/architecture.md` §13.17), to `document` when
+/// `metadata` describes the app launch, which alone redeems a launch.
+///
+/// SMART App Launch 2.2.0 defines no member for it; its Conformance,
+/// Metadata lets a server add metadata, and RFC 8414 §2 "Additional
+/// authorization server metadata parameters MAY also be used". The name is
+/// our own design.
+fn add_launch_registration(document: &mut Value, metadata: &ServerMetadata) {
+    if metadata.authorization_endpoint.is_none() {
+        return;
+    }
+    if let Some(members) = document.as_object_mut() {
+        let endpoint = format!(
+            "{}{}",
+            metadata.issuer.trim_end_matches('/'),
+            crate::launch::LAUNCH_ROUTE
+        );
+        members.insert(
+            String::from("launch_registration_endpoint"),
+            Value::String(endpoint),
+        );
+    }
 }
 
 /// Returns the SMART document the builder writes from `metadata`.

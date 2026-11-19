@@ -29,6 +29,10 @@ and this project adheres to
   `claims_locales` and `acr_values` are taken. The OpenID Connect
   discovery document names `display_values_supported` and
   `ui_locales_supported` (#662).
+- `.well-known/smart-configuration` and the RFC 8414 metadata name the EHR
+  launch API as `launch_registration_endpoint` (`{issuer}/launch`) whenever
+  the app launch is configured, so an EHR reads it from the documents
+  instead of building the path (#657).
 - An administrator can approve one of the organisation's own apps for its
   staff with `[ferrosmart.client.organisation_approval]` (scopes, who,
   when), so a professional who opens it sees no consent page (SMART App
