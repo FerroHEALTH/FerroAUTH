@@ -116,6 +116,11 @@ impl Store {
             .bind(&ids)
             .execute(&mut *tx)
             .await?;
+        // A launch URL may move between clients in one change; each is unique
+        // again once every client is written.
+        sqlx::query("UPDATE client SET launch_uri = NULL WHERE source = 'config'")
+            .execute(&mut *tx)
+            .await?;
         for client in clients {
             upsert(&mut tx, client).await?;
         }
@@ -129,14 +134,40 @@ impl Store {
     /// Returns [`StoreError::Database`] when the query fails and
     /// [`StoreError::Corrupt`] for a row the server never writes.
     pub async fn client(&self, client_id: &str) -> Result<Option<Client>, StoreError> {
-        let row = sqlx::query(
+        self.client_by(
             "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
-             approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at \
+             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at \
              FROM client WHERE client_id = $1",
+            client_id,
         )
-        .bind(client_id)
-        .fetch_optional(&self.pool)
-        .await?;
+        .await
+    }
+
+    /// Returns the client whose normalized launch URL is `launch_uri`.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the query fails and
+    /// [`StoreError::Corrupt`] for a row the server never writes.
+    pub async fn client_launched_at(&self, launch_uri: &str) -> Result<Option<Client>, StoreError> {
+        self.client_by(
+            "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
+             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at \
+             FROM client WHERE launch_uri = $1",
+            launch_uri,
+        )
+        .await
+    }
+
+    /// Returns the client the one-parameter `query` finds for `value`.
+    async fn client_by(
+        &self,
+        query: &'static str,
+        value: &str,
+    ) -> Result<Option<Client>, StoreError> {
+        let row = sqlx::query(query)
+            .bind(value)
+            .fetch_optional(&self.pool)
+            .await?;
         row.map(|row| read_client(&row)).transpose()
     }
 
@@ -290,11 +321,12 @@ async fn upsert(
         .collect();
     sqlx::query(
         "INSERT INTO client (client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types, secret_hash, \
-         approved_scope, approved_by, approved_at, source) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, to_timestamp($12), 'config') \
+         launch_uri, approved_scope, approved_by, approved_at, source) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), 'config') \
          ON CONFLICT (client_id) DO UPDATE SET name = $2, kind = $3, jwks_uri = $4, jwks = $5, \
-         redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, approved_scope = $10, \
-         approved_by = $11, approved_at = to_timestamp($12), source = 'config', updated_at = now()",
+         redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, launch_uri = $10, \
+         approved_scope = $11, approved_by = $12, approved_at = to_timestamp($13), \
+         source = 'config', updated_at = now()",
     )
     .bind(&client.client_id)
     .bind(&client.name)
@@ -305,6 +337,7 @@ async fn upsert(
     .bind(&client.scopes)
     .bind(&grants)
     .bind(client.secret_hash.as_ref().map(SecretHash::phc))
+    .bind(&client.launch_uri)
     .bind(client.approval.as_ref().map(|approval| &approval.scopes))
     .bind(client.approval.as_ref().map(|approval| &approval.approved_by))
     .bind(client.approval.as_ref().map(|approval| approval.approved_at))
@@ -368,6 +401,7 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
         redirect_uris: row.try_get("redirect_uris")?,
         scopes: row.try_get("scopes")?,
         grant_types,
+        launch_uri: row.try_get("launch_uri")?,
         approval,
         client_id,
     })

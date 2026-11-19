@@ -64,10 +64,12 @@ pub const MAX_LAUNCH_SECONDS: u64 = 300;
 /// The parameters of a launch registration: the client authentication of
 /// RFC 7521 §4.2, the app (`app_client_id`), the resource server (`resource`,
 /// RFC 8707 §2) and the context parameters.
-const PARAMETERS: [&str; 11] = [
+const PARAMETERS: [&str; 13] = [
     "client_assertion_type",
     "client_assertion",
     "app_client_id",
+    "app_launch_uri",
+    "appContext",
     "resource",
     "patient",
     "encounter",
@@ -391,9 +393,7 @@ async fn register(
             "the client may not register a launch",
         )));
     }
-    let app = app(state, form.get("app_client_id"))
-        .await
-        .map_err(refused)?;
+    let app = app(state, &form).await.map_err(refused)?;
     let audience = form
         .get("resource")
         .filter(|base| {
@@ -463,22 +463,51 @@ async fn register(
     })
 }
 
-/// Returns the registered app `client_id` names: a client of the
-/// authorization code grant, the one an EHR launch continues in.
-async fn app(state: &AppState, client_id: Option<&str>) -> Result<Client, Refusal> {
-    let client_id = client_id.ok_or(refusal(
-        "invalid_request",
-        "the request names no app_client_id",
-    ))?;
-    state
-        .store()
-        .client(client_id)
-        .await
-        .map_err(|error| server_error("the client registry cannot be read", &error))?
+/// Returns the registered app the form names, by exactly one of
+/// `app_client_id` and `app_launch_uri`: a client of the authorization code
+/// grant, the one an EHR launch continues in. A launch URL is compared with
+/// the registered ones after RFC 3986 §6.2.2 normalization
+/// ([`crate::clients::normalized_launch_uri`]); naming the app by it, as a
+/// SMART Task does (SMART App Launch 2.2.0, Task profile for requesting a
+/// SMART launch, `smartonfhir-application`), is our own design.
+async fn app(state: &AppState, form: &Params) -> Result<Client, Refusal> {
+    let read = |error: StoreError| server_error("the client registry cannot be read", &error);
+    let found = match (form.get("app_client_id"), form.get("app_launch_uri")) {
+        (Some(client_id), None) => state.store().client(client_id).await.map_err(read)?,
+        (None, Some(launch_uri)) => {
+            let normalized = crate::clients::normalized_launch_uri(launch_uri).ok_or(refusal(
+                "invalid_request",
+                "the app_launch_uri is no absolute https URL without a fragment",
+            ))?;
+            state
+                .store()
+                .client_launched_at(&normalized)
+                .await
+                .map_err(read)?
+                .ok_or(refusal(
+                    "invalid_request",
+                    "the app_launch_uri names no registered app",
+                ))?
+                .into()
+        }
+        (Some(_), Some(_)) => {
+            return Err(refusal(
+                "invalid_request",
+                "the request names the app by both app_client_id and app_launch_uri",
+            ));
+        }
+        (None, None) => {
+            return Err(refusal(
+                "invalid_request",
+                "the request names no app_client_id or app_launch_uri",
+            ));
+        }
+    };
+    found
         .filter(|app| app.grant_types.contains(&GrantType::AuthorizationCode))
         .ok_or(refusal(
             "invalid_request",
-            "the app_client_id names no app of the authorization code grant",
+            "the request names no app of the authorization code grant",
         ))
 }
 
@@ -512,6 +541,7 @@ fn form_context(form: &Params) -> Result<Context, Refusal> {
         need_patient_banner,
         tenant: text("tenant"),
         ehr_id: text("ehrId"),
+        app_context: text("appContext"),
     })
 }
 
