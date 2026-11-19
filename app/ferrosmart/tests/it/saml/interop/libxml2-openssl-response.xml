@@ -1,0 +1,30 @@
+<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" Destination="https://smart.example.org/saml/acs" ID="_interopresponse" InResponseTo="_0123456789abcdef0123456789abcdef01234567" IssueInstant="2026-11-19T09:59:55Z" Version="2.0">
+  <saml:Issuer>https://idp.example.org/saml</saml:Issuer>
+  <samlp:Status>
+    <samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>
+  </samlp:Status>
+  <saml:Assertion ID="_interop1" IssueInstant="2026-11-19T09:59:55Z" Version="2.0">
+    <saml:Issuer>https://idp.example.org/saml</saml:Issuer><ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#"><ds:SignedInfo><ds:CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/><ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256"/><ds:Reference URI="#_interop1"><ds:Transforms><ds:Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature"/><ds:Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"/></ds:Transforms><ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/><ds:DigestValue>CEs2tB1q12k/HmeJiwh+PJ4QbiS81mPmPtLqL6qpaNs=</ds:DigestValue></ds:Reference></ds:SignedInfo><ds:SignatureValue>KgPgcULNh12b6cMv028VS/3/+LyJIdDfHlABiNMjWmYdYYvspom7j2aT65Y/9I/lC+RsCv6FhZuLRU5CXpH09yq3zV9+gQ+FmMQPkPao7aGAK9vX7yOPqgf3sulX1iU1EXeSRioKoXUd++crE0b1ewxk7j6g58ApylvApyIO/ceh67d2Vru7FxNReuUUJdmFJlK/PzuvSFbe289m64mC05LXVHCJiXM+GueesoC8RSofR+lpprPngho/9IW5HrnT49/+z+ovNJQE6OP8PIuZzKzMojjGmSkcE9UajN2kQuVS5/vEm9wTDEuh56iGv0+ENr6YtsdZzX4Ngz/XTkkqjg==</ds:SignatureValue></ds:Signature>
+    <saml:Subject>
+      <saml:NameID Format="urn:oasis:names:tc:SAML:2.0:nameid-format:persistent">person-17</saml:NameID>
+      <saml:SubjectConfirmation Method="urn:oasis:names:tc:SAML:2.0:cm:bearer">
+        <saml:SubjectConfirmationData InResponseTo="_0123456789abcdef0123456789abcdef01234567" NotOnOrAfter="2026-11-19T10:05:00Z" Recipient="https://smart.example.org/saml/acs"/>
+      </saml:SubjectConfirmation>
+    </saml:Subject>
+    <saml:Conditions NotBefore="2026-11-19T09:59:00Z" NotOnOrAfter="2026-11-19T10:05:00Z">
+      <saml:AudienceRestriction>
+        <saml:Audience>https://smart.example.org/saml</saml:Audience>
+      </saml:AudienceRestriction>
+    </saml:Conditions>
+    <saml:AuthnStatement AuthnInstant="2026-11-19T09:59:50Z" SessionIndex="_s1">
+      <saml:AuthnContext>
+        <saml:AuthnContextClassRef>urn:example:loa:high</saml:AuthnContextClassRef>
+      </saml:AuthnContext>
+    </saml:AuthnStatement>
+    <saml:AttributeStatement>
+      <saml:Attribute Name="role" NameFormat="urn:oasis:names:tc:SAML:2.0:attrname-format:basic">
+        <saml:AttributeValue xsi:type="xs:string">clinician &amp; nurse</saml:AttributeValue>
+      </saml:Attribute>
+    </saml:AttributeStatement>
+  </saml:Assertion>
+</samlp:Response>

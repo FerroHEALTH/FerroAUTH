@@ -302,6 +302,8 @@ tracked="$(git ls-files .vendor-cache | head -n1)"
 # ---- 3f. the corpora pinned file by file by sha256 --------------------------
 for tree in "ehdsi-specifications:eHDSI specifications" "eu-law:EU legal acts" \
   "ihe-balp-pages:IHE BALP narrative pages" \
+  "oasis-saml:OASIS SAML V2.0 standard" \
+  "w3c-xmlsec:W3C XML security Recommendations" \
   "oauth-v2-1:OAuth 2.1 Authorization Framework draft"; do
   dir="docs/specs/${tree%%:*}"
   item="${tree#*:}"

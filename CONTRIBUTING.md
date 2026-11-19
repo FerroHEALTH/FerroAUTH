@@ -65,12 +65,17 @@ governs this: our own design".
 - Declare `Closes #N`, one keyword per issue.
 - Never weaken, skip, or delete a test to make a build pass; every refusal
   you add has an asserted negative test.
-- Add an entry under `[Unreleased]` in the changed crate's
-  `crates/<crate>/CHANGELOG.md` for any change a product sees, or under its
-  pending `[X.Y.Z] - Unreleased` section when one stands, and name what a
-  product must change when an API breaks. The first breaking change after a
-  release moves the minor version and opens that section
-  (`docs/release.md`, When the version moves).
+- For any change a product sees, add a changelog fragment,
+  `changelog.d/<package>/<issue>-<kebab-slug>.<section>.md`, where
+  `<package>` is `ferrosmart`, `ferrohealth-smart`, `ferrohealth-authz` or
+  `ferrohealth-session` and `<section>` is `added`, `changed`,
+  `deprecated`, `removed`, `fixed` or `security`. Never edit `[Unreleased]`
+  of a changelog: the release cut assembles the fragments
+  (`changelog.d/README.md`). Name what a product must change when an API
+  breaks. The first breaking change after a release moves the minor version
+  and opens an empty pending `[X.Y.Z] - Unreleased` heading
+  (`docs/release.md`, When the version moves). A change with no effect a
+  product sees carries the `no-changelog` label.
 - Write prose to `.claude/rules/writing-style.md`.
 
 ## Using AI tools
