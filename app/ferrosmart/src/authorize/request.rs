@@ -132,6 +132,7 @@ async fn begin(
         error: "invalid_scope",
         description: "the request names no scope",
     }))?;
+    let asking = super::oidc::read(params).map_err(Stop::Deny)?;
     let launch_context = match params.get("launch") {
         Some(launch) => {
             match crate::launch::redeem(state, &client.client_id, launch, audience, scope, from)
@@ -151,16 +152,24 @@ async fn begin(
         }
         None => None,
     };
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Standalone apps: the
+    // server may infer launch/patient; an EHR launch's context comes from launch.
+    let scope = if launch_context.is_none() {
+        crate::scopes::with_inferred_patient(scope)
+    } else {
+        scope.to_owned()
+    };
     let party = state
         .relying_party()
         .ok_or(Stop::Deny(Denial::request("no login is configured")))?;
     let upstream = party.authorization_request().map_err(fail)?;
+    let upstream_url = super::oidc::upstream(upstream.url.clone(), &asking);
     let id = random().map_err(fail)?;
     let pending = Pending {
         id: id.clone(),
         client_id: Some(client.client_id.clone()),
         redirect_uri: redirect_uri.to_owned(),
-        scope: scope.to_owned(),
+        scope,
         state: client_state.to_owned(),
         nonce: params.get("nonce").map(str::to_owned),
         code_challenge: challenge.to_owned(),
@@ -179,13 +188,14 @@ async fn begin(
         launch_context,
         upstream_session: None,
         roles: Vec::new(),
+        asking,
     };
     state
         .store()
         .begin_authorization(&pending)
         .await
         .map_err(fail)?;
-    let mut response = see_other(upstream.url.as_str());
+    let mut response = see_other(upstream_url.as_str());
     set_cookie(state, &mut response, &id, REQUEST_SECONDS);
     Ok(response)
 }

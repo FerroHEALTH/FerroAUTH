@@ -98,6 +98,16 @@ pub struct ClientSection {
     /// in place of the `client_id` (`docs/architecture.md` §13.17); empty
     /// for none.
     pub launch_uri: String,
+    /// The app's home page (RFC 7591 §2 `client_uri`), linked from its name
+    /// on the consent page; empty for none.
+    pub client_uri: String,
+    /// The app's logo (RFC 7591 §2 `logo_uri`), drawn on the consent page;
+    /// empty for none.
+    pub logo_uri: String,
+    /// The app's privacy policy (RFC 7591 §2 `policy_uri`); empty for none.
+    pub policy_uri: String,
+    /// The app's terms of service (RFC 7591 §2 `tos_uri`); empty for none.
+    pub tos_uri: String,
     /// The administrator's approval of the client for the whole
     /// organisation, under which a professional sees no consent page
     /// (`docs/architecture.md` §13.6 item 6).
@@ -201,6 +211,22 @@ pub struct Client {
     /// Its approval for the whole organisation, when an administrator
     /// gave one.
     pub approval: Option<Approval>,
+    /// What the consent page shows about the app.
+    pub about: About,
+}
+
+/// What a client registers about its app for the person who approves it
+/// (RFC 7591 §2, client metadata), each an absolute `https` URL.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct About {
+    /// `client_uri`, the app's home page.
+    pub home: Option<Url>,
+    /// `logo_uri`, the app's logo.
+    pub logo: Option<Url>,
+    /// `policy_uri`, the app's privacy policy.
+    pub policy: Option<Url>,
+    /// `tos_uri`, the app's terms of service.
+    pub terms: Option<Url>,
 }
 
 /// The Argon2id PHC hash of a client secret, never rendered by `Debug`.
@@ -307,6 +333,15 @@ pub enum ClientError {
     LaunchUri {
         /// The client.
         client_id: String,
+    },
+    /// An RFC 7591 §2 URL of the app is no absolute `https` URL without a
+    /// fragment.
+    #[error("the client `{client_id}`: `{key}` is not an absolute https URL without a fragment")]
+    AboutUri {
+        /// The client.
+        client_id: String,
+        /// The key.
+        key: &'static str,
     },
     /// Two clients register one launch URL, which a launch registration
     /// could then not tell apart.
@@ -463,6 +498,7 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
         .as_ref()
         .map(|approval| resolve_approval(section, &grant_types, approval))
         .transpose()?;
+    let about = resolve_about(section)?;
     Ok(Client {
         client_id: section.client_id.clone(),
         name: if section.name.is_empty() {
@@ -478,6 +514,35 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
         grant_types,
         launch_uri,
         approval,
+        about,
+    })
+}
+
+/// Returns what the client `section` registers about its app, each URL
+/// checked.
+///
+/// The consent page links and draws these, so each is an absolute `https`
+/// URL without a fragment; RFC 7591 §2 asks only for a URL, and the scheme
+/// rule is our own design.
+fn resolve_about(section: &ClientSection) -> Result<About, ClientError> {
+    let url = |key: &'static str, value: &str| {
+        if value.is_empty() {
+            return Ok(None);
+        }
+        Url::parse(value)
+            .ok()
+            .filter(|url| url.scheme() == "https" && url.fragment().is_none())
+            .map(Some)
+            .ok_or_else(|| ClientError::AboutUri {
+                client_id: section.client_id.clone(),
+                key,
+            })
+    };
+    Ok(About {
+        home: url("client_uri", &section.client_uri)?,
+        logo: url("logo_uri", &section.logo_uri)?,
+        policy: url("policy_uri", &section.policy_uri)?,
+        terms: url("tos_uri", &section.tos_uri)?,
     })
 }
 

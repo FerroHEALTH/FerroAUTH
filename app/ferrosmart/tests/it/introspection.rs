@@ -61,6 +61,12 @@ pub(crate) struct Server {
 impl Server {
     /// Starts the server.
     pub(crate) async fn start() -> Self {
+        Self::start_with("").await
+    }
+
+    /// Starts the server with `extra` appended to its configuration, such
+    /// as its own `[[ferrosmart.resource]]` tables.
+    pub(crate) async fn start_with(extra: &str) -> Self {
         let keys = Keys::new();
         let pem = std::fs::read(ec_key(keys.dir.path(), "client.pem")).expect("the key reads");
         let client_key =
@@ -97,7 +103,7 @@ impl Server {
              scopes = [\"system/introspect\"]\ngrant_types = [\"authorization_code\"]\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\
              redirect_uris = [\"https://app.example.org/callback\"]\n\
-             grant_types = [\"authorization_code\", \"refresh_token\"]",
+             grant_types = [\"authorization_code\", \"refresh_token\"]\n{extra}",
             secrecy::ExposeSecret::expose_secret(&database.url)
         );
         let settings = config(&text, &keys).resolve().expect("resolves");

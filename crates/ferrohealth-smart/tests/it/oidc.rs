@@ -565,6 +565,60 @@ async fn the_refresh_grant_rotates_the_tokens_and_a_refusal_carries_its_code() {
 }
 
 #[tokio::test]
+async fn a_refresh_for_a_resource_names_it_and_a_refused_target_carries_its_code() {
+    let key = ec_key("op-1", Algorithm::ES256);
+    let (issuer, client) = provider(&key).await;
+    // NOTE: RFC 8707 §2.2, `resource` on a refresh_token request names the target.
+    Mock::given(matchers::method("POST"))
+        .and(matchers::path(TOKEN_PATH))
+        .and(matchers::body_string_contains("grant_type=refresh_token"))
+        .and(matchers::body_string_contains(
+            "refresh_token=synthetic-refresh-1",
+        ))
+        .and(matchers::body_string_contains(
+            "resource=https%3A%2F%2Fehr.example.org%2Ffhir",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "access_token": "synthetic-fhir-1",
+            "token_type": "bearer",
+            "expires_in": 300,
+            "refresh_token": "synthetic-refresh-2"
+        })))
+        .with_priority(1)
+        .mount(&issuer.server)
+        .await;
+    Mock::given(matchers::method("POST"))
+        .and(matchers::path(TOKEN_PATH))
+        .respond_with(
+            ResponseTemplate::new(400)
+                .set_body_json(serde_json::json!({ "error": "invalid_target" })),
+        )
+        .with_priority(2)
+        .mount(&issuer.server)
+        .await;
+    let refreshed = client
+        .refresh_for(
+            &Secret::new("synthetic-refresh-1"),
+            "https://ehr.example.org/fhir",
+        )
+        .await
+        .expect("the refresh completes");
+    assert_eq!("synthetic-fhir-1", refreshed.access_token.expose());
+    assert_eq!(
+        Some("synthetic-refresh-2"),
+        refreshed.refresh_token.as_ref().map(Secret::expose)
+    );
+    let refused = client
+        .refresh_for(
+            &Secret::new("synthetic-refresh-1"),
+            "https://other.example.org/fhir",
+        )
+        .await
+        .expect_err("an unknown resource is refused");
+    assert_eq!(Some("invalid_target"), refused.oauth_error(), "RFC 8707 §2");
+}
+
+#[tokio::test]
 async fn a_provider_failing_on_its_side_is_no_answered_refusal() {
     let key = ec_key("op-1", Algorithm::ES256);
     let (issuer, client) = provider(&key).await;

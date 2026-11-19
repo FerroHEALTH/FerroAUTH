@@ -14,7 +14,7 @@ use ferrohealth_session::routes::{Pages as _, SignIn};
 use ferrohealth_session::sessions::Sessions;
 use http::{Method, StatusCode};
 
-use crate::console::{Browser, TestPages, console, console_of, query, sign_in};
+use crate::console::{Browser, RESOURCE, TestPages, console, console_of, query, sign_in};
 use crate::provider::Provider;
 
 /// The `state`, `nonce` and challenge `GET /login?return=…` sent the
@@ -438,4 +438,102 @@ async fn a_return_path_off_the_console_leads_home() {
         )
         .await;
     assert_eq!(Some("/"), back.location.as_deref(), "RFC 3986 §4.2");
+}
+
+/// A sign-in whose access token lasts an hour, with a refresh token.
+fn lasting(id_token: &str) -> serde_json::Value {
+    serde_json::json!({
+        "access_token": "synthetic-access-1",
+        "token_type": "Bearer",
+        "expires_in": 3600,
+        "refresh_token": "synthetic-refresh-1",
+        "id_token": id_token
+    })
+}
+
+#[tokio::test]
+async fn a_token_for_another_resource_is_refreshed_once_and_its_rotated_refresh_token_kept() {
+    let provider = Provider::start().await;
+    let (app, mut browser) = signed_in(&provider, StoreKind::Memory, lasting).await;
+    provider
+        .mount_refresh_for(
+            "synthetic-refresh-1",
+            RESOURCE,
+            200,
+            serde_json::json!({
+                "access_token": "synthetic-fhir-1",
+                "token_type": "Bearer",
+                "expires_in": 300,
+                "refresh_token": "synthetic-refresh-2"
+            }),
+        )
+        .await;
+    // NOTE: RFC 8707 §2.2, the refresh names the resource the token is for.
+    let first = browser.get(&app, "/resource").await;
+    assert_eq!("Issued synthetic-fhir-1", first.body);
+    let again = browser.get(&app, "/resource").await;
+    assert_eq!(
+        "Issued synthetic-fhir-1", again.body,
+        "kept until it is due"
+    );
+    let home = browser.get(&app, "/").await;
+    assert_eq!(
+        "Synthetic Operator synthetic-access-1", home.body,
+        "the session's own token stays"
+    );
+    // NOTE: RFC 9700 §4.14.2, the rotated refresh token replaces the session's.
+    provider
+        .mount_revoke("synthetic-refresh-2", "refresh_token")
+        .await;
+    browser.send(&app, Method::POST, "/logout").await;
+    provider.server.verify().await;
+}
+
+#[tokio::test]
+async fn a_refused_resource_leaves_the_session_and_a_refused_grant_ends_it() {
+    let provider = Provider::start().await;
+    let (app, mut browser) = signed_in(&provider, StoreKind::Memory, lasting).await;
+    provider
+        .mount_refresh_for(
+            "synthetic-refresh-1",
+            RESOURCE,
+            400,
+            serde_json::json!({ "error": "invalid_target" }),
+        )
+        .await;
+    let refused = browser.get(&app, "/resource").await;
+    assert_eq!("Refused", refused.body, "RFC 8707 §2");
+    let home = browser.get(&app, "/").await;
+    assert_eq!("Synthetic Operator synthetic-access-1", home.body);
+    provider.server.verify().await;
+
+    provider.server.reset().await;
+    provider
+        .mount_refresh_for(
+            "synthetic-refresh-1",
+            RESOURCE,
+            400,
+            serde_json::json!({ "error": "invalid_grant" }),
+        )
+        .await;
+    let ended = browser.get(&app, "/resource").await;
+    assert_eq!("Ended", ended.body, "RFC 6749 §5.2");
+    let home = browser.get(&app, "/").await;
+    assert!(
+        !home.body.starts_with("Synthetic Operator"),
+        "{}",
+        home.body
+    );
+    provider.server.verify().await;
+}
+
+#[tokio::test]
+async fn a_sealed_session_has_no_token_for_another_resource() {
+    let provider = Provider::start().await;
+    let (app, mut browser) = signed_in(&provider, StoreKind::Sealed, lasting).await;
+    let answer = browser.get(&app, "/resource").await;
+    assert_eq!(
+        "Unavailable", answer.body,
+        "a sealed session keeps no refresh token"
+    );
 }
