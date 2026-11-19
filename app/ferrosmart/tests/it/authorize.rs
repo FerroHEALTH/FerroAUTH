@@ -96,7 +96,13 @@ impl Provider {
 
     /// Answers the next code exchange with an ID Token for the person
     /// `subject` whose `fhir_user` is `fhir_user`.
-    pub(crate) async fn answer_as(&self, nonce: &str, roles: &[&str], subject: &str, fhir_user: &str) {
+    pub(crate) async fn answer_as(
+        &self,
+        nonce: &str,
+        roles: &[&str],
+        subject: &str,
+        fhir_user: &str,
+    ) {
         let now = jiff::Timestamp::now().as_second();
         let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(String::from("op-1"));

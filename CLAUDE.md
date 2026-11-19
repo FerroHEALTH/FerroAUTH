@@ -166,8 +166,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   `.vendor-cache/`, and the MyHealth@EU Requirements Catalogue is recorded
   by sha256 and never copied).
 - `scripts/`: `vendor/` (the corpus fetchers), `checks/` (the committed
-  guards), `release/` (the release plan, the crate publish and the Trivy
-  install), `gh/` (the tracker helpers).
+  guards), `release/` (the release plan, the crate publish, the Trivy
+  install and the Chrome install of the screenshot capture), `gh/` (the tracker helpers).
 - `.github/`: CI with a single required `conclusion` job, the vendored
   specification guard, CodeQL, Scorecard, Dependabot, the release lane with
   crates.io Trusted Publishing (`release.yml`, `release-crate.yml`,

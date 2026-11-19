@@ -100,6 +100,7 @@ Launch 2.2.0, Obtain authorization code). The app reads the server's
 `.well-known/smart-configuration`, which names FerroSMART, and sends the
 person to `/authorize` with the `launch` scope and value. The person logs
 in and consents, and the token response carries the context the EHR gave.
+[The flows](flows.md#the-standalone-launch) show the consent page.
 
 A launch that the app does not redeem within five minutes, or redeems for
 another app or server, fails; the EHR launches again.

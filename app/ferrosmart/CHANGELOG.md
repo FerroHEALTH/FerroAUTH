@@ -14,6 +14,10 @@ and this project adheres to
 
 ### Added
 
+- The book shows every page a person meets during a launch, in the light
+  and the dark theme: the consent page of a clinician app and of a patient
+  app, the patient picker, the management page and the three error pages.
+  The README and the landing page show the consent page (#623).
 - The management page lists every app that holds a live `offline_access`
   or `online_access` grant of the person, remembered or not, says how long
   it stays connected, and withdraws it, as SMART App Launch 2.2.0, Best

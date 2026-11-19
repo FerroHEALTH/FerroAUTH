@@ -23,6 +23,11 @@
 //! release fails until the images are taken again. No specification
 //! governs the screenshots: our own design, after FerroPIX's.
 
+#![expect(
+    clippy::panic,
+    reason = "a capture step fails the case naming the page or file it was on"
+)]
+
 mod chromedriver;
 mod stack;
 
@@ -151,9 +156,7 @@ impl Browser {
         let mut capabilities = DesiredCapabilities::chrome();
         // NOTE: Chrome's headless mode (developer.chrome.com/docs/chromium/headless):
         // a container has neither the kernel sandbox nor a large `/dev/shm`.
-        capabilities
-            .add_arg("--headless=new")
-            .expect("an argument");
+        capabilities.add_arg("--headless=new").expect("an argument");
         capabilities.set_no_sandbox().expect("an argument");
         capabilities
             .set_disable_dev_shm_usage()
@@ -294,10 +297,7 @@ impl Browser {
 /// the launch cookie the browser carries to it.
 async fn reach(stack: &Stack, visit: Visit) -> (String, Option<String>) {
     match visit {
-        Visit::ClinicianConsent => (
-            stack.url("/consent"),
-            Some(stack.clinician_consent().await),
-        ),
+        Visit::ClinicianConsent => (stack.url("/consent"), Some(stack.clinician_consent().await)),
         Visit::PatientConsent => (stack.url("/consent"), Some(stack.patient_consent().await)),
         Visit::Picker => (
             stack.url("/picker?name=Example"),
@@ -332,11 +332,7 @@ async fn the_book_shows_every_page_in_light_and_dark() {
             browser.open(&address).await;
             browser.capture(&output(image, suffix)).await;
         }
-        browser
-            .driver
-            .quit()
-            .await
-            .expect("the browser closes");
+        browser.driver.quit().await.expect("the browser closes");
         stack.stop().await;
     }
     let captured = folder.join(CAPTURED);
@@ -429,6 +425,9 @@ fn every_page_route_has_a_screenshot_in_light_and_dark() {
             shown,
             "no page of the book shows {image}.png as an image with alt text"
         );
-        assert!(book.contains(&dark), "no page of the book links {image}-dark.png");
+        assert!(
+            book.contains(&dark),
+            "no page of the book links {image}-dark.png"
+        );
     }
 }

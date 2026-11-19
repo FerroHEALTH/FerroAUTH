@@ -369,6 +369,24 @@ a.card:focus-visible {
   font-size: 0.85rem;
 }
 
+/* A screenshot of a page, light or dark with the reader's scheme. It scales
+   inside its box, so it never widens the page. */
+.shot { max-width: 960px; margin: 2.5rem auto 0; }
+.shot img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--fs-border);
+  border-radius: var(--fs-radius);
+  box-shadow: var(--fs-shadow);
+}
+.shot figcaption {
+  margin-top: 0.8rem;
+  text-align: center;
+  color: var(--fs-muted);
+  font-size: 0.9rem;
+}
+
 /* Responsive */
 @media (max-width: 720px) {
   .nav-links { gap: 1rem; font-size: 0.9rem; }

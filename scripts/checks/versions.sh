@@ -44,6 +44,9 @@
 #                        same SMART App Launch version as the matrix.
 #   4e. Inferno lane     the FerroBRIDGE image the lane runs is pinned by
 #                        digest at the release its party mappings pin.
+#   4f. the screenshots  scripts/release/journey-tools.sh carries the Chrome
+#                        for Testing release and the four zip digests of
+#                        the matrix, and Cargo.toml the thirtyfour version.
 #   5. the licence       no first-party file claims a licence other than
 #                        BUSL-1.1 in its SPDX header; the vendored trees are
 #                        third-party material and are left out.
@@ -379,6 +382,25 @@ tag="$(corpus_pin_tag "$(corpus_pin_cell "FerroBRIDGE party mappings")")"
 grep -qE "^ghcr\.io/ferrohealth/ferrobridge:${tag#v}@sha256:[0-9a-f]{64}," <<< "$image" ||
   fail "the FerroBRIDGE FHIR server image is not release ${tag#v} by digest, the release the party mappings pin"
 [ "$failures" -ne "$before" ] || ok "the Inferno lane runs FerroBRIDGE ${tag#v}, the release of its party mappings"
+
+# ---- 4f. the screenshot capture's browser ----------------------------------
+before="$failures"
+tools="scripts/release/journey-tools.sh"
+while IFS='=' read -r variable item; do
+  pin="$(corpus_pin_cell "$item")"
+  grep -qxF "$variable=\"$pin\"" "$tools" ||
+    fail "$tools does not set $variable to $pin, the pin of '$item'"
+done << 'ROWS'
+chrome_version=Chrome for Testing (Chrome and chromedriver)
+chrome_linux64_sha256=Chrome for Testing, chrome-linux64.zip SHA-256
+chrome_mac_arm64_sha256=Chrome for Testing, chrome-mac-arm64.zip SHA-256
+chromedriver_linux64_sha256=Chrome for Testing, chromedriver-linux64.zip SHA-256
+chromedriver_mac_arm64_sha256=Chrome for Testing, chromedriver-mac-arm64.zip SHA-256
+ROWS
+pin="$(corpus_pin_cell "thirtyfour")"
+grep -qE "^thirtyfour = \{ version = \"${pin//./\\.}\"," Cargo.toml ||
+  fail "Cargo.toml does not pin thirtyfour at $pin"
+[ "$failures" -ne "$before" ] || ok "the screenshot capture's browser and client are at their pins"
 
 # ---- 5. the licence ---------------------------------------------------------
 licence="$(awk '{ print $1; exit }' <<< "$(corpus_pin_cell "Project licence")")"

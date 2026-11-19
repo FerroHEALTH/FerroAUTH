@@ -41,10 +41,11 @@ use ferrohealth_smart::oidc::RelyingParty;
 /// specification governs the value: our own design.
 pub const JWKS_CACHE_CONTROL: &str = "public, max-age=3600";
 
-/// The routes that answer a person's browser with a page: the consent
-/// page, the patient picker, the management page, and the error pages the
-/// authorization endpoint and the upstream callback draw. The book shows
-/// each (`website/book/src/integrate/img/`).
+/// The routes that answer a person's browser with a page.
+///
+/// They are the consent page, the patient picker, the management page, and
+/// the error pages the authorization endpoint and the upstream callback
+/// draw. The book shows each (`website/book/src/integrate/img/`).
 pub const PAGES: [&str; 5] = [
     AUTHORIZE_ROUTE,
     CALLBACK_ROUTE,

@@ -313,7 +313,7 @@ impl Stack {
     /// picked, and returns its cookie.
     pub(crate) async fn patient_consent(&self) -> String {
         let cookie = self.picker().await;
-        let (status, _, page) = self.get("/picker", Some(&cookie)).await;
+        let (status, _, page) = self.get("/picker?name=Example", Some(&cookie)).await;
         assert_eq!(StatusCode::OK, status, "{page}");
         let token = form_token(&page);
         let (status, headers, page) = self
