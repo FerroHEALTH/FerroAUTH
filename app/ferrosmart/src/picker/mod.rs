@@ -60,6 +60,7 @@ use crate::server::AppState;
 use crate::store::{IssuedToken, Pending};
 
 pub mod encounter;
+pub mod fhir_user;
 pub mod openehr;
 mod paired;
 

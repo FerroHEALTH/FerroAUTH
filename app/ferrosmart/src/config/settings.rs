@@ -59,6 +59,9 @@ pub struct Settings {
     pub subject_namespaces: BTreeMap<String, String>,
     /// The FHIR base each openEHR base that names one is paired with.
     pub pairings: BTreeMap<String, Pairing>,
+    /// The `fhirUser` lookups of each FHIR base that names any
+    /// (`docs/architecture.md` §13.6 item 9).
+    pub fhir_user_lookups: BTreeMap<String, Vec<crate::config::FhirUserLookupSection>>,
     /// The upstream provider, when people log in.
     pub upstream: Option<Upstream>,
     /// The scopes each role may be granted.
@@ -185,6 +188,7 @@ impl Config {
                 .collect(),
             subject_namespaces: subject_namespaces(&section.resource)?,
             pairings: pairings(&section.resource)?,
+            fhir_user_lookups: fhir_user_lookups(&section.resource)?,
             upstream: section
                 .upstream
                 .as_ref()
@@ -380,6 +384,39 @@ fn subject_namespaces(
         namespaces.insert(section.base.clone(), namespace.clone());
     }
     Ok(namespaces)
+}
+
+/// Returns the `fhirUser` lookups of each FHIR base in `sections` that names
+/// any, each with a claim and an absolute URI as its system.
+fn fhir_user_lookups(
+    sections: &[crate::config::ResourceSection],
+) -> Result<BTreeMap<String, Vec<crate::config::FhirUserLookupSection>>, Error> {
+    let mut lookups = BTreeMap::new();
+    for section in sections
+        .iter()
+        .filter(|section| !section.fhir_user_lookup.is_empty())
+    {
+        if section.kind != crate::config::ResourceKind::Fhir {
+            return Err(Error::Resource {
+                rule: "a `fhir_user_lookup` is for a FHIR base",
+            });
+        }
+        for lookup in &section.fhir_user_lookup {
+            if lookup.claim.trim().is_empty() {
+                return Err(Error::Resource {
+                    rule: "a `fhir_user_lookup` names its `claim`",
+                });
+            }
+            // NOTE: FHIR R4 Identifier.system is a uri, "an absolute URI".
+            if Url::parse(&lookup.system).is_err() {
+                return Err(Error::Resource {
+                    rule: "a `fhir_user_lookup` `system` is an absolute URI",
+                });
+            }
+        }
+        lookups.insert(section.base.clone(), section.fhir_user_lookup.clone());
+    }
+    Ok(lookups)
 }
 
 /// The FHIR server an openEHR base is paired with, and how one of its

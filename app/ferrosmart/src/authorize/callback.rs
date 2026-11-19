@@ -205,6 +205,13 @@ async fn proceed(
         },
         Purpose::Manage => None,
     };
+    let fhir_user = match fhir_user {
+        Some(claimed) => Some(claimed),
+        None if pending.purpose == Purpose::Authorize => {
+            looked_up(state, pending, &subject, claims, from).await
+        }
+        None => None,
+    };
     let mut login = Login {
         subject,
         fhir_user,
@@ -269,6 +276,37 @@ async fn proceed(
         consent: pending.asking.prompt.consent,
     };
     onward(state, &asked, back, from).await
+}
+
+/// Returns the `fhirUser` the lookups configured for the request's server
+/// find for the person `subject` with the upstream `claims`, and writes the
+/// outcome as an audit line, never a value (`docs/architecture.md` §13.6
+/// item 9).
+async fn looked_up(
+    state: &AppState,
+    pending: &Pending,
+    subject: &str,
+    claims: &ferrohealth_smart::oidc::IdTokenClaims,
+    from: IpAddr,
+) -> Option<String> {
+    let asking = Pending {
+        subject: Some(subject.to_owned()),
+        ..pending.clone()
+    };
+    let resolved =
+        crate::picker::fhir_user::resolve(state, &asking, from, &pending.audience, &claims.other)
+            .await?;
+    tracing::info!(
+        target: "ferrosmart::audit",
+        event = "fhir_user.lookup",
+        client_id = ?pending.client_id,
+        outcome = resolved.as_str(),
+        "the person's fhirUser was looked up"
+    );
+    match resolved {
+        crate::picker::fhir_user::Resolved::Found(fhir_user) => Some(fhir_user),
+        _ => None,
+    }
 }
 
 /// What a person, logged in with the launch context complete, was asked
