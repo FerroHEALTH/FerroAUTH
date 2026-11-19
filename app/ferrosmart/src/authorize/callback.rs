@@ -213,6 +213,7 @@ async fn proceed(
         auth_time,
         upstream_session,
         roles: mapped(&held, &state.settings().roles),
+        person_claims: crate::store::PersonClaims::from_claims(claims),
     };
     let person = Person {
         issuer: &state.settings().issuer,
