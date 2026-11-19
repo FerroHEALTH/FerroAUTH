@@ -4212,3 +4212,58 @@ FerroSMART's `POST {issuer}/launch` (13.17) with the Task's patient,
 encounter and `appContext` as the launch context, and opens the app with
 the `launch` value it gets back; a `task-standalone-launch` Task needs
 nothing of FerroSMART beyond the standalone launch.
+
+### 13.24 The OpenID Foundation conformance suite lane
+
+A CI lane (#621, `scripts/oidf/lane.sh`) runs the OpenID Foundation
+conformance suite against a FerroSMART built from the commit, in both of
+its OpenID Connect roles. The suite is its published image at
+`release-v5.3.4`, with its nginx TLS front and MongoDB, each pinned by
+digest in `docs/VERSIONS.md`, and its own `scripts/run-test-plan.py`,
+vendored under `docs/specs/oidf-conformance-suite/`, runs each plan.
+`app/ferrosmart/oidf/expected.tsv` holds every module to its result, and
+any difference fails the lane: a module that got worse is a regression,
+and one that got better is recorded. No specification governs the lane:
+our own design.
+
+| Plan | Role | Variants | Modules |
+|---|---|---|---|
+| `oidcc-client-test-plan` | relying party, FerroSMART's upstream login | `private_key_jwt`, `code`, static client | 28 |
+| `oidcc-client-basic-certification-test-plan` | relying party | the plan fixes `client_secret_basic` | 14 |
+| `oidcc-config-certification-test-plan` | OpenID Provider, FerroSMART's own ID Tokens | discovery | 1 |
+| `oidcc-basic-certification-test-plan` | OpenID Provider | discovery, static client; the plan fixes `client_secret_basic` | 35 |
+
+**As the relying party**, FerroSMART's upstream provider is the suite.
+`scripts/oidf/rp-client.sh` is the client the runner starts for each
+module: it starts FerroSMART against the module's provider, sends an app's
+authorization request, follows the browser to the provider and back to
+`{issuer}/callback`, and records what FerroSMART made of the provider's
+answer: `accepted` (the login reached the consent page), `refused` (the
+app got an error, `rfc6749 §4.1.2.1`), `no-start` (FerroSMART refused the
+provider's metadata) or `started`. The suite's verdict on a negative
+module cannot see the relying party refuse, so the login column carries
+the check: the lane knows what each module asks of the login, from the
+module's own summary in the suite, and a login the module does not ask
+for names its issue. A happy-path module finishes at the suite only after
+a UserInfo request (`oidc core §5.3`), which FerroSMART never makes: it
+reads the person from the ID Token. The driver therefore stops such a
+module once the login is accepted, and the suite records it
+`INTERRUPTED`. The suite's runner never runs the two key-rotation
+modules (its own `ignored_modules`), and the lane records them as not run.
+
+**As the OpenID Provider**, the suite is the static client `oidf-suite`, a
+confidential symmetric client, and Keycloak is FerroSMART's upstream.
+FerroSMART has no UserInfo Endpoint (13.5, "later"), so every module of
+the Basic plan stops before its authorization request and the
+configuration module warns; #650 holds the decision, and the PKCE and
+`aud` FerroSMART requires of every authorization request are the next
+barrier it names.
+
+What the lane found: the relying party accepted an ID Token without
+`iat` (#646) and refused one without `kid` whose key set holds a single
+matching key (#648), both fixed and now held as passes. The
+client-secret module and the Basic relying party plan fail because
+FerroSMART authenticates upstream with `private_key_jwt` alone (13.22,
+#619). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
+RFC 10070's audience rule, need PAR and DPoP and are the lane's next
+target.

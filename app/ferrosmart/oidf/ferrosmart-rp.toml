@@ -1,0 +1,46 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+# FerroSMART as the relying party of the OpenID Foundation conformance suite
+# (#621, scripts/oidf/lane.sh): its upstream provider is the suite, at the
+# issuer the suite gives the alias `ferrosmart`. scripts/oidf/rp-client.sh
+# starts it once for each test module, since a module is a provider with keys
+# of its own behind one issuer. The lane gives the key files, the trust roots
+# and the database with `--set`. No specification governs the lane: our own
+# design.
+
+[server]
+listen = "127.0.0.1:9443"
+
+[ferrosmart]
+issuer = "https://localhost.emobix.co.uk:9443"
+
+[ferrosmart.database]
+max_connections = 4
+
+# The server the lane's app asks a token for; nothing reads it.
+[[ferrosmart.resource]]
+base = "https://localhost.emobix.co.uk:9443/fhir"
+kind = "fhir"
+
+[ferrosmart.upstream]
+issuer = "https://localhost.emobix.co.uk:8443/test/a/ferrosmart/"
+client_id = "ferrosmart"
+# The scopes of OpenID Connect Core 1.0 §5.4, which one module of the suite
+# refuses an authorization request without.
+scopes = ["openid", "profile", "email", "address", "phone"]
+
+[ferrosmart.upstream.private_key_jwt]
+
+# The `kid` app/ferrosmart/oidf/rp.json registers the assertion key under.
+[ferrosmart.upstream.private_key_jwt.keys]
+private_key_file = "/run/secrets/upstream_assertion_key"
+kid = "oidf-lane"
+
+# The app whose authorization request begins each login.
+[[ferrosmart.client]]
+client_id = "oidf-app"
+name = "The OpenID Foundation lane's app"
+kind = "public"
+redirect_uris = ["http://localhost:9000/callback"]
+scopes = ["openid"]
+grant_types = ["authorization_code"]

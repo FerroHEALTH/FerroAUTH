@@ -1,0 +1,57 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+# FerroSMART as the OpenID Provider the OpenID Foundation conformance suite
+# tests (#621, scripts/oidf/lane.sh), with Keycloak as its upstream login.
+# The suite is the static client `oidf-suite`, a confidential symmetric
+# client, since the Basic OP profile fixes `client_secret_basic`. The lane
+# gives the key files, the secret hashes and the database with `--set`. No
+# specification governs the lane: our own design.
+
+[server]
+listen = "127.0.0.1:9443"
+
+[ferrosmart]
+issuer = "https://localhost.emobix.co.uk:9443"
+
+[ferrosmart.database]
+max_connections = 4
+
+# The suite names no resource server; this base is here because FerroSMART
+# serves at least one.
+[[ferrosmart.resource]]
+base = "https://localhost.emobix.co.uk:9443/fhir"
+kind = "fhir"
+
+[ferrosmart.upstream]
+issuer = "http://localhost:8180/realms/ferrosmart"
+client_id = "ferrosmart"
+scopes = ["openid"]
+fhir_user_claim = "fhir_user"
+role_claims = ["roles"]
+
+[ferrosmart.upstream.private_key_jwt]
+
+[ferrosmart.upstream.private_key_jwt.keys]
+private_key_file = "/run/secrets/upstream_assertion_key"
+
+[[ferrosmart.role]]
+name = "clinician"
+scopes = ["user/Patient.rs"]
+
+# The suite's first client, at the redirect URI of the alias `ferrosmart-op`.
+[[ferrosmart.client]]
+client_id = "oidf-suite"
+name = "OpenID Foundation conformance suite"
+kind = "confidential_symmetric"
+redirect_uris = ["https://localhost.emobix.co.uk:8443/test/a/ferrosmart-op/callback"]
+scopes = ["openid", "fhirUser", "offline_access"]
+grant_types = ["authorization_code", "refresh_token"]
+
+# Its second client, for the modules that need two.
+[[ferrosmart.client]]
+client_id = "oidf-suite-2"
+name = "OpenID Foundation conformance suite, second client"
+kind = "confidential_symmetric"
+redirect_uris = ["https://localhost.emobix.co.uk:8443/test/a/ferrosmart-op/callback"]
+scopes = ["openid", "fhirUser", "offline_access"]
+grant_types = ["authorization_code", "refresh_token"]
