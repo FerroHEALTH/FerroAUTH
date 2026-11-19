@@ -12,6 +12,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-19
+
 ### Added
 
 - The book shows every page a person meets during a launch, in the light
@@ -340,3 +342,6 @@ and this project adheres to
   `Access-Control-Allow-Origin` and `Vary: Origin`, so a browser app can
   read its token response (SMART App Launch 2.2.0, Considerations for CORS
   support). Every other origin gets no CORS header (#560).
+
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrosmart-v0.1.0...HEAD
+[0.1.0]: https://github.com/FerroHEALTH/FerroSMART/releases/tag/ferrosmart-v0.1.0

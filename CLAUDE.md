@@ -141,8 +141,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   `cookies`, `return_path`, `paths`, and `routes` behind `axum`),
   `tests/it/` (the four routes of a synthetic console against a test OpenID
   Provider, a `wiremock` stub with a key generated when the case runs).
-- `app/ferrosmart`: FerroSMART, the authorization server, being built
-  (#512 carries the steps); `docs/architecture.md` §13 fixes its
+- `app/ferrosmart`: FerroSMART, the authorization server, released from
+  0.1.0 (#512 carried the steps); `docs/architecture.md` §13 fixes its
   requirements, crate layout, storage, endpoints, configuration, keys and
   threat model.
 - `tools/zitadel-fhir-user`: the Actions v2 target of FerroSMART's ZITADEL

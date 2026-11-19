@@ -4,7 +4,7 @@
 # The image
 
 FerroSMART ships as `ghcr.io/ferrohealth/ferrosmart`, for `linux/amd64` and
-`linux/arm64`, from v{{version:ferrosmart}} on. The image is one static
+`linux/arm64`, from v0.1.0 on. The image is one static
 binary on `gcr.io/distroless/static-debian13:nonroot`: no shell, no package
 manager, and the user 65532.
 
@@ -45,7 +45,7 @@ gh attestation verify ferrosmart-X.Y.Z-x86_64-unknown-linux-musl.tar.gz \
 
 ## Build it from a checkout
 
-Before the first release, or to run a change of your own, build the static
+To run a change of your own, build the static
 binary and stage it where `docker/ferrosmart/Dockerfile` copies it from,
 `dist/<os>_<arch>/ferrosmart`. On an x86_64 Linux host with `musl-tools`:
 
