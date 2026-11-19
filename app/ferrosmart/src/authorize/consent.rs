@@ -13,7 +13,7 @@ use axum::response::Response;
 use http::HeaderMap;
 
 use crate::audit::{self, Connected};
-use crate::clients::{Client, GrantType};
+use crate::clients::{Approval, Client, GrantType};
 use crate::form::Params;
 use crate::launch::context::Context;
 use crate::pages::{self, Fault};
@@ -153,7 +153,8 @@ pub async fn consent_post(
     let back = Back::of(&state, &pending);
     let mut response = if form.get("decision") == Some("approve") {
         let remember = form.get("remember") == Some("yes");
-        approve(&state, &pending, &form.all("scope"), remember, &back, from).await
+        let basis = Basis::Person { remember };
+        approve(&state, &pending, &form.all("scope"), basis, &back, from).await
     } else {
         tracing::info!(
             target: "ferrosmart::audit",
@@ -170,13 +171,29 @@ pub async fn consent_post(
     response
 }
 
+/// What a code is issued on (`docs/architecture.md` §13.6 item 6).
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Basis<'a> {
+    /// The person approved on the consent page, and chose whether to
+    /// remember it.
+    Person {
+        /// Whether to remember the consent.
+        remember: bool,
+    },
+    /// A consent the person remembered covers the request.
+    Remembered,
+    /// The client's organisation approval covers the request, and the
+    /// person saw no page.
+    Organisation(&'a Approval),
+}
+
 /// Issues the code for the scopes the person kept of those offered, and
 /// sends the browser back to the app with it.
 pub(super) async fn approve(
     state: &AppState,
     pending: &Pending,
     selected: &[&str],
-    remember: bool,
+    basis: Basis<'_>,
     back: &Back,
     from: IpAddr,
 ) -> Response {
@@ -229,8 +246,13 @@ pub(super) async fn approve(
         expires_at: now().saturating_add(CODE_SECONDS),
         launch_context: launch_context.cloned(),
         upstream_session: pending.upstream_session.clone(),
+        approved_at: match basis {
+            Basis::Organisation(approval) => Some(approval.approved_at),
+            Basis::Person { .. } | Basis::Remembered => None,
+        },
+        roles: pending.roles.clone(),
     };
-    if let Err(error) = issue_code(state, &hash, &grant, remember, from).await {
+    if let Err(error) = issue_code(state, &hash, &grant, basis, from).await {
         tracing::error!(error = %ferrohealth_server::run::chain(&error), "the code could not be stored");
         return back.deny(Denial {
             error: "server_error",
@@ -240,13 +262,14 @@ pub(super) async fn approve(
     back.grant(&code)
 }
 
-/// Stores the code `grant` under `hash`, and the person's consent when
-/// they chose to `remember` it, each with its record in one transaction.
+/// Stores the code `grant` under `hash`, with the person's consent when
+/// they chose to remember it and the organisation approval it rests on
+/// when it skipped the page, each with its record in one transaction.
 async fn issue_code(
     state: &AppState,
     hash: &str,
     grant: &Code,
-    remember: bool,
+    basis: Basis<'_>,
     from: IpAddr,
 ) -> Result<(), audit::RecordFailure> {
     let endpoint = state.settings().endpoint_url(CONSENT_ROUTE);
@@ -268,7 +291,25 @@ async fn issue_code(
     tx.issue_code(hash, grant)
         .await
         .map_err(audit::RecordFailure::Store)?;
-    if remember {
+    if let Basis::Organisation(approval) = basis {
+        let approved = audit::happened(&happening(
+            audit::Event::ConsentApproved,
+            vec![
+                ("scope", grant.scope.clone()),
+                ("approved_by", approval.approved_by.clone()),
+                ("approved_at", approval.approved_at.to_string()),
+            ],
+        ));
+        tx.record(&lane.row(
+            &approved,
+            audit::Event::ConsentApproved.code(),
+            Some(&grant.subject),
+            Some(&grant.client_id),
+        )?)
+        .await
+        .map_err(audit::RecordFailure::Store)?;
+    }
+    if matches!(basis, Basis::Person { remember: true }) {
         tx.remember(&grant.subject, &grant.client_id, &grant.scope)
             .await
             .map_err(audit::RecordFailure::Store)?;

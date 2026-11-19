@@ -8,6 +8,7 @@
 //! PostgreSQL advisory lock around them, so replicas starting together
 //! migrate once. No specification governs the storage: our own design.
 
+pub mod approval;
 pub mod audit;
 pub mod authorization;
 pub mod consent;
@@ -22,7 +23,7 @@ use serde_json::Value;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::{Postgres, Row as _};
 
-use crate::clients::{Client, ClientKeys, ClientKind, GrantType, SecretHash};
+use crate::clients::{Approval, Client, ClientKeys, ClientKind, GrantType, SecretHash};
 use crate::launch::context::Context;
 
 /// How long a request waits for a connection before the store answers that
@@ -129,7 +130,8 @@ impl Store {
     /// [`StoreError::Corrupt`] for a row the server never writes.
     pub async fn client(&self, client_id: &str) -> Result<Option<Client>, StoreError> {
         let row = sqlx::query(
-            "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types \
+            "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
+             approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at \
              FROM client WHERE client_id = $1",
         )
         .bind(client_id)
@@ -287,10 +289,12 @@ async fn upsert(
         .map(|grant| grant.as_str())
         .collect();
     sqlx::query(
-        "INSERT INTO client (client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types, secret_hash, source) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'config') \
+        "INSERT INTO client (client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types, secret_hash, \
+         approved_scope, approved_by, approved_at, source) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, to_timestamp($12), 'config') \
          ON CONFLICT (client_id) DO UPDATE SET name = $2, kind = $3, jwks_uri = $4, jwks = $5, \
-         redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, source = 'config', updated_at = now()",
+         redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, approved_scope = $10, \
+         approved_by = $11, approved_at = to_timestamp($12), source = 'config', updated_at = now()",
     )
     .bind(&client.client_id)
     .bind(&client.name)
@@ -301,6 +305,9 @@ async fn upsert(
     .bind(&client.scopes)
     .bind(&grants)
     .bind(client.secret_hash.as_ref().map(SecretHash::phc))
+    .bind(client.approval.as_ref().map(|approval| &approval.scopes))
+    .bind(client.approval.as_ref().map(|approval| &approval.approved_by))
+    .bind(client.approval.as_ref().map(|approval| approval.approved_at))
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -340,6 +347,19 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
             _ => Err(corrupt()),
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let approval = match (
+        row.try_get::<Option<Vec<String>>, _>("approved_scope")?,
+        row.try_get::<Option<String>, _>("approved_by")?,
+        row.try_get::<Option<i64>, _>("approved_at")?,
+    ) {
+        (Some(scopes), Some(approved_by), Some(approved_at)) => Some(Approval {
+            scopes,
+            approved_by,
+            approved_at,
+        }),
+        (None, None, None) => None,
+        _ => return Err(corrupt()),
+    };
     Ok(Client {
         name: row.try_get("name")?,
         kind,
@@ -348,6 +368,7 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
         redirect_uris: row.try_get("redirect_uris")?,
         scopes: row.try_get("scopes")?,
         grant_types,
+        approval,
         client_id,
     })
 }
@@ -421,6 +442,10 @@ pub struct Pending {
     pub upstream_session: Option<String>,
     /// The launch context of an EHR launch.
     pub launch_context: Option<Context>,
+    /// The roles of the person, mapped from the upstream identity provider
+    /// (`docs/architecture.md` §13.6 item 5), which the access token's
+    /// `roles` claim carries (RFC 9068 §2.2.3.1).
+    pub roles: Vec<String>,
 }
 
 /// What a login is for.
@@ -466,6 +491,8 @@ pub struct Login {
     pub auth_time: i64,
     /// The upstream session they logged in under.
     pub upstream_session: Option<String>,
+    /// Their roles a `[[ferrosmart.role]]` names, sorted.
+    pub roles: Vec<String>,
 }
 
 /// An authorization code's grant.
@@ -500,6 +527,13 @@ pub struct Code {
     pub upstream_session: Option<String>,
     /// The launch context of an EHR launch.
     pub launch_context: Option<Context>,
+    /// The time of the organisation approval the code was issued on, in
+    /// seconds since the epoch, when the person saw no consent page.
+    pub approved_at: Option<i64>,
+    /// The roles of the person, mapped from the upstream identity provider
+    /// (`docs/architecture.md` §13.6 item 5), which the access token's
+    /// `roles` claim carries (RFC 9068 §2.2.3.1).
+    pub roles: Vec<String>,
 }
 
 /// Inserts the access token `token` through `executor`, a pool or a

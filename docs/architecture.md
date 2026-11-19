@@ -2609,6 +2609,8 @@ discovery and token shapes for the two SaaS providers.
   | a code issued | `110114` | `authorization-code` | `C` |
   | a consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
   | a consent withdrawn, with what it covered | `110113` | `110137`, `consent-withdrawn` | `D` |
+  | a code issued with no page, on the client's organisation approval (13.6 item 6) | `110113` | `110137`, `consent-organisation-approved` | `C` |
+  | an organisation approval withdrawn, with the grants issued on it | `110113` | `110137`, `organisation-approval-withdrawn` | `D` |
   | an access token revoked (RFC 7009) | `110113` | `token-revoked` | `D` |
   | a grant revoked by its refresh token (RFC 7009 §2.1) | `110113` | `grant-revoked` | `D` |
   | a refresh token rotated | `110114` | `refresh-rotated` | `E` |
@@ -2727,7 +2729,7 @@ document (13.8).
 | An invalid `client_id` or `redirect_uri` is shown to the user and never redirected | MUST NOT redirect | `rfc6749 §4.1.2.1`; `rfc9700 §4.11` | 3 |
 | `state` returned exactly as received | REQUIRED | `smart app-launch`, Obtain authorization code, Response; `rfc6749 §4.1.2` | 3 |
 | The code expires shortly after issue (FerroSMART: 60 seconds), is single-use, and a second valid use is denied and revokes what it issued | SHOULD; MUST deny, SHOULD revoke | `smart app-launch`, Response; `rfc6749 §4.1.2`; `oauth21 §4.1.3`, `§7.5.3` | 3 |
-| The decision to grant or deny is the server's, by local policy and optionally the user's input (FerroSMART asks the user every time, 13.6 item 6); a denial is an `access_denied` error response | SHALL | `smart app-launch`, Response; `rfc6749 §4.1.2.1` | 3 |
+| The decision to grant or deny is the server's, by local policy and optionally the user's input (FerroSMART asks the user every time, except a professional within an organisation approval of the client, 13.6 item 6); a denial is an `access_denied` error response | SHALL | `smart app-launch`, Response; `rfc6749 §4.1.2.1` | 3 |
 | The granted scope may differ from the request and is reported | MAY, SHALL report | `smart app-launch`, Obtain access token, Response; `rfc6749 §3.3` | 3 |
 | v1 scopes (`.read`, `.write`, `.*`) are processed as `.rs`, `.cud`, `.cruds`, and returned as v1 when granted as v1 | SHOULD | `smart scopes-and-launch-context`, Scopes for requesting FHIR Resources | 3 |
 | Undefined or out-of-order interactions may be ignored, replaced or refused | MAY | same | 3 |
@@ -2854,7 +2856,18 @@ specification governs.
    `encounter`, `fhirUser` and, for an openEHR `aud`, `ehrId` as access
    token claims beside the RFC 9068 set, names `rfc9068 §2.2.2` ("arbitrary
    attributes") as the ground, and keeps the claims to what the token
-   response carried. Our own design.
+   response carried. Our own design. In a user flow the token also carries
+   the person's `roles` (`rfc9068 §2.2.3.1`: an authorization server that
+   includes such attributes "SHOULD use the "groups", "roles", and
+   "entitlements" attributes" of `rfc7643 §4.1.2`), and so does the
+   introspection response: the roles the upstream ID Token's
+   `role_claims` carry that a `[[ferrosmart.role]]` names, sorted, fixed at
+   login and kept through every refresh, never a value the client asks
+   for. A role no table names stays at the provider. Backend Services
+   tokens carry none. SMART "leaves access token formats out of scope"
+   (`smart scopes-and-launch-context`), so the claim set is ours; whether a
+   resource server trusts FerroSMART for roles is its own decision (owner,
+   2026-11-19, #649).
 3. **The EHR launch API.** In an EHR launch "an opaque handle to the EHR
    context is passed along to the app" and "The server will provide the
    application with EHR context based on this handle" (`smart app-launch`,
@@ -3042,7 +3055,27 @@ specification governs.
    ceiling and the user's roles allow (item 5), then the consent page shows
    the remaining scopes and the user approves them, narrows them by
    unticking any, or denies (an `access_denied` error response, `rfc6749
-   §4.1.2.1`). No client skips the page. Backend Services has no user and
+   §4.1.2.1`). One exception, the owner's decision of 2026-11-19 (#643),
+   which replaces "no client skips the page" for this case: an
+   administrator of the controller may approve a client once for the whole
+   organisation, as the client's `organisation_approval` (the approved
+   scope set, who approved, when), in the registration path, stored in
+   PostgreSQL so every replica answers alike. The approval is per client,
+   never a global mode, and covers only `user/` scopes with the launch,
+   OpenID, refresh and extension scopes that go with them, each within the
+   ceiling. A professional whose request names no `patient/` scope, whose
+   `fhirUser` is no `Patient`, `RelatedPerson` or `Person`, and whose
+   offered scopes the approval covers in full gets a code with no page; the
+   granted scope stays the intersection of the request, the ceiling, the
+   roles and the approval, and the resource server's access policy still
+   decides every request. Anything more shows the page for the whole
+   request, as a request beyond a remembered consent does. Each skipped
+   page commits a `consent-organisation-approved` record naming the
+   approver and the time; the management page lists the app as approved by
+   the organisation, with no withdraw form. Clearing or changing the
+   approval in the configuration withdraws it at the next start: every
+   grant issued on it is revoked with its tokens, with an
+   `organisation-approval-withdrawn` record. Backend Services has no user and
    no consent step (`smart backend-services`, Scopes: "The client is
    pre-authorized by the server"). A consent is remembered only when the
    user ticks to remember it, for that client and that scope set; a request
@@ -3290,6 +3323,11 @@ kind = "confidential_symmetric"
 secret_hash_file = "/run/secrets/portal-secret.phc"   # the Argon2id PHC hash, at least m=19456,t=2,p=1
 redirect_uris = ["https://portal.example.org/callback"]
 grant_types = ["authorization_code", "refresh_token"]   # never client_credentials
+
+[ferrosmart.client.organisation_approval]     # optional: the organisation's own app, no consent page for its staff (13.6 item 6)
+scopes = ["openid", "fhirUser", "launch", "user/Observation.rs"]   # user/, launch, OpenID, refresh and __ scopes, within the ceiling
+approved_by = "J. de Vries, information security"   # the administrator, as the controller names them
+approved_at = "2026-11-19T09:00:00Z"          # RFC 3339; a change of any key is a new approval
 
 [ferrosmart.branding]                          # content, never code (13.15)
 name = "Example Hospital"                     # the name the pages carry
@@ -4209,3 +4247,58 @@ FerroSMART's `POST {issuer}/launch` (13.17) with the Task's patient,
 encounter and `appContext` as the launch context, and opens the app with
 the `launch` value it gets back; a `task-standalone-launch` Task needs
 nothing of FerroSMART beyond the standalone launch.
+
+### 13.24 The OpenID Foundation conformance suite lane
+
+A CI lane (#621, `scripts/oidf/lane.sh`) runs the OpenID Foundation
+conformance suite against a FerroSMART built from the commit, in both of
+its OpenID Connect roles. The suite is its published image at
+`release-v5.3.4`, with its nginx TLS front and MongoDB, each pinned by
+digest in `docs/VERSIONS.md`, and its own `scripts/run-test-plan.py`,
+vendored under `docs/specs/oidf-conformance-suite/`, runs each plan.
+`app/ferrosmart/oidf/expected.tsv` holds every module to its result, and
+any difference fails the lane: a module that got worse is a regression,
+and one that got better is recorded. No specification governs the lane:
+our own design.
+
+| Plan | Role | Variants | Modules |
+|---|---|---|---|
+| `oidcc-client-test-plan` | relying party, FerroSMART's upstream login | `private_key_jwt`, `code`, static client | 28 |
+| `oidcc-client-basic-certification-test-plan` | relying party | the plan fixes `client_secret_basic` | 14 |
+| `oidcc-config-certification-test-plan` | OpenID Provider, FerroSMART's own ID Tokens | discovery | 1 |
+| `oidcc-basic-certification-test-plan` | OpenID Provider | discovery, static client; the plan fixes `client_secret_basic` | 35 |
+
+**As the relying party**, FerroSMART's upstream provider is the suite.
+`scripts/oidf/rp-client.sh` is the client the runner starts for each
+module: it starts FerroSMART against the module's provider, sends an app's
+authorization request, follows the browser to the provider and back to
+`{issuer}/callback`, and records what FerroSMART made of the provider's
+answer: `accepted` (the login reached the consent page), `refused` (the
+app got an error, `rfc6749 §4.1.2.1`), `no-start` (FerroSMART refused the
+provider's metadata) or `started`. The suite's verdict on a negative
+module cannot see the relying party refuse, so the login column carries
+the check: the lane knows what each module asks of the login, from the
+module's own summary in the suite, and a login the module does not ask
+for names its issue. A happy-path module finishes at the suite only after
+a UserInfo request (`oidc core §5.3`), which FerroSMART never makes: it
+reads the person from the ID Token. The driver therefore stops such a
+module once the login is accepted, and the suite records it
+`INTERRUPTED`. The suite's runner never runs the two key-rotation
+modules (its own `ignored_modules`), and the lane records them as not run.
+
+**As the OpenID Provider**, the suite is the static client `oidf-suite`, a
+confidential symmetric client, and Keycloak is FerroSMART's upstream.
+FerroSMART has no UserInfo Endpoint (13.5, "later"), so every module of
+the Basic plan stops before its authorization request and the
+configuration module warns; #650 holds the decision, and the PKCE and
+`aud` FerroSMART requires of every authorization request are the next
+barrier it names.
+
+What the lane found: the relying party accepted an ID Token without
+`iat` (#646) and refused one without `kid` whose key set holds a single
+matching key (#648), both fixed and now held as passes. The
+client-secret module and the Basic relying party plan fail because
+FerroSMART authenticates upstream with `private_key_jwt` alone (13.22,
+#619). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
+RFC 10070's audience rule, need PAR and DPoP and are the lane's next
+target.

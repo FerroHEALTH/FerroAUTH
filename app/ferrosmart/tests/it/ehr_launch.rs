@@ -68,6 +68,12 @@ struct Smart {
 impl Smart {
     /// Starts FerroSMART.
     async fn start() -> Self {
+        Self::start_approved("").await
+    }
+
+    /// Starts FerroSMART whose app's table ends with `approval`, TOML that
+    /// may give it an organisation approval.
+    async fn start_approved(approval: &str) -> Self {
         let provider = MockServer::start().await;
         let pkcs8 =
             EcdsaKeyPair::generate_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &SystemRandom::new())
@@ -111,7 +117,8 @@ impl Smart {
              jwks_file = {:?}\nscopes = [\"system/launch.c\"]\ngrant_types = [\"client_credentials\"]\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nname = \"Synthetic App\"\nkind = \"public\"\n\
              redirect_uris = [{REDIRECT:?}]\ngrant_types = [\"authorization_code\"]\n\
-             scopes = [\"openid\", \"fhirUser\", \"launch\", \"launch/patient\", \"patient/Observation.rs\", \"user/Observation.rs\"]",
+             scopes = [\"openid\", \"fhirUser\", \"launch\", \"launch/patient\", \"patient/Observation.rs\", \"user/Observation.rs\"]\n\
+             {approval}",
             secrecy::ExposeSecret::expose_secret(&database.url),
             set.display().to_string(),
         );
@@ -489,5 +496,62 @@ async fn both_documents_name_the_launch_registration_endpoint() {
             "{path}"
         );
     }
+    smart.stop().await;
+}
+
+// NOTE: docs/architecture.md §13.6 item 6; SMART App Launch 2.2.0, Obtain
+// authorization code, Response: the server's local policy may stand in for the
+// end-user's input, here the organisation's approval of the app.
+#[tokio::test]
+async fn an_approved_app_s_ehr_launch_by_a_professional_skips_the_consent_page() {
+    let smart = Smart::start_approved(
+        "[ferrosmart.client.organisation_approval]\n\
+         scopes = [\"openid\", \"fhirUser\", \"launch\", \"launch/patient\", \"user/Observation.rs\"]\n\
+         approved_by = \"Synthetic Administrator\"\napproved_at = \"2026-11-19T09:00:00Z\"",
+    )
+    .await;
+    let launch = smart.launch().await;
+    let scope = "openid fhirUser launch user/Observation.rs";
+    let (status, headers, _) = smart.get(&authorize_path(&launch, scope), None).await;
+    assert_eq!(StatusCode::SEE_OTHER, status, "on to the provider");
+    let upstream = location(&headers);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|cookie| cookie.split(';').next())
+        .and_then(|pair| pair.split_once('='))
+        .map(|(_, value)| value.to_owned())
+        .expect("a cookie");
+    smart
+        .answer(&param(&upstream, "nonce").expect("a nonce"))
+        .await;
+    let callback = format!(
+        "/callback?code=synthetic-upstream-code&state={}",
+        param(&upstream, "state").expect("a state")
+    );
+    let (status, headers, _) = smart.get(&callback, Some(&cookie)).await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let back = location(&headers);
+    assert!(
+        back.as_str().starts_with(REDIRECT),
+        "no consent page: {back}"
+    );
+    let code = param(&back, "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(json!(scope), body["scope"]);
+    assert_eq!(
+        json!("123"),
+        body["patient"],
+        "the launch context comes along"
+    );
     smart.stop().await;
 }

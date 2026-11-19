@@ -179,9 +179,9 @@ With both refresh scopes granted, `offline_access` decides.
 
 ## Consent
 
-Every flow with a person shows the consent page; no client skips it. The
-person approves the offered scopes, unticks any, or refuses, which sends the
-app an `access_denied` error. FerroSMART draws the page itself, with the
+Every flow with a person shows the consent page, unless the organisation
+approved the app (below). The person approves the offered scopes, unticks
+any, or refuses, which sends the app an `access_denied` error. FerroSMART draws the page itself, with the
 deployment's name and `consent_text` from `[ferrosmart.branding]`.
 
 When the person ticks "Remember this choice", FerroSMART keeps the consent
@@ -192,6 +192,32 @@ the page again. The person sees each remembered consent at
 which revokes the grants it covered with every token under them. The page
 also lists every app that still holds `offline_access` or `online_access`,
 remembered or not, and says how long it stays connected.
+
+### An app the organisation approved
+
+An administrator can approve one of the organisation's own apps once for
+its staff, so a professional who opens it sees no consent page (SMART App
+Launch 2.2.0, Obtain authorization code, Response: the server "will enforce
+access rules based on local policies and optionally direct end-user
+input"):
+
+```toml
+[ferrosmart.client.organisation_approval]
+scopes = ["openid", "fhirUser", "launch", "user/Observation.rs"]
+approved_by = "J. de Vries, information security"
+approved_at = "2026-11-19T09:00:00Z"
+```
+
+The approval lists only `user/` scopes and the launch, OpenID, refresh and
+extension scopes that go with them, each within the client's `scopes`. The
+page is skipped when the request names no `patient/` scope, the person's
+`fhirUser` is not a `Patient`, `RelatedPerson` or `Person`, and the
+approval covers every scope offered; the person still gets no more than
+their roles allow. Anything else shows the page as usual. Each skipped page
+writes an audit record naming the approver and the time, and the
+management page lists the app as approved by the organisation, which the
+person cannot withdraw there. Remove or change the table and restart: the
+approval is withdrawn, and every token issued on it is revoked.
 
 ![The management page, titled "Apps you allowed": one app that stays connected after sign-out, the scopes it holds in words, and the Withdraw button](../integrate/img/manage.png)
 

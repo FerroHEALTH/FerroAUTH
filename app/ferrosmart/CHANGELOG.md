@@ -18,6 +18,22 @@ and this project adheres to
   launch API as `launch_registration_endpoint` (`{issuer}/launch`) whenever
   the app launch is configured, so an EHR reads it from the documents
   instead of building the path (#657).
+- An administrator can approve one of the organisation's own apps for its
+  staff with `[ferrosmart.client.organisation_approval]` (scopes, who,
+  when), so a professional who opens it sees no consent page (SMART App
+  Launch 2.2.0, Obtain authorization code, Response). Only `user/` scopes
+  with their launch, OpenID, refresh and extension scopes can be approved;
+  a request with a `patient/` scope, a patient's own login and a request
+  beyond the approval show the page. The granted scope never exceeds the
+  person's roles. Each skipped page is audited with the approval as its
+  basis, the management page lists the app as approved by the
+  organisation, and clearing the approval revokes every token issued on it
+  at the next start (#643).
+- The access token of a user flow carries the person's roles in a `roles`
+  claim (RFC 9068 §2.2.3.1): the roles the identity provider's
+  `role_claims` carry that a `[[ferrosmart.role]]` names, fixed at login
+  and kept through every refresh. The introspection response carries them
+  too. A Backend Services token carries none (#649).
 - A `[[ferrosmart.role]]` may grant extension scopes, those that start with
   two underscores (SMART App Launch 2.2.0, Scopes and Launch Context,
   Extensibility), such as FerroEHR's `__ferroehr.platform`. A person is

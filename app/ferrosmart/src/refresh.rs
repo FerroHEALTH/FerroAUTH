@@ -121,10 +121,7 @@ pub(crate) async fn refresh(
             return Err(invalid("the refresh token is not valid"));
         }
     };
-    let context = match &grant.context {
-        Value::Object(members) => members.clone(),
-        _ => Map::new(),
-    };
+    let context = grant.context.as_object().cloned().unwrap_or_default();
     let fhir_user = grant
         .fhir_user
         .as_deref()
@@ -143,6 +140,7 @@ pub(crate) async fn refresh(
             identity: None,
             under: Some(&grant.id),
             context: &context,
+            roles: &grant.roles,
         },
     )?;
     // NOTE: SMART App Launch 2.2.0, Refresh access token, Response: the launch
@@ -235,6 +233,8 @@ pub(crate) async fn open(
                 .upstream_session
                 .as_deref()
                 .filter(|_| access == Some(Access::Online)),
+            approved_at: code.approved_at,
+            roles: &code.roles,
         })
         .await
         .map_err(|error| server_error("the grant could not be recorded", &error))?;
