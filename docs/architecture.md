@@ -4458,7 +4458,9 @@ What the lane found: the relying party accepted an ID Token without
 matching key (#648), both fixed and now held as passes. The
 client-secret module and the Basic relying party plan failed while
 FerroSMART authenticated upstream with `private_key_jwt` alone (#619); a
-provider entry may now choose `client_secret_basic` (13.22, #679). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
+provider entry may now choose `client_secret_basic` (13.22, #679), and
+the lane holds them as failures until it runs them with a
+`client_secret_basic` upstream (#706). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
 RFC 10070's audience rule, need PAR and DPoP and are the lane's next
 target.
 
