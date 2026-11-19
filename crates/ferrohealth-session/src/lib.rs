@@ -40,6 +40,7 @@ pub mod lifetime;
 pub mod paths;
 pub mod record;
 pub mod refresh;
+pub mod resource;
 pub mod return_path;
 #[cfg(feature = "axum")]
 pub mod routes;

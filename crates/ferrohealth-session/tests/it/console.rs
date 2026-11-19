@@ -9,7 +9,7 @@ use std::future::Future;
 
 use axum::Router;
 use axum::body::Body;
-use axum::extract::Extension;
+use axum::extract::{Extension, State};
 use axum::response::{IntoResponse as _, Response};
 use axum::routing::get;
 use base64::Engine as _;
@@ -18,6 +18,7 @@ use ferrohealth_secret::secret_url::SecretUrl;
 use ferrohealth_session::config::{OidcSection, SessionSection, StoreKind};
 use ferrohealth_session::cookies::CookieNames;
 use ferrohealth_session::record::{Credential, Held};
+use ferrohealth_session::resource::ForResource;
 use ferrohealth_session::routes::{Pages, SignIn, Stopped, keep_session, router};
 use ferrohealth_session::sessions::Sessions;
 use http::header::{COOKIE, LOCATION, SET_COOKIE};
@@ -77,6 +78,26 @@ async fn home(Extension(held): Extension<Held>) -> String {
     }
 }
 
+/// The resource server the console asks a second token for.
+pub(crate) const RESOURCE: &str = "https://ehr.example.org/fhir";
+
+/// What the console's resource page says it got for [`RESOURCE`].
+async fn resource(State(sign_in): State<SignIn<TestPages>>, headers: http::HeaderMap) -> String {
+    let party = sign_in.party().expect("a provider");
+    match sign_in
+        .sessions()
+        .token_for(party, &headers, RESOURCE)
+        .await
+        .expect("the store is usable")
+    {
+        ForResource::Issued(token) => format!("Issued {}", token.expose()),
+        other => {
+            let name = format!("{other:?}");
+            name.split('(').next().unwrap_or_default().to_owned()
+        }
+    }
+}
+
 /// A console signed in at `provider` over the store `store`.
 pub(crate) async fn console(provider: &Provider, store: StoreKind) -> Router {
     console_of(sign_in(provider, store).await)
@@ -118,6 +139,7 @@ pub(crate) async fn sign_in(provider: &Provider, store: StoreKind) -> SignIn<Tes
 pub(crate) fn console_of(sign_in: SignIn<TestPages>) -> Router {
     Router::new()
         .route("/", get(home))
+        .route("/resource", get(resource).with_state(sign_in.clone()))
         .layer(axum::middleware::from_fn_with_state(
             sign_in.clone(),
             keep_session::<TestPages>,
