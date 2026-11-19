@@ -33,6 +33,14 @@ and this project adheres to
   `client_secret_basic` and `client_secret_post` beside `private_key_jwt`
   (#639).
 
+### Fixed
+
+- The upstream login refuses an ID Token without `iat` (OpenID Connect
+  Core 1.0 §2), and takes one without `kid` when a single key of the
+  provider's set fits its algorithm. The OpenID Foundation conformance
+  suite's relying party modules `oidcc-client-test-missing-iat` and
+  `oidcc-client-test-kid-absent-single-jwks` found both (#646, #648).
+
 ## [0.1.0] - 2026-11-19
 
 ### Added
