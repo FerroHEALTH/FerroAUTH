@@ -56,6 +56,7 @@ async fn a_refresh_on_one_replica_is_seen_by_the_other() {
 
     let (status, _, body) = second.post("/token", &refresh(&rotated), None).await;
     assert_eq!(StatusCode::OK, status, "{body}");
+    crate::support::rotated_ago(&first.database_url(), &rotated, 11).await;
     let (status, _, body) = first.post("/token", &refresh(&rotated), None).await;
     assert_eq!(StatusCode::BAD_REQUEST, status, "{body}");
     assert_eq!(Some(&json!("invalid_grant")), body.get("error"), "{body}");

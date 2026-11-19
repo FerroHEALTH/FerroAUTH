@@ -54,9 +54,52 @@ pub fn is_extension(scope: &str) -> bool {
     scope.len() > 2 && scope.starts_with("__")
 }
 
+/// Returns whether `scope` is drawn on the consent page as a fixed line,
+/// granted with the app and never unticked.
+///
+/// These are the identity, launch and refresh scopes, which say who the
+/// person is, which context the app opens in and how long it stays signed
+/// in; unticking one would break the app without keeping any data back
+/// (`docs/architecture.md` §13.6 item 3; our own design). Resource scopes
+/// and extension scopes keep their boxes.
+#[must_use]
+pub fn is_fixed(scope: &str) -> bool {
+    matches!(
+        scope,
+        "openid" | "fhirUser" | "profile" | "email" | "launch" | "offline_access" | "online_access"
+    ) || scope.starts_with("launch/")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{admits, v2_form};
+    use super::{admits, is_fixed, v2_form};
+
+    #[test]
+    fn identity_launch_and_refresh_scopes_are_fixed_and_resource_scopes_are_not() {
+        for fixed in [
+            "openid",
+            "fhirUser",
+            "profile",
+            "email",
+            "launch",
+            "launch/patient",
+            "launch/encounter",
+            "offline_access",
+            "online_access",
+        ] {
+            assert!(is_fixed(fixed), "{fixed}");
+        }
+        for chosen in [
+            "patient/Observation.rs",
+            "user/Patient.r",
+            "system/*.rs",
+            "__ferroehr.platform",
+            "launcher",
+            "openid2",
+        ] {
+            assert!(!is_fixed(chosen), "{chosen}");
+        }
+    }
 
     #[test]
     fn the_v1_suffixes_read_as_their_v2_letters() {

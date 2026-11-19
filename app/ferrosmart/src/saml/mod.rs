@@ -5,7 +5,7 @@
 //!
 //! A person logs in at an upstream identity provider that speaks the OASIS
 //! SAML 2.0 Web Browser SSO profile (saml-profiles-2.0-os §4.1) rather than
-//! OpenID Connect (`docs/architecture.md` §13.25).
+//! OpenID Connect (`docs/architecture.md` §13.26).
 //!
 //! The module is protocol machinery with no configuration and no I/O:
 //!

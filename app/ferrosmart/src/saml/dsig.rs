@@ -14,7 +14,7 @@
 //!
 //! What is accepted (our own design within xmldsig-core1 §6.1 and
 //! saml-core-2.0-os §5.4.3 to §5.4.5, recorded in `docs/architecture.md`
-//! §13.25): exclusive canonicalization without comments, the enveloped
+//! §13.26): exclusive canonicalization without comments, the enveloped
 //! transform then exclusive canonicalization and nothing else, digests
 //! SHA-256, SHA-384 and SHA-512, signatures RSASSA-PKCS1-v1_5 with those
 //! digests on keys of 2048 bits or more and ECDSA on P-256, P-384 and

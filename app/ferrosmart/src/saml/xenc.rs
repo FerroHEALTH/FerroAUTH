@@ -5,7 +5,7 @@
 //! `EncryptedAttribute` (saml-core-2.0-os §2.2.4, §6; xmlenc-core1).
 //!
 //! What is accepted (our own design within xmlenc-core1 §5.1, recorded in
-//! `docs/architecture.md` §13.25): the content key transported by RSA-OAEP
+//! `docs/architecture.md` §13.26): the content key transported by RSA-OAEP
 //! (`rsa-oaep-mgf1p`, or `xmlenc11#rsa-oaep`, with the digest and mask
 //! generation function both SHA-1, both SHA-256, both SHA-384 or both
 //! SHA-512) to one of FerroSMART's keys, and the data encrypted by

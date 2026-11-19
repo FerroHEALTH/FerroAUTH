@@ -6,7 +6,7 @@
 //! saml-core-2.0-os §2, §3.2.2), and the [`Login`] it asserts.
 //!
 //! The rules beyond the profile, each our own design recorded in
-//! `docs/architecture.md` §13.25:
+//! `docs/architecture.md` §13.26:
 //!
 //! - exactly one assertion, plain or encrypted, and no `saml:Advice`, so
 //!   there is one assertion to read and no nested one to confuse it with;
