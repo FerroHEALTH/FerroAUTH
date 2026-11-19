@@ -82,7 +82,20 @@ pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
         ]);
         metadata.response_types_supported = strings(&["code"]);
         metadata.code_challenge_methods_supported = strings(&["S256"]);
-        metadata.scopes_supported = strings(&APP_LAUNCH_SCOPES);
+        let mut scopes: Vec<String> = APP_LAUNCH_SCOPES
+            .iter()
+            .map(|&scope| scope.to_owned())
+            .collect();
+        // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Extensibility, the
+        // server advertises its extension scopes; a role is what grants one.
+        let extensions: std::collections::BTreeSet<&String> = settings
+            .roles
+            .values()
+            .flatten()
+            .filter(|scope| crate::scopes::is_extension(scope))
+            .collect();
+        scopes.extend(extensions.into_iter().cloned());
+        metadata.scopes_supported = Some(scopes);
     }
     metadata
 }
@@ -91,7 +104,8 @@ pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
 /// registers: identity, launch context and refresh. "The server SHALL
 /// support all scopes listed here" (SMART App Launch 2.2.0, Conformance,
 /// Metadata, `scopes_supported`), so the resource scopes, which a client's
-/// ceiling and a person's roles decide, are left out.
+/// ceiling and a person's roles decide, are left out; the extension scopes
+/// a role lists follow them.
 const APP_LAUNCH_SCOPES: [&str; 7] = [
     "openid",
     "fhirUser",

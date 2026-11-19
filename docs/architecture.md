@@ -2996,7 +2996,15 @@ specification governs.
    result to differ from the request (`smart app-launch`, Obtain access
    token, Response) and requires the server's policy to win (`smart
    scopes-and-launch-context`, SMART's scopes are used to delegate access).
-   The mapping is content, never code.
+   The mapping is content, never code. A role maps to `user/` and
+   `patient/` scopes and to extension scopes, "any string starting with
+   `__` (two underscores)" that a resource server defines for its own API
+   (`smart scopes-and-launch-context`, Extensibility): such a scope is
+   offered when the request asks for it, the ceiling lists it and a held
+   role grants it, never on the request alone, and `scopes_supported`
+   advertises every one a role lists ("The server could advertise this
+   scope in its developer-facing documentation"). Any other scope outside
+   the SMART set is never granted to a person (owner, 2026-11-19, #647).
 6. **Consent.** (Built in #515: the consent page's "Remember this choice"
    box writes the `consent` row; a later request whose offered scopes the
    row covers goes back with a code at once; `GET /manage` logs the person

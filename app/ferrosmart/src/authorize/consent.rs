@@ -42,8 +42,9 @@ use super::{
 /// since the patient picker puts the patient in context (#516), and at a
 /// FHIR server also `launch/encounter`, which the picker answers with one
 /// of the patient's encounters (#604). The picker chooses an encounter only
-/// with a patient, so `launch/encounter` alone is not offered. Matching a
-/// scope as written is our own design.
+/// with a patient, so `launch/encounter` alone is not offered. An extension
+/// scope (`__`-prefixed) is offered when the ceiling and a role list it
+/// (#647). Matching a scope as written is our own design.
 #[must_use]
 pub fn offer(
     requested: &str,
@@ -85,6 +86,11 @@ pub fn offer(
             "launch/encounter" => ceiling(scope) && encounter,
             single if single.starts_with("patient/") => {
                 patient && ceiling(single) && granted_by_role(single)
+            }
+            // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Extensibility, an
+            // extension scope is the server's own; a role grants it, never the request alone.
+            extension if crate::scopes::is_extension(extension) => {
+                ceiling(extension) && granted_by_role(extension)
             }
             // NOTE: SMART App Launch 2.2.0, Refresh access token, the server decides
             // which clients get a refresh token: those whose ceiling and grants name it.

@@ -151,17 +151,6 @@ pub fn consent(
         .split(' ')
         .filter(|scope| !scope.is_empty())
         .collect();
-    let grants: Vec<ScopeGrant> = offered
-        .iter()
-        .map(|scope| {
-            ScopeGrant::read(&locale, *scope, |read| {
-                (
-                    resource_words(&locale, &read.resource),
-                    read.resource == "*",
-                )
-            })
-        })
-        .collect();
     let checks = Html::join(offered.iter().enumerate().map(|(index, scope)| {
         let id = format!("scope-{index}");
         let checkbox = Html::raw(format!(
@@ -211,7 +200,7 @@ pub fn consent(
             "<p>{}</p>",
             Html::text(with("consent-intro", &[("client", client_name.clone())]))
         )),
-        scope_grants(&locale, &words("consent-scopes"), grants),
+        scope_list(&locale, &words("consent-scopes"), &offered),
         own_words,
         form,
     ]);
@@ -516,18 +505,10 @@ pub fn manage(
         Html::raw(format!("<p>{}</p>", Html::text(words("manage-none"))))
     } else {
         Html::join(remembered.iter().map(|each| {
-            let grants: Vec<ScopeGrant> = each
+            let scopes: Vec<&str> = each
                 .scope
                 .split(' ')
                 .filter(|scope| !scope.is_empty())
-                .map(|scope| {
-                    ScopeGrant::read(&locale, scope, |read| {
-                        (
-                            resource_words(&locale, &read.resource),
-                            read.resource == "*",
-                        )
-                    })
-                })
                 .collect();
             let form = Html::raw(format!(
                 "<form method=\"post\" action=\"{action}\">\
@@ -553,7 +534,7 @@ pub fn manage(
                 each.name.clone(),
                 Html::join([
                     access,
-                    scope_grants(&locale, &words("manage-scope"), grants),
+                    scope_list(&locale, &words("manage-scope"), &scopes),
                     form,
                 ]),
             )
@@ -567,6 +548,35 @@ pub fn manage(
     let lockup = brand_lockup(state, &locale);
     let page = page_card(Some(lockup), title.clone(), body);
     respond(state, StatusCode::OK, &locale, title, page, &[])
+}
+
+/// Returns the list of `scopes` named `label` in `locale`: each SMART scope
+/// as FerroUI reads it, and after them, in plain words, the extension
+/// scopes, which are the server's own and no SMART grammar reads (SMART App
+/// Launch 2.2.0, Scopes and Launch Context, Extensibility).
+fn scope_list(locale: &Locale, label: &str, scopes: &[&str]) -> Html {
+    let (extensions, smart): (Vec<&str>, Vec<&str>) = scopes
+        .iter()
+        .partition(|scope| crate::scopes::is_extension(scope));
+    let grants: Vec<ScopeGrant> = smart
+        .iter()
+        .map(|scope| {
+            ScopeGrant::read(locale, *scope, |read| {
+                (resource_words(locale, &read.resource), read.resource == "*")
+            })
+        })
+        .collect();
+    let named = if extensions.is_empty() {
+        Html::empty()
+    } else {
+        let words = locale.lookup_with(
+            &*CATALOG,
+            "scope-extension",
+            &[("scopes", Arg::from(extensions.join(", ")))],
+        );
+        Html::raw(format!("<p>{}</p>", Html::text(words)))
+    };
+    Html::join([scope_grants(locale, label, grants), named])
 }
 
 /// Returns the plain words for the FHIR resource type `resource` in
