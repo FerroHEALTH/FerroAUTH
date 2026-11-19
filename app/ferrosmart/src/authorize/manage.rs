@@ -70,6 +70,7 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
         purpose: Purpose::Manage,
         launch_context: None,
         upstream_session: None,
+        roles: Vec::new(),
     };
     if let Err(error) = state.store().begin_authorization(&pending).await {
         return pages::server_error(&state, &error);
