@@ -95,6 +95,8 @@ of the tokens issued for it. At least one is required, and no base twice.
 | `base` | The server's base URL as its clients name it: `https`, or `http` on a loopback host, no query or fragment |
 | `kind` | `fhir` or `openehr` |
 | `subject_namespace` | openEHR only: the namespace the server's EHRs name their subjects in, which the patient picker looks an EHR up by. Unset, the picker is not offered at that base |
+| `fhir_base` | openEHR only: the base of the same platform's FHIR server, one of the FHIR bases configured here. The patient picker then searches that server for the patient and looks their EHR up, so the app gets both `patient` and `ehrId`. Needs `subject_namespace` and `subject_system` |
+| `subject_system` | With `fhir_base`: the `system` of the `Patient.identifier` whose value is the subject id of the patient's EHR in `subject_namespace` |
 
 ## `[ferrosmart.upstream]`
 

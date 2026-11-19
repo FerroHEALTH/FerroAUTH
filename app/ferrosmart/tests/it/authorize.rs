@@ -1715,6 +1715,7 @@ async fn a_token_response_is_readable_from_the_app_s_origin_alone() {
 
 mod ehr_picker;
 mod encounter_picker;
+mod paired_picker;
 mod preset;
 
 /// The capabilities FerroSMART supports with a FHIR resource server and a

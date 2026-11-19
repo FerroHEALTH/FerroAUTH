@@ -33,6 +33,22 @@ kind = "openehr"                               # or "fhir"
 subject_namespace = "examples"                 # openEHR only: the picker's EHR lookup
 ```
 
+When the platform also serves FHIR, pair the two bases. The picker then
+finds the patient at the FHIR server and their EHR at the openEHR server,
+and the app gets both `patient` and `ehrId`:
+
+```toml
+[[ferrosmart.resource]]
+base = "https://ehr.example.org/fhir"
+
+[[ferrosmart.resource]]
+base = "https://ehr.example.org/openehr/v1"
+kind = "openehr"
+subject_namespace = "examples"
+fhir_base = "https://ehr.example.org/fhir"     # the platform's FHIR base, configured above
+subject_system = "urn:example:mrn"             # the Patient.identifier that names the EHR's subject
+```
+
 ## On the server's side
 
 The server checks each token as an RFC 9068 JWT:

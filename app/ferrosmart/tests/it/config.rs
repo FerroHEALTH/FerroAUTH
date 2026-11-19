@@ -307,6 +307,93 @@ fn a_subject_namespace_belongs_to_an_openehr_base_and_is_never_empty() {
     }
 }
 
+// NOTE: SMART on openEHR draft, Service Discovery, `org.fhir.rest` is the FHIR API
+// of a platform whose openEHR API is `org.openehr.rest`; the pair is configuration.
+#[test]
+fn a_fhir_base_pairs_an_openehr_base_with_a_configured_fhir_server() {
+    const OPENEHR: &str = "https://ehr.example.org/openehr/v1";
+    const FHIR: &str = "https://ehr.example.org/fhir";
+    let keys = Keys::new();
+    let with = |tables: &str| {
+        config(
+            &format!("[ferrosmart]\nissuer = \"https://smart.example.org\"\n{tables}"),
+            &keys,
+        )
+        .resolve()
+        .map_err(Box::new)
+    };
+    let fhir = format!("[[ferrosmart.resource]]\nbase = {FHIR:?}\n");
+    let openehr = |keys: &str| {
+        format!("[[ferrosmart.resource]]\nbase = {OPENEHR:?}\nkind = \"openehr\"\n{keys}\n")
+    };
+    let paired = format!(
+        "subject_namespace = \"examples\"\nfhir_base = {FHIR:?}\nsubject_system = \"urn:example:mrn\""
+    );
+    let settings = with(&format!("{fhir}{}", openehr(&paired))).expect("resolves");
+    let pairing = settings.pairings.get(OPENEHR).expect("a pairing");
+    assert_eq!(FHIR, pairing.fhir_base);
+    assert_eq!("urn:example:mrn", pairing.subject_system);
+    assert!(
+        !settings.pairings.contains_key(FHIR),
+        "the FHIR base is paired with nothing"
+    );
+    let refused = [
+        ("no FHIR base of that URL is configured", openehr(&paired)),
+        (
+            "the paired base is itself openEHR",
+            format!(
+                "{}[[ferrosmart.resource]]\nbase = {FHIR:?}\nkind = \"openehr\"\n",
+                openehr(&paired)
+            ),
+        ),
+        (
+            "no subject system",
+            format!(
+                "{fhir}{}",
+                openehr(&format!(
+                    "subject_namespace = \"examples\"\nfhir_base = {FHIR:?}"
+                ))
+            ),
+        ),
+        (
+            "a subject system and no FHIR base",
+            format!(
+                "{fhir}{}",
+                openehr("subject_namespace = \"examples\"\nsubject_system = \"urn:example:mrn\"")
+            ),
+        ),
+        (
+            "an empty subject system",
+            format!(
+                "{fhir}{}",
+                openehr(&format!(
+                    "subject_namespace = \"examples\"\nfhir_base = {FHIR:?}\nsubject_system = \" \""
+                ))
+            ),
+        ),
+        (
+            "no subject namespace",
+            format!(
+                "{fhir}{}",
+                openehr(&format!(
+                    "fhir_base = {FHIR:?}\nsubject_system = \"urn:example:mrn\""
+                ))
+            ),
+        ),
+        (
+            "a FHIR base that names a pair",
+            format!(
+                "{fhir}fhir_base = {FHIR:?}\nsubject_system = \"urn:example:mrn\"\n{}",
+                openehr("subject_namespace = \"examples\"")
+            ),
+        ),
+    ];
+    for (why, tables) in refused {
+        let answer = with(&tables).map(|_| ()).map_err(|error| *error);
+        assert!(matches!(answer, Err(Error::Resource { .. })), "{why}");
+    }
+}
+
 /// The upstream table with `extra` under it, the issuer of every case, and
 /// `keys`' current key as the token key.
 fn upstream(keys: &Keys, extra: &str) -> String {

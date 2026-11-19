@@ -235,7 +235,8 @@ pub fn consent(
 }
 
 /// Returns the patient picker page of `pending`: the search form, filled
-/// with `asked`, and the patients `found` when a search ran.
+/// with `asked`, and the patients `found` when a search ran, or else the
+/// words of `notice` when it names any.
 #[must_use]
 pub fn picker(
     state: &AppState,
@@ -243,6 +244,7 @@ pub fn picker(
     pending: &Pending,
     asked: Option<(Option<&str>, Option<&str>)>,
     found: Option<&[crate::picker::Found]>,
+    notice: Option<&str>,
 ) -> Response {
     let locale = negotiated(headers);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
@@ -269,7 +271,9 @@ pub fn picker(
         label = label(Some(Glyph::SEARCH), words("picker-search")),
     ));
     let results = match found {
-        None => Html::empty(),
+        None => notice.map_or_else(Html::empty, |id| {
+            Html::raw(format!("<p role=\"status\">{}</p>", Html::text(words(id))))
+        }),
         Some([]) => Html::raw(format!("<p>{}</p>", Html::text(words("picker-none")))),
         Some(found) => {
             let choices = Html::join(found.iter().enumerate().map(|(index, patient)| {
