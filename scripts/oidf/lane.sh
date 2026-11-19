@@ -9,8 +9,10 @@
 # app/ferrosmart/oidf/expected.tsv holds every module to its result. No
 # specification governs the lane itself: our own design.
 #
-#   scripts/oidf/lane.sh check   expected.tsv is well formed and every
-#                                result but PASSED names its issue
+#   scripts/oidf/lane.sh check   expected.tsv is well formed, and every
+#                                failure and every login of FerroSMART
+#                                that a module does not ask for names its
+#                                issue
 #   scripts/oidf/lane.sh run     start everything, run the four plans and
 #                                compare each module with expected.tsv
 #
@@ -62,27 +64,65 @@ pinned_image() {
 # The rows of expected.tsv, without its comments.
 rows() { grep -vE '^(#|$)' "$lane/expected.tsv"; }
 
+# What a relying party module asks of FerroSMART's login, from the
+# module's own summary in the suite: a refusal of the ID Token or the
+# metadata it serves, or the login to go on. `any` is a module whose
+# verdict is the suite's alone.
+wanted_login() {
+  case "$1" in
+    oidcc-client-test-nonce-invalid | oidcc-client-test-kid-absent-multiple-jwks | \
+      oidcc-client-test-missing-iat | oidcc-client-test-missing-aud | oidcc-client-test-invalid-aud | \
+      oidcc-client-test-idtoken-sig-none | oidcc-client-test-missing-sub | \
+      oidcc-client-test-invalid-sig-rs256 | oidcc-client-test-invalid-sig-es256 | \
+      oidcc-client-test-invalid-iss)
+      echo refused
+      ;;
+    oidcc-client-test-discovery-issuer-mismatch) echo no-start ;;
+    oidcc-client-test-discovery-openid-config) echo started ;;
+    oidcc-client-test-discovery-webfinger-*) echo any ;;
+    *) echo accepted ;;
+  esac
+}
+
 check() {
-  local failures=0 plan module result login issue reason
+  local failures=0 plan module result login issue reason wanted named
   while IFS=$'\t' read -r plan module result login issue reason; do
+    named=false
+    if grep -qE '^[0-9]+(,[0-9]+)*$' <<< "$issue"; then named=true; fi
     case "$result" in
-      PASSED) ;;
-      FAILED | WARNING | INTERRUPTED)
-        grep -qE '^[0-9]+(,[0-9]+)*$' <<< "$issue" || {
+      PASSED | REVIEW | SKIPPED | NOT-RUN) ;;
+      FAILED | WARNING)
+        $named || {
           echo "oidf-lane: $plan $module is expected $result and names no issue" >&2
           failures=$((failures + 1))
         }
         ;;
-      REVIEW | SKIPPED | NOT-RUN) ;;
+      # The driver stops a module once FerroSMART's part is over; any other
+      # interruption is a failure.
+      INTERRUPTED)
+        $named || [ "$login" = accepted ] || {
+          echo "oidf-lane: $plan $module is expected $result after a login that was not accepted and names no issue" >&2
+          failures=$((failures + 1))
+        }
+        ;;
       *)
         echo "oidf-lane: $plan $module has the unknown result '$result'" >&2
         failures=$((failures + 1))
         ;;
     esac
-    case "$login" in accepted | refused | no-start | started | none | -) ;; *)
-      echo "oidf-lane: $plan $module has the unknown login '$login'" >&2
-      failures=$((failures + 1))
-      ;;
+    case "$login" in
+      accepted | refused | no-start | started)
+        wanted=$(wanted_login "$module")
+        if [ "$wanted" != any ] && [ "$login" != "$wanted" ] && ! $named; then
+          echo "oidf-lane: $plan $module expects FerroSMART's login $wanted, is expected $login and names no issue" >&2
+          failures=$((failures + 1))
+        fi
+        ;;
+      none | -) ;;
+      *)
+        echo "oidf-lane: $plan $module has the unknown login '$login'" >&2
+        failures=$((failures + 1))
+        ;;
     esac
     if [ "$result" != PASSED ] && [ -z "$reason" ]; then
       echo "oidf-lane: $plan $module is expected $result and gives no reason" >&2
@@ -101,7 +141,7 @@ check() {
     }
   done
   [ "$failures" -eq 0 ] || exit 1
-  echo "oidf-lane: expected.tsv names an issue for every result that is no pass"
+  echo "oidf-lane: expected.tsv names an issue for every failure and every login the module does not ask for"
 }
 
 get() { curl -sS --cacert "$LANE_DIR/ca.crt" "$@"; }
@@ -249,13 +289,14 @@ compare() {
   {
     echo "### OpenID Foundation conformance suite"
     echo
-    echo "| Plan | Module | Result | FerroSMART's login | Issue | Reason |"
-    echo "|---|---|---|---|---|---|"
+    echo "| Plan | Module | Result | FerroSMART's login | The module asks | Issue | Reason |"
+    echo "|---|---|---|---|---|---|---|"
     while IFS=$'\t' read -r plan module result login; do
       issue=$(awk -F'\t' -v plan="$plan" -v module="$module" '$1 == plan && $2 == module { print $5 }' "$lane/expected.tsv")
       reason=$(awk -F'\t' -v plan="$plan" -v module="$module" '$1 == plan && $2 == module { print $6 }' "$lane/expected.tsv")
       # shellcheck disable=SC2016 # the backticks are Markdown code spans, written literally
-      printf '| `%s` | `%s` | %s | %s | %s | %s |\n' "$plan" "$module" "$result" "$login" \
+      printf '| `%s` | `%s` | %s | %s | %s | %s | %s |\n' "$plan" "$module" "$result" "$login" \
+        "$(case "$login" in none | -) echo - ;; *) wanted_login "$module" ;; esac)" \
         "$([ -z "$issue" ] || [ "$issue" = - ] || printf '#%s' "${issue//,/, #}")" "$reason"
     done < "$LANE_DIR/actual.tsv"
   } >> "$summary"

@@ -123,6 +123,9 @@ jobs:
       - name: The architecture and the README list every caller kind
         if: ${{ !cancelled() }}
         run: bash scripts/checks/caller-kinds.sh
+      - name: The OpenID Foundation pass list names an issue for every failure
+        if: ${{ !cancelled() }}
+        run: bash scripts/oidf/lane.sh check
       - name: The crate-version guard refuses a dated section that has no tag
         if: ${{ !cancelled() }}
         run: bash scripts/checks/crate-version-guard.sh --self-test
@@ -295,7 +298,7 @@ jobs:
   test:
     name: nextest (core and axum)
     runs-on: ubuntu-latest
-    timeout-minutes: 80
+    timeout-minutes: 50
     permissions:
       contents: read
       # The Inferno lane lists each pending group with the state of its issues.
