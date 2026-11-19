@@ -22,7 +22,7 @@ use crate::pages::{self, Fault};
 use crate::server::AppState;
 use crate::store::{Asking, Login, Pending, Purpose};
 
-use super::consent::{Basis, approve, offer};
+use super::consent::{Basis, FhirUser, approve, offer};
 use super::{
     Back, CONSENT_ROUTE, Denial, MANAGE_ROUTE, cookie, forget, found, now, random, registered,
     see_other, set_cookie,
@@ -233,12 +233,19 @@ async fn proceed(
         Ok(client) => client,
         Err(response) => return *response,
     };
+    let own = crate::picker::own_patient(state, &pending.audience, login.fhir_user.as_deref())
+        .map(str::to_owned);
+    let fhir_user = match (&login.fhir_user, &own) {
+        (None, _) => FhirUser::Absent,
+        (Some(_), None) => FhirUser::Present,
+        (Some(_), Some(_)) => FhirUser::ThePatient,
+    };
     let offered = offer(
         &pending.scope,
         &client,
         &held,
         &state.settings().roles,
-        login.fhir_user.is_some(),
+        fhir_user,
         pending.launch_context.as_ref(),
         crate::picker::reach(state, &pending.audience),
     );
@@ -254,6 +261,15 @@ async fn proceed(
     // NOTE: SMART App Launch 2.2.0, Obtain authorization code, the patient is
     // chosen within the authorization flow, before the consent.
     if pending.launch_context.is_none() && offered.contains(&"launch/patient") {
+        // NOTE: docs/architecture.md §13.6 item 4 (owner, 2026-11-19, #673): a patient's
+        // own record is the context, read again as them, with no picker.
+        if let Some(id) = &own {
+            return match state.store().pending(&pending.id).await {
+                Ok(Some(signed_in)) => crate::picker::own_record(state, &signed_in, from, id).await,
+                Ok(None) => pages::fault(state, Fault::Lapsed),
+                Err(error) => pages::server_error(state, &error),
+            };
+        }
         return see_other(&state.settings().endpoint(crate::picker::PICKER_ROUTE));
     }
     let asked = Asked {

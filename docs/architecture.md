@@ -2981,7 +2981,16 @@ specification governs.
    that asks a `patient/` scope without `launch/patient` is read as asking
    it, and the granted scope names it (`smart scopes-and-launch-context`,
    Standalone apps: the server MAY infer `launch/patient`; owner,
-   2026-11-19, #669). The picker is a server-rendered form
+   2026-11-19, #669). A person whose
+   `fhirUser` names a `Patient` at that server (absolute, or relative to
+   the request's base, `smart scopes-and-launch-context`, `fhirUser`), or
+   at the FHIR base paired with the openEHR base asked, sees no picker:
+   FerroSMART reads that record again as them and puts it in context, with
+   their EHR at a paired base, and a record it cannot read is a page that
+   says so, never the picker. Such a person is offered the `patient/`
+   scopes the client's ceiling allows with no role, since they reach their
+   own record alone (owner, 2026-11-19, #673). The picker is a
+   server-rendered form
    over a FHIR R4 search (`GET [base]/Patient?name=…&identifier=…`). The
    search runs as the signed-in person, never as a system: FerroSMART
    issues itself a token whose `sub` is the person's pairwise subject and

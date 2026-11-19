@@ -37,8 +37,10 @@ impl wiremock::Respond for OpenEhr {
         let Ok(claims) = jsonwebtoken::dangerous::insecure_decode_claims::<Value>(token) else {
             return ResponseTemplate::new(401);
         };
+        // The clinician sees every EHR; the patient p-1 sees their own.
         let allowed = claims.get("scope") == Some(&json!("user/composition-*.r"))
-            && claims.get("fhirUser") == Some(&json!("Practitioner/synthetic-1"));
+            && (claims.get("fhirUser") == Some(&json!("Practitioner/synthetic-1"))
+                || claims.get("fhirUser") == Some(&json!("Patient/p-1")));
         self.seen.lock().expect("held").push(claims);
         let pairs: Vec<(String, String)> = request.url.query_pairs().into_owned().collect();
         let asks =

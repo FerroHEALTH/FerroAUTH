@@ -12,7 +12,7 @@ use aws_lc_rs::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair};
 use axum::Router;
 use axum::body::Body;
 use ferrosmart::authorize::COOKIE;
-use ferrosmart::authorize::consent::offer;
+use ferrosmart::authorize::consent::{FhirUser, offer};
 use ferrosmart::clients::{ClientKind, ClientSection, GrantType, resolve};
 use ferrosmart::picker::Reach;
 use ferrosmart::server::{AppState, router};
@@ -1161,14 +1161,22 @@ fn an_extension_scope_needs_the_ceiling_and_a_role() {
             &client,
             &[String::from("administrator")],
             &roles,
-            false,
+            FhirUser::Absent,
             None,
             Reach::Nothing
         )
     );
     assert_eq!(
         vec!["openid"],
-        offer(requested, &client, &[], &roles, false, None, Reach::Nothing),
+        offer(
+            requested,
+            &client,
+            &[],
+            &roles,
+            FhirUser::Absent,
+            None,
+            Reach::Nothing
+        ),
         "no held role grants no extension scope"
     );
 }
@@ -1209,7 +1217,7 @@ fn the_consent_page_offers_what_the_ceiling_and_the_roles_allow() {
             &client,
             &held,
             &roles,
-            true,
+            FhirUser::Present,
             None,
             Reach::Nothing
         )
@@ -1221,7 +1229,7 @@ fn the_consent_page_offers_what_the_ceiling_and_the_roles_allow() {
             &client,
             &held,
             &roles,
-            false,
+            FhirUser::Absent,
             None,
             Reach::Nothing
         ),
@@ -1234,16 +1242,24 @@ fn the_consent_page_offers_what_the_ceiling_and_the_roles_allow() {
             &client,
             &held,
             &roles,
-            true,
+            FhirUser::Present,
             None,
             Reach::Nothing
         ),
         "fhirUser rides on openid"
     );
     assert!(
-        offer(requested, &client, &[], &roles, true, None, Reach::Nothing)
-            .iter()
-            .all(|scope| !scope.starts_with("user/")),
+        offer(
+            requested,
+            &client,
+            &[],
+            &roles,
+            FhirUser::Present,
+            None,
+            Reach::Nothing
+        )
+        .iter()
+        .all(|scope| !scope.starts_with("user/")),
         "no role, no user scope"
     );
 }
@@ -1606,7 +1622,7 @@ fn offline_and_online_access_are_offered_to_a_client_that_refreshes() {
             &client,
             &[],
             &roles,
-            false,
+            FhirUser::Absent,
             None,
             Reach::Nothing,
         )
@@ -1737,8 +1753,15 @@ impl wiremock::Respond for Fhir {
         let Ok(claims) = jsonwebtoken::dangerous::insecure_decode_claims::<Value>(token) else {
             return ResponseTemplate::new(401);
         };
+        // The clinician sees every patient; the patient p-1 sees their own record.
         let allowed = claims.get("scope") == Some(&json!("user/Patient.rs"))
-            && claims.get("fhirUser") == Some(&json!("Practitioner/synthetic-1"));
+            && (claims.get("fhirUser") == Some(&json!("Practitioner/synthetic-1"))
+                || claims
+                    .get("fhirUser")
+                    .and_then(Value::as_str)
+                    .is_some_and(|user| {
+                        user == "Patient/p-1" || user.ends_with("/fhir/Patient/p-1")
+                    }));
         self.seen.lock().expect("held").push(claims);
         let patient = json!({
             "resourceType": "Patient", "id": "p-1",
@@ -1746,11 +1769,11 @@ impl wiremock::Respond for Fhir {
             "birthDate": "1970-01-01", "gender": "other",
             "identifier": [{"system": "urn:example:mrn", "value": "MRN-1"}]
         });
-        if request.url.path().ends_with("/Patient/p-1") {
-            return if allowed {
-                ResponseTemplate::new(200).set_body_json(patient)
-            } else {
-                ResponseTemplate::new(403)
+        if let Some((_, id)) = request.url.path().rsplit_once("/Patient/") {
+            return match (allowed, id) {
+                (true, "p-1") => ResponseTemplate::new(200).set_body_json(patient),
+                (true, _) => ResponseTemplate::new(404),
+                (false, _) => ResponseTemplate::new(403),
             };
         }
         let entry = if allowed {
@@ -1843,6 +1866,145 @@ pub(crate) fn form_token(page: &str) -> String {
         .and_then(|rest| rest.split('"').next())
         .expect("a form token")
         .to_owned()
+}
+
+/// Runs the standalone launch asking `scope` at `base` through the callback
+/// as the person `subject` with `fhir_user` and no role, and returns the
+/// cookie with the callback's answer.
+async fn as_patient(
+    smart: &Smart,
+    base: &str,
+    scope: &str,
+    fhir_user: &str,
+) -> (String, (StatusCode, http::HeaderMap, String)) {
+    let path = authorize_path(&[("aud", base), ("scope", scope)]);
+    let (_, headers, _) = smart.get(&path, None).await;
+    let upstream = location(&headers);
+    let cookie = set_cookie(&headers);
+    smart
+        .provider
+        .answer_as(
+            &param(&upstream, "nonce").expect("a nonce"),
+            &[],
+            "synthetic-patient",
+            fhir_user,
+        )
+        .await;
+    let callback = format!(
+        "/callback?code=synthetic-upstream-code&state={}",
+        param(&upstream, "state").expect("a state")
+    );
+    let answer = smart.get(&callback, Some(&cookie)).await;
+    (cookie, answer)
+}
+
+// NOTE: SMART App Launch 2.2.0, Obtain authorization code: the server acquires
+// the context it needs; a patient's own record needs no picker (#673).
+#[tokio::test]
+async fn a_patient_gets_their_own_record_in_context_with_no_picker_and_no_role() {
+    let (smart, fhir, seen) = picker_launch().await;
+    let base = format!("{}/fhir", fhir.uri());
+    for fhir_user in ["Patient/p-1", &format!("{base}/Patient/p-1")] {
+        let (cookie, (status, headers, body)) = as_patient(
+            &smart,
+            &base,
+            "openid fhirUser launch/patient patient/Observation.rs",
+            fhir_user,
+        )
+        .await;
+        assert_eq!(StatusCode::SEE_OTHER, status, "{body}");
+        assert_eq!(
+            "/consent",
+            location(&headers).path(),
+            "no picker: {fhir_user}"
+        );
+        let (_, _, page) = smart.get("/consent", Some(&cookie)).await;
+        assert!(
+            page.contains("value=\"patient/Observation.rs\""),
+            "their own patient/ scope with no role: {page}"
+        );
+        let token = form_token(&page);
+        let (_, headers, _) = smart
+            .post(
+                "/consent",
+                &[
+                    ("form_token", token.as_str()),
+                    ("decision", "approve"),
+                    ("scope", "openid"),
+                    ("scope", "fhirUser"),
+                    ("scope", "launch/patient"),
+                    ("scope", "patient/Observation.rs"),
+                ],
+                Some(&cookie),
+            )
+            .await;
+        let code = param(&location(&headers), "code").expect("a code");
+        let exchange = [
+            ("grant_type", "authorization_code"),
+            ("code", code.as_str()),
+            ("redirect_uri", REDIRECT),
+            ("code_verifier", VERIFIER),
+            ("client_id", "app"),
+        ];
+        let (status, _, body) = smart.post("/token", &exchange, None).await;
+        assert_eq!(StatusCode::OK, status, "{body}");
+        let body: Value = serde_json::from_str(&body).expect("JSON");
+        assert_eq!(json!("p-1"), body["patient"]);
+        assert_eq!(
+            json!("openid fhirUser launch/patient patient/Observation.rs"),
+            body["scope"]
+        );
+    }
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, the record is read
+    // again as the person before it is put in context.
+    let reads = seen.lock().expect("held").clone();
+    assert!(
+        reads
+            .iter()
+            .any(|claims| claims.get("fhirUser") == Some(&json!("Patient/p-1"))),
+        "{reads:?}"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_patient_whose_own_record_cannot_be_read_is_told_so_and_never_picks() {
+    let (smart, fhir, _) = picker_launch().await;
+    let base = format!("{}/fhir", fhir.uri());
+    let (_, (status, headers, page)) = as_patient(
+        &smart,
+        &base,
+        "openid fhirUser launch/patient patient/Observation.rs",
+        "Patient/p-2",
+    )
+    .await;
+    assert_eq!(StatusCode::FORBIDDEN, status, "{page}");
+    assert!(headers.get(header::LOCATION).is_none(), "never the picker");
+    assert!(
+        page.contains("Your own record cannot be opened here"),
+        "{page}"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_patient_at_another_server_s_record_still_picks() {
+    let (smart, fhir, _) = picker_launch().await;
+    let base = format!("{}/fhir", fhir.uri());
+    let (_, (status, headers, _)) = as_patient(
+        &smart,
+        &base,
+        "openid fhirUser launch/patient",
+        "https://elsewhere.example.org/fhir/Patient/p-1",
+    )
+    .await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    assert_eq!(
+        "/picker",
+        location(&headers).path(),
+        "not their record here"
+    );
+    smart.stop().await;
 }
 
 // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Standalone apps: the
@@ -2365,7 +2527,7 @@ async fn what_the_document_leaves_out_the_server_refuses() {
             &client,
             &[],
             &roles,
-            true,
+            FhirUser::Present,
             None,
             Reach::Patient
         ),
@@ -2378,7 +2540,7 @@ async fn what_the_document_leaves_out_the_server_refuses() {
             &client,
             &[],
             &roles,
-            true,
+            FhirUser::Present,
             Some(&ferrosmart::launch::context::Context {
                 encounter: Some(String::from("e-1")),
                 ..ferrosmart::launch::context::Context::default()
@@ -2393,7 +2555,7 @@ async fn what_the_document_leaves_out_the_server_refuses() {
             &client,
             &[],
             &roles,
-            true,
+            FhirUser::Present,
             None,
             Reach::Encounter
         )
@@ -2456,7 +2618,7 @@ fn a_v1_scope_is_offered_by_its_v2_form_and_granted_as_asked() {
             &client,
             &held,
             &roles,
-            true,
+            FhirUser::Present,
             None,
             Reach::Nothing
         )

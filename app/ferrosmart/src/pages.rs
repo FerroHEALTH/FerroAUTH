@@ -55,6 +55,9 @@ pub enum Fault {
     OtherBrowser,
     /// The request could not be read.
     BadRequest,
+    /// The person's own record, which their `fhirUser` names, cannot be
+    /// read as them, or has no EHR they may see.
+    NoOwnRecord,
     /// The server failed.
     Server,
 }
@@ -86,6 +89,12 @@ impl Fault {
                 StatusCode::BAD_REQUEST,
                 "fault-bad-request",
                 "fault-bad-request-body",
+            ),
+            Self::NoOwnRecord => (
+                Status::Forbidden,
+                StatusCode::FORBIDDEN,
+                "fault-own-record",
+                "fault-own-record-body",
             ),
             Self::Server => (
                 Status::Fault,
