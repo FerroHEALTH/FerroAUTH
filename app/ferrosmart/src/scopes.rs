@@ -54,9 +54,86 @@ pub fn is_extension(scope: &str) -> bool {
     scope.len() > 2 && scope.starts_with("__")
 }
 
+/// Returns the scope of a standalone request, `requested`, with
+/// `launch/patient` added when it asks a `patient/` scope without it.
+///
+/// A `patient/` scope needs a patient in context, and SMART lets the server
+/// infer `launch/patient` for a standalone app that did not ask it (SMART
+/// App Launch 2.2.0, Scopes and Launch Context, Standalone apps: the EHR
+/// "may infer" it), so the picker supplies the patient instead of the
+/// `patient/` scopes being dropped (`docs/architecture.md` §13.6 item 4).
+#[must_use]
+pub fn with_inferred_patient(requested: &str) -> String {
+    let mut scopes = requested.split(' ').filter(|scope| !scope.is_empty());
+    let asks_patient = scopes.clone().any(|scope| scope.starts_with("patient/"));
+    if asks_patient && !scopes.any(|scope| scope == "launch/patient") {
+        format!("{} launch/patient", requested.trim_end())
+    } else {
+        requested.to_owned()
+    }
+}
+
+/// Returns whether `scope` is drawn on the consent page as a fixed line,
+/// granted with the app and never unticked.
+///
+/// These are the identity, launch and refresh scopes, which say who the
+/// person is, which context the app opens in and how long it stays signed
+/// in; unticking one would break the app without keeping any data back
+/// (`docs/architecture.md` §13.6 item 3; our own design). Resource scopes
+/// and extension scopes keep their boxes.
+#[must_use]
+pub fn is_fixed(scope: &str) -> bool {
+    matches!(
+        scope,
+        "openid" | "fhirUser" | "profile" | "email" | "launch" | "offline_access" | "online_access"
+    ) || scope.starts_with("launch/")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{admits, v2_form};
+    use super::{admits, is_fixed, v2_form, with_inferred_patient};
+
+    #[test]
+    fn a_standalone_patient_scope_infers_launch_patient() {
+        assert_eq!(
+            "openid patient/Observation.rs launch/patient",
+            with_inferred_patient("openid patient/Observation.rs")
+        );
+        for unchanged in [
+            "openid launch/patient patient/Observation.rs",
+            "openid user/Observation.rs",
+            "openid",
+        ] {
+            assert_eq!(unchanged, with_inferred_patient(unchanged));
+        }
+    }
+
+    #[test]
+    fn identity_launch_and_refresh_scopes_are_fixed_and_resource_scopes_are_not() {
+        for fixed in [
+            "openid",
+            "fhirUser",
+            "profile",
+            "email",
+            "launch",
+            "launch/patient",
+            "launch/encounter",
+            "offline_access",
+            "online_access",
+        ] {
+            assert!(is_fixed(fixed), "{fixed}");
+        }
+        for chosen in [
+            "patient/Observation.rs",
+            "user/Patient.r",
+            "system/*.rs",
+            "__ferroehr.platform",
+            "launcher",
+            "openid2",
+        ] {
+            assert!(!is_fixed(chosen), "{chosen}");
+        }
+    }
 
     #[test]
     fn the_v1_suffixes_read_as_their_v2_letters() {

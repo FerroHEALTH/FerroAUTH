@@ -246,3 +246,49 @@ fn a_launch_url_is_normalized_and_registered_once() {
         );
     }
 }
+
+// NOTE: RFC 7591 §2, the app's URLs the consent page links and draws (#668).
+#[test]
+fn the_app_s_urls_are_absolute_https_urls() {
+    let app = |key: &str, value: &str| {
+        let mut section = ClientSection {
+            client_id: String::from("app"),
+            kind: ClientKind::Public,
+            redirect_uris: vec![String::from("https://app.example.org/callback")],
+            grant_types: vec![GrantType::AuthorizationCode],
+            ..ClientSection::default()
+        };
+        match key {
+            "client_uri" => section.client_uri = value.to_owned(),
+            "logo_uri" => section.logo_uri = value.to_owned(),
+            "policy_uri" => section.policy_uri = value.to_owned(),
+            _ => section.tos_uri = value.to_owned(),
+        }
+        section
+    };
+    for key in ["client_uri", "logo_uri", "policy_uri", "tos_uri"] {
+        let admitted = resolve(&[app(key, "https://app.example.org/x")]).expect("admitted");
+        assert!(!admitted.is_empty(), "{key}");
+        for refused in [
+            "http://app.example.org/x",
+            "https://app.example.org/x#y",
+            "/x",
+        ] {
+            assert!(
+                matches!(
+                    resolve(&[app(key, refused)]),
+                    Err(ClientError::AboutUri { key: named, .. }) if named == key
+                ),
+                "{key} = {refused}"
+            );
+        }
+    }
+    let admitted =
+        resolve(&[app("logo_uri", "https://cdn.example.org/logo.png")]).expect("admitted");
+    let about = &admitted.first().expect("one client").about;
+    assert_eq!(
+        Some("https://cdn.example.org/logo.png"),
+        about.logo.as_ref().map(url::Url::as_str)
+    );
+    assert_eq!(None, about.home);
+}

@@ -206,8 +206,8 @@ pub(super) enum Basis<'a> {
     Organisation(&'a Approval),
 }
 
-/// Issues the code for the scopes the person kept of those offered, and
-/// sends the browser back to the app with it.
+/// Issues the code for the offered fixed scopes and the resource scopes the
+/// person kept, and sends the browser back to the app with it.
 pub(super) async fn approve(
     state: &AppState,
     pending: &Pending,
@@ -219,7 +219,7 @@ pub(super) async fn approve(
     let offered = pending.offered_scope.as_deref().unwrap_or_default();
     let mut granted: Vec<&str> = offered
         .split(' ')
-        .filter(|scope| selected.contains(scope))
+        .filter(|scope| crate::scopes::is_fixed(scope) || selected.contains(scope))
         .collect();
     if !granted.contains(&"openid") {
         granted.retain(|scope| *scope != "fhirUser");

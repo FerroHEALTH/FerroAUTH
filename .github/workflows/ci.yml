@@ -57,6 +57,7 @@ jobs:
     permissions:
       contents: read
       issues: read
+      pull-requests: read # the no-changelog label, read when the guard runs
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -144,14 +145,53 @@ jobs:
       - name: Every crate's changelog keeps the structure
         if: ${{ !cancelled() }}
         run: bash scripts/checks/changelog-structure.sh
-      # Regulation (EU) 2024/2847 Annex I Part II(2), (4) and (8): every
-      # Security entry names its GHSA advisory or VEX statement, and a
-      # Security section beside other changes opens with its reason.
-      # With no file the check reads every crates/*/CHANGELOG.md, with VEX
-      # paths resolved against the repository root.
-      - name: Every crate's Unreleased section keeps the Security rules
+      # The changelog fragments (changelog.d/README.md): every fragment well
+      # formed, and each changelog with its fragments folded into
+      # [Unreleased] keeps the structure and the Security rules of Regulation
+      # (EU) 2024/2847 Annex I Part II(2), (4) and (8): every Security entry
+      # names its GHSA advisory or VEX statement, and a Security section
+      # beside other changes opens with its reason.
+      - name: The fragment tool assembles, previews and refuses what it claims to
         if: ${{ !cancelled() }}
-        run: bash scripts/checks/changelog-security.sh --section Unreleased
+        run: bash scripts/release/changelog.sh --self-test
+      - name: Every changelog fragment is well formed
+        if: ${{ !cancelled() }}
+        run: bash scripts/release/changelog.sh --check
+      - name: Every changelog with its fragments folded in keeps the structure and the Security rules
+        if: ${{ !cancelled() }}
+        run: bash scripts/release/changelog.sh --check-preview
+      # The release window: while a package's newest dated section is
+      # assembled and untagged, changelog.d/<package>/ holds no fragment, so
+      # the commit to be tagged carries none.
+      - name: The release window guard refuses what it claims to
+        if: ${{ !cancelled() }}
+        run: bash scripts/checks/release-window.sh --self-test
+      - name: No fragment sits in an open release window
+        if: ${{ !cancelled() }}
+        run: bash scripts/checks/release-window.sh
+      # A pull request that changes a user-visible surface adds a fragment,
+      # and none writes under [Unreleased] or a pending section. The
+      # `no-changelog` label waives the fragment, never the refusal; it is
+      # read when the step runs, so after setting it re-run the job.
+      - name: The changelog guard refuses what it claims to
+        if: ${{ !cancelled() }}
+        run: bash scripts/checks/changelog-guard.sh --self-test
+      - name: A user-visible change adds a changelog fragment and edits no [Unreleased]
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if [ "$(gh api "repos/${GH_REPO}/pulls/${PR}" --jq 'any(.labels[].name; . == "no-changelog")')" = true ]; then
+            echo "no-changelog label set: the fragment is waived, an [Unreleased] edit is still refused."
+            bash scripts/checks/changelog-guard.sh --waived "$BASE" "$HEAD"
+            exit 0
+          fi
+          bash scripts/checks/changelog-guard.sh "$BASE" "$HEAD"
       # No tracked file keeps an unresolved merge conflict (#191).
       - name: The conflict-marker guard refuses each marker and skips the vendored corpora
         if: ${{ !cancelled() }}

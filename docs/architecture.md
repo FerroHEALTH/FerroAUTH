@@ -2304,6 +2304,7 @@ four agree on and settles each difference:
 | `audience` is required, as a list | `rfc9068 §4`; `rfc8725 §3.9` | a FerroTERM deployment that set no audience must set one |
 | One `401` for every invalid credential, naming nothing; `403` naming no scope | `rfc6750 §3.1`; `rfc9068 §4`; the omissions are our own design | none |
 | `503` when the key set cannot be read | our own design | none |
+| FerroSMART speaks standard SAML 2.0 upstream beside OpenID Connect, the Web Browser SSO profile with the HTTP-Redirect, HTTP-POST and HTTP-Artifact bindings, and ships no national profile (13.26) | owner decision 2026-11-19 (FerroHEALTH/FerroSMART#687, #688) | none |
 | The `patient` claim is read from the access token when present | our own design (SMART places the context in the token response and the introspection response) | none |
 | Under the `rfc9068` profile only `scope` counts; under the `jwt` profile `scp` is read as a fallback when `scope` is absent, for an issuer such as Entra ID that mints the array form | `rfc9068 §2.2.3` names `scope`; `scp` is no specification's, so it is admitted only outside the profile (owner decision 2026-10-19) | none |
 | Product scopes (`ferrobridge.operator`, `ferroterm/admin`) are renamed to a form SMART's Extensibility section admits, a `__` prefix or a full URI, during each product's migration | `smart scopes-and-launch-context`, Extensibility (owner decision 2026-10-19) | each product's migration names the new scope and the deployments that must update their authorization server |
@@ -2976,7 +2977,11 @@ specification governs.
    external picker URL would be a hand-off of our own invention with its
    own threat surface. FerroSMART draws the picker itself (#516), between
    the login and the consent, for a standalone launch whose client may ask
-   for `launch/patient` at a FHIR resource server. A person whose
+   for `launch/patient` at a FHIR resource server. A standalone request
+   that asks a `patient/` scope without `launch/patient` is read as asking
+   it, and the granted scope names it (`smart scopes-and-launch-context`,
+   Standalone apps: the server MAY infer `launch/patient`; owner,
+   2026-11-19, #669). A person whose
    `fhirUser` names a `Patient` at that server (absolute, or relative to
    the request's base, `smart scopes-and-launch-context`, `fhirUser`), or
    at the FHIR base paired with the openEHR base asked, sees no picker:
@@ -3082,8 +3087,17 @@ specification governs.
    2026-11-16): policy first narrows the request to what the client's
    ceiling and the user's roles allow (item 5), then the consent page shows
    the remaining scopes and the user approves them, narrows them by
-   unticking any, or denies (an `access_denied` error response, `rfc6749
-   §4.1.2.1`). One exception, the owner's decision of 2026-11-19 (#643),
+   unticking any resource scope, or denies (an `access_denied` error
+   response, `rfc6749 §4.1.2.1`). Identity, launch and refresh scopes
+   (`openid`, `fhirUser`, `profile`, `email`, `launch`, `launch/*`,
+   `offline_access`, `online_access`) are fixed lines with no box, granted
+   with the app whatever the form posts, since unticking one breaks the app
+   and keeps no data back; `patient/`, `user/` and extension scopes keep
+   their boxes (owner, 2026-11-19, #668; `smart app-launch` §7 Best
+   Practices, non-normative, asks for plain descriptions; the split is our
+   own design). The page also shows what the client registers about the app
+   (`rfc7591 §2`): `client_uri` linked as the app's home page, `logo_uri`
+   drawn, `policy_uri` and `tos_uri` linked. One exception, the owner's decision of 2026-11-19 (#643),
    which replaces "no client skips the page" for this case: an
    administrator of the controller may approve a client once for the whole
    organisation, as the client's `organisation_approval` (the approved
@@ -3395,6 +3409,7 @@ kind = "confidential_symmetric"
 secret_hash_file = "/run/secrets/portal-secret.phc"   # the Argon2id PHC hash, at least m=19456,t=2,p=1
 redirect_uris = ["https://portal.example.org/callback"]
 launch_uri = "https://portal.example.org/launch"   # optional: the app's launch URL, which POST /launch may name (13.17)
+client_uri = "https://portal.example.org/"    # optional, with logo_uri, policy_uri and tos_uri: shown on the consent page (RFC 7591 §2)
 grant_types = ["authorization_code", "refresh_token"]   # never client_credentials
 
 [ferrosmart.client.organisation_approval]     # optional: the organisation's own app, no consent page for its staff (13.6 item 6)
@@ -3612,7 +3627,8 @@ script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self';
 form-action 'self'; frame-ancestors 'none'; base-uri 'none'` (`rfc9700
 §4.16`), and the consent page adds to `form-action` the origin of that
 request's registered redirect URI alone, since CSP Level 3 §6.4.2 applies
-`form-action` to the redirect that follows the post.
+`form-action` to the redirect that follows the post, and to `img-src` the
+origin of the client's registered `logo_uri` alone (#668).
 
 A component, pattern or locale the screens need and FerroUI lacks is
 added in FerroUI as a general component, through FerroUI's own tracker and
@@ -4143,8 +4159,8 @@ who holds it; FerroSMART's own rows name the case that holds them.
 | CORS on the discovery endpoints for any origin, on the token endpoint for a client's registered origins (Considerations for CORS support) | SHALL | met; the FHIR REST API's CORS is the resource server's | `authorize::a_token_response_is_readable_from_the_app_s_origin_alone`, `discovery::the_smart_configuration_is_json_whatever_the_accept_header` |
 | Every app registers fixed, fully specified redirect URIs and launch URLs (Register App with EHR) | SHALL | met for redirect URIs: an authorization code client registers absolute ones, matched exactly; a launch URL is the EHR's | `clients::an_authorization_code_client_registers_absolute_redirect_uris` |
 | The `state` parameter is used against CSRF and session fixation (Obtain authorization code) | SHALL | the app's; FerroSMART requires it and echoes it | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
-| The server supports the `aud` parameter (Obtain authorization code) | SHALL | met: `aud` names a configured resource server, else the request is refused | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error` |
-| The app limits its scopes to the minimum (Obtain authorization code) | SHOULD | the app's; the consent page lets the person untick any scope | `authorize::the_consent_page_offers_what_the_ceiling_and_the_roles_allow` |
+| The server supports the `aud` parameter (Obtain authorization code) | SHALL | met: `aud` names a configured resource server, else the request is refused; with exactly one configured, a request without `aud` defaults to it, as the token endpoint defaults `resource` (owner, 2026-11-19, #670; our own design) | `authorize::a_request_that_breaks_the_profile_is_sent_back_with_its_error`, `authorize::a_request_without_aud_defaults_to_the_one_configured_base`, `authorize::a_request_without_aud_is_refused_with_two_bases` |
+| The app limits its scopes to the minimum (Obtain authorization code) | SHOULD | the app's; the consent page lets the person untick any resource scope | `authorize::the_consent_page_offers_what_the_ceiling_and_the_roles_allow` |
 | The authorization endpoint supports GET and POST (Obtain authorization code) | SHALL | met | `authorize::an_authorization_request_by_post_is_the_get_s_twin` |
 | Confidential clients use asymmetric authentication if available (Obtain access token) | SHOULD | the client's; both profiles are offered (§4.1, §4.2) | `token::a_backend_services_client_gets_an_rfc_9068_token` |
 | The token response is JSON with `access_token`, `token_type`, `expires_in`, `scope` and the granted context (Obtain access token, Response) | SHALL | met | `authorize::a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens` |
@@ -4156,7 +4172,7 @@ who holds it; FerroSMART's own rows name the case that holds them.
 | v1 scopes: advertise `permission-v1`, process `.read`, `.write`, `.*` as `.rs`, `.cud`, `.cruds`, return v1 when v1 was granted (Scopes for requesting FHIR Resources) | SHOULD | met | `authorize::a_v1_scope_is_offered_by_its_v2_form_and_granted_as_asked` |
 | A server that links Patients through `Patient.link` documents its authorization behaviour (Patient-specific scopes) | SHALL | the resource server's; FerroSMART reads no `Patient.link` | none |
 | An unsupported `?role=` gets any launch context of the resource type (Scopes for requesting context data) | SHOULD | met for an EHR launch: the EHR's `fhirContext` items return under `launch` whatever role was asked; a standalone launch offers no `launch/` scope beyond `launch/patient` and `launch/encounter` | `ehr_launch::an_ehr_launch_carries_its_context_to_the_token_response` |
-| A granted `patient/` scope has a patient in context (Apps that launch from the EHR; Standalone apps) | SHALL | met: `patient/` scopes are offered only with a patient from the EHR launch or the picker, and dropped when the context is | `ehr_launch::a_launch_needs_the_launch_scope_and_unticking_it_drops_the_context`, `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
+| A granted `patient/` scope has a patient in context (Apps that launch from the EHR; Standalone apps) | SHALL | met: `patient/` scopes are offered only with a patient from the EHR launch or the picker, and the launch scopes that carry the context are fixed lines the form cannot drop | `ehr_launch::a_launch_needs_the_launch_scope_and_a_form_cannot_drop_the_context`, `authorize::a_standalone_launch_picks_a_patient_the_person_may_see` |
 | A standalone app's `launch/patient` and `launch/encounter` are provided (Standalone apps) | SHOULD | met: the picker chooses the patient at a FHIR base and at an openEHR base with a `subject_namespace` (with a `fhir_base`, the FHIR `Patient` and their EHR together), and one of the patient's encounters at a FHIR base; the person may go on without an encounter, which drops `launch/encounter` from the offer. At an openEHR base no encounter is chosen: openEHR has no Encounter resource, and the SMART on openEHR draft's context is the `ehrId` (Context Selection) | `authorize::encounter_picker::a_standalone_launch_picks_an_encounter_of_the_chosen_patient`, `authorize::encounter_picker::a_person_may_go_on_without_an_encounter`, `authorize::ehr_picker::a_standalone_launch_at_an_openehr_server_picks_the_ehr_the_person_may_see`, `authorize::paired_picker::a_standalone_launch_at_a_paired_openehr_base_picks_the_patient_and_their_ehr` |
 | Each `fhirContext` item has `reference`, `canonical` or `identifier`; a `role` is never empty (Launch context arrives with your access_token, fhirContext) | SHALL | met: an EHR's launch registration breaking either is refused | `launch::a_launch_registration_breaking_a_rule_is_refused` |
 | The app shows a default UI without a style; the style URL serves a SMART Style object; a changed style gets a new URL (Styling) | SHOULD, SHALL | the app's and the deployment's: `smart_style_url` is configuration, `https` only, and a new style document is published at a new URL | `config::a_style_url_other_than_https_is_refused` |
@@ -4402,3 +4418,159 @@ The tests are in `app/ferrosmart/tests/it/authorize/core_op.rs`.
 | `auth_time` | every ID Token carries `auth_time`, the upstream ID Token's own, or the time the upstream login returned when it names none; a refresh keeps it | `oidc core §15.1`, `§2` | `the_id_token_is_rs256_and_carries_the_upstream_login_s_auth_time` |
 | `max_age` | goes to the upstream login; an upstream `auth_time` older than `max_age`, or none, begins the upstream login again with `prompt=login`, once, and a login still older answers `login_required`; `max_age=0` is `prompt=login`; a value that is no number of seconds is `invalid_request` | `oidc core §15.1`, `§3.1.2.1`, `§3.1.2.6` | `an_upstream_login_older_than_max_age_is_begun_again_with_prompt_login` |
 | `acr_values` | taken, and the request goes on as without it; FerroSMART does not pass it upstream, so its ID Tokens carry no `acr` and the document names no `acr_values_supported`, which no specification requires: our own design | `oidc core §15.1`, `§3.1.2.1` | `display_locales_and_acr_values_are_taken` |
+
+### 13.26 Upstream providers: SAML 2.0
+
+A person can log in at an upstream identity provider that speaks SAML 2.0
+rather than OpenID Connect: FerroSMART is then a service provider of the
+OASIS SAML 2.0 Web Browser SSO profile (`saml-profiles-2.0-os §4.1`, as
+the Errata 05 composite amends it), with the standard bindings and nothing
+national (owner decision 2026-11-19 on FerroHEALTH/FerroSMART#687 and
+#688). A country or a deployment configures its provider with the standard
+settings; which attribute or name identifier becomes the person's
+identifier is deployment configuration (#674). The protocol machinery is
+`app/ferrosmart/src/saml/`; it holds no configuration and does no I/O. The
+protocol-neutral provider entry of #678 drives it: the `protocol = "saml"`
+entry, the login routes, the store record of each admitted assertion `ID`
+and the login audit record land with that entry. Citation keys: `saml-core`,
+`saml-bindings`, `saml-profiles` and `saml-metadata` are the 2005 OASIS
+Standard documents and `errata E26` an entry of SAML V2.0 Errata 05, all
+under `docs/specs/oasis-saml/`; `xmldsig-core1`, `xmlenc-core1` and
+`Exc-C14N` are the W3C Recommendations under `docs/specs/w3c-xmlsec/`.
+
+**What FerroSMART does.**
+
+- **The request.** An `AuthnRequest` (`saml-core §3.4.1`) with
+  `AssertionConsumerServiceURL` and `ProtocolBinding` (HTTP-POST or
+  HTTP-Artifact), `ForceAuthn` when the provider sets it, a `NameIDPolicy`
+  when the provider names a format, and the provider's minimum assurance
+  as `RequestedAuthnContext Comparison="exact"` listing the accepted
+  `AuthnContextClassRef` values (`saml-core §3.3.2.2.1`). It is always
+  signed: the query string of the HTTP-Redirect binding
+  (`saml-bindings §3.4.4.1`) or an enveloped signature for HTTP-POST
+  (`§3.5.4`). `RelayState` is at most 80 bytes (`§3.4.3`).
+- **The response.** Delivered by HTTP-POST (`saml-bindings §3.5`) or by
+  an artifact (`§3.6`), whose `ArtifactResolve` FerroSMART signs and sends
+  over the SOAP binding (`§3.2`) with its TLS client certificate, the
+  mutual authentication `saml-profiles §4.1.4.4` requires. HTTP-Redirect
+  never carries a response (`saml-profiles §4.1.2`).
+- **The checks**, each its own `Refusal`: `Version` 2.0;
+  `InResponseTo` naming the request, so an unsolicited response is refused
+  (`§4.1.5`); `Destination` where the response arrived, required on a
+  signed posted response (`saml-bindings §3.5.5.2`); the `Issuer` the
+  provider's entity ID in the entity format; status success; one bearer
+  `SubjectConfirmationData` with the assertion consumer service as
+  `Recipient`, the request as `InResponseTo`, no `NotBefore` and a
+  `NotOnOrAfter` not passed (`saml-profiles §4.1.4.2`, `§4.1.4.3`,
+  errata E26); `NotBefore` and `NotOnOrAfter` of the conditions; an
+  `AudienceRestriction` naming FerroSMART, and every one present naming it
+  (`saml-core §2.5.1.4`, errata E46); `OneTimeUse` and `ProxyRestriction`
+  understood, any other condition refused (`§2.5.1.1`); an instant ahead
+  of now refused; the `AuthnContextClassRef` one of the accepted values;
+  the clock skew configurable (errata E92 suggests 3 to 5 minutes).
+- **Replay.** The assertion `ID` is admitted once, remembered until the
+  bearer confirmation's `NotOnOrAfter` (`saml-profiles §4.1.4.5`); the
+  artifact itself is single use at the provider (`saml-bindings
+  §3.6.5.2`), and the request it answers is consumed with the pending
+  authorization.
+
+**The rules beyond the profile**, our own design, each held by a test:
+
+- Exactly one assertion, plain or encrypted, and no `saml:Advice`: there
+  is one assertion to read and no nested one to confuse it with.
+- The assertion is covered by a verified signature whatever the binding:
+  its own, the `Response`'s, or the `ArtifactResponse`'s that carried it.
+  `saml-profiles §4.1.4.5` (as errata E26 words it) requires this for
+  HTTP-POST; FerroSMART holds HTTP-Artifact to it too, so the transport
+  is never the only protection.
+- Exactly one `AuthnStatement`, with an `AuthnContextClassRef`.
+- An attribute value is text, or one `saml:NameID`; anything else is
+  refused.
+
+**Signature wrapping.** The signature check is handed the element the
+caller then reads, never an ID to look up. The `ds:Signature` must be a
+child of that element in its schema place, its one `ds:Reference` must
+name that element's `ID` (`saml-core §5.4.2`), the digest is taken over
+that element as parsed, and every value is read from it by child path. A
+document in which any attribute named `ID`, `Id` or `id` carries a value
+twice is refused before any check, and so is a `ds:Signature` anywhere but
+as the child of the `ArtifactResponse`, the `Response` or the assertion,
+each of which is verified when it carries one. The corpus under
+`app/ferrosmart/tests/it/saml/attacks.rs` holds the eight XSW shapes of
+Somorovsky et al. (USENIX Security 2012), a signature by a key the
+metadata does not publish, a reference to another ID, a second signature,
+a `ds:Object` (`saml-core §5.4` as errata E91 extends it), an unsigned
+assertion added to or swapped into a signed response, and a comment
+splitting the `NameID`: a value is read only from an element holding text
+alone, since the canonical form without comments drops a comment that a
+reader would split the text at.
+
+**Algorithms** (`xmldsig-core1 §6.1`, `xmlenc-core1 §5.1`; our own
+choice within them):
+
+| Role | Accepted | Refused |
+|---|---|---|
+| Canonicalization | Exclusive XML Canonicalization 1.0 without comments, with an `InclusiveNamespaces PrefixList` | inclusive C14N, `#WithComments` |
+| Transforms | the enveloped signature transform, then exclusive canonicalization | any other list |
+| Digest | SHA-256, SHA-384, SHA-512 | SHA-1, SHA-224 |
+| Signature | RSASSA-PKCS1-v1_5 with SHA-256, -384 or -512 on RSA keys of 2048 bits or more; ECDSA with SHA-256 on P-256, SHA-384 on P-384, SHA-512 on P-521 | SHA-1 (`xmldsig-core1` discourages it; it is broken), DSA, every HMAC (a MAC keyed by a public key is an algorithm confusion) |
+| Key transport | RSA-OAEP, `rsa-oaep-mgf1p` or `xmlenc11#rsa-oaep`, digest and MGF1 both SHA-1, -256, -384 or -512, with an `OAEPparams` label | RSA-v1.5 (Bleichenbacher), key agreement, key wrap, mixed digest and MGF1 |
+| Data | AES-128, -192 and -256 in GCM; in CBC only when a verified signature covers the encrypted element (`saml-core §6.2` as errata E93 replaces it), checked before anything is decrypted | Triple DES, CBC without a covering signature |
+
+SHA-1 is refused although `xmldsig-core1 §6.1` lists RSA with SHA-1 as
+recommended for verification: an identity provider that still signs with
+it is refused until it moves to SHA-256. The keys are the provider's
+metadata's `use="signing"` (or unmarked) `KeyDescriptor`s; `ds:KeyInfo`
+in a message is never read. A certificate in metadata is a key carrier:
+its dates and issuer are not checked, since the metadata is the trust. A
+decryption failure is one refusal whatever step failed, so it tells an
+attacker nothing.
+
+**Metadata.** The provider's `md:EntityDescriptor` is read, alone or
+inside `md:EntitiesDescriptor` aggregates (`saml-metadata §2.3`): its
+`IDPSSODescriptor` supporting SAML 2.0, its signing keys, its
+`SingleSignOnService` and `ArtifactResolutionService` endpoints (each an
+`https` URL), `WantAuthnRequestsSigned`, and the earliest `validUntil`,
+past which the metadata is refused (`§2.2.1`, `§4.3`). With the
+deployment's metadata signing certificates configured, the descriptor or
+an aggregate above it carries a signature they verify (`§3`), checked as
+every SAML signature is. FerroSMART publishes its own
+`md:EntityDescriptor` with an `SPSSODescriptor`
+(`AuthnRequestsSigned="true"`, `WantAssertionsSigned="true"`), its signing
+certificate, one encryption certificate per decryption key with the
+algorithms it accepts, the requested name identifier formats, and the
+assertion consumer service under HTTP-POST (index 0, the default) and
+HTTP-Artifact (index 1).
+
+**Not built.** Single Logout (`saml-profiles §4.4`) is its own profile,
+which the Web Browser SSO profile does not require; FerroSMART's grants of
+a SAML login end with their own lifetimes. IdP-initiated (unsolicited)
+login is refused, since FerroSMART logs a person in only for a pending
+authorization. No national profile, default or example is shipped.
+
+**The library choice.** The XML parser is `roxmltree` 0.21, pure Rust
+and read-only, already in the workspace for the eHDSI assertion check: it
+refuses a document type declaration by default, so neither an external
+entity nor entity expansion can be expressed, and it keeps every node's
+source range, which the canonical form needs to keep the signer's
+prefixes. The exclusive canonicalization is `ferrohealth_smart::xml`, the
+eHDSI check's implementation (3.18) moved into its own module behind the
+`xml` feature so both checks share one copy, with its linear pre-scan of
+depth and namespace declarations, its line-end translation and its tests
+against `xmllint --exc-c14n`; FerroSMART reads SAML messages under caps of
+256 KiB, 16 384 nodes, depth 32 and 256 namespace declarations. The
+cryptography is `aws-lc-rs`, the provider `jsonwebtoken` and `rustls`
+already link: RSA and ECDSA verification and signing, RSA-OAEP
+decryption, AES-GCM and AES-CBC. `x509-parser` reads the certificates,
+and `flate2` (pure Rust behind `rust_backend`) writes the raw DEFLATE of
+the HTTP-Redirect binding. The alternatives were weighed: `samael`, the
+one SAML crate for Rust, verifies signatures only through `xmlsec` and
+`libxml2` over C bindings, resolves references by ID inside libxmlsec,
+which is the wrapping surface this design closes by construction, and
+would add two C libraries to the static distroless image; the `xmlsec`
+crate is the same C library alone. No pure-Rust XML Signature or XML
+Encryption crate exists at a maturity worth trusting over a check shaped
+for SAML's one signature form, so the check is our own, over primitives
+that are each established, and the case
+`app/ferrosmart/tests/it/saml/interop.rs` holds it against a response
+canonicalized by libxml2 and signed by OpenSSL.

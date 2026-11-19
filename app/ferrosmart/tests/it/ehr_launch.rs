@@ -408,12 +408,19 @@ async fn an_ehr_launch_carries_its_context_to_the_token_response() {
     }
     let launch = smart.launch().await;
     let (cookie, token, page) = to_consent(&smart, &launch).await;
-    for scope in ["launch", "launch/patient", "patient/Observation.rs"] {
+    // NOTE: docs/architecture.md §13.6 item 3, the launch scopes are fixed lines
+    // and the patient/ scope keeps its box.
+    for scope in ["launch</code>", "launch/<wbr>patient</code>"] {
         assert!(
-            page.contains(&format!("value=\"{scope}\"")),
+            page.contains(scope),
             "the launch puts a patient in context, so {scope} is offered"
         );
     }
+    assert!(
+        !page.contains("value=\"launch\""),
+        "a fixed line has no box"
+    );
+    assert!(page.contains("value=\"patient/Observation.rs\""), "{page}");
     let body = approve_and_exchange(
         &smart,
         &cookie,
@@ -427,7 +434,7 @@ async fn an_ehr_launch_carries_its_context_to_the_token_response() {
     )
     .await;
     assert_eq!(
-        json!("openid launch launch/patient patient/Observation.rs"),
+        json!("openid fhirUser launch launch/patient patient/Observation.rs"),
         body["scope"]
     );
     // NOTE: SMART App Launch 2.2.0, Launch context arrives with your access_token.
@@ -458,7 +465,7 @@ async fn an_ehr_launch_carries_its_context_to_the_token_response() {
 }
 
 #[tokio::test]
-async fn a_launch_needs_the_launch_scope_and_unticking_it_drops_the_context() {
+async fn a_launch_needs_the_launch_scope_and_a_form_cannot_drop_the_context() {
     let smart = Smart::start().await;
     let launch = smart.launch().await;
     let (status, headers, _) = smart
@@ -483,13 +490,18 @@ async fn a_launch_needs_the_launch_scope_and_unticking_it_drops_the_context() {
         ],
     )
     .await;
-    assert_eq!(
-        json!("openid user/Observation.rs"),
-        body["scope"],
-        "no patient in context without launch, so no patient/ scope"
+    // NOTE: docs/architecture.md §13.6 item 3, launch is a fixed line: a form
+    // that leaves it out still keeps the context and the patient/ scope.
+    assert!(
+        body["scope"]
+            .as_str()
+            .is_some_and(|scope| scope.split(' ').any(|held| held == "launch")
+                && scope
+                    .split(' ')
+                    .any(|held| held == "patient/Observation.rs")),
+        "{body}"
     );
-    assert_eq!(Value::Null, body["patient"]);
-    assert_eq!(Value::Null, body["need_patient_banner"]);
+    assert_eq!(json!("123"), body["patient"]);
     smart.stop().await;
 }
 

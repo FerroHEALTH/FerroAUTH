@@ -11,8 +11,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.30.2] - 2026-11-19
+
 ### Added
 
+- `xml`, behind the new `xml` feature: the bounded XML reader (`xml::prepare`
+  holds a document to the caller's `xml::Limits`, a byte cap and a linear
+  pre-scan of depth and namespace declarations, and translates its line
+  ends; `xml::parse` refuses a DTD and holds a node cap) and
+  `xml::c14n::canonicalize`, the Exclusive XML Canonicalization 1.0 the
+  eHDSI assertion check verifies with, now public so FerroSMART's upstream
+  SAML 2.0 login verifies with the same implementation (#688).
+  `ehdsi-assertion` enables it; the eHDSI check's behaviour is unchanged.
 - `uri::normalized` and `uri::normalize_percent`: the RFC 3986 §6.2.2
   syntax-based normalization the DPoP `htu` check applies, public so
   FerroSMART compares a registered launch URL the same way.
@@ -2409,7 +2419,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.2...HEAD
+[0.30.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.1...ferrohealth-smart-v0.30.2
 [0.30.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.0...ferrohealth-smart-v0.30.1
 [0.30.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.2...ferrohealth-smart-v0.30.0
 [0.29.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.29.1...ferrohealth-smart-v0.29.2
