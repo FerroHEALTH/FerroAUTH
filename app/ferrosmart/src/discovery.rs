@@ -273,7 +273,9 @@ fn smart_document(settings: &Settings, metadata: &ServerMetadata, login: bool) -
 /// It is the RFC 8414 members with the three OpenID Connect Discovery 1.0
 /// §3 requires beside them, `subject_types_supported` (`pairwise`, 13.6
 /// item 9), `id_token_signing_alg_values_supported` (`RS256`, which "MUST
-/// be included") and the claims an ID Token carries.
+/// be included") and the claims an ID Token carries, and the `display`
+/// values and page languages FerroSMART supports (13.25). It names no
+/// `claims_locales_supported`: no claim it returns depends on a language.
 ///
 /// # Panics
 ///
@@ -295,6 +297,16 @@ pub fn openid_configuration(metadata: &ServerMetadata) -> Value {
         members.insert(
             String::from("id_token_signing_alg_values_supported"),
             serde_json::json!(["RS256"]),
+        );
+        // NOTE: OpenID Connect Core 1.0 §3.1.2.1 and §15.1: every display value is
+        // taken, and the pages answer at any size.
+        members.insert(
+            String::from("display_values_supported"),
+            serde_json::json!(["page", "popup", "touch", "wap"]),
+        );
+        members.insert(
+            String::from("ui_locales_supported"),
+            serde_json::json!(crate::pages::ui_locales()),
         );
         members.insert(
             String::from("claims_supported"),

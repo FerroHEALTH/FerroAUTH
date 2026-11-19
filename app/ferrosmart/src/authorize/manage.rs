@@ -17,7 +17,7 @@ use crate::form::Params;
 use crate::pages::{self, Fault};
 use crate::server::AppState;
 use crate::store::grant::Access;
-use crate::store::{Pending, Purpose};
+use crate::store::{Asking, Pending, Purpose};
 
 use super::{
     MANAGE_ROUTE, REQUEST_SECONDS, Stop, constant_eq, cookie, fail, now, random, see_other,
@@ -71,6 +71,7 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
         launch_context: None,
         upstream_session: None,
         roles: Vec::new(),
+        asking: Asking::default(),
     };
     if let Err(error) = state.store().begin_authorization(&pending).await {
         return pages::server_error(&state, &error);

@@ -20,7 +20,7 @@ use crate::clients::{Approval, Client};
 use crate::form::Params;
 use crate::pages::{self, Fault};
 use crate::server::AppState;
-use crate::store::{Login, Pending, Purpose};
+use crate::store::{Asking, Login, Pending, Purpose};
 
 use super::consent::{Basis, approve, offer};
 use super::{
@@ -93,7 +93,88 @@ pub async fn callback(
             });
         }
     };
-    proceed(&state, &pending, &back, &signed_in.claims, from).await
+    let upstream_at = signed_in
+        .claims
+        .other
+        .get("auth_time")
+        .and_then(serde_json::Value::as_i64);
+    let auth_time = match freshness(&pending.asking, upstream_at, now()) {
+        Fresh::At(auth_time) => auth_time,
+        Fresh::Again => return again(&state, &pending, party).await,
+        Fresh::Stale => {
+            forget(&state, &pending).await;
+            if let Err(response) =
+                record_login(&state, Err("the login is older than max_age")).await
+            {
+                return *response;
+            }
+            // NOTE: OpenID Connect Core 1.0 §3.1.2.6: the person could not be
+            // authenticated within max_age, so the request needs a login.
+            return back.deny(Denial {
+                error: "login_required",
+                description: "the login is older than max_age",
+            });
+        }
+    };
+    proceed(&state, &pending, &back, &signed_in.claims, auth_time, from).await
+}
+
+/// When the person last authenticated, as the request's `max_age` judges
+/// the upstream login.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Fresh {
+    /// They authenticated at this time, in seconds since the epoch.
+    At(i64),
+    /// The upstream login is older than `max_age`, or does not say when it
+    /// authenticated: it is begun again with `prompt=login`.
+    Again,
+    /// The upstream login begun again is still older than `max_age`.
+    Stale,
+}
+
+/// Judges the upstream login's `auth_time`, `upstream`, against what
+/// `asking` asked, at `now`. Without `max_age` the time is the upstream
+/// login's, or the callback's when its ID Token names none.
+fn freshness(asking: &Asking, upstream: Option<i64>, now: i64) -> Fresh {
+    let Some(max_age) = asking.max_age else {
+        return Fresh::At(upstream.map_or(now, |at| at.min(now)));
+    };
+    // NOTE: OpenID Connect Core 1.0 §3.1.2.1: past max_age the OP MUST attempt to
+    // actively re-authenticate, so the upstream login is begun again with prompt=login.
+    match upstream {
+        Some(at) if now.saturating_sub(at) <= max_age => Fresh::At(at.min(now)),
+        _ if !asking.reauthenticated => Fresh::Again,
+        Some(_) => Fresh::Stale,
+        // NOTE: the upstream login was told prompt=login, so it authenticated just now.
+        None => Fresh::At(now),
+    }
+}
+
+/// Begins the upstream login of `pending` again with `prompt=login`, as
+/// its authentication was older than the request's `max_age`.
+async fn again(
+    state: &AppState,
+    pending: &Pending,
+    party: &ferrohealth_smart::oidc::RelyingParty,
+) -> Response {
+    let Ok(upstream) = party.authorization_request() else {
+        return pages::fault(state, Fault::Server);
+    };
+    let mut asking = pending.asking.clone();
+    asking.prompt.login = true;
+    if let Err(error) = state
+        .store()
+        .reauthenticate(
+            &pending.id,
+            upstream.pending.state(),
+            upstream.pending.nonce(),
+            upstream.pending.verifier().expose(),
+        )
+        .await
+    {
+        return pages::server_error(state, &error);
+    }
+    see_other(super::oidc::upstream(upstream.url, &asking).as_str())
 }
 
 /// Goes on once the person logged in as `claims` for `pending`: to the
@@ -104,6 +185,7 @@ async fn proceed(
     pending: &Pending,
     back: &Back,
     claims: &ferrohealth_smart::oidc::IdTokenClaims,
+    auth_time: i64,
     from: IpAddr,
 ) -> Response {
     let Some(upstream) = &state.settings().upstream else {
@@ -128,7 +210,7 @@ async fn proceed(
         fhir_user,
         display_name: claims.display_name().map(str::to_owned),
         offered_scope: String::new(),
-        auth_time: now(),
+        auth_time,
         upstream_session,
         roles: mapped(&held, &state.settings().roles),
     };
@@ -184,6 +266,7 @@ async fn proceed(
         requested: &pending.scope,
         client: &client,
         offered: &offered,
+        consent: pending.asking.prompt.consent,
     };
     onward(state, &asked, back, from).await
 }
@@ -203,6 +286,9 @@ pub(crate) struct Asked<'a> {
     pub(crate) client: &'a Client,
     /// The scopes policy offers (`docs/architecture.md` §13.6 item 5).
     pub(crate) offered: &'a [&'a str],
+    /// Whether the app asked for the consent page with `prompt=consent`
+    /// (OpenID Connect Core 1.0 §3.1.2.1).
+    pub(crate) consent: bool,
 }
 
 /// Returns the organisation approval of the client that `asked` falls
@@ -234,6 +320,11 @@ pub(crate) async fn onward(
     back: &Back,
     from: IpAddr,
 ) -> Response {
+    // NOTE: OpenID Connect Core 1.0 §3.1.2.1: prompt=consent asks the person for
+    // consent, so neither an approval nor a remembered consent answers for them.
+    if asked.consent {
+        return see_other(&state.settings().endpoint(CONSENT_ROUTE));
+    }
     let basis = if let Some(approval) = approved(asked) {
         Basis::Organisation(approval)
     } else {

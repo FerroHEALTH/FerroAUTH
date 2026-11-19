@@ -80,6 +80,27 @@ consents they remembered and the apps that keep offline or online access.
 | `GET {issuer}/upstream-jwks` | The keys FerroSMART signs its own client assertions to the identity provider with | our own design |
 | `GET {issuer}/health`, `/health/liveness`, `/health/readiness`, `/health/info` | Health | the FerroHEALTH family |
 
+## OpenID Connect parameters
+
+FerroSMART is an OpenID Provider toward its apps and takes the parameters
+OpenID Connect Core 1.0 §15.1 has every provider support, beside SMART's
+PKCE and `aud`, which stay required. FerroSMART keeps no session of its
+own, so every request logs the person in at the identity provider, and
+the parameters about that login go there:
+
+| Parameter | What FerroSMART does |
+|---|---|
+| `prompt=none` | Answers `login_required` to the app at once, with no page |
+| `prompt=login`, `prompt=select_account` | Passed to the identity provider's login |
+| `prompt=consent` | Shows the consent page even when a remembered consent or an approval would answer |
+| `max_age` | Passed to the identity provider; a login older than it is begun again once with `prompt=login`, and one still older answers `login_required` |
+| `ui_locales` | Passed to the identity provider, and chooses the pages' language before the browser's |
+| `display`, `claims_locales`, `acr_values` | Taken without changing the flow |
+
+Every ID Token is signed `RS256` and carries `auth_time`, the time the
+person authenticated at the identity provider. FerroSMART has no UserInfo
+endpoint: the ID Token and its `fhirUser` claim identify the person.
+
 ## What SMART leaves open, and how FerroSMART decides
 
 Where the specifications are silent, FerroSMART makes one fixed decision
@@ -96,7 +117,7 @@ and the architecture records it as its own design:
   person remembered that choice for that client, or an administrator
   approved the client for the organisation's professionals and the
   request stays within that approval (no `patient/` scope, no patient's
-  own login).
+  own login). An app's `prompt=consent` always shows the page.
 - **`online_access`.** An online refresh token ends when the person's login
   at the identity provider ends, signalled by back-channel logout, or after
   `online_idle` unused.

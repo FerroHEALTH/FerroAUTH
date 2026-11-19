@@ -9,13 +9,14 @@ use sqlx::types::Json;
 
 use crate::launch::context::Context;
 
-use crate::store::{Code, Login, Pending, Purpose, Store, StoreError, Transaction};
+use crate::store::{Asking, Code, Login, Pending, Prompt, Purpose, Store, StoreError, Transaction};
 
 /// The columns of a pending authorization, as [`read_pending`] reads them.
 const PENDING: &str = "SELECT id, client_id, redirect_uri, scope, state, nonce, code_challenge, \
     audience, upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
     display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
-    upstream_session, launch_context, roles FROM pending_authorization";
+    upstream_session, launch_context, roles, prompt, max_age, ui_locales, reauthenticated \
+    FROM pending_authorization";
 
 impl Store {
     /// Records the authorization request `pending`.
@@ -26,8 +27,8 @@ impl Store {
         sqlx::query(
             "INSERT INTO pending_authorization (id, client_id, redirect_uri, scope, state, nonce, \
              code_challenge, audience, upstream_state, upstream_nonce, upstream_verifier, form_token, \
-             expires_at, purpose, launch_context) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, \
-             to_timestamp($13), $14, $15)",
+             expires_at, purpose, launch_context, prompt, max_age, ui_locales) VALUES ($1, $2, $3, $4, \
+             $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14, $15, $16, $17, $18)",
         )
         .bind(&pending.id)
         .bind(&pending.client_id)
@@ -44,6 +45,35 @@ impl Store {
         .bind(pending.expires_at)
         .bind(pending.purpose.as_str())
         .bind(pending.launch_context.as_ref().map(Json))
+        .bind(pending.asking.prompt.values())
+        .bind(pending.asking.max_age)
+        .bind(&pending.asking.ui_locales)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Begins the upstream login of the request `id` again under the
+    /// upstream `state`, `nonce` and PKCE `verifier`, as the authentication
+    /// was older than the request's `max_age`, and marks it so.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn reauthenticate(
+        &self,
+        id: &str,
+        state: &str,
+        nonce: &str,
+        verifier: &str,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "UPDATE pending_authorization SET upstream_state = $2, upstream_nonce = $3, \
+             upstream_verifier = $4, reauthenticated = true WHERE id = $1",
+        )
+        .bind(id)
+        .bind(state)
+        .bind(nonce)
+        .bind(verifier)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -152,7 +182,7 @@ impl Store {
              RETURNING id, client_id, redirect_uri, scope, state, nonce, code_challenge, audience, \
              upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
              display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
-             upstream_session, launch_context, roles",
+             upstream_session, launch_context, roles, prompt, max_age, ui_locales, reauthenticated",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -299,6 +329,12 @@ fn read_pending(row: &sqlx::postgres::PgRow) -> Result<Pending, StoreError> {
         upstream_session: row.try_get("upstream_session")?,
         launch_context: launch_context(row)?,
         roles: row.try_get("roles")?,
+        asking: Asking {
+            prompt: Prompt::of(&row.try_get::<String, _>("prompt")?),
+            max_age: row.try_get("max_age")?,
+            ui_locales: row.try_get("ui_locales")?,
+            reauthenticated: row.try_get("reauthenticated")?,
+        },
     })
 }
 
