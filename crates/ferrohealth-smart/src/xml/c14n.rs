@@ -6,7 +6,7 @@
 //! subtree: the enveloped signature of XML-DSig §6.6.4.
 //!
 //! The input is the `XPath` data model `roxmltree` builds from text whose
-//! line ends [`line_ends`] normalized first (XML 1.0 §2.11), so character
+//! line ends [`super::prepare`] normalized first (XML 1.0 §2.11), so character
 //! references and attribute values arrive normalized too (§3.3.3); the
 //! prefixes are read from the source text, since the canonical form keeps
 //! the prefix the signer wrote (Exc-C14N §3).
@@ -40,13 +40,19 @@ enum Step<'a, 'input> {
 
 /// A node the canonical form cannot be written for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Unrepresentable;
+pub struct Unrepresentable;
 
-/// Returns the canonical octets of `apex` and its descendants, without the
-/// subtree of `excluded`, with the prefixes of `inclusive` treated as
-/// Exc-C14N §3's `InclusiveNamespaces PrefixList` (`#default` names the
-/// default namespace).
-pub(super) fn canonicalize(
+/// Returns the canonical octets of `apex` and its descendants.
+///
+/// The subtree of `excluded` is left out, and the prefixes of `inclusive`
+/// are treated as Exc-C14N §3's `InclusiveNamespaces PrefixList`
+/// (`#default` names the default namespace).
+///
+/// # Errors
+///
+/// [`Unrepresentable`] when an element's name or a prefix cannot be read
+/// back from the source text.
+pub fn canonicalize(
     apex: Node<'_, '_>,
     excluded: Option<NodeId>,
     inclusive: &[&str],
@@ -227,7 +233,7 @@ fn open(
 }
 
 /// Returns the qualified name of an element as the source spells it.
-pub(super) fn qname<'input>(node: Node<'_, 'input>) -> Result<&'input str, Unrepresentable> {
+fn qname<'input>(node: Node<'_, 'input>) -> Result<&'input str, Unrepresentable> {
     let source = node.document().input_text();
     let tag = source
         .get(node.range().start..)

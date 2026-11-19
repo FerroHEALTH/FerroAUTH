@@ -1445,6 +1445,7 @@ dependencies = [
  "ferrohealth-telemetry",
  "ferrohealth-ui",
  "fhir-types",
+ "flate2",
  "fluent-templates",
  "http",
  "http-body-util",
@@ -1453,6 +1454,7 @@ dependencies = [
  "jsonwebtoken",
  "rcgen",
  "reqwest",
+ "roxmltree",
  "rustix",
  "secrecy",
  "serde",
@@ -1466,6 +1468,7 @@ dependencies = [
  "tracing",
  "url",
  "wiremock",
+ "x509-parser",
 ]
 
 [[package]]

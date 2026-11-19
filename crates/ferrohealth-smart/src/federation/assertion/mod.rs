@@ -61,12 +61,10 @@ use std::sync::Arc;
 use jiff::Timestamp;
 use roxmltree::Document;
 use roxmltree::Node;
-use roxmltree::ParsingOptions;
 
 use crate::federation::contact::EhdsiCode;
+use crate::xml;
 
-mod bounds;
-mod c14n;
 mod dsig;
 pub mod identity;
 pub mod replay;
@@ -95,12 +93,15 @@ const SENDER_VOUCHES: &str = "urn:oasis:names:tc:SAML:2.0:cm:sender-vouches";
 /// The clock drift admitted at each window boundary: "within 60 seconds of
 /// the validity window boundaries" (SAML Profile 10.0.0 §2.1, §4.1).
 const DRIFT: i64 = 60;
-/// The largest assertion read, in bytes (no specification governs the cap:
-/// our own design). The element depth and namespace declaration caps beside
-/// it are held before parsing ([`bounds`]).
-const MAX_BYTES: usize = 64 * 1024;
-/// The most nodes an assertion is parsed into (our own design).
-const MAX_NODES: u32 = 4096;
+/// The caps an assertion is held to: 64 KiB, 4096 nodes, 32 elements deep
+/// and 128 namespace declarations (no specification governs them: our own
+/// design), the first three held before parsing ([`xml::prepare`]).
+const LIMITS: xml::Limits = xml::Limits {
+    bytes: 64 * 1024,
+    nodes: 4096,
+    depth: 32,
+    namespaces: 128,
+};
 
 /// Why an assertion's integrity cannot be established: its form, its
 /// signature, its signer, its window, its audience or its confirmation.
@@ -457,18 +458,8 @@ impl Validator {
         now: Timestamp,
         read: impl FnOnce(&Envelope<'_, '_>) -> Result<T, AssertionError>,
     ) -> Result<T, AssertionError> {
-        if xml.len() > MAX_BYTES {
-            return Err(Integrity::Malformed.into());
-        }
-        bounds::check(xml).map_err(|_out_of_bounds| Integrity::Malformed)?;
-        let options = ParsingOptions {
-            allow_dtd: false,
-            nodes_limit: MAX_NODES,
-            ..ParsingOptions::default()
-        };
-        let xml = c14n::line_ends(xml);
-        let document = Document::parse_with_options(&xml, options)
-            .map_err(|_malformed| Integrity::Malformed)?;
+        let xml = xml::prepare(xml, LIMITS).map_err(|_refused| Integrity::Malformed)?;
+        let document = xml::parse(&xml, LIMITS).map_err(|_refused| Integrity::Malformed)?;
         let envelope = Envelope::open(&document, self, window, now)?;
         read(&envelope)
     }
