@@ -333,6 +333,10 @@ pub struct ProfileKeys {
 
 /// What one issuer's tokens look like, every key resolved.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each flag is an independent configuration key of its own, set on its own"
+)]
 pub struct Profile {
     /// The claim that is the stable person identifier; `sub` by default
     /// (OpenID Connect Core 1.0 §5.7).
