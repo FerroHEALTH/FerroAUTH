@@ -4,12 +4,13 @@
 //! The introspection endpoint (RFC 7662 §2), with SMART App Launch 2.2.0,
 //! Token Introspection.
 //!
-//! The caller is a client authenticated by its `private_key_jwt` assertion,
-//! as at the token endpoint, or presents an access token FerroSMART issued
-//! for its own issuer; either way it holds the scope [`INTROSPECT_SCOPE`]
-//! (`docs/architecture.md` §13.6 item 8). Such a caller may introspect any
-//! client's token ("Clients authorized in this way are able to introspect
-//! tokens issued to any client"). A token that is not active, for any
+//! The caller is a confidential client authenticated as at the token
+//! endpoint, by its `private_key_jwt` assertion or its client secret (RFC
+//! 6749 §2.3.1, RFC 7662 §2.1), or presents an access token FerroSMART
+//! issued for its own issuer; either way it holds the scope
+//! [`INTROSPECT_SCOPE`] (`docs/architecture.md` §13.6 item 8). Such a
+//! caller may introspect any client's token ("Clients authorized in this
+//! way are able to introspect tokens issued to any client"). A token that is not active, for any
 //! reason, answers `{"active": false}` and nothing else (RFC 7662 §2.2).
 
 use std::sync::Arc;
@@ -23,11 +24,11 @@ use jsonwebtoken::jwk::Jwk;
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde_json::{Map, Value, json};
 
+use crate::clients::Client;
 use crate::form::Params;
 use crate::server::AppState;
 use crate::store::grant::{AccessRecord, GrantRecord, RefreshRecord};
-use crate::token::assertion::authenticate;
-use crate::token::{Refusal, no_store, read_form, server_error};
+use crate::token::{Refusal, assertion, no_store, read_form, secret, server_error, uses_basic};
 
 /// The scope that lets a caller introspect (`docs/architecture.md` §13.6
 /// item 8).
@@ -75,7 +76,7 @@ pub async fn introspect(
                 error = refused.error(),
                 "an introspection request was refused"
             );
-            refused.into_response()
+            refused.answer(&headers)
         }
     }
 }
@@ -101,6 +102,22 @@ impl Refused {
             Self::Bearer(error) => error,
             Self::Client(refusal) | Self::Request(refusal) => refusal.error,
         }
+    }
+
+    /// Returns the response of this refusal to a request with `headers`: a
+    /// client refused after it presented its secret by HTTP Basic is also
+    /// challenged for that scheme ("include the `WWW-Authenticate` response
+    /// header field matching the authentication scheme used by the client",
+    /// RFC 6749 §5.2, which RFC 7662 §2.3 names).
+    fn answer(self, headers: &HeaderMap) -> Response {
+        let basic = matches!(self, Self::Client(_)) && uses_basic(headers);
+        let mut response = self.into_response();
+        if basic {
+            response
+                .headers_mut()
+                .insert(header::WWW_AUTHENTICATE, HeaderValue::from_static("Basic"));
+        }
+        response
     }
 }
 
@@ -151,10 +168,12 @@ async fn answer(
 /// Returns the `client_id` of the caller, once it holds the right to
 /// introspect.
 async fn caller(state: &AppState, headers: &HeaderMap, form: &Params) -> Result<String, Refused> {
-    if let Some(token) = presented(headers)? {
+    if !uses_basic(headers)
+        && let Some(token) = presented(headers)?
+    {
         return bearer(state, token, INTROSPECT_SCOPE).await;
     }
-    let client = authenticate(state, form).await.map_err(Refused::Client)?;
+    let client = authenticated(state, headers, form).await?;
     if !client.scopes.iter().any(|scope| scope == INTROSPECT_SCOPE) {
         return Err(Refused::Client(Refusal {
             error: "unauthorized_client",
@@ -162,6 +181,29 @@ async fn caller(state: &AppState, headers: &HeaderMap, form: &Params) -> Result<
         }));
     }
     Ok(client.client_id)
+}
+
+/// Returns the confidential client of `headers` and `form`, authenticated
+/// as at the token endpoint: by its client secret, in the `Authorization`
+/// header or the form (RFC 6749 §2.3.1), or by its client assertion (RFC
+/// 7523 §2.2). A public client cannot authenticate (RFC 6749 §2.1), so a
+/// request that only names a `client_id` is refused `invalid_client`.
+async fn authenticated(
+    state: &AppState,
+    headers: &HeaderMap,
+    form: &Params,
+) -> Result<Client, Refused> {
+    let client = match secret::presented(headers, form) {
+        Ok(Some(presented)) => secret::authenticate(state, presented).await,
+        Ok(None) => assertion::authenticate(state, form).await,
+        Err(refusal) => Err(refusal),
+    };
+    // NOTE: RFC 6749 §2.3 and §5.2, two methods at once is a malformed request and
+    // a store failure a server error; only invalid_client is a failed authentication.
+    client.map_err(|refusal| match refusal.error {
+        "invalid_client" => Refused::Client(refusal),
+        _ => Refused::Request(refusal),
+    })
 }
 
 /// Returns the bearer token the `Authorization` header presents (RFC 6750

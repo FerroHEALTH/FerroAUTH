@@ -2998,7 +2998,15 @@ specification governs.
    result to differ from the request (`smart app-launch`, Obtain access
    token, Response) and requires the server's policy to win (`smart
    scopes-and-launch-context`, SMART's scopes are used to delegate access).
-   The mapping is content, never code.
+   The mapping is content, never code. A role maps to `user/` and
+   `patient/` scopes and to extension scopes, "any string starting with
+   `__` (two underscores)" that a resource server defines for its own API
+   (`smart scopes-and-launch-context`, Extensibility): such a scope is
+   offered when the request asks for it, the ceiling lists it and a held
+   role grants it, never on the request alone, and `scopes_supported`
+   advertises every one a role lists ("The server could advertise this
+   scope in its developer-facing documentation"). Any other scope outside
+   the SMART set is never granted to a person (owner, 2026-11-19, #647).
 6. **Consent.** (Built in #515: the consent page's "Remember this choice"
    box writes the `consent` row; a later request whose offered scopes the
    row covers goes back with a code at once; `GET /manage` logs the person
@@ -3059,15 +3067,30 @@ specification governs.
    nothing. Front-channel logout needs the browser and is not taken. Our
    own design.
 8. **Introspection access.** `smart token-introspection` lets the endpoint
-   take a SMART bearer token; FerroSMART takes a client authenticated as at
-   the token endpoint, or a bearer token FerroSMART issued carrying the
-   scope `system/introspect`. Every resource server that introspects is a
-   registered client whose scope ceiling lists `system/introspect`. A
-   bearer token must name FerroSMART's issuer as its `aud` (`rfc9068 §4`),
-   which the client credentials grant gives when `resource` names the
-   issuer. A failed bearer answers `401` with an RFC 6750 challenge, a
-   failed client `401` with `invalid_client` or `unauthorized_client`
-   (`rfc7662 §2.3`). The scope name is fixed, never a setting. Our own
+   take a SMART bearer token and leaves any other access rule "out of scope
+   for the SMART App Launch IG"; `rfc7662 §2.1` admits "client
+   authentication as described in OAuth 2.0 [RFC6749] or a separate OAuth
+   2.0 access token". FerroSMART takes both: a confidential client
+   authenticated as at the token endpoint, by its `private_key_jwt`
+   assertion or, for a confidential symmetric client, its secret by HTTP
+   Basic or in the form (`rfc6749 §2.3.1`), or a bearer token FerroSMART
+   issued carrying the scope `system/introspect`. A public client cannot
+   authenticate (`rfc6749 §2.1`) and is refused. Every resource server that
+   introspects is a registered client whose scope ceiling lists
+   `system/introspect`. The secret is taken because an off-the-shelf
+   gateway that introspects (Apache APISIX's `openid-connect` plugin, for
+   one) authenticates with `client_secret_basic` by default, cannot renew a
+   bearer token by itself, and names the introspection endpoint as its
+   assertion's `aud`, which item 1 refuses; the third-party lane holds it
+   (13.21). The metadata lists the three methods in
+   `introspection_endpoint_auth_methods_supported` (`rfc8414 §2`). A bearer
+   token must name FerroSMART's issuer as its `aud` (`rfc9068 §4`), which
+   the client credentials grant gives when `resource` names the issuer. A
+   failed bearer answers `401` with an RFC 6750 challenge, a failed client
+   `401` with `invalid_client` or `unauthorized_client` (`rfc7662 §2.3`),
+   challenged `Basic` when the client used that scheme (`rfc6749 §5.2`); a
+   request with two client authentication methods is `invalid_request`
+   (`rfc6749 §2.3`). The scope name is fixed, never a setting. Our own
    design.
 9. **Upstream identity.** The user's FerroSMART `sub` is a pairwise-stable
    identifier derived from the upstream issuer and the upstream `sub`
@@ -3856,7 +3879,16 @@ introspects, so it takes a revoked token until its `exp`, at most the
 access token's lifetime later. The lane therefore revokes a
 token and reads `{issuer}/introspect` as a resource server that introspects
 would, with a bearer token carrying `system/introspect` (13.6 item 8), and
-the answer is `{"active": false}` (`rfc7662 §2.2`). The filter does not
+the answer is `{"active": false}` (`rfc7662 §2.2`). Beside Envoy, Apache
+APISIX in standalone mode guards the same server with its `openid-connect`
+plugin (#639, `app/ferrosmart/third-party/apisix.yaml`, pinned by digest in
+`docs/VERSIONS.md`), which introspects every token at FerroSMART as the
+confidential symmetric client `third-party-gateway` by HTTP Basic (13.6
+item 8): a request without a token is refused, an active token reads the
+`Patient`, and a token revoked before the gateway first saw it is refused.
+The plugin holds an active answer until the token's `exp`, so a token
+revoked after it passed is taken until then, and it checks no `aud`. The
+filter does not
 verify the `typ` header, which `rfc9068 §4` also requires of a resource
 server, and enforces no scope: HAPI FHIR serves whatever passes it, so the
 lane shows token validation and no scope enforcement. The choice of server

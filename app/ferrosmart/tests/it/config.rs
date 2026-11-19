@@ -517,3 +517,35 @@ fn an_assertion_ring_holding_a_token_key_or_none_is_refused() {
         })
     ));
 }
+
+// NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Extensibility, an
+// extension scope starts with two underscores; any other non-SMART scope stays out.
+#[test]
+fn a_role_may_grant_an_extension_scope_and_no_other_non_smart_scope() {
+    let keys = Keys::new();
+    let role = |scope: &str| {
+        format!(
+            "[ferrosmart]\nissuer = \"https://smart.example.org\"\n\
+             [[ferrosmart.role]]\nname = \"administrator\"\nscopes = [\"user/Patient.rs\", {scope:?}]"
+        )
+    };
+    let settings = config(&role("__ferroehr.platform"), &keys)
+        .resolve()
+        .expect("an extension scope is admitted");
+    assert_eq!(
+        Some(&vec![
+            String::from("user/Patient.rs"),
+            String::from("__ferroehr.platform")
+        ]),
+        settings.roles.get("administrator")
+    );
+    for refused in ["admin", "system/Patient.rs", "__", "_ferroehr.platform"] {
+        assert!(
+            matches!(
+                config(&role(refused), &keys).resolve(),
+                Err(Error::Role { .. })
+            ),
+            "{refused}"
+        );
+    }
+}

@@ -529,9 +529,10 @@ fn shares_key(one: &serde_json::Value, other: &serde_json::Value) -> bool {
 }
 
 /// Returns the scopes of each role `sections` name: a role named once,
-/// each scope a `user/` or `patient/` scope token (SMART App Launch 2.2.0,
-/// Scopes and Launch Context), since a person's role grants a person's
-/// access, never a system's.
+/// each scope a `user/` or `patient/` scope token or an extension scope
+/// starting with `__` (SMART App Launch 2.2.0, Scopes and Launch Context,
+/// Extensibility), since a person's role grants a person's access, never a
+/// system's.
 fn roles(sections: &[crate::config::RoleSection]) -> Result<BTreeMap<String, Vec<String>>, Error> {
     let mut roles = BTreeMap::new();
     for section in sections {
@@ -542,11 +543,13 @@ fn roles(sections: &[crate::config::RoleSection]) -> Result<BTreeMap<String, Vec
         }
         let person = section.scopes.iter().all(|scope| {
             ferrohealth_smart::scope::is_scope_token(scope)
-                && (scope.starts_with("user/") || scope.starts_with("patient/"))
+                && (scope.starts_with("user/")
+                    || scope.starts_with("patient/")
+                    || crate::scopes::is_extension(scope))
         });
         if !person {
             return Err(Error::Role {
-                rule: "a role grants a scope other than a user/ or patient/ one",
+                rule: "a role grants a scope other than a user/, patient/ or __ extension one",
             });
         }
         if roles

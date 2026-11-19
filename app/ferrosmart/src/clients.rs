@@ -138,13 +138,14 @@ impl Approval {
 
 /// Returns whether an organisation may approve `scope` for its staff.
 ///
-/// A `user/` scope may be approved, with a launch, OpenID or refresh scope
-/// that goes with one. A `patient/` scope, whose data the person decides
-/// on, and a `system/` scope, which no person holds, may not
+/// A `user/` scope may be approved, with a launch, OpenID, refresh or
+/// extension scope that goes with one. A `patient/` scope, whose data the
+/// person decides on, and a `system/` scope, which no person holds, may not
 /// (`docs/architecture.md` §13.6 item 6).
 #[must_use]
 pub fn approvable(scope: &str) -> bool {
     scope.starts_with("user/")
+        || crate::scopes::is_extension(scope)
         || matches!(
             scope,
             "openid"
@@ -432,7 +433,7 @@ fn resolve_approval(
     }
     if approval.scopes.iter().any(|scope| !approvable(scope)) {
         return Err(rule(
-            "the `organisation_approval` lists a scope no organisation approves: only `user/`, launch, OpenID and refresh scopes",
+            "the `organisation_approval` lists a scope no organisation approves: only `user/`, launch, OpenID, refresh and `__` extension scopes",
         ));
     }
     if !approval

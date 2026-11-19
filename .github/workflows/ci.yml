@@ -447,7 +447,9 @@ jobs:
       # FerroSMART's tokens at a third-party FHIR server behind a standard
       # token validator (#598): HAPI FHIR behind Envoy's JWT authentication
       # filter, with a Backend Services token and a person's token from a
-      # standalone launch through Keycloak (scripts/idp/third-party-fhir.sh).
+      # standalone launch through Keycloak, and behind APISIX, which
+      # introspects by HTTP Basic, a revoked token refused (#639)
+      # (scripts/idp/third-party-fhir.sh).
       - if: steps.upstream.outputs.run == 'true'
         name: A third-party FHIR server behind a standard token validator
         env:
