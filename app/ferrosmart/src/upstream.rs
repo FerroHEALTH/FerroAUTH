@@ -21,6 +21,7 @@ use base64::Engine as _;
 use ferrohealth_smart::client::assertion::AssertionKey;
 use ferrohealth_smart::metadata::Http;
 use ferrohealth_smart::oidc::{OidcError, Provider, RelyingParty};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use url::Url;
 
@@ -77,10 +78,27 @@ pub struct OidcSection {
     /// the project a provider adds; empty trusts none.
     pub trusted_audiences: Vec<String>,
     /// `[ferrosmart.upstream.oidc.private_key_jwt]`: FerroSMART authenticates
-    /// with a JWT the current key of its own assertion ring signs, the one
-    /// client authentication it uses at a provider (OpenID Connect Core 1.0
-    /// §9); a configuration without it is refused.
+    /// with a JWT the current key of its own assertion ring signs (OpenID
+    /// Connect Core 1.0 §9), the default; exclusive with
+    /// `client_secret_basic`.
     pub private_key_jwt: Option<PrivateKeyJwtSection>,
+    /// `[ferrosmart.upstream.oidc.client_secret_basic]`: FerroSMART
+    /// authenticates with a client secret as HTTP Basic (RFC 6749 §2.3.1,
+    /// OpenID Connect Core 1.0 §9), for a provider that offers no
+    /// `private_key_jwt`; exclusive with `private_key_jwt`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub client_secret_basic: Option<ClientSecretBasicSection>,
+}
+
+/// `[ferrosmart.upstream.oidc.client_secret_basic]`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ClientSecretBasicSection {
+    /// The client secret the provider issued; exclusive with `secret_file`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<ferrohealth_secret::secret::Secret>,
+    /// The file holding the client secret.
+    pub secret_file: Option<PathBuf>,
 }
 
 /// `[ferrosmart.upstream.oidc.private_key_jwt]`.
@@ -120,23 +138,60 @@ impl Default for OidcSection {
             role_claims: ferrohealth_smart::roles::default_claims(),
             trusted_audiences: Vec::new(),
             private_key_jwt: None,
+            client_secret_basic: None,
         }
     }
 }
 
 /// How FerroSMART authenticates at the provider's token and revocation
-/// endpoints.
-///
-/// A JWT the assertion ring's current key signs (`private_key_jwt`, OpenID
-/// Connect Core 1.0 §9), the ring published at
-/// [`crate::discovery::UPSTREAM_JWKS_ROUTE`].
+/// endpoints (OpenID Connect Core 1.0 §9).
 #[derive(Debug, Clone)]
-pub struct Authentication {
+pub enum Authentication {
+    /// A JWT the assertion ring's current key signs (`private_key_jwt`),
+    /// the ring published at [`crate::discovery::UPSTREAM_JWKS_ROUTE`].
+    PrivateKeyJwt(AssertionKeys),
+    /// A client secret sent as HTTP Basic (`client_secret_basic`, RFC 6749
+    /// §2.3.1), which redacts itself.
+    ClientSecretBasic(SecretString),
+}
+
+impl Authentication {
+    /// Returns the method's name as provider metadata lists it
+    /// (`token_endpoint_auth_methods_supported`, RFC 8414 §2).
+    #[must_use]
+    pub const fn method(&self) -> &'static str {
+        match self {
+            Self::PrivateKeyJwt(_) => "private_key_jwt",
+            Self::ClientSecretBasic(_) => "client_secret_basic",
+        }
+    }
+}
+
+/// The assertion keys of `private_key_jwt`.
+#[derive(Debug, Clone)]
+pub struct AssertionKeys {
     /// The current key, at the registration's algorithm and naming its
     /// certificate when one is configured.
     pub signer: Box<AssertionKey>,
     /// The ring the key is current in.
     pub ring: std::sync::Arc<ferrohealth_smart::client::keys::KeyRing>,
+}
+
+/// Why a provider's login could not be set up.
+#[derive(Debug, thiserror::Error)]
+pub enum UpstreamError {
+    /// The provider's metadata could not be read or is not usable.
+    #[error("the provider's metadata cannot be used")]
+    Oidc(#[from] OidcError),
+    /// The provider's token endpoint does not list the client
+    /// authentication the entry names.
+    #[error(
+        "the provider's token endpoint does not list `{method}` among its client authentication methods"
+    )]
+    Method {
+        /// The method the entry names.
+        method: &'static str,
+    },
 }
 
 /// An upstream provider, resolved.
@@ -175,13 +230,12 @@ impl Upstream {
     /// Returns the JWK Set of the keys FerroSMART authenticates to the
     /// provider with, when it authenticates by a signed assertion.
     #[must_use]
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "a provider of a second protocol (SAML 2.0, #688) signs no client assertion"
-    )]
     pub fn assertion_keys(&self) -> Option<serde_json::Value> {
         match &self.protocol {
-            Protocol::Oidc(oidc) => Some(oidc.authentication.ring.published()),
+            Protocol::Oidc(oidc) => match &oidc.authentication {
+                Authentication::PrivateKeyJwt(keys) => Some(keys.ring.published()),
+                Authentication::ClientSecretBasic(_) => None,
+            },
         }
     }
 }
@@ -206,15 +260,33 @@ impl OidcUpstream {
     /// redirection endpoint is `callback`.
     ///
     /// # Errors
-    /// Returns [`OidcError`] when the provider's metadata cannot be read or
-    /// names no usable endpoints.
-    pub async fn relying_party(&self, callback: Url) -> Result<RelyingParty, OidcError> {
-        let http = Http::new(UPSTREAM_TIMEOUT)?;
-        let provider = Provider::discover(&http, &self.issuer).await?;
+    /// Returns [`UpstreamError::Oidc`] when the provider's metadata cannot
+    /// be read or names no usable endpoints, and [`UpstreamError::Method`]
+    /// when its token endpoint does not list the entry's client
+    /// authentication.
+    pub async fn relying_party(&self, callback: Url) -> Result<RelyingParty, UpstreamError> {
+        let http = Http::new(UPSTREAM_TIMEOUT).map_err(OidcError::from)?;
+        let metadata = http.discover(&self.issuer).await.map_err(OidcError::from)?;
+        // NOTE: RFC 8414 §2, token_endpoint_auth_methods_supported, client_secret_basic
+        // when absent; a method the provider does not list is refused at start.
+        let method = self.authentication.method();
+        if !metadata
+            .token_endpoint_auth_methods()
+            .iter()
+            .any(|listed| listed == method)
+        {
+            return Err(UpstreamError::Method { method });
+        }
+        let provider = Provider::from_metadata(&metadata)?;
         let party = RelyingParty::new(http, provider, self.client_id.clone(), callback)
             .with_scopes(self.scopes.iter().map(String::as_str))
             .with_trusted_audiences(self.trusted_audiences.iter().cloned());
-        Ok(party.with_private_key_jwt((*self.authentication.signer).clone()))
+        Ok(match &self.authentication {
+            Authentication::PrivateKeyJwt(keys) => {
+                party.with_private_key_jwt((*keys.signer).clone())
+            }
+            Authentication::ClientSecretBasic(secret) => party.with_client_secret(secret.clone()),
+        })
     }
 }
 
@@ -315,13 +387,13 @@ impl Providers {
     /// logout, to `post_logout` (RP-Initiated Logout 1.0 §3).
     ///
     /// # Errors
-    /// Returns [`OidcError`] when a provider's metadata cannot be read or
-    /// names no usable endpoints.
+    /// Returns the [`UpstreamError`] of the first provider whose login
+    /// cannot be set up.
     pub async fn connect(
         upstreams: &[Upstream],
         callback: &Url,
         post_logout: &Url,
-    ) -> Result<Self, OidcError> {
+    ) -> Result<Self, UpstreamError> {
         let mut providers = Vec::with_capacity(upstreams.len());
         for upstream in upstreams {
             let login = match &upstream.protocol {

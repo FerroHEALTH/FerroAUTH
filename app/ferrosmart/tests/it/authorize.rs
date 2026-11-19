@@ -77,7 +77,8 @@ impl Provider {
                 "token_endpoint": format!("{uri}/token"),
                 "jwks_uri": format!("{uri}/jwks"),
                 "end_session_endpoint": format!("{uri}/logout"),
-                "code_challenge_methods_supported": ["S256"]
+                "code_challenge_methods_supported": ["S256"],
+                "token_endpoint_auth_methods_supported": ["private_key_jwt", "client_secret_basic"]
             })))
             .mount(&server)
             .await;
@@ -2103,6 +2104,7 @@ mod logout;
 mod paired_picker;
 mod preset;
 mod providers;
+mod secret_basic;
 
 /// The capabilities FerroSMART supports with a FHIR resource server and a
 /// SMART style document configured, each with the case that exercises it

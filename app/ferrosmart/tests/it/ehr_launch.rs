@@ -91,7 +91,8 @@ impl Smart {
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
                 "issuer": uri, "authorization_endpoint": format!("{uri}/authorize"),
                 "token_endpoint": format!("{uri}/token"), "jwks_uri": format!("{uri}/jwks"),
-                "code_challenge_methods_supported": ["S256"]
+                "code_challenge_methods_supported": ["S256"],
+                "token_endpoint_auth_methods_supported": ["private_key_jwt", "client_secret_basic"]
             })))
             .mount(&provider)
             .await;

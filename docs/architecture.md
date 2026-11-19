@@ -2305,6 +2305,7 @@ four agree on and settles each difference:
 | `audience` is required, as a list | `rfc9068 §4`; `rfc8725 §3.9` | a FerroTERM deployment that set no audience must set one |
 | One `401` for every invalid credential, naming nothing; `403` naming no scope | `rfc6750 §3.1`; `rfc9068 §4`; the omissions are our own design | none |
 | `503` when the key set cannot be read | our own design | none |
+| FerroSMART authenticates to an upstream provider by `private_key_jwt` by default, and by `client_secret_basic` where the administrator chooses it per provider (13.22) | owner decision 2026-11-19 (FerroHEALTH/FerroSMART#679), reversing the `private_key_jwt`-alone decision of 2026-11-17 (#619); `oidc core §9` | a deployment that chooses the secret keeps it in a `_file` |
 | FerroSMART speaks standard SAML 2.0 upstream beside OpenID Connect, the Web Browser SSO profile with the HTTP-Redirect, HTTP-POST and HTTP-Artifact bindings, and ships no national profile (13.26) | owner decision 2026-11-19 (FerroHEALTH/FerroSMART#687, #688) | none |
 | The `patient` claim is read from the access token when present | our own design (SMART places the context in the token response and the introspection response) | none |
 | Under the `rfc9068` profile only `scope` counts; under the `jwt` profile `scp` is read as a fallback when `scope` is absent, for an issuer such as Entra ID that mints the array form | `rfc9068 §2.2.3` names `scope`; `scp` is no specification's, so it is admitted only outside the profile (owner decision 2026-10-19) | none |
@@ -3393,7 +3394,10 @@ scopes = ["openid", "profile"]
 fhir_user_claim = "fhir_user"                 # the ID Token claim holding fhirUser; empty for none
 role_claims = ["roles"]                       # the dotted claims holding the person's roles
 
-[ferrosmart.upstream.oidc.private_key_jwt]         # required: the one client authentication upstream (13.22)
+# [ferrosmart.upstream.oidc.client_secret_basic]   # instead of private_key_jwt, for a provider without it (13.22)
+# secret_file = "/run/secrets/upstream-secret"
+
+[ferrosmart.upstream.oidc.private_key_jwt]         # the default client authentication upstream (13.22)
 algorithm = "RS256"                           # the one the provider's registration names
 # certificate_file = "/run/secrets/upstream-assertion.crt"   # for a provider that knows the key by its certificate
 
@@ -4075,13 +4079,23 @@ and validator is our own design.
 
 ### 13.22 Client authentication at the upstream provider
 
-FerroSMART authenticates at its provider's token and revocation endpoints
-with `private_key_jwt` alone (`oidc core §9`; owner decision of 2026-11-17,
-#619). `[ferrosmart.upstream.oidc.private_key_jwt]` is required, and the
-configuration takes no client secret: `client_secret` and
-`client_secret_file` are unknown keys, refused at load, and a provider
-without the table is refused too. OAuth 2.1 and FAPI 2.0 prefer asymmetric
-client authentication, and FerroSMART holds keys already.
+FerroSMART authenticates at a provider's token and revocation endpoints
+with `private_key_jwt` by default, or with `client_secret_basic` (`rfc6749
+§2.3.1`) where the administrator chooses it for that provider (`oidc core
+§9` defines both and makes neither mandatory for a relying party; owner
+decision of 2026-11-19, #679, which reverses the `private_key_jwt`-alone
+rule of 2026-11-17, #619). Each `[ferrosmart.upstream.oidc]` table names
+exactly one: `[ferrosmart.upstream.oidc.private_key_jwt]` or
+`[ferrosmart.upstream.oidc.client_secret_basic]` with `secret` or
+`secret_file`, read through `ferrohealth-secret` and redacted in every
+rendering. A table naming both, or neither, is refused at load, and a
+secret anywhere else is an unknown key. At start FerroSMART reads the
+provider's `token_endpoint_auth_methods_supported` (`rfc8414 §2`,
+`client_secret_basic` when absent) and refuses a provider that does not
+list the method. Choose the secret only for a provider that offers no
+`private_key_jwt` for a web client: OAuth 2.1 and FAPI 2.0 prefer
+asymmetric client authentication, a secret can leak from a configuration
+file, and FerroSMART holds keys already.
 
 Every provider is set up the same way, in one shape:
 
@@ -4442,9 +4456,9 @@ tested through the endpoints instead (13.25).
 What the lane found: the relying party accepted an ID Token without
 `iat` (#646) and refused one without `kid` whose key set holds a single
 matching key (#648), both fixed and now held as passes. The
-client-secret module and the Basic relying party plan fail because
-FerroSMART authenticates upstream with `private_key_jwt` alone (13.22,
-#619). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
+client-secret module and the Basic relying party plan failed while
+FerroSMART authenticated upstream with `private_key_jwt` alone (#619); a
+provider entry may now choose `client_secret_basic` (13.22, #679). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
 RFC 10070's audience rule, need PAR and DPoP and are the lane's next
 target.
 
