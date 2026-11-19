@@ -97,6 +97,29 @@ of the tokens issued for it. At least one is required, and no base twice.
 | `subject_namespace` | openEHR only: the namespace the server's EHRs name their subjects in, which the patient picker looks an EHR up by. Unset, the picker is not offered at that base |
 | `fhir_base` | openEHR only: the base of the same platform's FHIR server, one of the FHIR bases configured here. The patient picker then searches that server for the patient and looks their EHR up, so the app gets both `patient` and `ehrId`. Needs `subject_namespace` and `subject_system` |
 | `subject_system` | With `fhir_base`: the `system` of the `Patient.identifier` whose value is the subject id of the patient's EHR in `subject_namespace` |
+| `fhir_user_lookup` | FHIR only, a list of tables: how to find a person's `fhirUser` when the identity provider sends none (below) |
+
+When the identity provider sends no `fhirUser` claim, FerroSMART can find
+the person at a FHIR server by an identifier. Each
+`[[ferrosmart.resource.fhir_user_lookup]]` names a `resource_type`
+(`Practitioner`, `PractitionerRole`, `Patient`, `RelatedPerson` or
+`Person`), the upstream ID Token `claim` whose text is the identifier's
+value, and the identifier's `system`. FerroSMART searches
+`[base]/[resource_type]?identifier=[system]|[value]` as the person. One
+match across the tables is the person's `fhirUser`; none, several or a
+refused search leave it out, and the consent page tells the person their
+account is linked to no single record. A lookup on the FHIR base paired
+with an openEHR base also serves requests to that openEHR base.
+
+```toml
+[[ferrosmart.resource]]
+base = "https://ehr.example.org/fhir"
+
+[[ferrosmart.resource.fhir_user_lookup]]
+resource_type = "Practitioner"
+claim = "staff_id"
+system = "urn:example:staff"
+```
 
 ## `[ferrosmart.upstream]`
 

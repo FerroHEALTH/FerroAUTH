@@ -2982,7 +2982,16 @@ specification governs.
    that asks a `patient/` scope without `launch/patient` is read as asking
    it, and the granted scope names it (`smart scopes-and-launch-context`,
    Standalone apps: the server MAY infer `launch/patient`; owner,
-   2026-11-19, #669). The picker is a server-rendered form
+   2026-11-19, #669). A person whose
+   `fhirUser` names a `Patient` at that server (absolute, or relative to
+   the request's base, `smart scopes-and-launch-context`, `fhirUser`), or
+   at the FHIR base paired with the openEHR base asked, sees no picker:
+   FerroSMART reads that record again as them and puts it in context, with
+   their EHR at a paired base, and a record it cannot read is a page that
+   says so, never the picker. Such a person is offered the `patient/`
+   scopes the client's ceiling allows with no role, since they reach their
+   own record alone (owner, 2026-11-19, #673). The picker is a
+   server-rendered form
    over a FHIR R4 search (`GET [base]/Patient?name=…&identifier=…`). The
    search runs as the signed-in person, never as a system: FerroSMART
    issues itself a token whose `sub` is the person's pairwise subject and
@@ -3055,7 +3064,13 @@ specification governs.
    result to differ from the request (`smart app-launch`, Obtain access
    token, Response) and requires the server's policy to win (`smart
    scopes-and-launch-context`, SMART's scopes are used to delegate access).
-   The mapping is content, never code. A role maps to `user/` and
+   The mapping is content, never code. When the intersection leaves no
+   scope at all, FerroSMART draws a page that names the configured roles
+   that would grant a requested scope the ceiling admits (or says the app
+   asks for access the server does not give it), never a claim value, and
+   its one way on returns to the app with `access_denied`, the `state` and
+   the `iss` (`rfc6749 §4.1.2.1`, `rfc9207 §2`; owner, 2026-11-19, #672; the
+   page first is our own design). A role maps to `user/` and
    `patient/` scopes and to extension scopes, "any string starting with
    `__` (two underscores)" that a resource server defines for its own API
    (`smart scopes-and-launch-context`, Extensibility): such a scope is
@@ -3179,9 +3194,20 @@ specification governs.
 9. **Upstream identity.** The user's FerroSMART `sub` is a pairwise-stable
    identifier derived from the upstream issuer and the upstream `sub`
    (SHA-256 of both, base64url), so two IdPs never collide and the upstream
-   identifier never reaches a resource server; `fhirUser` comes from a
-   configured claim of the upstream ID token or a mapping table. Our own
-   design.
+   identifier never reaches a resource server. `fhirUser` comes from the
+   configured claim of the upstream ID token first; without it, from the
+   `[[ferrosmart.resource.fhir_user_lookup]]` tables of the FHIR base the
+   request reads (the request's own, or the one paired with its openEHR
+   base): each names a resource type, the upstream claim whose text is an
+   identifier's value and the identifier's system, and FerroSMART searches
+   `[base]/[type]?identifier=[system]|[value]` (FHIR R4 search, token
+   parameters) as the person, with the one scope of that type. Exactly one
+   match across the tables is the `fhirUser`, relative to the request's
+   base or absolute at a paired one (`smart scopes-and-launch-context`,
+   `fhirUser`); none, several or a failed search leave it out, the consent
+   page says so, and an audit line records the outcome without a value
+   (owner, 2026-11-19, #674). The system and the claim are deployment
+   configuration with no default. Our own design.
 10. **Revocation's reach.** Revoking a refresh token revokes its grant
     with every refresh and access token under it (`rfc7009 §2.1`, SHOULD);
     revoking an access token revokes that token alone (the MAY to revoke
@@ -3367,6 +3393,10 @@ kind = "fhir"                                 # or "openehr"
 # subject_namespace = "examples"              # openEHR only: the EHR subjects' namespace the picker looks up in
 # fhir_base = "https://ehr.example.org/fhir"  # openEHR only: the platform's FHIR base the picker finds the patient at
 # subject_system = "urn:example:mrn"          # with fhir_base: the Patient.identifier system that names the EHR's subject
+# [[ferrosmart.resource.fhir_user_lookup]]    # FHIR only: find fhirUser when the provider sends none (13.6 item 9)
+# resource_type = "Practitioner"              # or PractitionerRole, Patient, RelatedPerson, Person
+# claim = "staff_id"                          # the upstream ID Token claim holding the identifier's value
+# system = "urn:example:staff"                # the identifier's system
 
 [ferrosmart.upstream]                         # any OpenID Connect provider, discovered at start
 issuer = "https://idp.example.org/realms/hospital"

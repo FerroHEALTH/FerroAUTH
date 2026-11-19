@@ -60,6 +60,7 @@ use crate::server::AppState;
 use crate::store::{IssuedToken, Pending};
 
 pub mod encounter;
+pub mod fhir_user;
 pub mod openehr;
 mod paired;
 
@@ -117,6 +118,76 @@ pub fn reach(state: &AppState, audience: &str) -> Reach {
     } else {
         Reach::Encounter
     }
+}
+
+/// Returns the id of the patient the person is at `audience`.
+///
+/// Their `fhir_user` names a `Patient` at the FHIR server the picker
+/// searches there: the request's own base, or the FHIR base paired with an
+/// openEHR one.
+///
+/// SMART App Launch 2.2.0, Scopes and Launch Context, `fhirUser`: the URL
+/// "MAY be absolute ... or it MAY be relative to the FHIR server base URL
+/// associated with the current authorization request".
+#[must_use]
+pub fn own_patient<'u>(
+    state: &AppState,
+    audience: &str,
+    fhir_user: Option<&'u str>,
+) -> Option<&'u str> {
+    let settings = state.settings();
+    let base = match settings.pairings.get(audience) {
+        Some(pairing) => pairing.fhir_base.as_str(),
+        None if reach(state, audience) == Reach::Encounter => audience,
+        None => return None,
+    };
+    let fhir_user = fhir_user?;
+    let relative = match fhir_user.strip_prefix(base) {
+        Some(rest) => rest.strip_prefix('/')?,
+        None if fhir_user.contains("://") => return None,
+        None => fhir_user,
+    };
+    relative
+        .strip_prefix("Patient/")
+        .filter(|id| is_fhir_id(id))
+}
+
+/// Puts the person's own record, the patient `id` their `fhirUser` names,
+/// into the launch of `pending` with no picker, once it is read again as
+/// them, and sends the browser on to the consent.
+///
+/// At a paired openEHR base their EHR is looked up as the picker does. A
+/// record that cannot be read, or has no EHR the person may see, is a page
+/// that says so, never the picker (`docs/architecture.md` §13.6 item 4;
+/// owner, 2026-11-19, #673).
+pub(crate) async fn own_record(
+    state: &AppState,
+    pending: &Pending,
+    from: IpAddr,
+    id: &str,
+) -> Response {
+    let context = if let Some(pairing) = state.settings().pairings.get(&pending.audience) {
+        match paired::context_of(state, pending, from, pairing, id).await {
+            Ok(Some(context)) => context,
+            Ok(None) => return pages::fault(state, Fault::NoOwnRecord),
+            Err(response) => return *response,
+        }
+    } else {
+        if let Err(response) = read_patient(state, pending, from, &pending.audience, id).await {
+            return *response;
+        }
+        if encounter::wanted(state, pending) {
+            return see_other(&format!(
+                "{}?patient={id}",
+                state.settings().endpoint(PICKER_ROUTE)
+            ));
+        }
+        Context {
+            patient: Some(id.to_owned()),
+            ..Context::default()
+        }
+    };
+    enter(state, pending, &context, from).await
 }
 
 /// Returns the subject namespace of `audience` when it is an openEHR
@@ -319,6 +390,11 @@ async fn read_patient(
             state,
             &PickerError::Unreadable,
         ))),
+        Err(PickerError::Refused(_))
+            if own_patient(state, &pending.audience, pending.fhir_user.as_deref()) == Some(id) =>
+        {
+            Err(Box::new(pages::fault(state, Fault::NoOwnRecord)))
+        }
         Err(PickerError::Refused(_)) => Err(Box::new(pages::fault(state, Fault::BadRequest))),
         Err(error) => Err(Box::new(pages::server_error(state, &error))),
     }

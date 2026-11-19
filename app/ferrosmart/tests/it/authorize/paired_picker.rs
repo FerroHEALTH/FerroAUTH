@@ -320,3 +320,50 @@ async fn a_patient_the_person_may_not_see_is_never_looked_up() {
     );
     platform.smart.stop().await;
 }
+
+// NOTE: SMART on openEHR draft, Context Selection; a patient's own record and
+// their EHR are the context with no picker (owner, 2026-11-19, #673).
+#[tokio::test]
+async fn a_patient_at_a_paired_base_gets_their_own_record_and_ehr_with_no_picker() {
+    let platform = platform_holding(RECORD, SYSTEM).await;
+    let smart = &platform.smart;
+    let (cookie, (status, headers, body)) =
+        as_patient(smart, &platform.openehr_base, SCOPE, "Patient/p-1").await;
+    assert_eq!(StatusCode::SEE_OTHER, status, "{body}");
+    assert_eq!("/consent", location(&headers).path(), "no picker");
+    let (_, _, page) = smart.get("/consent", Some(&cookie)).await;
+    assert!(page.contains("value=\"patient/composition-*.r\""), "{page}");
+    let token = form_token(&page);
+    let (_, headers, _) = smart
+        .post(
+            "/consent",
+            &[
+                ("form_token", token.as_str()),
+                ("decision", "approve"),
+                ("scope", "openid"),
+                ("scope", "launch/patient"),
+                ("scope", "patient/composition-*.r"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(json!("p-1"), body["patient"]);
+    assert_eq!(json!(EHR_ID), body["ehrId"]);
+    assert_eq!(
+        1,
+        platform.fhir_seen.lock().expect("held").len(),
+        "the read alone, no search"
+    );
+    platform.smart.stop().await;
+}

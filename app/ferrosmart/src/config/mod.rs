@@ -236,6 +236,67 @@ pub struct ResourceSection {
     /// With `fhir_base`, the `system` of the `Patient.identifier` whose
     /// value is the subject id of the patient's EHR in `subject_namespace`.
     pub subject_system: Option<String>,
+    /// For a FHIR server, how a person whose provider sends no `fhirUser`
+    /// is found there by an identifier (`docs/architecture.md` §13.6
+    /// item 9); empty, no search is made.
+    pub fhir_user_lookup: Vec<FhirUserLookupSection>,
+}
+
+/// One `[[ferrosmart.resource.fhir_user_lookup]]` table: a FHIR search by
+/// identifier whose one match is the person's `fhirUser`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FhirUserLookupSection {
+    /// The resource type searched.
+    pub resource_type: LookupType,
+    /// The upstream ID Token claim whose text is the identifier's value.
+    pub claim: String,
+    /// The identifier's `system`, an absolute URI.
+    pub system: String,
+}
+
+/// The resource type a `fhirUser` lookup searches (SMART App Launch 2.2.0,
+/// `fhirUser`: a `Patient`, `Practitioner`, `PractitionerRole`,
+/// `RelatedPerson` or `Person`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+pub enum LookupType {
+    /// `Practitioner`.
+    #[default]
+    Practitioner,
+    /// `PractitionerRole`.
+    PractitionerRole,
+    /// `Patient`.
+    Patient,
+    /// `RelatedPerson`.
+    RelatedPerson,
+    /// `Person`.
+    Person,
+}
+
+impl LookupType {
+    /// Returns the FHIR resource type name.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Practitioner => "Practitioner",
+            Self::PractitionerRole => "PractitionerRole",
+            Self::Patient => "Patient",
+            Self::RelatedPerson => "RelatedPerson",
+            Self::Person => "Person",
+        }
+    }
+
+    /// Returns the one scope the person's search token carries.
+    #[must_use]
+    pub const fn scope(self) -> &'static str {
+        match self {
+            Self::Practitioner => "user/Practitioner.rs",
+            Self::PractitionerRole => "user/PractitionerRole.rs",
+            Self::Patient => "user/Patient.rs",
+            Self::RelatedPerson => "user/RelatedPerson.rs",
+            Self::Person => "user/Person.rs",
+        }
+    }
 }
 
 /// The API a resource server serves.
