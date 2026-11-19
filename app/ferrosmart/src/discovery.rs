@@ -106,9 +106,11 @@ pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
 /// Metadata, `scopes_supported`), so the resource scopes, which a client's
 /// ceiling and a person's roles decide, are left out; the extension scopes
 /// a role lists follow them.
-const APP_LAUNCH_SCOPES: [&str; 7] = [
+const APP_LAUNCH_SCOPES: [&str; 9] = [
     "openid",
     "fhirUser",
+    "profile",
+    "email",
     "launch",
     "launch/patient",
     "launch/encounter",
@@ -363,7 +365,11 @@ pub fn openid_configuration(metadata: &ServerMetadata) -> Value {
                 "iat",
                 "auth_time",
                 "nonce",
-                "fhirUser"
+                "fhirUser",
+                "name",
+                "preferred_username",
+                "email",
+                "email_verified"
             ]),
         );
     }

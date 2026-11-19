@@ -515,6 +515,8 @@ pub struct Pending {
     /// (`docs/architecture.md` §13.6 item 5), which the access token's
     /// `roles` claim carries (RFC 9068 §2.2.3.1).
     pub roles: Vec<String>,
+    /// The upstream ID Token's standard claims, once they logged in.
+    pub person_claims: PersonClaims,
     /// What the app asked of the login under OpenID Connect Core 1.0
     /// §3.1.2.1.
     pub asking: Asking,
@@ -608,6 +610,65 @@ impl std::fmt::Debug for Pending {
     }
 }
 
+/// The standard claims of the upstream ID Token that FerroSMART's ID Token
+/// passes on when `profile` or `email` is granted (OpenID Connect Core 1.0
+/// §5.1, §5.4); never rendered by `Debug`.
+#[derive(Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PersonClaims {
+    /// `name`, under `profile`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// `preferred_username`, under `profile`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_username: Option<String>,
+    /// `email`, under `email`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    /// `email_verified`, under `email`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email_verified: Option<bool>,
+}
+
+impl PersonClaims {
+    /// Reads the claims from the upstream ID Token `claims`, each kept only
+    /// in the type OpenID Connect Core 1.0 §5.1 gives it.
+    #[must_use]
+    pub fn from_claims(claims: &ferrohealth_smart::oidc::IdTokenClaims) -> Self {
+        let text = |value: Option<&str>| {
+            value
+                .filter(|text| !text.trim().is_empty())
+                .map(str::to_owned)
+        };
+        Self {
+            name: text(claims.name.as_deref()),
+            preferred_username: text(claims.preferred_username.as_deref()),
+            email: text(claims.other.get("email").and_then(Value::as_str)),
+            email_verified: claims.other.get("email_verified").and_then(Value::as_bool),
+        }
+    }
+
+    /// Returns the claims the granted `scope` passes on: `name` and
+    /// `preferred_username` under `profile`, `email` and `email_verified`
+    /// under `email`.
+    #[must_use]
+    pub fn granted(&self, scope: &str) -> Self {
+        let holds = |wanted: &str| scope.split(' ').any(|held| held == wanted);
+        let (profile, email) = (holds("profile"), holds("email"));
+        Self {
+            name: self.name.clone().filter(|_| profile),
+            preferred_username: self.preferred_username.clone().filter(|_| profile),
+            email: self.email.clone().filter(|_| email),
+            email_verified: self.email_verified.filter(|_| email),
+        }
+    }
+}
+
+impl std::fmt::Debug for PersonClaims {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PersonClaims(..)")
+    }
+}
+
 /// Who logged in for a pending request, and what they are offered.
 #[derive(Debug, Clone)]
 pub struct Login {
@@ -625,6 +686,8 @@ pub struct Login {
     pub upstream_session: Option<String>,
     /// Their roles a `[[ferrosmart.role]]` names, sorted.
     pub roles: Vec<String>,
+    /// The upstream ID Token's standard claims.
+    pub person_claims: PersonClaims,
 }
 
 /// An authorization code's grant.
@@ -666,6 +729,8 @@ pub struct Code {
     /// (`docs/architecture.md` §13.6 item 5), which the access token's
     /// `roles` claim carries (RFC 9068 §2.2.3.1).
     pub roles: Vec<String>,
+    /// The upstream ID Token's standard claims.
+    pub person_claims: PersonClaims,
 }
 
 /// Inserts the access token `token` through `executor`, a pool or a

@@ -400,13 +400,15 @@ impl Caller {
     /// Regulation (EU) 2025/327 Art. 5 has information the person inserts
     /// "clearly distinguishable as having been inserted by the natural
     /// person", and Art. 9(1) gives the person information on every access
-    /// "through the health professional access service", so only a token of
-    /// a `patients` issuer that names the record subject alone is the
-    /// person's (SMART on openEHR `master08-scopes`, the `patient` context).
-    /// A token of any other issuer is never the person's, whatever scopes it
-    /// carries: a `persons` token whose only clinical scopes are `patient/`
-    /// is a professional confined to its launch context. A Basic caller
-    /// never is.
+    /// "through the health professional access service", so only two
+    /// tokens are the person's: one of a `patients` issuer that names the
+    /// record subject alone (SMART on openEHR `master08-scopes`, the
+    /// `patient` context), and one of a `persons` issuer whose profile sets
+    /// `fhir_user_patient`, through an admitted client, whose `fhirUser` is
+    /// the `Patient` its `patient` claim names and whose scopes are
+    /// `patient/` alone. Any other `persons` token whose only clinical
+    /// scopes are `patient/` is a professional confined to its launch
+    /// context. A Basic caller never is.
     #[must_use]
     pub fn is_the_person(&self) -> bool {
         self.kind == CallerKind::Patient

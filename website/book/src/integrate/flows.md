@@ -152,7 +152,12 @@ A person's `sub` is pairwise: derived from the identity provider's issuer
 and `sub`, so two providers never collide and the provider's identifier
 never reaches a resource server. The ID Token, signed `RS256`, carries
 `iss`, `sub`, `aud`, `exp`, `iat`, `nonce` when the app sent one,
-`auth_time`, and `fhirUser` when `fhirUser` was granted.
+`auth_time`, and `fhirUser` when `fhirUser` was granted. When the client's
+ceiling lists `profile` or `email` and the app asks for them, the ID Token
+also carries `name` and `preferred_username` (`profile`) and `email` and
+`email_verified` (`email`) as the identity provider sent them, so a
+standard OpenID Connect library can show who is signed in. The `sub`
+stays pairwise.
 
 ## Backend Services
 
