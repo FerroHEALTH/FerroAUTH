@@ -110,6 +110,35 @@ and passes the value to `/authorize`; the rest is the standalone flow
 without the picker, and the token response carries the context the EHR
 registered.
 
+## What an app should expect
+
+Three behaviours are fixed. Each one protects the person or the deployment,
+and an app works with it in the way described here.
+
+**"Remember this choice" is off by default, for the exact scopes asked.**
+The consent page asks again unless the person ticks "Remember this
+choice", and a remembered choice answers only a later request for the same
+scopes or fewer; a request for more shows the page again. This keeps the
+patient in control of what each app holds (SMART App Launch 2.2.0, Best
+Practices). Ask for the same scopes on each launch, so a remembered choice
+applies, and the person can withdraw it on the management page
+(`management_endpoint`).
+
+**Access tokens live five minutes.** `access_token_lifetime` defaults to
+five minutes, the same default Keycloak uses. An app that works longer than
+that asks for `online_access`, a refresh token that lives while the person's
+login at the identity provider does, or `offline_access`, one that outlives
+it, and refreshes before the token expires (SMART App Launch 2.2.0, Refresh
+access token). A rotated refresh token presented again within ten seconds
+by the same client gets the same answer, so a retry is safe.
+
+**FerroSMART's pages refuse to be framed.** Every page answers with
+`frame-ancestors 'none'` and its cookie is `SameSite=Lax`, which keeps
+another site from overlaying the consent page (clickjacking, RFC 9700
+§4.16). Microsoft Entra ID's sign-in refuses framing as well. An app that
+runs inside an EHR's iframe opens the authorization request in a new window
+or tab, and that window returns to the app's redirect URI as usual.
+
 ## The tokens
 
 An access token is an RFC 9068 JWT, `typ` `at+jwt`, signed `RS256` with a
