@@ -16,6 +16,9 @@ and this project adheres to
 - `uri::normalized` and `uri::normalize_percent`: the RFC 3986 §6.2.2
   syntax-based normalization the DPoP `htu` check applies, public so
   FerroSMART compares a registered launch URL the same way.
+- `RelyingParty::refresh_for` sends a refresh request that names a
+  `resource` (RFC 8707 §2.2), so a console gets a token for a second
+  resource server on the same grant (#675).
 
 ## [0.30.1] - 2026-11-19
 
