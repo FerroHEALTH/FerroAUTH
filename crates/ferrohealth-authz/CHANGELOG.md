@@ -14,6 +14,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.24.0] - Unreleased
+
 ## [0.23.0] - 2026-11-17
 
 Releases beside `ferrohealth-smart` 0.30.0, whose `resource::Caller`,

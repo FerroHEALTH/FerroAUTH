@@ -4,9 +4,10 @@
 //! The caller classification through the public API: a signed token in, a
 //! `Caller` with its `CallerKind` out, every refusal a typed
 //! `Rejection::Unclassified`. One suite of cases runs against the generic
-//! standards-only issuer, then against the Entra ID, Keycloak and Okta
-//! profiles, each with tokens shaped as its vendored documentation shows
-//! them; the preset-specific cases follow each vendor's suite.
+//! standards-only issuer, then against the Entra ID, Keycloak, Okta and
+//! FerroSMART profiles, each with tokens shaped as its vendored
+//! documentation shows them; the preset-specific cases follow each vendor's
+//! suite.
 
 use std::error::Error as StdError;
 
@@ -183,6 +184,31 @@ fn okta() -> Vendor {
             })
         },
         person_key: "okta-uid-1",
+    }
+}
+
+/// FerroSMART: plain RFC 9068 (`docs/architecture.md` §13.6 items 2 and 9),
+/// `typ` `at+jwt`, a pairwise `sub`, `client_id` and `scope` on every
+/// token, the launch context beside them.
+fn ferrosmart() -> Vendor {
+    Vendor {
+        preset: Preset::Ferrosmart,
+        typ: "at+jwt",
+        deploy: |_| {},
+        person: |scope| {
+            json!({
+                "iss": ISSUER, "aud": AUDIENCE, "sub": "pairwise-person-1",
+                "client_id": FIRST_PARTY, "iat": now(), "exp": now() + 300,
+                "jti": "jti-person", "scope": scope,
+            })
+        },
+        app: |scope| {
+            json!({
+                "iss": ISSUER, "aud": AUDIENCE, "sub": MACHINE, "client_id": MACHINE,
+                "iat": now(), "exp": now() + 300, "jti": "jti-app", "scope": scope,
+            })
+        },
+        person_key: "pairwise-person-1",
     }
 }
 
@@ -632,6 +658,7 @@ suite!(generic);
 suite!(entra);
 suite!(keycloak);
 suite!(okta);
+suite!(ferrosmart);
 
 // NOTE: owner ruling of 2026-11-05: a Basic credential is a person's; a machine
 // uses the client credentials grant (RFC 6749 §4.4) and is classified by its token.
@@ -873,6 +900,213 @@ mod okta_profile {
             ResourceServer::discover(h.settings(IssuerKind::Persons, keep)).await,
             Err(ResourceError::Profile(_))
         ));
+        Ok(())
+    }
+}
+
+/// The FerroSMART cases of a patient's own token (#681).
+#[expect(
+    clippy::indexing_slicing,
+    reason = "test code: the claims are objects the vendor built"
+)]
+mod ferrosmart_profile {
+    use super::*;
+
+    /// The patient of every case.
+    const PATIENT: &str = "synthetic-patient";
+
+    /// Returns a patient's own token through `client`: `fhirUser` the
+    /// `Patient` the `patient` claim names, and `scope`.
+    fn own(h: &Harness, client: &str, scope: &str) -> Value {
+        let mut claims = h.person(scope);
+        claims["client_id"] = json!(client);
+        claims["patient"] = json!(PATIENT);
+        claims["fhirUser"] = json!(format!("Patient/{PATIENT}"));
+        claims
+    }
+
+    /// Lists [`THIRD_PARTY`] as a delegate client.
+    fn delegate(profile: &mut Profile) {
+        profile.delegates = vec![Delegate::Client(String::from(THIRD_PARTY))];
+    }
+
+    // NOTE: no specification governs who asks under a `patient/` scope (SMART App
+    // Launch 2.2.0, Patient-specific scopes): the owner's decision on #681.
+    #[tokio::test]
+    async fn a_patients_own_token_through_an_admitted_client_is_the_person() -> Outcome {
+        let h = Harness::new(ferrosmart())?;
+        let claims = own(
+            &h,
+            FIRST_PARTY,
+            "openid fhirUser launch/patient patient/Observation.rs",
+        );
+        let caller = h.admit(IssuerKind::Persons, keep, &claims).await?;
+        assert_eq!(
+            &CallerKind::Patient,
+            caller.kind(),
+            "through a first-party client"
+        );
+        assert!(caller.is_the_person());
+        assert_eq!(
+            Some(PATIENT),
+            caller.person().and_then(|person| person.patient),
+            "bound to its patient"
+        );
+        assert_eq!(
+            Some(FIRST_PARTY),
+            caller.client_id(),
+            "the client is recorded"
+        );
+        let claims = own(&h, THIRD_PARTY, "patient/Observation.rs");
+        let caller = h.admit(IssuerKind::Persons, delegate, &claims).await?;
+        assert_eq!(
+            &CallerKind::Patient,
+            caller.kind(),
+            "through a delegate client"
+        );
+        Ok(())
+    }
+
+    // NOTE: SMART App Launch 2.2.0, Scopes for requesting identity data: the
+    // `fhirUser` URL MAY be absolute or relative to the FHIR base.
+    #[tokio::test]
+    async fn an_absolute_fhir_user_names_the_patient_too() -> Outcome {
+        let h = Harness::new(ferrosmart())?;
+        let mut claims = own(&h, FIRST_PARTY, "patient/Observation.rs");
+        claims["fhirUser"] = json!(format!("https://fhir.example.org/r4/Patient/{PATIENT}"));
+        let caller = h.admit(IssuerKind::Persons, keep, &claims).await?;
+        assert_eq!(&CallerKind::Patient, caller.kind());
+        for other in [
+            format!("Group/Patient/{PATIENT}"),
+            format!("XPatient/{PATIENT}"),
+            format!("Patient/{PATIENT}/_history/1"),
+            format!("https://fhir.example.org/r4/Practitioner/{PATIENT}"),
+        ] {
+            claims["fhirUser"] = json!(other);
+            let caller = h.admit(IssuerKind::Persons, keep, &claims).await?;
+            assert_eq!(
+                &CallerKind::Person,
+                caller.kind(),
+                "{other} names no patient"
+            );
+        }
+        Ok(())
+    }
+
+    // NOTE: the owner's decision on #681 keeps the client admission of 3.14 before
+    // the patient reading, so an unlisted client is refused as before.
+    #[tokio::test]
+    async fn a_patients_own_token_through_an_unlisted_client_is_refused() -> Outcome {
+        let h = Harness::new(ferrosmart())?;
+        let claims = own(&h, UNLISTED, "patient/Observation.rs");
+        assert_eq!(
+            Some(Unclassified::UnlistedClient),
+            refused(h.admit(IssuerKind::Persons, delegate, &claims).await)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn each_condition_alone_keeps_the_token_a_professionals() -> Outcome {
+        let h = Harness::new(ferrosmart())?;
+        let mut other_patient = own(&h, FIRST_PARTY, "patient/Observation.rs");
+        other_patient["patient"] = json!("another-patient");
+        let mut no_fhir_user = own(&h, FIRST_PARTY, "patient/Observation.rs");
+        if let Some(object) = no_fhir_user.as_object_mut() {
+            object.remove("fhirUser");
+        }
+        let mut no_patient = own(&h, FIRST_PARTY, "patient/Observation.rs");
+        if let Some(object) = no_patient.as_object_mut() {
+            object.remove("patient");
+        }
+        let mut practitioner = own(&h, FIRST_PARTY, "patient/Observation.rs");
+        practitioner["fhirUser"] = json!(format!("Practitioner/{PATIENT}"));
+        let cases = [
+            ("a patient claim naming another patient", other_patient),
+            ("no fhirUser", no_fhir_user),
+            ("no patient claim", no_patient),
+            ("a Practitioner fhirUser", practitioner),
+            (
+                "a user/ scope",
+                own(
+                    &h,
+                    FIRST_PARTY,
+                    "patient/Observation.rs user/Practitioner.r",
+                ),
+            ),
+            (
+                "a system/ scope",
+                own(
+                    &h,
+                    FIRST_PARTY,
+                    "patient/Observation.rs system/Observation.r",
+                ),
+            ),
+            (
+                "no patient/ scope",
+                own(&h, FIRST_PARTY, "openid fhirUser launch/patient"),
+            ),
+        ];
+        for (case, claims) in cases {
+            let caller = h.admit(IssuerKind::Persons, keep, &claims).await?;
+            assert_eq!(&CallerKind::Person, caller.kind(), "{case}");
+            assert!(!caller.is_the_person(), "{case}");
+        }
+        Ok(())
+    }
+
+    // NOTE: RFC 8693 §4.1, an `act` names another acting party, so a token that
+    // carries one is never the person's own.
+    #[tokio::test]
+    async fn an_actor_or_a_represented_subject_is_never_the_patients_own() -> Outcome {
+        let h = Harness::new(ferrosmart())?;
+        let mut acted = own(&h, FIRST_PARTY, "patient/Observation.rs");
+        acted["act"] = json!({ "sub": "actor-1" });
+        let listed = |profile: &mut Profile| {
+            profile.delegates = vec![Delegate::Actor {
+                issuer: None,
+                sub: String::from("actor-1"),
+            }];
+        };
+        let caller = h.admit(IssuerKind::Persons, listed, &acted).await?;
+        assert!(matches!(
+            caller.kind(),
+            CallerKind::Delegated { actor: Some(_) }
+        ));
+        let mut represented = own(&h, FIRST_PARTY, "patient/Observation.rs");
+        represented["represents"] = json!("represented-subject-9");
+        let declare = |profile: &mut Profile| {
+            profile.representation = Some(Representation {
+                claim: String::from("represents"),
+                ground_claim: None,
+            });
+        };
+        let caller = h.admit(IssuerKind::Persons, declare, &represented).await?;
+        assert!(matches!(caller.kind(), CallerKind::Representative { .. }));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn the_reading_is_the_profile_keys_and_no_other_preset_sets_it() -> Outcome {
+        let h = Harness::new(ferrosmart())?;
+        let claims = own(&h, FIRST_PARTY, "patient/Observation.rs");
+        let caller = h
+            .admit(
+                IssuerKind::Persons,
+                |profile| profile.fhir_user_patient = false,
+                &claims,
+            )
+            .await?;
+        assert_eq!(&CallerKind::Person, caller.kind(), "the key off");
+        for preset in [
+            Preset::Rfc9068,
+            Preset::Entra,
+            Preset::Keycloak,
+            Preset::Okta,
+            Preset::Nl,
+        ] {
+            assert!(!Profile::resolve(preset, &ProfileKeys::default())?.fhir_user_patient);
+        }
         Ok(())
     }
 }

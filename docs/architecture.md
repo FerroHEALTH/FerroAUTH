@@ -1083,13 +1083,23 @@ The EHDS person-access rights (Regulation (EU) 2025/327 Art. 5 and 9) need
 every product to tell the same way whether a request is the natural
 person's own access. SMART names *what* a `patient/` scope reaches and not
 *who* asks (`smart scopes-and-launch-context`, Patient-specific scopes), so
-the answer is the issuer's kind (3.14): `Caller::is_the_person` holds for a
-`CallerKind::Patient` caller alone, a token of a `patients` issuer whose
-scopes are `patient/` with no `user/` or `system/` grant (SMART on openEHR
-`master08-scopes`, the `patient` context). A token of any other issuer is
-never the person's, whatever scopes it carries: a `persons` token whose only
-clinical scopes are `patient/` is a professional confined to its launch
-context. A Basic caller is never the person. `Caller::person` returns the
+the answer is read from the issuer (3.14): `Caller::is_the_person` holds for
+a `CallerKind::Patient` caller alone. That is a token of a `patients` issuer
+whose scopes are `patient/` with no `user/` or `system/` grant (SMART on
+openEHR `master08-scopes`, the `patient` context), or a token of a `persons`
+issuer whose profile sets `fhir_user_patient`, as the `ferrosmart` preset
+does (#681). Such a token passes the client admission of 3.14 first, names no
+actor and no represented subject, and holds three conditions: its `fhirUser`
+is `Patient/<x>` (relative, or an absolute URL ending in `/Patient/<x>`;
+SMART App Launch 2.2.0, Scopes for requesting identity data), its `patient`
+claim is `x`, and its scopes carry a `patient/` grant with no `user/` or
+`system/` one. A professional's `fhirUser` is never a `Patient`, so any other
+`persons` token whose only clinical scopes are `patient/` is a professional
+confined to its launch context, and a token of a `machines` or `federation`
+issuer is never the person's. Who asks under a `patient/` scope is our own
+design (owner decision 2026-11-19), since SMART names only what the scope
+reaches. A product reads `Caller::is_the_person` and keeps no reading of its
+own. A Basic caller is never the person. `Caller::person` returns the
 patient the request is bound to: the `patient` launch context, the `ehrId`
 and the patient claim's value. The deployment names its patient claim as a
 `resource::PatientClaim`, a dotted path, attached to each resource server
@@ -1118,7 +1128,8 @@ layers, all in `ferrohealth-smart`:
    `expect`, `user_claims` (claims every token that is not app-only must
    carry), `person_equality`, `unstable_claims`, `first_party_clients`,
    `delegates` (actors by `{ sub, issuer }` and clients by `{ client }`),
-   `max_actor_chain`, `representation`, `token_types`, `required_claims`,
+   `max_actor_chain`, `representation`, `act_represents_patient`,
+   `fhir_user_patient` (3.13), `token_types`, `required_claims`,
    `scope_claim` and `app_only_scope_claim`, and `adapter`.
    The `keycloak` preset names no impersonation marker: Keycloak 26.8.2
    (`con-protocol-mappers.adoc`) carries an impersonation as the session
@@ -1151,7 +1162,13 @@ order, and a token that matches no step for its issuer's kind is refused as
    a representative's access is never the patient's own (Regulation (EU)
    2025/327 Art 4(2) lets a natural person authorise others to act for
    them). `act_represents_patient` on another kind of issuer refuses the
-   issuer at load.
+   issuer at load. On a `persons` issuer whose profile sets
+   `fhir_user_patient`, a token through a first-party or delegate client
+   that names no actor and no represented subject is `Patient` when its
+   `fhirUser` names the `Patient` its `patient` claim names and its scopes
+   are `patient/` alone (3.13); the client admission comes first, so an
+   unlisted client is refused as `UnlistedClient`. Other kinds of issuer
+   ignore the key.
 2. `System`: the profile's app-only markers all match (they must agree, or
    the token is refused), on a `persons` or `machines` issuer.
 3. `Delegated`: an `act` whose actor is a declared delegate (a chain deeper
@@ -1342,10 +1359,11 @@ join its access record to the contact point's audit entry
 **The `ferrosmart` profile** (`profile = "ferrosmart"`,
 `profiles/ferrosmart.toml`, #521). FerroSMART (§13) issues plain RFC 9068
 access tokens with no Ferro-specific claim, so the preset keeps every
-`rfc9068` default but two: `token_types` is `at+jwt` alone, the one `typ`
-FerroSMART writes (`rfc9068 §2.1`), and `required_claims` adds `scope`,
+`rfc9068` default but three: `token_types` is `at+jwt` alone, the one `typ`
+FerroSMART writes (`rfc9068 §2.1`), `required_claims` adds `scope`,
 which every FerroSMART token carries (SMART App Launch 2.2.0, Obtain access
-token, Response). The launch context claims (`patient`, `encounter`,
+token, Response), and `fhir_user_patient` reads a patient's own token as
+`Patient` (3.13, #681). The launch context claims (`patient`, `encounter`,
 `fhirUser`, `ehrId`, §13.6 item 2) need no key. A product trusts FerroSMART
 in one `persons` table, which also reads a client credentials token as
 `System`, since its `sub` is its `client_id` (`rfc9068 §2.2`). A
@@ -2344,6 +2362,7 @@ four agree on and settles each difference:
 | A `persons` login is resolved to its party through a `PartySource` the product supplies, once per request with no cache, keyed by the issuer profile's `person_key` in the canonical form of its `identifier_type`, against the identifiers of one `[[auth.party]]` table's `identifier_issuer`; two matches are `Ambiguous`, a source failure is an error and never `Unbound`, and the outcome is the product's to answer (3.17) | `oidc-core §5.7`; `rfc7519 §4.1.2`; Microsoft, "Access token claims reference" (the overage markers); the binding is our own design (#216, owner ruling 2026-11-05 on the cache) | a product binds its `persons` issuers with `[[auth.party]]` tables, implements `PartySource`, maps each Basic user to a key, and answers each outcome |
 | A `persons` issuer's `[[auth.attributes]]` table reads the IHE IUA professional attributes and purposes of use, from claims or constants and, with `authorization_details_purposes`, the `system\|code` of each `authorization_details` entry, onto every non-`System` caller as `Caller::attributes`, and the purposes of use alone onto a `System` caller and every caller of a `patients` or `machines` issuer's table; a claim of the wrong shape refuses the token, and a coding with an empty code names none (3.14) | IHE IUA §3.71.4.2.2.1.1; `rfc9396 §2`; FHIR R4 datatypes.html; our own design over them (#376, #438) | a product reads the professional, the organisation and the purposes from `Caller::attributes` and drops its own IUA claim parser |
 | A `patients` token that carries `act` is the patient's representative under `act_represents_patient`, with the top-level actor only, and is refused without it (3.14) | `rfc8693 §4.1`; Regulation (EU) 2025/327 Art 4(2); our own design (#377) | a product that records a patient's representative sets `act_represents_patient` and reads `CallerKind::PatientRepresentative` |
+| On a `persons` issuer under `fhir_user_patient` (set by the `ferrosmart` preset), a token through an admitted client with no actor and no represented subject is `Patient` when its `fhirUser` is `Patient/<x>`, its `patient` is `x` and its scopes are `patient/` alone (3.13, 3.14) | `smart scopes-and-launch-context` (Patient-specific scopes; Scopes for requesting identity data); Regulation (EU) 2025/327 Art 5 and 9; our own design (owner decision 2026-11-19, #681) | a product trusting FerroSMART drops its own reading of a patient's token (FerroEHR's `patient_issuers`) and reads `Caller::is_the_person` |
 | The discovery document describes the issuer `[auth] described_issuer` names, which must be trusted and have metadata (a named `machines` issuer only while no issuer is eligible for app launch, and then for Backend Services); else the one issuer of a user-token kind with metadata, for app launch; else, when no issuer signs user tokens, the one `machines` issuer with metadata, for Backend Services only; several of a tier without a name, or none, are refused; the table order never decides (3.8) | `smart conformance`, Metadata (`authorization_endpoint` is where a user launch starts); the choice among several is our own design, settled in FerroEHR (FerroHEALTH/FerroEHR#5426), moved here (#469), with the Backend Services tier of #507 (`smart backend-services`, Retrieve `.well-known/smart-configuration`) | a product drops its first-in-table-order choice, offers each issuer as a `Candidate` and serves the document of the one `describe` returns |
 | An active introspection response is held until its `exp` and at most `cache_max_age`, keyed by the token's SHA-256, in a bounded cache; an inactive one is never held | `rfc7662 §4` ("MUST NOT be cached beyond" `exp`); the bounds are our own design (FerroBRIDGE #533) | none |
 | Onward tokens are obtained by token exchange or the JWT bearer grant as the issuer's profile names, refused unless they pass the onward check of 3.16, cached by issuer, grant, subject and actor token, target, scope and extra parameters until the earlier `exp` (unless the onward table sets `cache = false`, which exchanges on every call for a performance self-test and never in production, #299), and never refreshed; only a `persons`, `patients` or `federation` issuer issues them, a `patients` one for a patient's own token that keeps its patient context | `rfc8693 §2.1`, `§2.2`, `§4.1`; `rfc7523 §2.1`, `§2.2`; `rfc8707 §2`; the check, the cache and the profile keys are our own design (#217) | a deployment sets `max_onward_lifetime` on each onward issuer, and `exchanges_from` and `person_mapping` on a federation issuer's table |
@@ -3982,9 +4001,12 @@ adoption issue tracks its own side (#521).
 
 2. **The product trusts FerroSMART** in one `persons` issuer table under
    the `ferrosmart` preset (3.3, the profile section). The preset keeps
-   every `rfc9068` default except two: `typ` is `at+jwt` alone, and `scope`
-   is required. The product lists the SMART apps it admits for a person in
-   `delegates`. The same table reads a Backend Services token as `System`,
+   every `rfc9068` default except three: `typ` is `at+jwt` alone, `scope`
+   is required, and `fhir_user_patient` reads a patient's own token as the
+   person (3.13). The product lists the SMART apps it admits for a person in
+   `delegates`, a patient's apps among them, and reads the person's own
+   access with `Caller::is_the_person`; one table serves professionals and
+   patients, so a deployment needs no second FerroSMART for patients. The same table reads a Backend Services token as `System`,
    because its `sub` is its `client_id` (`rfc9068 §2.2`), and a `persons`
    issuer reads the app-only tokens of its machines too. One issuer takes one
    table: `AuthSection::resolve` refuses a second table naming it (#591).

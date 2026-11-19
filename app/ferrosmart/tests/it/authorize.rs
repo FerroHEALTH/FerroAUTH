@@ -1954,6 +1954,20 @@ async fn a_patient_gets_their_own_record_in_context_with_no_picker_and_no_role()
             json!("openid fhirUser launch/patient patient/Observation.rs"),
             body["scope"]
         );
+        // NOTE: docs/architecture.md §3.13, a resource server reads the patient's
+        // own token under the `ferrosmart` preset as the person (#681).
+        let (_, _, jwks) = smart.get("/jwks", None).await;
+        let caller = crate::support::read_under_preset(
+            &serde_json::from_str(&jwks).expect("a JWK Set"),
+            ISSUER,
+            &base,
+            ferrohealth_smart::kind::IssuerKind::Persons,
+            &crate::support::one_table("app"),
+            body["access_token"].as_str().expect("a token"),
+        )
+        .await
+        .expect("admitted");
+        assert!(caller.is_the_person(), "{fhir_user}: {:?}", caller.kind());
     }
     // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, the record is read
     // again as the person before it is put in context.

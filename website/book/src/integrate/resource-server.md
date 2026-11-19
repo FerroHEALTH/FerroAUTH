@@ -81,8 +81,9 @@ at the server finds FerroSMART.
 Every FerroHEALTH product does this through `ferrohealth-smart`, the crate
 the FerroSMART repository publishes. It trusts FerroSMART in one `persons`
 issuer table under the `ferrosmart` preset, which keeps every RFC 9068
-default except two: `typ` is `at+jwt` alone and `scope` is required.
-`delegates` lists the SMART apps the product admits for a person:
+default except three: `typ` is `at+jwt` alone, `scope` is required, and a
+patient's own token is read as the patient. `delegates` lists the SMART apps
+the product admits for a person, a patient's apps among them:
 
 ```toml
 [[auth.issuer]]
@@ -94,7 +95,11 @@ delegates = [{ client = "growth-chart" }]
 ```
 
 The same table reads a Backend Services token as a system caller, because
-its `sub` is its `client_id`. The product's own SMART document describes
+its `sub` is its `client_id`. A token through a listed app is the patient's
+own access when its `fhirUser` is `Patient/<x>`, its `patient` is `x`, and
+its scopes are `patient/` with no `user/` or `system/` scope; any other
+person's token, a professional's with `patient/` scopes included, is read as
+the professional's. The product's own SMART document describes
 FerroSMART, and its own rules still apply on top of the token's scopes.
 Each product's book has the details of its `[auth]` section.
 
