@@ -41,6 +41,9 @@ impl ProofId {
     }
 }
 
+/// The length of a [`ProofId`]: a SHA-256 in base64url without padding.
+const PROOF_ID_LENGTH: usize = 43;
+
 /// A store that could not answer whether a proof was seen.
 ///
 /// The check answers it with `503`, so a store that fails never admits a
@@ -190,6 +193,22 @@ impl MemoryReplayStore {
         self.len() == 0
     }
 
+    /// Returns the cap, the records and the estimated bytes of the store:
+    /// each record is held twice, by key and by its end, with the 43
+    /// characters of its key.
+    #[must_use]
+    pub fn cache_usage(&self) -> crate::usage::CacheUsage {
+        let entries = self.len();
+        let record = size_of::<ProofId>()
+            .saturating_add(size_of::<SystemTime>())
+            .saturating_add(PROOF_ID_LENGTH);
+        crate::usage::CacheUsage::new(
+            self.ledger.capacity,
+            entries,
+            entries.saturating_mul(record.saturating_mul(2)),
+        )
+    }
+
     /// Records `proof` until `until`, as of `now`.
     fn record(
         &self,
@@ -248,6 +267,33 @@ mod tests {
         let later = now + Duration::from_secs(1);
         assert_eq!(Ok(true), store.record(&ProofId::of("second"), later, later));
         assert_eq!(1, store.len(), "the ended record was dropped");
+    }
+
+    #[test]
+    fn a_full_store_still_refuses_a_replay_and_reports_what_it_holds() {
+        let store = MemoryReplayStore::with_capacity(2);
+        assert_eq!(
+            crate::usage::CacheUsage::new(2, 0, 0),
+            store.cache_usage(),
+            "an empty store of two"
+        );
+        let now = SystemTime::now();
+        let until = now + Duration::from_secs(60);
+        let (first, second) = (ProofId::of("first"), ProofId::of("second"));
+        assert_eq!(Ok(true), store.record(&first, until, now));
+        let one = store.cache_usage();
+        assert_eq!((2, 1), (one.capacity, one.entries));
+        assert!(one.bytes >= 2 * 43, "a record is held twice with its key");
+        assert_eq!(Ok(true), store.record(&second, until, now));
+        // NOTE: RFC 9449 §11.1, a proof is used once: past the cap a new proof is
+        // refused and a replay of a held one is still told apart.
+        assert_eq!(
+            Err(StoreFull),
+            store.record(&ProofId::of("third"), until, now)
+        );
+        assert_eq!(Ok(false), store.record(&first, until, now), "a replay");
+        let full = store.cache_usage();
+        assert_eq!((2, 2 * one.bytes), (full.entries, full.bytes));
     }
 
     #[test]

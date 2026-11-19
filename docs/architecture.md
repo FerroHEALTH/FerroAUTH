@@ -469,6 +469,17 @@ re-derivation that fails drops the entry, and no entry admits past
 `cache_ttl` from the derivation that admitted it (#498). No specification
 governs the cache: our own design, FerroEHR's, moved into the crate.
 
+Three caches of the crate grow with traffic: this one, the introspection
+response cache (3.10, at most `cache_capacity` responses) and the records of
+`MemoryReplayStore` (3.15, at most 100 000 unless the product sets another
+cap). Each reports its cap, its entries and an estimate of their bytes as a
+`usage::CacheUsage` (`PasswordStore::cache_usage`,
+`Introspector::cache_usage`, `MemoryReplayStore::cache_usage`), which a
+product copies into its own gauges; the crate links no metrics library
+(FerroHEALTH/FerroSMART#630). The estimate counts each key and value with
+the heap it owns and leaves out the collection's own nodes. No
+specification governs the report: our own design.
+
 The outcome says whether a credential was admitted from the cache
 (`Verified::cached`, `Caller::cached`), so a product that records each fresh
 authentication records one per cache lifetime (#63).

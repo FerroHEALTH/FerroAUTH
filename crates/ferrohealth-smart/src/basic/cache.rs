@@ -19,6 +19,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::Condvar;
 use std::sync::Mutex;
+use std::sync::PoisonError;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -28,11 +29,12 @@ use aws_lc_rs::rand::SystemRandom;
 use super::InvalidCredential;
 use super::StoreError;
 use super::Verified;
+use crate::usage::CacheUsage;
 
 /// The most credentials a [`VerifiedCache`] holds; a full cache admits no
 /// new entry until one expires (no specification governs the bound: our own
 /// design).
-const MAX_CACHED: usize = 4096;
+pub(super) const MAX_CACHED: usize = 4096;
 
 /// The share of the lifetime the jitter and the refresh window each span,
 /// as a divisor: a tenth.
@@ -165,6 +167,32 @@ impl VerifiedCache {
                 None => self.uncoalesced(&name, derive),
             },
         }
+    }
+
+    /// Returns the cap, the entries and the estimated bytes of the cache:
+    /// per entry its 32-byte name and its record with the text it owns.
+    pub(super) fn usage(&self) -> CacheUsage {
+        // NOTE: no specification governs the cache: our own design, and a
+        // poisoned lock holds entries the next write may still read, so it is read.
+        let entries = self.entries.lock().unwrap_or_else(PoisonError::into_inner);
+        let bytes = entries
+            .iter()
+            .map(|(name, entry)| {
+                let verified = &entry.verified;
+                let roles: usize = verified
+                    .roles
+                    .iter()
+                    .map(|role| size_of::<String>().saturating_add(role.len()))
+                    .sum();
+                size_of::<Vec<u8>>()
+                    .saturating_add(name.len())
+                    .saturating_add(size_of::<Cached>())
+                    .saturating_add(verified.username.len())
+                    .saturating_add(verified.scope.len())
+                    .saturating_add(roles)
+            })
+            .fold(0_usize, usize::saturating_add);
+        CacheUsage::new(MAX_CACHED, entries.len(), bytes)
     }
 
     /// Returns the user of `user_pass` when the cache holds it unexpired.
@@ -384,7 +412,7 @@ impl Drop for Lead<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{InvalidCredential, Verified, VerifiedCache};
+    use super::{CacheUsage, InvalidCredential, MAX_CACHED, Verified, VerifiedCache};
     use std::sync::Barrier;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
@@ -400,6 +428,51 @@ mod tests {
 
     fn sleep_until(deadline: Instant) {
         std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
+    }
+
+    #[test]
+    fn a_full_cache_keeps_what_it_holds_and_sends_a_new_credential_to_the_store() {
+        let cache = VerifiedCache::new(Duration::from_secs(60)).expect("the cache key is drawn");
+        assert_eq!(
+            CacheUsage::new(MAX_CACHED, 0, 0),
+            cache.usage(),
+            "an empty cache"
+        );
+        let derivations = AtomicUsize::new(0);
+        let admit = |user_pass: &str| {
+            cache
+                .admit(user_pass, || {
+                    derivations.fetch_add(1, Ordering::SeqCst);
+                    Ok(alice())
+                })
+                .expect("the credential verifies")
+        };
+        admit("user-0:s3cret");
+        let one = cache.usage();
+        assert_eq!(1, one.entries);
+        assert!(
+            one.bytes >= 32 + "alice".len() + "user/*.rs".len(),
+            "an entry weighs its name and the text of its record: {}",
+            one.bytes
+        );
+        for user in 1..MAX_CACHED {
+            admit(&format!("user-{user}:s3cret"));
+        }
+        assert_eq!(MAX_CACHED, derivations.load(Ordering::SeqCst));
+        let full = cache.usage();
+        assert_eq!(
+            (MAX_CACHED, MAX_CACHED * one.bytes),
+            (full.entries, full.bytes)
+        );
+        // Past the cap the credential store answers, on every request.
+        for _ in 0..2 {
+            let beyond = admit("user-beyond:s3cret");
+            assert!(!beyond.cached, "the store derived it");
+        }
+        assert_eq!(MAX_CACHED + 2, derivations.load(Ordering::SeqCst));
+        assert_eq!(MAX_CACHED, cache.usage().entries, "never past the cap");
+        assert!(admit("user-0:s3cret").cached, "a held credential still is");
+        assert_eq!(MAX_CACHED + 2, derivations.load(Ordering::SeqCst));
     }
 
     #[test]

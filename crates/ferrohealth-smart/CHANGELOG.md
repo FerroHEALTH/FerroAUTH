@@ -11,6 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- `usage::CacheUsage` reports the cap, the entries and an estimate of the
+  bytes of each in-memory cache that grows with traffic, for a product's
+  memory metrics: `PasswordStore::cache_usage` (the verified-credential
+  cache, at most 4096 entries), `Introspector::cache_usage` (the
+  introspection responses, at most `cache_capacity`) and
+  `MemoryReplayStore::cache_usage` (the DPoP proof records). The crate
+  links no metrics library; a product copies the numbers into its own
+  gauges (#630).
+
 ## [0.30.0] - 2026-11-17
 
 ### Changed

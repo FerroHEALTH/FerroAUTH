@@ -204,6 +204,62 @@ async fn the_cache_never_holds_a_response_past_its_exp() -> Result<(), Box<dyn S
 }
 
 #[tokio::test]
+async fn a_full_cache_drops_the_response_that_ends_soonest_and_asks_the_endpoint_for_it_again()
+-> Result<(), Box<dyn StdError>> {
+    let issuer = issuer().await;
+    // Three tokens, each answered with its own `exp`; the first is asked twice.
+    for (token, seconds, times) in [("first", 100, 2), ("second", 200, 1), ("third", 300, 1)] {
+        Mock::given(method("POST"))
+            .and(path(INTROSPECT))
+            .and(body_string_contains(format!(
+                "token=synthetic-{token}-token"
+            )))
+            .respond_with(json(&active(&issuer, seconds)))
+            .expect(times)
+            .mount(&issuer.server)
+            .await;
+    }
+    let mut settings = settings(&issuer);
+    settings.cache_capacity = 2;
+    let introspector = Introspector::discover(settings).await?;
+    assert_eq!(
+        (2, 0, 0),
+        {
+            let usage = introspector.cache_usage();
+            (usage.capacity, usage.entries, usage.bytes)
+        },
+        "an empty cache of two"
+    );
+    introspector.authenticate("synthetic-first-token").await?;
+    let one = introspector.cache_usage();
+    assert_eq!(1, one.entries);
+    assert!(
+        one.bytes > 0,
+        "an entry weighs its key, record and response"
+    );
+    introspector.authenticate("synthetic-second-token").await?;
+    let two = introspector.cache_usage();
+    assert_eq!((2, 2 * one.bytes), (two.entries, two.bytes));
+    // The third response takes the place of the first, which ends soonest.
+    introspector.authenticate("synthetic-third-token").await?;
+    assert_eq!(2, introspector.cache_usage().entries, "never past the cap");
+    assert!(
+        introspector
+            .authenticate("synthetic-second-token")
+            .await?
+            .cached(),
+        "a response still held"
+    );
+    let again = introspector.authenticate("synthetic-first-token").await?;
+    assert!(
+        !again.cached(),
+        "the dropped response comes from the endpoint again"
+    );
+    assert_eq!(2, introspector.cache_usage().entries);
+    Ok(())
+}
+
+#[tokio::test]
 async fn a_zero_cache_age_asks_the_endpoint_every_time() -> Result<(), Box<dyn StdError>> {
     let issuer = issuer().await;
     answer(&issuer, json(&active(&issuer, 300)), 2).await;
