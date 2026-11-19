@@ -56,12 +56,12 @@ oidcc-basic-certification-test-plan	oidcc-userinfo-get	FAILED	-	650	FerroSMART h
 oidcc-basic-certification-test-plan	oidcc-userinfo-post-header	FAILED	-	650	FerroSMART has no UserInfo Endpoint, so the module stops before its authorization request
 oidcc-basic-certification-test-plan	oidcc-userinfo-post-body	FAILED	-	650	FerroSMART has no UserInfo Endpoint, so the module stops before its authorization request
 oidcc-basic-certification-test-plan	oidcc-ensure-request-without-nonce-succeeds-for-code-flow	FAILED	-	650	FerroSMART has no UserInfo Endpoint, so the module stops before its authorization request
-oidcc-basic-certification-test-plan	oidcc-scope-profile	SKIPPED	-	650	FerroSMART has no UserInfo Endpoint, so the suite skips the module
-oidcc-basic-certification-test-plan	oidcc-scope-email	SKIPPED	-	650	FerroSMART has no UserInfo Endpoint, so the suite skips the module
+oidcc-basic-certification-test-plan	oidcc-scope-profile	FAILED	-	650	the suite reads the profile and email claims from the UserInfo Endpoint; FerroSMART has none by #650 and returns them in the ID Token (OpenID Connect Core 1.0 §5.4)
+oidcc-basic-certification-test-plan	oidcc-scope-email	FAILED	-	650	the suite reads the profile and email claims from the UserInfo Endpoint; FerroSMART has none by #650 and returns them in the ID Token (OpenID Connect Core 1.0 §5.4)
 oidcc-basic-certification-test-plan	oidcc-scope-address	SKIPPED	-	650	FerroSMART has no UserInfo Endpoint, so the suite skips the module
 oidcc-basic-certification-test-plan	oidcc-scope-phone	SKIPPED	-	650	FerroSMART has no UserInfo Endpoint, so the suite skips the module
 oidcc-basic-certification-test-plan	oidcc-scope-all	SKIPPED	-	650	FerroSMART has no UserInfo Endpoint, so the suite skips the module
-oidcc-basic-certification-test-plan	oidcc-alternate-happy-flow	SKIPPED	-	650	FerroSMART has no UserInfo Endpoint, so the suite skips the module
+oidcc-basic-certification-test-plan	oidcc-alternate-happy-flow	FAILED	-	650	the suite reads the profile and email claims from the UserInfo Endpoint; FerroSMART has none by #650 and returns them in the ID Token (OpenID Connect Core 1.0 §5.4)
 oidcc-basic-certification-test-plan	oidcc-display-page	FAILED	-	650	FerroSMART has no UserInfo Endpoint, so the module stops before its authorization request
 oidcc-basic-certification-test-plan	oidcc-display-popup	FAILED	-	650	FerroSMART has no UserInfo Endpoint, so the module stops before its authorization request
 oidcc-basic-certification-test-plan	oidcc-prompt-login	FAILED	-	650	FerroSMART has no UserInfo Endpoint, so the module stops before its authorization request
