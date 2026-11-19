@@ -42,18 +42,14 @@ impl Store {
     /// # Errors
     /// Returns [`StoreError::Database`] when the query fails.
     pub async fn approved_apps(&self, subject: &str) -> Result<Vec<(String, String)>, StoreError> {
-        let rows = sqlx::query(
+        self.scopes_by_client(
             "SELECT DISTINCT ON (g.client_id) g.client_id, g.scope \
              FROM authorization_grant g JOIN client c ON c.client_id = g.client_id \
              WHERE g.subject = $1 AND g.revoked_at IS NULL AND g.approved_at = c.approved_at \
              ORDER BY g.client_id, g.created_at DESC",
+            subject,
         )
-        .bind(subject)
-        .fetch_all(&self.pool)
-        .await?;
-        rows.iter()
-            .map(|row| Ok((row.try_get("client_id")?, row.try_get("scope")?)))
-            .collect()
+        .await
     }
 }
 

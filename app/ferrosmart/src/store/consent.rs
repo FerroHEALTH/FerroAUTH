@@ -33,12 +33,27 @@ impl Store {
     /// # Errors
     /// Returns [`StoreError::Database`] when the query fails.
     pub async fn consents(&self, subject: &str) -> Result<Vec<(String, String)>, StoreError> {
-        let rows = sqlx::query(
+        self.scopes_by_client(
             "SELECT client_id, scope FROM consent WHERE subject = $1 ORDER BY client_id",
+            subject,
         )
-        .bind(subject)
-        .fetch_all(&self.pool)
-        .await?;
+        .await
+    }
+
+    /// Returns the `client_id` and `scope` of each row `query` answers for
+    /// `subject`, its one parameter.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the query fails.
+    pub(crate) async fn scopes_by_client(
+        &self,
+        query: &'static str,
+        subject: &str,
+    ) -> Result<Vec<(String, String)>, StoreError> {
+        let rows = sqlx::query(query)
+            .bind(subject)
+            .fetch_all(&self.pool)
+            .await?;
         rows.iter()
             .map(|row| Ok((row.try_get("client_id")?, row.try_get("scope")?)))
             .collect()
