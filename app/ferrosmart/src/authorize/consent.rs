@@ -93,7 +93,9 @@ pub fn offer(
     let mut offered: Vec<String> = Vec::new();
     for scope in requested.split(' ').filter(|scope| !scope.is_empty()) {
         let admitted = match scope {
-            "openid" => ceiling(scope),
+            // NOTE: OpenID Connect Core 1.0 §5.4, profile and email ask for the
+            // standard claims the upstream ID Token carries.
+            "openid" | "profile" | "email" => ceiling(scope),
             "fhirUser" => ceiling(scope) && fhir_user != FhirUser::Absent,
             user if user.starts_with("user/") => ceiling(user) && granted_by_role(user),
             "launch" => ceiling(scope) && context.is_some(),
@@ -125,7 +127,7 @@ pub fn offer(
     // NOTE: OpenID Connect Core 1.0 §3.1.2.1, `fhirUser` arrives in an ID Token,
     // which only `openid` asks for.
     if !offered.iter().any(|scope| scope == "openid") {
-        offered.retain(|scope| scope != "fhirUser");
+        offered.retain(|scope| !matches!(scope.as_str(), "fhirUser" | "profile" | "email"));
     }
     offered
 }
@@ -222,7 +224,7 @@ pub(super) async fn approve(
         .filter(|scope| crate::scopes::is_fixed(scope) || selected.contains(scope))
         .collect();
     if !granted.contains(&"openid") {
-        granted.retain(|scope| *scope != "fhirUser");
+        granted.retain(|scope| !matches!(*scope, "fhirUser" | "profile" | "email"));
     }
     // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, an EHR launch's context
     // comes under `launch`, a standalone one's under `launch/patient` from the picker.
@@ -270,6 +272,7 @@ pub(super) async fn approve(
             Basis::Person { .. } | Basis::Remembered => None,
         },
         roles: pending.roles.clone(),
+        person_claims: pending.person_claims.granted(&granted.join(" ")),
     };
     if let Err(error) = issue_code(state, &hash, &grant, basis, from).await {
         tracing::error!(error = %ferrohealth_server::run::chain(&error), "the code could not be stored");
