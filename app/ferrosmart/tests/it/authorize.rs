@@ -756,6 +756,61 @@ async fn a_request_the_endpoint_cannot_trust_is_shown_never_redirected() {
     smart.stop().await;
 }
 
+// NOTE: SMART App Launch 2.2.0 requires aud of the app; with one base configured
+// FerroSMART defaults a missing one to it, as the token endpoint does (#670).
+#[tokio::test]
+async fn a_request_without_aud_defaults_to_the_one_configured_base() {
+    let smart = Smart::start().await;
+    let (status, headers, _) = smart.get(&authorize_path(&[("aud", "")]), None).await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let upstream = location(&headers);
+    assert!(
+        param(&upstream, "error").is_none() && param(&upstream, "nonce").is_some(),
+        "on to the login: {upstream}"
+    );
+    let (_, headers, _) = smart
+        .get(
+            &authorize_path(&[("aud", "https://other.example.org/fhir")]),
+            None,
+        )
+        .await;
+    assert_eq!(
+        Some(String::from("invalid_request")),
+        param(&location(&headers), "error"),
+        "a wrong aud is refused with one base too"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_request_without_aud_is_refused_with_two_bases() {
+    let smart = Smart::start_over(
+        "[\"authorization_code\"]",
+        "[\"openid\", \"user/Observation.rs\"]",
+        "[\"user/Observation.rs\"]",
+        &format!(
+            "[[ferrosmart.resource]]\nbase = {RESOURCE:?}\n\
+             [[ferrosmart.resource]]\nbase = \"https://second.example.org/fhir\"\n"
+        ),
+    )
+    .await;
+    let (_, headers, _) = smart.get(&authorize_path(&[("aud", "")]), None).await;
+    let back = location(&headers);
+    assert!(back.as_str().starts_with(REDIRECT), "{back}");
+    assert_eq!(Some(String::from("invalid_request")), param(&back, "error"));
+    let (_, headers, _) = smart
+        .get(
+            &authorize_path(&[("aud", "https://second.example.org/fhir")]),
+            None,
+        )
+        .await;
+    assert!(
+        param(&location(&headers), "error").is_none(),
+        "a named base"
+    );
+    smart.stop().await;
+}
+
 #[tokio::test]
 async fn a_request_that_breaks_the_profile_is_sent_back_with_its_error() {
     let smart = Smart::start().await;
@@ -1716,6 +1771,67 @@ pub(crate) fn form_token(page: &str) -> String {
         .and_then(|rest| rest.split('"').next())
         .expect("a form token")
         .to_owned()
+}
+
+// NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Standalone apps: the
+// server may infer launch/patient for a patient/ scope (#669).
+#[tokio::test]
+async fn a_standalone_patient_scope_without_launch_patient_goes_to_the_picker() {
+    let (smart, fhir, _) = picker_launch().await;
+    let base = format!("{}/fhir", fhir.uri());
+    let cookie = to_picker_asking(
+        &smart,
+        &base,
+        "openid fhirUser patient/Observation.rs",
+        "synthetic-person",
+        "Practitioner/synthetic-1",
+    )
+    .await;
+    let (_, _, page) = smart.get("/picker?name=Synthetic", Some(&cookie)).await;
+    let token = form_token(&page);
+    let (_, headers, _) = smart
+        .post(
+            "/picker",
+            &[("form_token", &token), ("patient", "p-1")],
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!("/consent", location(&headers).path());
+    let (_, _, page) = smart.get("/consent", Some(&cookie)).await;
+    assert!(page.contains("value=\"patient/Observation.rs\""), "{page}");
+    let token = form_token(&page);
+    let (_, headers, _) = smart
+        .post(
+            "/consent",
+            &[
+                ("form_token", token.as_str()),
+                ("decision", "approve"),
+                ("scope", "openid"),
+                ("scope", "fhirUser"),
+                ("scope", "launch/patient"),
+                ("scope", "patient/Observation.rs"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        json!("openid fhirUser patient/Observation.rs launch/patient"),
+        body["scope"],
+        "the granted scope names the inferred launch/patient"
+    );
+    assert_eq!(json!("p-1"), body["patient"]);
+    smart.stop().await;
 }
 
 #[tokio::test]
