@@ -14,12 +14,18 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-11-17
+
 ### Changed
 
 - The repository is FerroSMART again, at
   <https://github.com/FerroHEALTH/FerroSMART>, and the crate's `repository`
   and `homepage` point there (owner decision 2026-11-17). The FerroAUTH
   address redirects, and the crate name stays.
+- Breaking: requires `ferrohealth-smart` 0.30.0 (caret `0.30.0`) in place of
+  `0.29.0`, whose `oidc` and `config::TlsBuilder` types this crate carries
+  in its public API. Upgrade: move `ferrohealth-smart` to 0.30.0 with this
+  crate, so one copy links (#631).
 
 ## [0.24.0] - 2026-11-17
 
@@ -450,7 +456,8 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.24.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.25.0...HEAD
+[0.25.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.24.0...ferrohealth-session-v0.25.0
 [0.24.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.23.0...ferrohealth-session-v0.24.0
 [0.23.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.22.0...ferrohealth-session-v0.23.0
 [0.22.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.21.0...ferrohealth-session-v0.22.0
