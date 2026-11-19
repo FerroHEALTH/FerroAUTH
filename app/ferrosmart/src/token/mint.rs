@@ -43,6 +43,11 @@ struct AccessClaims<'a> {
     /// The openEHR EHR of an EHR launch's context.
     #[serde(rename = "ehrId", skip_serializing_if = "Option::is_none")]
     ehr_id: Option<&'a str>,
+    /// The person's roles FerroSMART maps from the upstream identity
+    /// provider (RFC 9068 §2.2.3.1, from RFC 7643 §4.1.2), in a user flow
+    /// alone.
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    roles: &'a [String],
 }
 
 /// What an access token grants, and what else the token response carries.
@@ -69,6 +74,9 @@ pub(crate) struct Grant<'a> {
     pub(crate) under: Option<&'a str>,
     /// The launch context parameters the response carries.
     pub(crate) context: &'a Map<String, Value>,
+    /// The person's mapped roles; none for a client credentials token,
+    /// which no person holds.
+    pub(crate) roles: &'a [String],
 }
 
 /// Signs, records and answers an access token for `client` under `grant`.
@@ -104,6 +112,7 @@ pub(crate) fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Resul
         patient: grant.context.get("patient").and_then(Value::as_str),
         encounter: grant.context.get("encounter").and_then(Value::as_str),
         ehr_id: grant.context.get("ehrId").and_then(Value::as_str),
+        roles: grant.roles,
     };
     // NOTE: RFC 9068 §2.1, typ at+jwt.
     let access_token = settings

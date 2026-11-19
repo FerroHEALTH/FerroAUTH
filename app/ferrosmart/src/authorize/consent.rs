@@ -223,6 +223,7 @@ pub(super) async fn approve(
         expires_at: now().saturating_add(CODE_SECONDS),
         launch_context: launch_context.cloned(),
         upstream_session: pending.upstream_session.clone(),
+        roles: pending.roles.clone(),
     };
     if let Err(error) = issue_code(state, &hash, &grant, remember, from).await {
         tracing::error!(error = %ferrohealth_server::run::chain(&error), "the code could not be stored");

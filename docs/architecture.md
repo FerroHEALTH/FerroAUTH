@@ -2833,7 +2833,18 @@ specification governs.
    `encounter`, `fhirUser` and, for an openEHR `aud`, `ehrId` as access
    token claims beside the RFC 9068 set, names `rfc9068 §2.2.2` ("arbitrary
    attributes") as the ground, and keeps the claims to what the token
-   response carried. Our own design.
+   response carried. Our own design. In a user flow the token also carries
+   the person's `roles` (`rfc9068 §2.2.3.1`: an authorization server that
+   includes such attributes "SHOULD use the "groups", "roles", and
+   "entitlements" attributes" of `rfc7643 §4.1.2`), and so does the
+   introspection response: the roles the upstream ID Token's
+   `role_claims` carry that a `[[ferrosmart.role]]` names, sorted, fixed at
+   login and kept through every refresh, never a value the client asks
+   for. A role no table names stays at the provider. Backend Services
+   tokens carry none. SMART "leaves access token formats out of scope"
+   (`smart scopes-and-launch-context`), so the claim set is ours; whether a
+   resource server trusts FerroSMART for roles is its own decision (owner,
+   2026-11-19, #649).
 3. **The EHR launch API.** In an EHR launch "an opaque handle to the EHR
    context is passed along to the app" and "The server will provide the
    application with EHR context based on this handle" (`smart app-launch`,

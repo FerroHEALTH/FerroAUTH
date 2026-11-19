@@ -333,8 +333,8 @@ fn refresh_answer(state: &AppState, record: &RefreshRecord) -> Value {
     Value::Object(answer)
 }
 
-/// Adds the launch context and `fhirUser` of `grant` to `answer`, never
-/// over a member it already holds.
+/// Adds the launch context, `fhirUser` and `roles` of `grant` to `answer`,
+/// never over a member it already holds.
 fn context(answer: &mut Map<String, Value>, grant: &GrantRecord) {
     if let Some(members) = grant.context.as_object() {
         for (name, value) in members {
@@ -345,5 +345,12 @@ fn context(answer: &mut Map<String, Value>, grant: &GrantRecord) {
         answer
             .entry(String::from("fhirUser"))
             .or_insert_with(|| json!(fhir_user));
+    }
+    // NOTE: RFC 9068 §2.2.3.1 names `roles` for the access token; the answer carries
+    // it too, so a resource server that introspects learns what one that reads the JWT does.
+    if !grant.roles.is_empty() {
+        answer
+            .entry(String::from("roles"))
+            .or_insert_with(|| json!(grant.roles));
     }
 }

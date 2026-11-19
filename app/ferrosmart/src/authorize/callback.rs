@@ -129,6 +129,7 @@ async fn proceed(
         offered_scope: String::new(),
         auth_time: now(),
         upstream_session,
+        roles: mapped(&held, &state.settings().roles),
     };
     let person = Person {
         issuer: &state.settings().issuer,
@@ -220,6 +221,19 @@ pub(crate) async fn onward(
         return response;
     }
     see_other(&state.settings().endpoint(CONSENT_ROUTE))
+}
+
+/// Returns the roles of `held` that a `[[ferrosmart.role]]` of `roles`
+/// names, sorted and once each: the roles FerroSMART maps, which the access
+/// token carries (RFC 9068 §2.2.3.1; `docs/architecture.md` §13.6 item 5).
+/// A role no table names is the provider's alone and stays there.
+fn mapped(held: &[String], roles: &std::collections::BTreeMap<String, Vec<String>>) -> Vec<String> {
+    held.iter()
+        .filter(|role| roles.contains_key(role.as_str()))
+        .cloned()
+        .collect::<std::collections::BTreeSet<String>>()
+        .into_iter()
+        .collect()
 }
 
 /// Records the upstream login `claims` describe as a session, with the

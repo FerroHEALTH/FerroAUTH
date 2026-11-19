@@ -421,6 +421,10 @@ pub struct Pending {
     pub upstream_session: Option<String>,
     /// The launch context of an EHR launch.
     pub launch_context: Option<Context>,
+    /// The roles of the person, mapped from the upstream identity provider
+    /// (`docs/architecture.md` §13.6 item 5), which the access token's
+    /// `roles` claim carries (RFC 9068 §2.2.3.1).
+    pub roles: Vec<String>,
 }
 
 /// What a login is for.
@@ -466,6 +470,8 @@ pub struct Login {
     pub auth_time: i64,
     /// The upstream session they logged in under.
     pub upstream_session: Option<String>,
+    /// Their roles a `[[ferrosmart.role]]` names, sorted.
+    pub roles: Vec<String>,
 }
 
 /// An authorization code's grant.
@@ -500,6 +506,10 @@ pub struct Code {
     pub upstream_session: Option<String>,
     /// The launch context of an EHR launch.
     pub launch_context: Option<Context>,
+    /// The roles of the person, mapped from the upstream identity provider
+    /// (`docs/architecture.md` §13.6 item 5), which the access token's
+    /// `roles` claim carries (RFC 9068 §2.2.3.1).
+    pub roles: Vec<String>,
 }
 
 /// Inserts the access token `token` through `executor`, a pool or a
