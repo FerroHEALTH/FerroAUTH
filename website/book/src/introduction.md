@@ -21,9 +21,9 @@ This book is for two readers:
   [flows](integrate/flows.md), the [EHR launch API](integrate/ehr-launch.md)
   and [a server behind FerroSMART](integrate/resource-server.md).
 
-FerroSMART is being built toward its first release,
-v{{version:ferrosmart}}. Every page describes what the code on `main` does,
-and the [release notes](changelog.md) list each change. The design of record,
+The newest release is v{{version:ferrosmart}}. Every page describes what
+the code on `main` does, and the [release notes](changelog.md) list each
+change. The design of record,
 with the specification section behind every decision, is
 [`docs/architecture.md`](https://github.com/FerroHEALTH/FerroSMART/blob/main/docs/architecture.md)
 §13 in the repository.

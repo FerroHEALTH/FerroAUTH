@@ -141,8 +141,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   `cookies`, `return_path`, `paths`, and `routes` behind `axum`),
   `tests/it/` (the four routes of a synthetic console against a test OpenID
   Provider, a `wiremock` stub with a key generated when the case runs).
-- `app/ferrosmart`: FerroSMART, the authorization server, being built
-  (#512 carries the steps); `docs/architecture.md` §13 fixes its
+- `app/ferrosmart`: FerroSMART, the authorization server, released from
+  0.1.0 (#512 carried the steps); `docs/architecture.md` §13 fixes its
   requirements, crate layout, storage, endpoints, configuration, keys and
   threat model.
 - `tools/zitadel-fhir-user`: the Actions v2 target of FerroSMART's ZITADEL
@@ -166,8 +166,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   `.vendor-cache/`, and the MyHealth@EU Requirements Catalogue is recorded
   by sha256 and never copied).
 - `scripts/`: `vendor/` (the corpus fetchers), `checks/` (the committed
-  guards), `release/` (the release plan, the crate publish and the Trivy
-  install), `gh/` (the tracker helpers).
+  guards), `release/` (the release plan, the crate publish, the Trivy
+  install and the Chrome install of the screenshot capture), `gh/` (the tracker helpers).
 - `.github/`: CI with a single required `conclusion` job, the vendored
   specification guard, CodeQL, Scorecard, Dependabot, the release lane with
   crates.io Trusted Publishing (`release.yml`, `release-crate.yml`,

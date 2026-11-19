@@ -73,7 +73,7 @@
         <!-- The version is rendered from app/ferrosmart/Cargo.toml when the site
              is assembled (scripts/site/assemble.sh), so it is always the one
              main carries. -->
-        <a class="status" href="https://github.com/FerroHEALTH/FerroSMART/milestones" rel="noopener">v{{version:ferrosmart}} in preparation</a>
+        <a class="status" href="https://github.com/FerroHEALTH/FerroSMART/releases/tag/ferrosmart-v{{version:ferrosmart}}" rel="noopener">v{{version:ferrosmart}} released</a>
         <h1>SMART tokens, whichever identity provider you run.</h1>
         <p class="sub">
           FerroSMART is the SMART App Launch 2.2 authorization server of the
@@ -171,6 +171,16 @@
           </a>
 
         </div>
+        <figure class="shot">
+          <picture>
+            <source srcset="./docs/integrate/img/consent-clinician-dark.png" media="(prefers-color-scheme: dark)">
+            <img src="./docs/integrate/img/consent-clinician.png" alt="FerroSMART's consent page: who is signed in, the app's name, each scope it asks for in words, a tick box per scope, the choice to remember the decision, and Allow and Deny." width="1440" height="1029" loading="lazy">
+          </picture>
+          <figcaption>
+            The consent page, drawn with a synthetic app and clinician.
+            <a href="./docs/integrate/flows.html">Every page a person sees</a>.
+          </figcaption>
+        </figure>
       </div>
     </section>
 

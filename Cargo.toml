@@ -54,6 +54,11 @@ cedar-policy = "4.14.0"
 arc-swap = "1.9.3"
 # Test-only: the policy directory of the reload cases.
 tempfile = "3.27.0"
+# The browser FerroSMART's screenshot capture drives over WebDriver, with the
+# Chrome DevTools Protocol for the colour scheme and the full-page size, and
+# the process group its chromedriver is killed with (#623).
+thirtyfour = { version = "0.38.1", default-features = false, features = ["reqwest", "cdp"] }
+rustix = { version = "1.1.6", default-features = false, features = ["std", "process"] }
 # The R4 profile validator FerroSMART's Brands Bundle test holds the Bundle
 # to, over the SMART App Launch 2.2.0 package set (#602), and the FHIR
 # document model it reads.

@@ -44,11 +44,16 @@ It speaks only published standards (SMART App Launch 2.2, OAuth 2.0 and its
 RFCs, OpenID Connect), so it works with any OpenID Connect sign-in system
 upstream and any FHIR server downstream.
 
-The server is being built in this repository (its design is
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="website/book/src/integrate/img/consent-clinician-dark.png">
+  <img src="website/book/src/integrate/img/consent-clinician.png" alt="FerroSMART's consent page: the app's name, each scope it asks for in words, and Allow and Deny">
+</picture>
+
+The server lives in this repository (its design is
 [`docs/architecture.md`](docs/architecture.md) §13, its code
-[`app/ferrosmart`](app/ferrosmart)) and will ship as its own container
-image beside the crates. Its book, for operators and integrators, is at
-<https://ferrosmart.eu/docs/>.
+[`app/ferrosmart`](app/ferrosmart)) and ships as its own container image,
+`ghcr.io/ferrohealth/ferrosmart`, beside the crates. Its book, for
+operators and integrators, is at <https://ferrosmart.eu/docs/>.
 
 #### Identity providers
 
