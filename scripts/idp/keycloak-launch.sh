@@ -29,32 +29,13 @@ fail() {
   exit 1
 }
 
-# shellcheck disable=SC2016 # the backticks are Markdown code spans of docs/VERSIONS.md, matched literally
-image=$(grep -E '^\| Keycloak test image \|' "$root/docs/VERSIONS.md" |
-  sed -E 's/.*`(quay\.io\/keycloak\/keycloak:[^`]+)`, index digest `(sha256:[0-9a-f]{64})`.*/\1@\2/')
-case "$image" in quay.io/keycloak/keycloak:*@sha256:*) ;; *) fail "no Keycloak image pin in docs/VERSIONS.md" ;; esac
-
 fhir_user="http://localhost:8090/fhir/Practitioner/example"
 password=$(openssl rand -hex 16)
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$LANE_DIR/signing.pem" 2> /dev/null
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$LANE_DIR/assertion.pem" 2> /dev/null
 psql "$LANE_PG/postgres" -qc 'CREATE DATABASE ferrosmart_keycloak'
 
-# NOTE: Keycloak's server guide, Importing and exporting realms, Using Environment Variables
-# within the Realm Configuration Files: each placeholder of the realm reads the environment.
-docker run -d --name ferrosmart-keycloak --network host \
-  -v "$example/ferrosmart-realm.json:/opt/keycloak/data/import/ferrosmart-realm.json:ro" \
-  -e KC_HTTP_PORT=8180 -e KC_HTTP_HOST=127.0.0.1 \
-  -e FERROSMART_KEYCLOAK_JWKS_URL=http://localhost:8080/upstream-jwks \
-  -e FERROSMART_KEYCLOAK_REDIRECT_URI=http://localhost:8080/callback \
-  -e "FERROSMART_KEYCLOAK_USER_PASSWORD=$password" \
-  -e "FERROSMART_KEYCLOAK_FHIR_USER=$fhir_user" \
-  "$image" start-dev --import-realm > /dev/null
-for _ in $(seq 1 90); do
-  curl -fsS -o /dev/null http://localhost:8180/realms/ferrosmart/.well-known/openid-configuration && break
-  sleep 2
-done
-docker logs ferrosmart-keycloak > "$LANE_DIR/keycloak.log" 2>&1
+"$root/scripts/idp/keycloak-up.sh" ferrosmart-keycloak "$password" "$fhir_user"
 
 "$root/target/debug/ferrosmart" --config "$example/ferrosmart.toml" \
   --set server.listen=127.0.0.1:8080 \

@@ -1,0 +1,69 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+# Envoy in the third-party lane (#598, scripts/idp/third-party-fhir.sh): a
+# token validator that knows nothing of FerroHEALTH, in front of a FHIR
+# server that is no FerroHEALTH product. Its JWT authentication filter is
+# given three facts and nothing else: FerroSMART's issuer, its JWK Set URL
+# and the audience (RFC 9068 §4: the resource server validates the
+# signature, `iss`, `aud` and `exp`). The filter does not verify the `typ`
+# header, which that section also requires, and enforces no scope; a server
+# that enforces scopes does so behind it. The one-second clock skew lets the
+# lane see a token refused just past its `exp`. No specification governs
+# the file: our own design.
+static_resources:
+  listeners:
+    - name: fhir
+      address:
+        socket_address: { address: 127.0.0.1, port_value: 8090 }
+      filter_chains:
+        - filters:
+            - name: envoy.filters.network.http_connection_manager
+              typed_config:
+                "@type": type.googleapis.com/envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager
+                stat_prefix: fhir
+                route_config:
+                  virtual_hosts:
+                    - name: fhir
+                      domains: ["*"]
+                      routes:
+                        - match: { prefix: "/fhir" }
+                          route: { cluster: fhir_server }
+                http_filters:
+                  - name: envoy.filters.http.jwt_authn
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.jwt_authn.v3.JwtAuthentication
+                      providers:
+                        ferrosmart:
+                          issuer: http://localhost:8080
+                          audiences: ["http://localhost:8090/fhir"]
+                          clock_skew_seconds: 1
+                          remote_jwks:
+                            http_uri:
+                              uri: http://localhost:8080/jwks
+                              cluster: authorization_server
+                              timeout: 5s
+                      rules:
+                        - match: { prefix: "/" }
+                          requires: { provider_name: ferrosmart }
+                  - name: envoy.filters.http.router
+                    typed_config:
+                      "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
+  clusters:
+    - name: fhir_server
+      type: STATIC
+      load_assignment:
+        cluster_name: fhir_server
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: 127.0.0.1, port_value: 8091 }
+    - name: authorization_server
+      type: STATIC
+      load_assignment:
+        cluster_name: authorization_server
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address: { address: 127.0.0.1, port_value: 8080 }
