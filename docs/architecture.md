@@ -3079,7 +3079,8 @@ specification governs.
    scope in its developer-facing documentation"). Any other scope outside
    the SMART set is never granted to a person (owner, 2026-11-19, #647).
 6. **Consent.** (Built in #515: the consent page's "Remember this choice"
-   box writes the `consent` row; a later request whose offered scopes the
+   box, off by default and explained to app developers on the book's
+   flows page, writes the `consent` row; a later request whose offered scopes the
    row covers goes back with a code at once; `GET /manage` logs the person
    in at the provider and lists the rows, each withdrawn by a post that also
    revokes the client's live access tokens about them.) SMART leaves the user's part open: "The authorization
@@ -3371,7 +3372,7 @@ the same lock.
 ```toml
 [ferrosmart]
 issuer = "https://smart.example.org"          # the issuer identifier, https, no query or fragment
-access_token_lifetime = "5min"                # at most one hour (smart app-launch, Response)
+access_token_lifetime = "5min"                # at most one hour (smart app-launch, Response); the book's flows page tells apps to refresh
 refresh_idle = "30d"
 online_idle = "8h"
 
@@ -3506,7 +3507,7 @@ Every secret is a `_file` key read through `ferrohealth-secret`; the
 | A stolen or injected authorization code | PKCE `S256` on every client, single use with revocation on a second valid use, 60-second lifetime, bound to client and redirect URI | `rfc9700 §4.5`; `oauth21 §7.5.3` |
 | Open redirection and code leakage | exact redirect URI match, no redirect on an invalid client or URI, `Referrer-Policy: no-referrer` on every page | `rfc9700 §4.1`, `§4.2`, `§4.11` |
 | Mix-up between authorization servers | `iss` in every authorization response | `rfc9207 §2`; `rfc9700 §4.4` |
-| CSRF and clickjacking on the consent and picker pages | a per-request form token bound to the pending authorization, `frame-ancestors 'none'`, the CSP of 13.15 | `rfc9700 §4.7`, `§4.16`; `rfc6749 §10.12`, `§10.13` |
+| CSRF and clickjacking on the consent and picker pages | a per-request form token bound to the pending authorization, `frame-ancestors 'none'`, the CSP of 13.15; an app embedded in an EHR iframe opens the authorization in a new window (the book's flows page) | `rfc9700 §4.7`, `§4.16`; `rfc6749 §10.12`, `§10.13` |
 | Client assertion replay and audience injection | the `jti` store, a single `aud` value (13.6 item 1) | `rfc7523 §3`; `rfc10070 §1`, `§4` |
 | SSRF through a client's `jwks_uri` | `https` only, taken from the registry and never from a request; no private or loopback address; time and size bounds | `smart client-confidential-asymmetric`, Registering a client (TLS-protected URL); the address rule is our own design |
 | A stolen access token | 300-second lifetime, `aud` restricted to one base, DPoP when step DPoP lands | `rfc9700 §2.2.1`, `§2.3` |
@@ -3826,7 +3827,10 @@ vendored text are decisions:
    follow. App roles belong to the application, so their values hold in
    every tenant where group ids and names differ
    (`howto-add-app-roles-in-apps.md`, App roles vs. groups), and a group
-   assigned to an app role gives its members that role in `roles`.
+   assigned to an app role gives its members that role in `roles`. The
+   book's identity provider page says what an administrator does about it,
+   and that the licence a group assignment needs is not in the vendored
+   pages (`website/book/src/install/upstream.md`).
 3. **The multitenant authorities are refused.** `/common` and
    `/organizations` are no issuer: the issuer in a token is the person's
    tenant (`howto-convert-app-to-be-multi-tenant.md`, Update your code to
