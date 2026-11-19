@@ -127,6 +127,7 @@ async fn begin(
         error: "invalid_scope",
         description: "the request names no scope",
     }))?;
+    let asking = super::oidc::read(params).map_err(Stop::Deny)?;
     let launch_context = match params.get("launch") {
         Some(launch) => {
             match crate::launch::redeem(state, &client.client_id, launch, audience, scope, from)
@@ -157,6 +158,7 @@ async fn begin(
         .relying_party()
         .ok_or(Stop::Deny(Denial::request("no login is configured")))?;
     let upstream = party.authorization_request().map_err(fail)?;
+    let upstream_url = super::oidc::upstream(upstream.url.clone(), &asking);
     let id = random().map_err(fail)?;
     let pending = Pending {
         id: id.clone(),
@@ -181,13 +183,14 @@ async fn begin(
         launch_context,
         upstream_session: None,
         roles: Vec::new(),
+        asking,
     };
     state
         .store()
         .begin_authorization(&pending)
         .await
         .map_err(fail)?;
-    let mut response = see_other(upstream.url.as_str());
+    let mut response = see_other(upstream_url.as_str());
     set_cookie(state, &mut response, &id, REQUEST_SECONDS);
     Ok(response)
 }

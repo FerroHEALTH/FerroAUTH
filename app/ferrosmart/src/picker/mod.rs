@@ -356,6 +356,7 @@ async fn go_on(state: &AppState, pending: &Pending, offered: &str, from: IpAddr)
         requested: &pending.scope,
         client: &client,
         offered: &offered,
+        consent: pending.asking.prompt.consent,
     };
     onward(state, &asked, &back, from).await
 }

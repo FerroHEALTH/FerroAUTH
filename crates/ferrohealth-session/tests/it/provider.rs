@@ -134,6 +134,31 @@ impl Provider {
             .await;
     }
 
+    /// Mounts the refresh grant of `refresh_token` naming the resource
+    /// `resource`, answering `status` and `body`, once.
+    pub(crate) async fn mount_refresh_for(
+        &self,
+        refresh_token: &str,
+        resource: &str,
+        status: u16,
+        body: serde_json::Value,
+    ) {
+        let encoded: String = url::form_urlencoded::byte_serialize(resource.as_bytes()).collect();
+        Mock::given(matchers::method("POST"))
+            .and(matchers::path(TOKEN))
+            .and(matchers::body_string_contains("grant_type=refresh_token"))
+            .and(matchers::body_string_contains(format!(
+                "refresh_token={refresh_token}"
+            )))
+            .and(matchers::body_string_contains(format!(
+                "resource={encoded}"
+            )))
+            .respond_with(ResponseTemplate::new(status).set_body_json(body))
+            .expect(1)
+            .mount(&self.server)
+            .await;
+    }
+
     /// Mounts the revocation of `token` with `hint`, once.
     pub(crate) async fn mount_revoke(&self, token: &str, hint: &str) {
         Mock::given(matchers::method("POST"))

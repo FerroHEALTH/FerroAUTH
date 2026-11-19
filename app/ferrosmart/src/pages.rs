@@ -124,7 +124,7 @@ pub fn fault(state: &AppState, fault: Fault) -> Response {
     );
     let title = locale.lookup(&*CATALOG, title);
     let page = Html::join([brand_lockup(state, &locale), page]);
-    respond(state, code, &locale, title, page, &[])
+    respond(state, code, &locale, title, page, Sources::default())
 }
 
 /// Logs `error` with its whole chain and returns the server's fault page.
@@ -134,14 +134,15 @@ pub fn server_error(state: &AppState, error: &dyn std::error::Error) -> Response
 }
 
 /// Returns the consent page of `pending` for `client`, in the language the
-/// request's `Accept-Language` prefers among the catalog's.
+/// request's `ui_locales`, then its `Accept-Language`, prefer among the
+/// catalog's.
 pub fn consent(
     state: &AppState,
     headers: &HeaderMap,
     client: &Client,
     pending: &Pending,
 ) -> Response {
-    let locale = negotiated(headers);
+    let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let with = |id: &str, args: &[(&'static str, Arg)]| locale.lookup_with(&*CATALOG, id, args);
     let offered: Vec<&str> = pending
@@ -151,43 +152,17 @@ pub fn consent(
         .split(' ')
         .filter(|scope| !scope.is_empty())
         .collect();
-    let checks = Html::join(offered.iter().enumerate().map(|(index, scope)| {
-        let id = format!("scope-{index}");
-        let checkbox = Html::raw(format!(
-            "<input type=\"checkbox\" id=\"{id}\" name=\"scope\" value=\"{}\" checked>",
-            Html::text(scope)
-        ));
-        check(&id, *scope, checkbox)
-    }));
+    // NOTE: docs/architecture.md §13.6 item 3, identity, launch and refresh scopes
+    // are fixed lines and resource scopes keep their boxes (owner, 2026-11-19).
+    let (fixed, chosen): (Vec<&str>, Vec<&str>) = offered
+        .iter()
+        .partition(|scope| crate::scopes::is_fixed(scope));
     let signed_in = pending.display_name.as_deref().map_or_else(
         || words("consent-signed-in-plain"),
         |name| with("consent-signed-in", &[("name", Arg::from(name))]),
     );
     let client_name = Arg::from(client.name.as_str());
-    let action = state.settings().endpoint(CONSENT_ROUTE);
-    let remember = check_field(
-        "remember",
-        with("consent-remember", &[("client", client_name.clone())]),
-        with("consent-remember-help", &[("client", client_name.clone())]),
-        Html::raw(String::from(
-            "<input type=\"checkbox\" id=\"remember\" name=\"remember\" value=\"yes\" aria-describedby=\"remember-help\">",
-        )),
-    );
-    let form = Html::raw(format!(
-        "<form method=\"post\" action=\"{action}\" class=\"fui-stack\">\
-         <input type=\"hidden\" name=\"form_token\" value=\"{token}\">{fields}{remember}\
-         <div class=\"fui-cluster\">\
-         <button type=\"submit\" name=\"decision\" value=\"approve\" class=\"{primary}\">{allow}</button>\
-         <button type=\"submit\" name=\"decision\" value=\"deny\" class=\"{secondary}\">{deny}</button>\
-         </div></form>",
-        action = Html::text(&action),
-        token = Html::text(&pending.form_token),
-        fields = fieldset(words("consent-choose"), checks),
-        primary = Variant::Primary.class(),
-        secondary = Variant::Secondary.class(),
-        allow = label(Some(Glyph::CHECK), words("consent-allow")),
-        deny = label(None, words("consent-deny")),
-    ));
+    let form = consent_form(state, &locale, &client_name, pending, &chosen);
     let deployment = &state.settings().branding;
     let own_words = if deployment.consent_text.is_empty() {
         Html::empty()
@@ -196,11 +171,25 @@ pub fn consent(
     };
     let body = Html::join([
         Html::raw(format!("<p>{}</p>", Html::text(signed_in))),
+        about(&client.about, &locale, &client_name),
         Html::raw(format!(
             "<p>{}</p>",
             Html::text(with("consent-intro", &[("client", client_name.clone())]))
         )),
-        scope_list(&locale, &words("consent-scopes"), &offered),
+        if chosen.is_empty() {
+            Html::empty()
+        } else {
+            scope_list(&locale, &words("consent-scopes"), &chosen)
+        },
+        if fixed.is_empty() {
+            Html::empty()
+        } else {
+            scope_list(
+                &locale,
+                &with("consent-fixed", &[("client", client_name.clone())]),
+                &fixed,
+            )
+        },
         own_words,
         form,
     ]);
@@ -213,14 +202,121 @@ pub fn consent(
         .ok()
         .map(|url| url.origin().ascii_serialization())
         .filter(|origin| origin != "null");
+    // NOTE: CSP Level 3 §6.1.8 img-src, the app's logo is loaded from its own
+    // origin, which the policy names on this page alone.
+    let logo_origin = client
+        .about
+        .logo
+        .as_ref()
+        .map(|url| url.origin().ascii_serialization());
     respond(
         state,
         StatusCode::OK,
         &locale,
         title,
         page,
-        &origin.into_iter().collect::<Vec<_>>(),
+        Sources {
+            form: &origin.into_iter().collect::<Vec<_>>(),
+            img: &logo_origin.into_iter().collect::<Vec<_>>(),
+        },
     )
+}
+
+/// Returns the consent page's form for `pending`: a box per resource scope
+/// of `chosen`, the remember box and the two decisions.
+fn consent_form(
+    state: &AppState,
+    locale: &Locale,
+    client_name: &Arg,
+    pending: &Pending,
+    chosen: &[&str],
+) -> Html {
+    let words = |id: &str| locale.lookup(&*CATALOG, id);
+    let with = |id: &str, args: &[(&'static str, Arg)]| locale.lookup_with(&*CATALOG, id, args);
+    let checks = Html::join(chosen.iter().enumerate().map(|(index, scope)| {
+        let id = format!("scope-{index}");
+        let checkbox = Html::raw(format!(
+            "<input type=\"checkbox\" id=\"{id}\" name=\"scope\" value=\"{}\" checked>",
+            Html::text(scope)
+        ));
+        check(&id, *scope, checkbox)
+    }));
+    let action = state.settings().endpoint(CONSENT_ROUTE);
+    let remember = check_field(
+        "remember",
+        with("consent-remember", &[("client", client_name.clone())]),
+        with("consent-remember-help", &[("client", client_name.clone())]),
+        Html::raw(String::from(
+            "<input type=\"checkbox\" id=\"remember\" name=\"remember\" value=\"yes\" aria-describedby=\"remember-help\">",
+        )),
+    );
+    Html::raw(format!(
+        "<form method=\"post\" action=\"{action}\" class=\"fui-stack\">\
+         <input type=\"hidden\" name=\"form_token\" value=\"{token}\">{fields}{remember}\
+         <div class=\"fui-cluster\">\
+         <button type=\"submit\" name=\"decision\" value=\"approve\" class=\"{primary}\">{allow}</button>\
+         <button type=\"submit\" name=\"decision\" value=\"deny\" class=\"{secondary}\">{deny}</button>\
+         </div></form>",
+        action = Html::text(&action),
+        token = Html::text(&pending.form_token),
+        fields = if chosen.is_empty() {
+            Html::empty()
+        } else {
+            fieldset(words("consent-choose"), checks)
+        },
+        primary = Variant::Primary.class(),
+        secondary = Variant::Secondary.class(),
+        allow = label(Some(Glyph::CHECK), words("consent-allow")),
+        deny = label(None, words("consent-deny")),
+    ))
+}
+
+/// Returns what the consent page shows about the app `about` registers:
+/// its logo, and links to its home page, privacy policy and terms.
+fn about(about: &crate::clients::About, locale: &Locale, client_name: &Arg) -> Html {
+    let with = |id: &str| locale.lookup_with(&*CATALOG, id, &[("client", client_name.clone())]);
+    let logo = about.logo.as_ref().map_or_else(Html::empty, |logo| {
+        Html::raw(format!(
+            "<img src=\"{}\" alt=\"{}\" width=\"64\" height=\"64\">",
+            Html::text(logo.as_str()),
+            Html::text(with("consent-logo"))
+        ))
+    });
+    let links: Vec<Html> = [
+        (&about.home, "consent-about-home"),
+        (&about.policy, "consent-about-policy"),
+        (&about.terms, "consent-about-terms"),
+    ]
+    .into_iter()
+    .filter_map(|(url, id)| {
+        url.as_ref().map(|url| {
+            Html::raw(format!(
+                "<li><a href=\"{}\" rel=\"noopener noreferrer\" target=\"_blank\">{}</a></li>",
+                Html::text(url.as_str()),
+                Html::text(with(id))
+            ))
+        })
+    })
+    .collect();
+    let links = if links.is_empty() {
+        Html::empty()
+    } else {
+        Html::join([
+            Html::raw(String::from("<ul class=\"fui-cluster\">")),
+            Html::join(links),
+            Html::raw(String::from("</ul>")),
+        ])
+    };
+    Html::join([logo, links])
+}
+
+/// The origins a page names beside its own in its content security policy.
+#[derive(Debug, Clone, Copy, Default)]
+struct Sources<'a> {
+    /// The origins its forms post to, or are redirected to.
+    form: &'a [String],
+    /// The origins its images load from.
+    img: &'a [String],
 }
 
 /// Returns the patient picker page of `pending`: the search form, filled
@@ -235,7 +331,7 @@ pub fn picker(
     found: Option<&[crate::picker::Found]>,
     notice: Option<&str>,
 ) -> Response {
-    let locale = negotiated(headers);
+    let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let action = state.settings().endpoint(crate::picker::PICKER_ROUTE);
     let (name, identifier) = asked.unwrap_or_default();
@@ -314,7 +410,7 @@ pub fn encounter_picker(
     (pending, patient): (&Pending, &str),
     found: &[crate::picker::encounter::FoundEncounter],
 ) -> Response {
-    let locale = negotiated(headers);
+    let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let choices = if found.is_empty() {
         Html::raw(format!(
@@ -399,7 +495,14 @@ fn picker_card(
     let lockup = brand_lockup(state, locale);
     let title = words(title);
     let page = page_card(Some(lockup), title.clone(), body);
-    respond(state, StatusCode::OK, locale, title, page, &[])
+    respond(
+        state,
+        StatusCode::OK,
+        locale,
+        title,
+        page,
+        Sources::default(),
+    )
 }
 
 /// Returns the picker page of `pending` at an openEHR resource server.
@@ -415,7 +518,7 @@ pub fn ehr_picker(
     looked_up: Option<(&str, Option<&crate::picker::openehr::FoundEhr>)>,
 ) -> Response {
     let asked = looked_up.map(|(asked, _)| asked);
-    let locale = negotiated(headers);
+    let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let action = state.settings().endpoint(crate::picker::PICKER_ROUTE);
     let input = Html::raw(format!(
@@ -506,7 +609,7 @@ pub fn manage(
     pending: &Pending,
     remembered: &[Remembered],
 ) -> Response {
-    let locale = negotiated(headers);
+    let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let action = state.settings().endpoint(MANAGE_ROUTE);
     let rows = if remembered.is_empty() {
@@ -564,7 +667,14 @@ pub fn manage(
     let title = words("manage-title");
     let lockup = brand_lockup(state, &locale);
     let page = page_card(Some(lockup), title.clone(), body);
-    respond(state, StatusCode::OK, &locale, title, page, &[])
+    respond(
+        state,
+        StatusCode::OK,
+        &locale,
+        title,
+        page,
+        Sources::default(),
+    )
 }
 
 /// Returns the list of `scopes` named `label` in `locale`: each SMART scope
@@ -618,14 +728,36 @@ fn resource_words(locale: &Locale, resource: &str) -> String {
         )
 }
 
-/// Returns the locale the request's `Accept-Language` prefers among the
-/// catalog's, English when none matches.
-fn negotiated(headers: &HeaderMap) -> Locale {
+/// Returns the locale the request's `ui_locales`, then its
+/// `Accept-Language`, prefer among the catalog's, English when none matches.
+fn negotiated(headers: &HeaderMap, pending: &Pending) -> Locale {
     let accept = headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    Locale::negotiate_with(accept, &*CATALOG, Locale::default()).with_catalog(&*CATALOG)
+    // NOTE: OpenID Connect Core 1.0 §3.1.2.1: ui_locales names the languages wanted,
+    // most preferred first, so they go before the browser's own.
+    let wanted = pending
+        .asking
+        .ui_locales
+        .as_deref()
+        .unwrap_or_default()
+        .split(' ')
+        .filter(|tag| !tag.is_empty())
+        .chain(std::iter::once(accept).filter(|accept| !accept.is_empty()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Locale::negotiate_with(&wanted, &*CATALOG, Locale::default()).with_catalog(&*CATALOG)
+}
+
+/// Returns the languages the pages are drawn in, as BCP 47 tags: the
+/// catalog's (OpenID Connect Discovery 1.0 §3, `ui_locales_supported`).
+#[must_use]
+pub fn ui_locales() -> Vec<String> {
+    use fluent_templates::Loader as _;
+    let mut tags: Vec<String> = CATALOG.locales().map(ToString::to_string).collect();
+    tags.sort();
+    tags
 }
 
 /// Returns `content` as a whole document in the centred layout, with the
@@ -636,7 +768,7 @@ fn respond(
     locale: &Locale,
     title: String,
     content: Html,
-    form_origins: &[String],
+    sources: Sources<'_>,
 ) -> Response {
     let footer = Footer {
         product: "FerroSMART".into(),
@@ -654,12 +786,17 @@ fn respond(
     });
     let mut response = (status, axum::response::Html(String::from(html))).into_response();
     let mut form_action = String::from("'self'");
-    for origin in form_origins {
+    for origin in sources.form {
         form_action.push(' ');
         form_action.push_str(origin);
     }
+    let mut img_src = String::from("'self'");
+    for origin in sources.img {
+        img_src.push(' ');
+        img_src.push_str(origin);
+    }
     let policy = format!(
-        "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; \
+        "default-src 'none'; script-src 'self'; style-src 'self'; img-src {img_src}; \
          font-src 'self'; form-action {form_action}; frame-ancestors 'none'; base-uri 'none'"
     );
     let headers = response.headers_mut();
