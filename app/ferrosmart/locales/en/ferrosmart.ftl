@@ -50,6 +50,7 @@ picker-ehr-intro = The app works with one patient's health record. Enter the pat
 picker-ehr-results = Health record found
 picker-ehr-none = No health record you may see belongs to this identifier.
 picker-ehr-created = record created { $date }
+picker-paired-none = This patient has no health record you may see. Choose another patient.
 
 # Plain words for the FHIR resource types a scope names, shown before the
 # type (SMART App Launch 2.2.0, Best Practices, Considerations for Scope

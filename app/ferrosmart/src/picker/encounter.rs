@@ -198,6 +198,7 @@ fn belongs_to(resource: &Value, patient: &str) -> bool {
 fn encounter_ask<'a>(url: &'a Url, audience: &'a str, patient: &'a str, action: Action) -> Ask<'a> {
     Ask {
         url,
+        audience,
         scope: ENCOUNTER_SCOPE,
         accept: "application/fhir+json",
         describe: Box::new(move |fetched| {

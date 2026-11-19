@@ -57,6 +57,8 @@ pub struct Settings {
     pub openehr_resources: Vec<String>,
     /// The subject namespace of each openEHR base that names one.
     pub subject_namespaces: BTreeMap<String, String>,
+    /// The FHIR base each openEHR base that names one is paired with.
+    pub pairings: BTreeMap<String, Pairing>,
     /// The upstream provider, when people log in.
     pub upstream: Option<Upstream>,
     /// The scopes each role may be granted.
@@ -180,6 +182,7 @@ impl Config {
                 .map(|resource| resource.base.clone())
                 .collect(),
             subject_namespaces: subject_namespaces(&section.resource)?,
+            pairings: pairings(&section.resource)?,
             upstream: section
                 .upstream
                 .as_ref()
@@ -357,6 +360,59 @@ fn subject_namespaces(
         namespaces.insert(section.base.clone(), namespace.clone());
     }
     Ok(namespaces)
+}
+
+/// The FHIR server an openEHR base is paired with, and how one of its
+/// patients names their EHR's subject.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pairing {
+    /// The FHIR base, one of the configured FHIR resource servers.
+    pub fhir_base: String,
+    /// The `system` of the `Patient.identifier` that carries the subject id.
+    pub subject_system: String,
+}
+
+/// Returns the pairing of each openEHR base in `sections` that names a
+/// `fhir_base`.
+fn pairings(
+    sections: &[crate::config::ResourceSection],
+) -> Result<BTreeMap<String, Pairing>, Error> {
+    let refuse = |rule| Err(Error::Resource { rule });
+    let mut pairings = BTreeMap::new();
+    for section in sections {
+        let (fhir_base, subject_system) = match (&section.fhir_base, &section.subject_system) {
+            (None, None) => continue,
+            (Some(fhir_base), Some(subject_system)) => (fhir_base, subject_system),
+            _ => return refuse("`fhir_base` and `subject_system` are set together"),
+        };
+        // NOTE: SMART on openEHR draft, Service Discovery, `org.fhir.rest` is the FHIR
+        // API of a platform whose required service is `org.openehr.rest`.
+        if section.kind != crate::config::ResourceKind::Openehr {
+            return refuse("a `fhir_base` is for an openEHR base");
+        }
+        // NOTE: openEHR ITS-REST 1.1.0, ehr_get_by_subject, the EHR is looked up by
+        // a subject id and its namespace, so a paired base names the namespace.
+        if section.subject_namespace.is_none() {
+            return refuse("a base with a `fhir_base` names its `subject_namespace`");
+        }
+        let fhir = sections.iter().any(|other| {
+            other.kind == crate::config::ResourceKind::Fhir && &other.base == fhir_base
+        });
+        if !fhir {
+            return refuse("a `fhir_base` is a configured FHIR `ferrosmart.resource` base");
+        }
+        if subject_system.trim().is_empty() {
+            return refuse("a `subject_system` is not empty");
+        }
+        pairings.insert(
+            section.base.clone(),
+            Pairing {
+                fhir_base: fhir_base.clone(),
+                subject_system: subject_system.clone(),
+            },
+        );
+    }
+    Ok(pairings)
 }
 
 /// Returns the upstream provider `section` names, authenticating with

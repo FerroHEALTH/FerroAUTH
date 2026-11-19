@@ -223,6 +223,15 @@ pub struct ResourceSection {
     /// (`EHR_STATUS.subject.external_ref.namespace`), which the patient
     /// picker looks an EHR up by; unset, the picker is not offered there.
     pub subject_namespace: Option<String>,
+    /// For an openEHR server, the base of the platform's FHIR server (the
+    /// `org.fhir.rest` service beside `org.openehr.rest`, SMART on openEHR
+    /// draft, Service Discovery), one of the FHIR bases configured: the
+    /// patient picker searches it for the patient and then looks their EHR
+    /// up, so the context carries `patient` and `ehrId`.
+    pub fhir_base: Option<String>,
+    /// With `fhir_base`, the `system` of the `Patient.identifier` whose
+    /// value is the subject id of the patient's EHR in `subject_namespace`.
+    pub subject_system: Option<String>,
 }
 
 /// The API a resource server serves.

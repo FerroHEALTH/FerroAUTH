@@ -24,7 +24,10 @@
 //!
 //! At a FHIR resource server the picker also offers the chosen patient's
 //! encounters when the app asks for `launch/encounter` (Standalone apps,
-//! `context-standalone-encounter`), in [`encounter`].
+//! `context-standalone-encounter`), in [`encounter`]. At an openEHR resource
+//! server paired with the platform's FHIR server, the person picks the
+//! patient there and [`paired`] looks their EHR up, so the context carries
+//! both `patient` and `ehrId`.
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -58,6 +61,7 @@ use crate::store::{IssuedToken, Pending};
 
 pub mod encounter;
 pub mod openehr;
+mod paired;
 
 /// The route of the picker under the issuer.
 pub const PICKER_ROUTE: &str = "/picker";
@@ -169,6 +173,10 @@ pub enum PickerError {
     /// The resource server's URL could not be built from its base.
     #[error("the resource server's URL could not be built")]
     Url(#[source] url::ParseError),
+    /// The patient carries more than one current identifier of the system
+    /// their EHR's subject is named by.
+    #[error("the patient has more than one identifier of the subject system")]
+    Ambiguous,
     /// No id could be drawn.
     #[error("no token id could be drawn")]
     Random(#[source] aws_lc_rs::error::Unspecified),
@@ -189,9 +197,13 @@ pub async fn picker_get(
     let Ok(params) = Params::parse(query.unwrap_or_default().as_bytes(), &[]) else {
         return pages::fault(&state, Fault::BadRequest);
     };
-    if let Some(namespace) = openehr_namespace(&state, &pending.audience) {
+    let pairing = state.settings().pairings.get(&pending.audience);
+    if let (None, Some(namespace)) = (pairing, openehr_namespace(&state, &pending.audience)) {
         return openehr::look_up(&state, &headers, &pending, from, namespace, &params).await;
     }
+    // NOTE: SMART on openEHR draft, Context Selection, `launch/patient` asks for the
+    // FHIR Patient and its EHR, so a paired base searches the platform's FHIR server.
+    let base = pairing.map_or(pending.audience.as_str(), |pairing| &pairing.fhir_base);
     let name = params
         .get("name")
         .map(str::trim)
@@ -200,13 +212,13 @@ pub async fn picker_get(
         .get("identifier")
         .map(str::trim)
         .filter(|text| !text.is_empty());
-    if let Some(patient) = params.get("patient") {
+    if let (None, Some(patient)) = (pairing, params.get("patient")) {
         return encounter::list(&state, &headers, &pending, from, patient).await;
     }
     if name.is_none() && identifier.is_none() {
-        return pages::picker(&state, &headers, &pending, None, None);
+        return pages::picker(&state, &headers, &pending, None, None, None);
     }
-    let mut url = match patient_url(&pending.audience, None) {
+    let mut url = match patient_url(base, None) {
         Ok(url) => url,
         Err(error) => return pages::server_error(&state, &error),
     };
@@ -224,7 +236,7 @@ pub async fn picker_get(
         &state,
         &pending,
         from,
-        &fhir_ask(&url, &pending.audience, Action::Query),
+        &fhir_ask(&url, base, Action::Query),
     )
     .await
     {
@@ -236,6 +248,7 @@ pub async fn picker_get(
                 &pending,
                 Some((name, identifier)),
                 Some(&found),
+                None,
             )
         }
         Ok(_) => pages::server_error(&state, &PickerError::Unreadable),
@@ -262,6 +275,9 @@ pub async fn picker_post(
     if !crate::authorize::constant_eq(sent.as_bytes(), pending.form_token.as_bytes()) {
         return pages::fault(&state, Fault::BadRequest);
     }
+    if let Some(pairing) = state.settings().pairings.get(&pending.audience) {
+        return paired::choose(&state, &headers, &pending, from, pairing, &form).await;
+    }
     if let Some(namespace) = openehr_namespace(&state, &pending.audience) {
         let context = match openehr::choose(&state, &pending, from, namespace, &form).await {
             Ok(context) => context,
@@ -275,7 +291,7 @@ pub async fn picker_post(
     let Some(id) = form.get("patient").filter(|id| is_fhir_id(id)) else {
         return pages::fault(&state, Fault::BadRequest);
     };
-    if let Err(response) = read_patient(&state, &pending, from, id).await {
+    if let Err(response) = read_patient(&state, &pending, from, &pending.audience, id).await {
         return *response;
     }
     if encounter::wanted(&state, &pending) {
@@ -291,15 +307,16 @@ pub async fn picker_post(
     enter(&state, &pending, &context, from).await
 }
 
-/// Reads the patient `id` at the resource server of `pending` as the
-/// signed-in person, or returns the page that says why it could not.
+/// Reads the patient `id` at the FHIR base `base` as the signed-in person
+/// of `pending`, or returns the page that says why it could not.
 async fn read_patient(
     state: &AppState,
     pending: &Pending,
     from: IpAddr,
+    base: &str,
     id: &str,
-) -> Result<(), Box<Response>> {
-    let url = patient_url(&pending.audience, Some(id))
+) -> Result<Value, Box<Response>> {
+    let url = patient_url(base, Some(id))
         .map_err(|error| Box::new(pages::server_error(state, &error)))?;
     // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `patient` is the
     // id of a patient the person may see, so the choice is read again as them.
@@ -307,11 +324,11 @@ async fn read_patient(
         state,
         pending,
         from,
-        &fhir_ask(&url, &pending.audience, Action::Read),
+        &fhir_ask(&url, base, Action::Read),
     )
     .await
     {
-        Ok(resource) if resource.get("id").and_then(Value::as_str) == Some(id) => Ok(()),
+        Ok(resource) if resource.get("id").and_then(Value::as_str) == Some(id) => Ok(resource),
         Ok(_) => Err(Box::new(pages::server_error(
             state,
             &PickerError::Unreadable,
@@ -422,6 +439,8 @@ struct PickerClaims<'a> {
 struct Ask<'a> {
     /// The URL asked.
     url: &'a Url,
+    /// The base of the resource server asked, the token's audience.
+    audience: &'a str,
     /// The one scope the token carries.
     scope: &'static str,
     /// The media type asked for.
@@ -451,6 +470,7 @@ struct Access {
 fn fhir_ask<'a>(url: &'a Url, audience: &'a str, action: Action) -> Ask<'a> {
     Ask {
         url,
+        audience,
         scope: PICKER_SCOPE,
         accept: "application/fhir+json",
         describe: Box::new(move |fetched| {
@@ -534,7 +554,7 @@ async fn as_person(
     let claims = PickerClaims {
         iss: &settings.issuer,
         sub: subject,
-        aud: &pending.audience,
+        aud: ask.audience,
         exp: expires_at,
         iat: issued_at,
         jti: &jti,
@@ -567,7 +587,7 @@ async fn as_person(
         jti: &jti,
         client_id: &settings.issuer,
         subject,
-        audience: &pending.audience,
+        audience: ask.audience,
         scope: ask.scope,
         issued_at,
         expires_at,
@@ -585,7 +605,13 @@ async fn as_person(
         .await
         .map_err(PickerError::Record)?;
     let fetched = fetch(state, ask, &token).await;
-    let recorded = record_access(state, pending, subject, from, (ask.describe)(&fetched)).await;
+    let asker = Asker {
+        pending,
+        subject,
+        from,
+        audience: ask.audience,
+    };
+    let recorded = record_access(state, &asker, (ask.describe)(&fetched)).await;
     let revoked = revoke(
         state,
         &jti,
@@ -632,22 +658,38 @@ async fn revoke(state: &AppState, jti: &str, happening: Happening<'_>) -> Result
         .map_err(PickerError::Record)
 }
 
-/// Stores the access record of one request the picker sent, as `access`
+/// Who sent one request of the picker, from where and to which server.
+struct Asker<'a> {
+    /// The browser's request.
+    pending: &'a Pending,
+    /// The signed-in person.
+    subject: &'a str,
+    /// The browser's address.
+    from: IpAddr,
+    /// The base of the resource server asked.
+    audience: &'a str,
+}
+
+/// Stores the access record of one request `asker` sent, as `access`
 /// describes it (Regulation (EU) 2025/327 Annex II 3.2).
 async fn record_access(
     state: &AppState,
-    pending: &Pending,
-    subject: &str,
-    from: IpAddr,
+    asker: &Asker<'_>,
     access: Access,
 ) -> Result<(), PickerError> {
+    let Asker {
+        pending,
+        subject,
+        from,
+        audience,
+    } = *asker;
     let settings = state.settings();
     let recorded = jiff::Timestamp::now();
     // NOTE: Regulation (EU) 2025/327 Art 14(1), a Patient's demographics and an
     // EHR's id are none of the priority categories, so the access has no category.
     let categories = CategoryMap::default().classify(&Evidence::no_category());
     let origins = vec![Origin {
-        endpoint: Some(pending.audience.clone()),
+        endpoint: Some(audience.to_owned()),
         node: None,
         system_id: None,
         status: None,
@@ -669,7 +711,7 @@ async fn record_access(
         recorded,
         outcome,
         outcome_description: None,
-        accessor: accessor(&settings.issuer, pending, subject),
+        accessor: accessor(&settings.issuer, asker),
         subject: access.subject,
         categories,
         delivered: access.delivered,
@@ -703,14 +745,15 @@ async fn record_access(
         .map_err(PickerError::Record)
 }
 
-/// Returns the person of `pending`, `subject` under FerroSMART's `issuer`,
-/// as the access record names the accessor.
-fn accessor(issuer: &str, pending: &Pending, subject: &str) -> Accessor {
+/// Returns the person of `asker` under FerroSMART's `issuer`, as the
+/// access record names the accessor.
+fn accessor(issuer: &str, asker: &Asker<'_>) -> Accessor {
+    let pending = asker.pending;
     Accessor {
         issuer: Some(issuer.to_owned()),
-        subject: subject.to_owned(),
+        subject: asker.subject.to_owned(),
         client_id: pending.client_id.clone(),
-        audience: Some(pending.audience.clone()),
+        audience: Some(asker.audience.to_owned()),
         provider: None,
         acting: None,
         roles: Vec::new(),

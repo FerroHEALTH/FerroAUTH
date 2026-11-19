@@ -10,18 +10,20 @@ use super::*;
 /// The patient's identifier in the deployment's subject namespace.
 const SUBJECT: &str = "ins01";
 /// The deployment's subject namespace.
-const NAMESPACE: &str = "examples";
+pub(super) const NAMESPACE: &str = "examples";
 /// The patient's EHR.
-const EHR_ID: &str = "7d44b88c-4199-4bad-97dc-d78268e01398";
+pub(super) const EHR_ID: &str = "7d44b88c-4199-4bad-97dc-d78268e01398";
 /// The scope the app asks for at the openEHR server.
 const SCOPE: &str = "openid fhirUser launch/patient patient/composition-*.r";
 
-/// An openEHR server that holds the EHR [`EHR_ID`] of [`SUBJECT`], which
+/// An openEHR server that holds the EHR [`EHR_ID`] of one subject, which
 /// only the person whose `fhirUser` is `Practitioner/synthetic-1` may see,
 /// and keeps the claims of every token it was shown.
-struct OpenEhr {
+pub(super) struct OpenEhr {
+    /// The subject id of the EHR, in [`NAMESPACE`].
+    pub(super) subject: &'static str,
     /// The claims of the tokens it was shown.
-    seen: Arc<std::sync::Mutex<Vec<Value>>>,
+    pub(super) seen: Arc<std::sync::Mutex<Vec<Value>>>,
 }
 
 impl wiremock::Respond for OpenEhr {
@@ -43,7 +45,7 @@ impl wiremock::Respond for OpenEhr {
             |name: &str, value: &str| pairs.iter().any(|(key, text)| key == name && text == value);
         // NOTE: openEHR ITS-REST 1.1.0, ehr_get_by_subject, `404` when no EHR of
         // the subject exists, which a server also answers to whom may not see it.
-        if !(allowed && asks("subject_id", SUBJECT) && asks("subject_namespace", NAMESPACE)) {
+        if !(allowed && asks("subject_id", self.subject) && asks("subject_namespace", NAMESPACE)) {
             return ResponseTemplate::new(404);
         }
         ResponseTemplate::new(200).set_body_json(json!({
@@ -62,6 +64,7 @@ async fn ehr_launch() -> (Smart, String, Arc<std::sync::Mutex<Vec<Value>>>, Mock
     Mock::given(matchers::method("GET"))
         .and(matchers::path("/openehr/v1/ehr"))
         .respond_with(OpenEhr {
+            subject: SUBJECT,
             seen: Arc::clone(&seen),
         })
         .mount(&openehr)
@@ -86,7 +89,7 @@ async fn over(base: &str) -> Smart {
 }
 
 /// Returns the access records of `stored` that look an EHR up by subject.
-fn lookups(stored: &[Value]) -> Vec<&Value> {
+pub(super) fn lookups(stored: &[Value]) -> Vec<&Value> {
     stored
         .iter()
         .filter(|record| {

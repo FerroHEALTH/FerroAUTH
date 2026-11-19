@@ -119,7 +119,7 @@ pub(super) async fn choose(
 
 /// Looks up the EHR of `subject_id` in `namespace` as the person of
 /// `pending`: `None` when the server holds none they may see.
-async fn by_subject(
+pub(super) async fn by_subject(
     state: &AppState,
     pending: &Pending,
     from: IpAddr,
@@ -134,6 +134,7 @@ async fn by_subject(
     let asked = &url;
     let ask = Ask {
         url: asked,
+        audience,
         scope: EHR_SCOPE,
         accept: "application/json",
         describe: Box::new(move |fetched| access(audience, namespace, subject_id, asked, fetched)),
