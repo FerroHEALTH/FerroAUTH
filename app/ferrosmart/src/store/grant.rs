@@ -59,6 +59,9 @@ pub struct NewGrant<'a> {
     pub access: Option<Access>,
     /// The upstream session an `online_access` grant lives in.
     pub upstream_session: Option<&'a str>,
+    /// The time of the organisation approval it was given on, in seconds
+    /// since the epoch, which withdrawing the approval revokes it by.
+    pub approved_at: Option<i64>,
     /// The person's mapped roles, which every access token issued under
     /// the grant carries (RFC 9068 §2.2.3.1).
     pub roles: &'a [String],
@@ -161,8 +164,8 @@ impl Store {
     pub async fn create_grant(&self, grant: &NewGrant<'_>) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO authorization_grant (id, client_id, subject, fhir_user, audience, scope, \
-             context, auth_time, access, upstream_session, roles) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+             context, auth_time, access, upstream_session, roles, approved_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, to_timestamp($12))",
         )
         .bind(grant.id)
         .bind(grant.client_id)
@@ -175,6 +178,7 @@ impl Store {
         .bind(grant.access.map(Access::as_str))
         .bind(grant.upstream_session)
         .bind(grant.roles)
+        .bind(grant.approved_at)
         .execute(&self.pool)
         .await?;
         Ok(())

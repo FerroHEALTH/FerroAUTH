@@ -277,6 +277,7 @@ impl Server {
                 auth_time: Some(jiff::Timestamp::now().as_second()),
                 access,
                 upstream_session: session,
+                approved_at: None,
                 roles: &[],
             })
             .await
@@ -550,6 +551,7 @@ async fn a_person_s_token_answers_their_mapped_roles() {
             access: None,
             upstream_session: None,
             roles: &roles,
+            approved_at: None,
         })
         .await
         .expect("recorded");

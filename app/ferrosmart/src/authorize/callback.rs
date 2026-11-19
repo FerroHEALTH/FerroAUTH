@@ -16,12 +16,13 @@ use url::Url;
 
 use crate::audit::Connected;
 use crate::audit::exchanges::{Person, login};
+use crate::clients::{Approval, Client};
 use crate::form::Params;
 use crate::pages::{self, Fault};
 use crate::server::AppState;
 use crate::store::{Login, Pending, Purpose};
 
-use super::consent::{approve, offer};
+use super::consent::{Basis, approve, offer};
 use super::{
     Back, CONSENT_ROUTE, Denial, MANAGE_ROUTE, cookie, forget, found, now, random, registered,
     see_other, set_cookie,
@@ -176,16 +177,52 @@ async fn proceed(
     if pending.launch_context.is_none() && offered.contains(&"launch/patient") {
         return see_other(&state.settings().endpoint(crate::picker::PICKER_ROUTE));
     }
-    onward(
-        state,
-        &pending.id,
-        &login.subject,
-        &client.client_id,
-        &offered,
-        back,
-        from,
-    )
-    .await
+    let asked = Asked {
+        id: &pending.id,
+        subject: &login.subject,
+        fhir_user: login.fhir_user.as_deref(),
+        requested: &pending.scope,
+        client: &client,
+        offered: &offered,
+    };
+    onward(state, &asked, back, from).await
+}
+
+/// What a person, logged in with the launch context complete, was asked
+/// to authorize.
+pub(crate) struct Asked<'a> {
+    /// The pending authorization's id.
+    pub(crate) id: &'a str,
+    /// The person's pairwise subject.
+    pub(crate) subject: &'a str,
+    /// The person's `fhirUser`, when the provider carries one.
+    pub(crate) fhir_user: Option<&'a str>,
+    /// The scope the app requested.
+    pub(crate) requested: &'a str,
+    /// The client.
+    pub(crate) client: &'a Client,
+    /// The scopes policy offers (`docs/architecture.md` §13.6 item 5).
+    pub(crate) offered: &'a [&'a str],
+}
+
+/// Returns the organisation approval of the client that `asked` falls
+/// under: the person is a professional, the request names no `patient/`
+/// scope, and the approval covers every scope offered
+/// (`docs/architecture.md` §13.6 item 6).
+fn approved<'a>(asked: &Asked<'a>) -> Option<&'a Approval> {
+    let approval = asked.client.approval.as_ref()?;
+    // NOTE: SMART App Launch 2.2.0, Scopes for requesting identity data, a
+    // fhirUser of these types is the patient or speaks for one: they decide.
+    let own_data = asked.fhir_user.is_some_and(|reference| {
+        ["Patient/", "RelatedPerson/", "Person/"]
+            .iter()
+            .any(|kind| reference.starts_with(kind))
+    });
+    let patient_scope = asked
+        .requested
+        .split(' ')
+        .any(|scope| scope.starts_with("patient/"));
+    (!own_data && !patient_scope && approval.covers(asked.offered)).then_some(approval)
 }
 
 /// Goes on once the person logged in and the context is complete: straight
@@ -193,34 +230,41 @@ async fn proceed(
 /// to the consent page otherwise.
 pub(crate) async fn onward(
     state: &AppState,
-    id: &str,
-    subject: &str,
-    client_id: &str,
-    offered: &[&str],
+    asked: &Asked<'_>,
     back: &Back,
     from: IpAddr,
 ) -> Response {
-    // NOTE: docs/architecture.md §13.6 item 6, a consent the person chose to
-    // remember answers again while it covers every scope offered.
-    let remembered = match state.store().remembered(subject, client_id).await {
-        Ok(remembered) => remembered,
-        Err(error) => return pages::server_error(state, &error),
-    };
-    let covered = remembered.is_some_and(|scope| {
-        offered
-            .iter()
-            .all(|wanted| scope.split(' ').any(|given| given == *wanted))
-    });
-    if covered {
-        let pending = match found(state, state.store().finish(id).await) {
-            Ok(pending) => pending,
-            Err(response) => return *response,
+    let basis = if let Some(approval) = approved(asked) {
+        Basis::Organisation(approval)
+    } else {
+        // NOTE: docs/architecture.md §13.6 item 6, a consent the person chose to
+        // remember answers again while it covers every scope offered.
+        let remembered = match state
+            .store()
+            .remembered(asked.subject, &asked.client.client_id)
+            .await
+        {
+            Ok(remembered) => remembered,
+            Err(error) => return pages::server_error(state, &error),
         };
-        let mut response = approve(state, &pending, offered, false, back, from).await;
-        set_cookie(state, &mut response, "", 0);
-        return response;
-    }
-    see_other(&state.settings().endpoint(CONSENT_ROUTE))
+        let covered = remembered.is_some_and(|scope| {
+            asked
+                .offered
+                .iter()
+                .all(|wanted| scope.split(' ').any(|given| given == *wanted))
+        });
+        if !covered {
+            return see_other(&state.settings().endpoint(CONSENT_ROUTE));
+        }
+        Basis::Remembered
+    };
+    let pending = match found(state, state.store().finish(asked.id).await) {
+        Ok(pending) => pending,
+        Err(response) => return *response,
+    };
+    let mut response = approve(state, &pending, asked.offered, basis, back, from).await;
+    set_cookie(state, &mut response, "", 0);
+    response
 }
 
 /// Returns the roles of `held` that a `[[ferrosmart.role]]` of `roles`

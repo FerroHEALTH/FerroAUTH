@@ -8,6 +8,7 @@
 //! PostgreSQL advisory lock around them, so replicas starting together
 //! migrate once. No specification governs the storage: our own design.
 
+pub mod approval;
 pub mod audit;
 pub mod authorization;
 pub mod consent;
@@ -22,7 +23,7 @@ use serde_json::Value;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::{Postgres, Row as _};
 
-use crate::clients::{Client, ClientKeys, ClientKind, GrantType, SecretHash};
+use crate::clients::{Approval, Client, ClientKeys, ClientKind, GrantType, SecretHash};
 use crate::launch::context::Context;
 
 /// How long a request waits for a connection before the store answers that
@@ -135,7 +136,8 @@ impl Store {
     pub async fn client(&self, client_id: &str) -> Result<Option<Client>, StoreError> {
         self.client_by(
             "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
-             launch_uri FROM client WHERE client_id = $1",
+             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at \
+             FROM client WHERE client_id = $1",
             client_id,
         )
         .await
@@ -149,7 +151,8 @@ impl Store {
     pub async fn client_launched_at(&self, launch_uri: &str) -> Result<Option<Client>, StoreError> {
         self.client_by(
             "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
-             launch_uri FROM client WHERE launch_uri = $1",
+             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at \
+             FROM client WHERE launch_uri = $1",
             launch_uri,
         )
         .await
@@ -318,10 +321,11 @@ async fn upsert(
         .collect();
     sqlx::query(
         "INSERT INTO client (client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types, secret_hash, \
-         launch_uri, source) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'config') \
+         launch_uri, approved_scope, approved_by, approved_at, source) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), 'config') \
          ON CONFLICT (client_id) DO UPDATE SET name = $2, kind = $3, jwks_uri = $4, jwks = $5, \
          redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, launch_uri = $10, \
+         approved_scope = $11, approved_by = $12, approved_at = to_timestamp($13), \
          source = 'config', updated_at = now()",
     )
     .bind(&client.client_id)
@@ -334,6 +338,9 @@ async fn upsert(
     .bind(&grants)
     .bind(client.secret_hash.as_ref().map(SecretHash::phc))
     .bind(&client.launch_uri)
+    .bind(client.approval.as_ref().map(|approval| &approval.scopes))
+    .bind(client.approval.as_ref().map(|approval| &approval.approved_by))
+    .bind(client.approval.as_ref().map(|approval| approval.approved_at))
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -373,6 +380,19 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
             _ => Err(corrupt()),
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let approval = match (
+        row.try_get::<Option<Vec<String>>, _>("approved_scope")?,
+        row.try_get::<Option<String>, _>("approved_by")?,
+        row.try_get::<Option<i64>, _>("approved_at")?,
+    ) {
+        (Some(scopes), Some(approved_by), Some(approved_at)) => Some(Approval {
+            scopes,
+            approved_by,
+            approved_at,
+        }),
+        (None, None, None) => None,
+        _ => return Err(corrupt()),
+    };
     Ok(Client {
         name: row.try_get("name")?,
         kind,
@@ -382,6 +402,7 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
         scopes: row.try_get("scopes")?,
         grant_types,
         launch_uri: row.try_get("launch_uri")?,
+        approval,
         client_id,
     })
 }
@@ -540,6 +561,9 @@ pub struct Code {
     pub upstream_session: Option<String>,
     /// The launch context of an EHR launch.
     pub launch_context: Option<Context>,
+    /// The time of the organisation approval the code was issued on, in
+    /// seconds since the epoch, when the person saw no consent page.
+    pub approved_at: Option<i64>,
     /// The roles of the person, mapped from the upstream identity provider
     /// (`docs/architecture.md` §13.6 item 5), which the access token's
     /// `roles` claim carries (RFC 9068 §2.2.3.1).
