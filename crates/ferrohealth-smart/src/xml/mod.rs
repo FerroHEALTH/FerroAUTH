@@ -13,7 +13,7 @@
 //! Canonicalization 1.0 without comments) that a digest covers. The
 //! caps are the caller's [`Limits`]; no specification sets them.
 //!
-//! The eHDSI assertion check of [`crate::federation::assertion`] reads its
+//! The eHDSI assertion check of `federation::assertion` reads its
 //! assertions through this module, and FerroSMART reads its upstream SAML
 //! 2.0 responses through it.
 

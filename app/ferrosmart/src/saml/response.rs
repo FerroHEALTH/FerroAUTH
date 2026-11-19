@@ -168,19 +168,8 @@ pub(super) fn check(
     outer: &[NodeId],
     expect: &Expectations<'_>,
 ) -> Result<Login, Refusal> {
-    if response.attribute("Version") != Some(VERSION) {
-        return Err(Refusal::Version);
-    }
-    response.attribute("ID").ok_or(Refusal::Structure("ID"))?;
-    if response.attribute("InResponseTo") != Some(expect.request_id) {
-        return Err(Refusal::InResponseTo);
-    }
-    not_ahead(response, "IssueInstant", expect)?.ok_or(Refusal::Structure("IssueInstant"))?;
-    let mut parts = Children::of(response, "samlp:Response")?;
-    let issuer = parts.optional(ASSERTION, "Issuer");
-    let signature = parts.optional(DSIG, "Signature");
-    parts.optional(PROTOCOL, "Extensions");
-    let status = parts.required(PROTOCOL, "Status", "samlp:Status")?;
+    let (mut parts, signed, status) =
+        status_response(response, "samlp:Response", expect.request_id, expect)?;
     let mut assertions = Vec::new();
     loop {
         if let Some(plain) = parts.optional(ASSERTION, "Assertion") {
@@ -192,17 +181,11 @@ pub(super) fn check(
         }
     }
     parts.end()?;
-    if let Some(issuer) = issuer {
-        check_issuer(issuer, expect)?;
-    }
-    if signature.is_some() {
-        dsig::verify(response, expect.idp.signing_keys())?;
-    }
     // NOTE: saml-bindings-2.0-os §3.5.5.2: a signed message posted through the user agent
     // names its destination, which must be where it arrived; E59 leaves it open for artifacts.
     match response.attribute("Destination") {
         Some(destination) if destination != expect.acs_url => return Err(Refusal::Destination),
-        None if delivery == Delivery::Post && signature.is_some() => {
+        None if delivery == Delivery::Post && signed => {
             return Err(Refusal::Destination);
         }
         _ => {}
@@ -215,7 +198,7 @@ pub(super) fn check(
             Refusal::MultipleAssertions
         });
     };
-    let covered = signature.is_some() || matches!(delivery, Delivery::Artifact { signed: true });
+    let covered = signed || matches!(delivery, Delivery::Artifact { signed: true });
     let mut signed_parents: Vec<NodeId> = outer.to_vec();
     signed_parents.push(response.id());
     if xml::is(assertion, ASSERTION, "Assertion") {
@@ -233,6 +216,39 @@ pub(super) fn check(
     }
     placed(&decrypted, &[inner.id()])?;
     check_assertion(inner, covered, expect)
+}
+
+/// Checks the `StatusResponseType` head of `node`, the element `of`
+/// (saml-core-2.0-os §3.2.2): its version, `ID`, `InResponseTo`,
+/// `IssueInstant`, `Issuer` and signature, verified when present. Returns
+/// the children left after `samlp:Status`, whether it is signed, and the
+/// status.
+pub(super) fn status_response<'a, 'input>(
+    node: Node<'a, 'input>,
+    of: &'static str,
+    in_response_to: &str,
+    expect: &Expectations<'_>,
+) -> Result<(Children<'a, 'input>, bool, Node<'a, 'input>), Refusal> {
+    if node.attribute("Version") != Some(VERSION) {
+        return Err(Refusal::Version);
+    }
+    node.attribute("ID").ok_or(Refusal::Structure("ID"))?;
+    if node.attribute("InResponseTo") != Some(in_response_to) {
+        return Err(Refusal::InResponseTo);
+    }
+    not_ahead(node, "IssueInstant", expect)?.ok_or(Refusal::Structure("IssueInstant"))?;
+    let mut parts = Children::of(node, of)?;
+    let issuer = parts.optional(ASSERTION, "Issuer");
+    let signature = parts.optional(DSIG, "Signature");
+    parts.optional(PROTOCOL, "Extensions");
+    let status = parts.required(PROTOCOL, "Status", "samlp:Status")?;
+    if let Some(issuer) = issuer {
+        check_issuer(issuer, expect)?;
+    }
+    if signature.is_some() {
+        dsig::verify(node, expect.idp.signing_keys())?;
+    }
+    Ok((parts, signature.is_some(), status))
 }
 
 /// Refuses a `ds:Signature` anywhere in `document` but as a child of one

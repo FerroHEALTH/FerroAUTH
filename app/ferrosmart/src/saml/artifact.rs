@@ -22,7 +22,6 @@ use jiff::Timestamp;
 use roxmltree::Node;
 
 use crate::saml::ASSERTION;
-use crate::saml::DSIG;
 use crate::saml::Escaped;
 use crate::saml::PROTOCOL;
 use crate::saml::Refusal;
@@ -200,30 +199,14 @@ fn check_artifact_response<'a, 'input>(
     resolve_id: &str,
     expect: &Expectations<'_>,
 ) -> Result<(Node<'a, 'input>, bool), Refusal> {
-    if artifact_response.attribute("Version") != Some(VERSION) {
-        return Err(Refusal::Version);
-    }
-    artifact_response
-        .attribute("ID")
-        .ok_or(Refusal::Structure("ID"))?;
-    if artifact_response.attribute("InResponseTo") != Some(resolve_id) {
-        return Err(Refusal::InResponseTo);
-    }
-    response::not_ahead(artifact_response, "IssueInstant", expect)?
-        .ok_or(Refusal::Structure("IssueInstant"))?;
-    let mut parts = Children::of(artifact_response, "samlp:ArtifactResponse")?;
-    let issuer = parts.optional(ASSERTION, "Issuer");
-    let signature = parts.optional(DSIG, "Signature");
-    parts.optional(PROTOCOL, "Extensions");
-    let status = parts.required(PROTOCOL, "Status", "samlp:Status")?;
+    let (mut parts, signed, status) = response::status_response(
+        artifact_response,
+        "samlp:ArtifactResponse",
+        resolve_id,
+        expect,
+    )?;
     let inner = parts.required(PROTOCOL, "Response", "samlp:Response")?;
     parts.end()?;
-    if let Some(issuer) = issuer {
-        response::check_issuer(issuer, expect)?;
-    }
-    if signature.is_some() {
-        dsig::verify(artifact_response, expect.idp.signing_keys())?;
-    }
     response::check_status(status)?;
-    Ok((inner, signature.is_some()))
+    Ok((inner, signed))
 }
