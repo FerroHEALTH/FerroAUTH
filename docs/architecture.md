@@ -3778,6 +3778,28 @@ still apply on top of the token's scopes. No specification governs this
 deployment shape: our own design, built only from the specifications 13.4
 names.
 
+**A server that is no FerroHEALTH product.** A resource server needs none
+of the family's crates to take FerroSMART's tokens: an RFC 9068 access
+token is validated with the issuer, the JWK Set and the audience alone
+(`rfc9068 §4`: the signature, `iss`, `aud` and `exp`). A CI lane holds that
+(#598, `scripts/idp/third-party-fhir.sh`): HAPI FHIR, a third-party FHIR
+server, runs behind Envoy's JWT authentication filter, which is given
+FerroSMART's issuer, `{issuer}/jwks` and the FHIR base as its audience and
+nothing else (`app/ferrosmart/third-party/envoy.yaml`), both images pinned
+by digest in `docs/VERSIONS.md`. Through the validator a Backend Services
+token and a person's token from a standalone launch through Keycloak each
+read a `Patient`; a request without a token, a token for another audience
+and a token past its `exp` are refused. Envoy validates locally and never
+introspects, so it takes a revoked token until its `exp`, at most the
+access token's lifetime later. The lane therefore revokes a
+token and reads `{issuer}/introspect` as a resource server that introspects
+would, with a bearer token carrying `system/introspect` (13.6 item 8), and
+the answer is `{"active": false}` (`rfc7662 §2.2`). The filter does not
+verify the `typ` header, which `rfc9068 §4` also requires of a resource
+server, and enforces no scope: HAPI FHIR serves whatever passes it, so the
+lane shows token validation and no scope enforcement. The choice of server
+and validator is our own design.
+
 ### 13.22 Client authentication at the upstream provider
 
 FerroSMART authenticates at its provider's token and revocation endpoints
