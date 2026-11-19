@@ -813,6 +813,120 @@ async fn the_documents_describe_the_login_once_it_is_configured() {
     smart.stop().await;
 }
 
+// NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Extensibility; the
+// owner's decision on #647: the request, the ceiling and a held role together.
+#[tokio::test]
+async fn a_person_is_granted_an_extension_scope_that_the_ceiling_and_a_role_list() {
+    let smart = Smart::start_with(
+        "[\"authorization_code\"]",
+        "[\"openid\", \"fhirUser\", \"user/Observation.rs\", \"__ferroehr.platform\", \"admin\"]",
+        "[\"user/Observation.rs\", \"__ferroehr.platform\"]",
+    )
+    .await;
+    let (_, _, document) = smart.get("/.well-known/smart-configuration", None).await;
+    let document: Value = serde_json::from_str(&document).expect("JSON");
+    assert!(
+        document["scopes_supported"]
+            .as_array()
+            .is_some_and(|listed| listed.contains(&json!("__ferroehr.platform"))),
+        "the server advertises its extension scope"
+    );
+    let scope = "openid fhirUser user/Observation.rs __ferroehr.platform admin";
+    let (cookie, token) = to_consent_with(&smart, &["clinician"], &[("scope", scope)]).await;
+    let (_, _, page) = smart.get("/consent", Some(&cookie)).await;
+    assert!(
+        page.contains("value=\"__ferroehr.platform\""),
+        "shown on the consent page: {page}"
+    );
+    assert!(
+        page.contains("Access this server defines for its own use: __ferroehr.platform"),
+        "{page}"
+    );
+    assert!(
+        !page.contains("value=\"admin\""),
+        "a scope outside the SMART set and not __-prefixed is never offered"
+    );
+    let approve = [
+        ("form_token", token.as_str()),
+        ("decision", "approve"),
+        ("scope", "openid"),
+        ("scope", "user/Observation.rs"),
+        ("scope", "__ferroehr.platform"),
+    ];
+    let (status, headers, _) = smart.post("/consent", &approve, Some(&cookie)).await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        json!("openid user/Observation.rs __ferroehr.platform"),
+        body["scope"]
+    );
+    let claims: Value = jsonwebtoken::dangerous::insecure_decode_claims(
+        body["access_token"].as_str().expect("a token"),
+    )
+    .expect("claims");
+    assert_eq!(
+        json!("openid user/Observation.rs __ferroehr.platform"),
+        claims["scope"]
+    );
+    smart.stop().await;
+}
+
+#[test]
+fn an_extension_scope_needs_the_ceiling_and_a_role() {
+    let client = resolve(&[ClientSection {
+        client_id: String::from("app"),
+        kind: ClientKind::Public,
+        redirect_uris: vec![String::from(REDIRECT)],
+        grant_types: vec![GrantType::AuthorizationCode],
+        scopes: ["openid", "__ferroehr.platform", "__ferroehr.audit", "admin"]
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        ..ClientSection::default()
+    }])
+    .expect("admitted")
+    .remove(0);
+    let roles = [(
+        String::from("administrator"),
+        vec![
+            String::from("__ferroehr.platform"),
+            String::from("__ferroehr.other"),
+        ],
+    )]
+    .into_iter()
+    .collect();
+    let requested = "openid __ferroehr.platform __ferroehr.audit __ferroehr.other admin";
+    // NOTE: the ceiling and the role list __ferroehr.platform; the ceiling alone
+    // lists __ferroehr.audit and the role alone __ferroehr.other.
+    assert_eq!(
+        vec!["openid", "__ferroehr.platform"],
+        offer(
+            requested,
+            &client,
+            &[String::from("administrator")],
+            &roles,
+            false,
+            None,
+            Reach::Nothing
+        )
+    );
+    assert_eq!(
+        vec!["openid"],
+        offer(requested, &client, &[], &roles, false, None, Reach::Nothing),
+        "no held role grants no extension scope"
+    );
+}
+
 #[test]
 fn the_consent_page_offers_what_the_ceiling_and_the_roles_allow() {
     let client = resolve(&[ClientSection {

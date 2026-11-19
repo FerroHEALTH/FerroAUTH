@@ -19,6 +19,14 @@ and this project adheres to
   `role_claims` carry that a `[[ferrosmart.role]]` names, fixed at login
   and kept through every refresh. The introspection response carries them
   too. A Backend Services token carries none (#649).
+- A `[[ferrosmart.role]]` may grant extension scopes, those that start with
+  two underscores (SMART App Launch 2.2.0, Scopes and Launch Context,
+  Extensibility), such as FerroEHR's `__ferroehr.platform`. A person is
+  granted one when the request asks for it, the client's ceiling lists it
+  and one of their roles grants it; the consent page names it in plain
+  words, and `scopes_supported` lists every extension scope a role grants.
+  Any other scope outside the SMART set is still never granted to a person
+  (#647).
 - An openEHR `[[ferrosmart.resource]]` can name the platform's FHIR server
   as its `fhir_base`, with the `subject_system` of the `Patient.identifier`
   that names the EHR's subject. At such a base the patient picker searches
@@ -37,6 +45,14 @@ and this project adheres to
   `introspection_endpoint_auth_methods_supported` lists
   `client_secret_basic` and `client_secret_post` beside `private_key_jwt`
   (#639).
+
+### Fixed
+
+- The upstream login refuses an ID Token without `iat` (OpenID Connect
+  Core 1.0 §2), and takes one without `kid` when a single key of the
+  provider's set fits its algorithm. The OpenID Foundation conformance
+  suite's relying party modules `oidcc-client-test-missing-iat` and
+  `oidcc-client-test-kid-absent-single-jwks` found both (#646, #648).
 
 ## [0.1.0] - 2026-11-19
 

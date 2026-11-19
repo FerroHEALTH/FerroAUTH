@@ -22,6 +22,17 @@ and this project adheres to
   links no metrics library; a product copies the numbers into its own
   gauges (#630).
 
+### Fixed
+
+- `oidc::RelyingParty` refuses an ID Token without a numeric `iat`, which
+  OpenID Connect Core 1.0 §2 makes REQUIRED, with `OidcError::IdToken`
+  (#646).
+- `oidc::RelyingParty` verifies an ID Token or a Logout Token that names
+  no `kid` with the one key of the provider's set whose `use`, `key_ops`,
+  `alg`, key type and curve fit the token's algorithm, where it took only
+  a set of a single key; none or several such keys is `OidcError::Key`
+  (RFC 7515 §4.1.4, OpenID Connect Core 1.0 §10.1; #648).
+
 ## [0.30.0] - 2026-11-17
 
 ### Changed

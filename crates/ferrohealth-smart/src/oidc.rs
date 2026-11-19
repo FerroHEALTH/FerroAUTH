@@ -22,14 +22,18 @@
 pub mod logout;
 
 use std::fmt;
+use std::str::FromStr as _;
 use std::time::Duration;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use ferrohealth_secret::secret::Secret;
 use http::StatusCode;
-use jsonwebtoken::jwk::JwkSet;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
+use jsonwebtoken::errors::ErrorKind;
+use jsonwebtoken::jwk::{
+    AlgorithmParameters, EllipticCurve, Jwk, JwkSet, KeyOperations, PublicKeyUse,
+};
+use jsonwebtoken::{Algorithm, AlgorithmFamily, DecodingKey, Validation};
 use secrecy::ExposeSecret as _;
 use secrecy::SecretString;
 use serde::Deserialize;
@@ -142,8 +146,8 @@ pub enum OidcError {
     /// key the key set does not hold.
     #[error("the ID Token is signed with a key or an algorithm the client does not accept")]
     Key,
-    /// The ID Token's signature or its `iss`, `aud`, `exp` or `sub` do not
-    /// verify.
+    /// The ID Token's signature or its `iss`, `aud`, `exp`, `sub` or `iat`
+    /// do not verify.
     #[error("the ID Token does not verify")]
     IdToken {
         /// What the verifier reported.
@@ -844,6 +848,17 @@ impl RelyingParty {
         let claims = jsonwebtoken::decode::<IdTokenClaims>(id_token, &key, &validation)
             .map_err(|source| OidcError::IdToken { source })?
             .claims;
+        // NOTE: OpenID Connect Core 1.0 §2: `iat` is REQUIRED, a NumericDate, which the
+        // verifier above does not check, so a token without one is no ID Token.
+        if !claims
+            .other
+            .get("iat")
+            .is_some_and(serde_json::Value::is_number)
+        {
+            return Err(OidcError::IdToken {
+                source: ErrorKind::MissingRequiredClaim("iat".to_owned()).into(),
+            });
+        }
         // NOTE: OpenID Connect Core 1.0 §3.1.3.7 item 3: an audience the client
         // does not trust refuses the token; it trusts itself and its trusted audiences.
         if !claims
@@ -873,8 +888,9 @@ impl RelyingParty {
 
 impl RelyingParty {
     /// Returns the header of the JWT `token` and the provider's key that
-    /// signed it: the key its `kid` names, or the set's only key when it
-    /// names none, under an algorithm the client accepts.
+    /// signed it: the key its `kid` names, or the set's one key that fits
+    /// its algorithm when it names none, under an algorithm the client
+    /// accepts.
     async fn signing_key(
         &self,
         token: &str,
@@ -892,10 +908,9 @@ impl RelyingParty {
         })?;
         let jwk = match header.kid.as_deref() {
             Some(kid) => keys.find(kid),
-            None => match keys.keys.as_slice() {
-                [only] => Some(only),
-                _ => None,
-            },
+            // NOTE: RFC 7515 §4.1.4 makes `kid` OPTIONAL, and OpenID Connect Core 1.0 §10.1
+            // asks for one among several keys: without it, the one key that can verify `alg`.
+            None => sole_fit(&keys, header.alg),
         }
         .ok_or(OidcError::Key)?;
         let key = DecodingKey::from_jwk(jwk).map_err(|_unusable| OidcError::Key)?;
@@ -913,6 +928,44 @@ impl RelyingParty {
         validation.set_audience(&[self.client_id.as_str()]);
         validation
     }
+}
+
+/// The one key of `keys` that can verify a signature under `alg`, or `None`
+/// when no key or several can.
+fn sole_fit(keys: &JwkSet, alg: Algorithm) -> Option<&Jwk> {
+    let mut fitting = keys.keys.iter().filter(|jwk| fits(jwk, alg));
+    let only = fitting.next()?;
+    fitting.next().is_none().then_some(only)
+}
+
+/// Whether `jwk` may verify a signature under `alg`: its `use`, `key_ops` and
+/// `alg`, where present, allow it (RFC 7517 §4.2 to §4.4), and its key type
+/// and curve are those of `alg` (RFC 7518 §3.1).
+fn fits(jwk: &Jwk, alg: Algorithm) -> bool {
+    let common = &jwk.common;
+    let usable = common
+        .public_key_use
+        .as_ref()
+        .is_none_or(|key_use| *key_use == PublicKeyUse::Signature)
+        && common
+            .key_operations
+            .as_ref()
+            .is_none_or(|operations| operations.contains(&KeyOperations::Verify))
+        && common.key_algorithm.is_none_or(|named| {
+            Algorithm::from_str(&named.to_string()).is_ok_and(|named| named == alg)
+        });
+    usable
+        && match (&jwk.algorithm, alg.family()) {
+            (AlgorithmParameters::RSA(_), AlgorithmFamily::Rsa) => true,
+            (AlgorithmParameters::EllipticCurve(params), AlgorithmFamily::Ec) => matches!(
+                (&params.curve, alg),
+                (EllipticCurve::P256, Algorithm::ES256) | (EllipticCurve::P384, Algorithm::ES384)
+            ),
+            (AlgorithmParameters::OctetKeyPair(params), AlgorithmFamily::Ed) => {
+                params.curve == EllipticCurve::Ed25519
+            }
+            _ => false,
+        }
 }
 
 /// Whether `a` and `b` are equal, compared in constant time.

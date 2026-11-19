@@ -20,7 +20,9 @@ use url::Url;
 use wiremock::matchers;
 use wiremock::{Mock, ResponseTemplate};
 
-use crate::support::{Issuer, JWKS_PATH, SigningKey, TOKEN_PATH, ec_key, mint_with, now};
+use crate::support::{
+    Issuer, JWKS_PATH, SigningKey, TOKEN_PATH, ec_key, ed_key, mint_with, now, rsa_key,
+};
 
 /// The console's client id at the provider.
 const CLIENT: &str = "synthetic-console";
@@ -340,6 +342,136 @@ async fn an_id_token_with_another_nonce_audience_or_key_is_refused() {
     mount_exchange(&issuer, pending.verifier().expose(), &wide).await;
     let refused = client.exchange(&pending, &callback).await;
     assert!(matches!(refused, Err(OidcError::Audience)), "{refused:?}");
+}
+
+/// An ID Token for this client carrying `nonce` and `iat` (none when
+/// `None`), signed by `key` with `kid` in its header.
+fn id_token_with(
+    issuer: &Issuer,
+    key: &SigningKey,
+    kid: Option<&str>,
+    nonce: &str,
+    iat: Option<serde_json::Value>,
+) -> String {
+    let now = now();
+    let mut header = Header::new(key.alg);
+    header.kid = kid.map(str::to_owned);
+    let mut claims = serde_json::json!({
+        "iss": issuer.uri(), "aud": CLIENT, "sub": "synthetic-operator",
+        "nonce": nonce, "exp": now + 300
+    });
+    if let Some(iat) = iat {
+        claims
+            .as_object_mut()
+            .expect("the claims are an object")
+            .insert("iat".to_owned(), iat);
+    }
+    mint_with(key, &header, &claims)
+}
+
+// NOTE: OpenID Connect Core 1.0 §2: `iat` is REQUIRED in an ID Token, a NumericDate.
+#[tokio::test]
+async fn an_id_token_without_a_numeric_iat_is_refused() {
+    let key = ec_key("op-1", Algorithm::ES256);
+    let (issuer, client) = provider(&key).await;
+    let pending = client.authorization_request().expect("a sign-in").pending;
+    let callback = Callback::granted("synthetic-code", pending.state());
+    for iat in [
+        None,
+        Some(serde_json::json!("1700000000")),
+        Some(serde_json::Value::Null),
+    ] {
+        issuer.server.reset().await;
+        issuer.mount_keys(&[&key], None).await;
+        let token = id_token_with(&issuer, &key, Some(&key.kid), pending.nonce(), iat.clone());
+        mount_exchange(&issuer, pending.verifier().expose(), &token).await;
+        let refused = client.exchange(&pending, &callback).await;
+        assert!(
+            matches!(refused, Err(OidcError::IdToken { .. })),
+            "iat {iat:?}: {refused:?}"
+        );
+    }
+    issuer.server.reset().await;
+    issuer.mount_keys(&[&key], None).await;
+    let fractional = serde_json::json!(f64::from(u32::try_from(now()).expect("before 2106")) + 0.5);
+    let token = id_token_with(
+        &issuer,
+        &key,
+        Some(&key.kid),
+        pending.nonce(),
+        Some(fractional),
+    );
+    mount_exchange(&issuer, pending.verifier().expose(), &token).await;
+    client
+        .exchange(&pending, &callback)
+        .await
+        .expect("a NumericDate with a fraction is an iat");
+}
+
+// NOTE: RFC 7515 §4.1.4 makes `kid` OPTIONAL and OpenID Connect Core 1.0 §10.1 asks
+// for one among several keys: without it, the set's one key that fits the algorithm.
+#[tokio::test]
+async fn without_a_kid_the_one_key_that_fits_the_algorithm_verifies() {
+    let signer = rsa_key("op-rsa", Algorithm::RS256);
+    let (issuer, client) = provider(&signer).await;
+    let pending = client.authorization_request().expect("a sign-in").pending;
+    let callback = Callback::granted("synthetic-code", pending.state());
+    let token = id_token_with(&issuer, &signer, None, pending.nonce(), Some(now().into()));
+
+    let p256 = ec_key("op-p256", Algorithm::ES256);
+    let ed25519 = ed_key("op-ed25519");
+    let mut encryption = rsa_key("op-rsa-enc", Algorithm::RS256);
+    encryption
+        .jwk
+        .as_object_mut()
+        .expect("a JWK is an object")
+        .insert("use".to_owned(), serde_json::json!("enc"));
+    let mut wrapping = rsa_key("op-rsa-wrap", Algorithm::RS256);
+    wrapping
+        .jwk
+        .as_object_mut()
+        .expect("a JWK is an object")
+        .insert("key_ops".to_owned(), serde_json::json!(["wrapKey"]));
+    let mut other_alg = rsa_key("op-rsa-384", Algorithm::RS384);
+    other_alg
+        .jwk
+        .as_object_mut()
+        .expect("a JWK is an object")
+        .insert("alg".to_owned(), serde_json::json!("RS384"));
+    issuer.server.reset().await;
+    issuer
+        .mount_keys(
+            &[&p256, &encryption, &ed25519, &signer, &wrapping, &other_alg],
+            None,
+        )
+        .await;
+    mount_exchange(&issuer, pending.verifier().expose(), &token).await;
+    let signed_in = client
+        .exchange(&pending, &callback)
+        .await
+        .expect("the one RS256 signing key verifies the token");
+    assert_eq!("synthetic-operator", signed_in.claims.subject);
+
+    let second = rsa_key("op-rsa-2", Algorithm::RS256);
+    issuer.server.reset().await;
+    issuer.mount_keys(&[&signer, &second, &p256], None).await;
+    mount_exchange(&issuer, pending.verifier().expose(), &token).await;
+    let refused = client.exchange(&pending, &callback).await;
+    assert!(
+        matches!(refused, Err(OidcError::Key)),
+        "two keys fit: {refused:?}"
+    );
+
+    let p384 = ec_key("op-p384", Algorithm::ES384);
+    let on_p384 = id_token_with(&issuer, &p384, None, pending.nonce(), Some(now().into()));
+    issuer.server.reset().await;
+    issuer.mount_keys(&[&signer, &p256], None).await;
+    mount_exchange(&issuer, pending.verifier().expose(), &on_p384).await;
+    let refused = client.exchange(&pending, &callback).await;
+    assert!(
+        matches!(refused, Err(OidcError::Key)),
+        "no key fits: {refused:?}"
+    );
 }
 
 // NOTE: OpenID Connect Core 1.0 §3.1.3.7 items 3 and 4: an audience the client trusts
