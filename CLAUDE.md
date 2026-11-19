@@ -127,7 +127,9 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   with `proof`, the DPoP proof check, and `replay`, the proof replay store),
   `party` (the login's party through a product `PartySource`, with
   `binding`, `source`, `config` and `adapter`), `assurance`,
-  `audit`, `refusal`, `config`, `oidc` behind `oidc`, and `guard` and
+  `audit`, `refusal`, `config`, `oidc` behind `oidc`, `xml` behind `xml` (the
+  bounded XML reader and Exclusive XML Canonicalization the eHDSI check and
+  FerroSMART's SAML login share), and `guard` and
   `extract` behind `axum`), `tests/it/` (one binary: the token check, the
   classification against each preset, the client credentials, Basic, the guard, every upstream a
   `wiremock` stub and every key generated when the case runs).
@@ -144,7 +146,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
 - `app/ferrosmart`: FerroSMART, the authorization server, released from
   0.1.0 (#512 carried the steps); `docs/architecture.md` §13 fixes its
   requirements, crate layout, storage, endpoints, configuration, keys and
-  threat model.
+  threat model; `src/saml/` is the SAML 2.0 service provider an upstream
+  provider can log a person in through (13.25).
 - `tools/zitadel-fhir-user`: the Actions v2 target of FerroSMART's ZITADEL
   example (`compose.zitadel.yaml`, #523), which writes a user's `fhirUser`
   claim from its metadata; deployment content of the example, never
@@ -153,6 +156,8 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   vendored SMART App Launch, RFC, OAuth 2.1 draft, Inferno SMART App
   Launch test kit, OpenID Connect Discovery, Core,
   RP-Initiated Logout and Back-Channel Logout, FAPI 2.0 Security Profile, NIST SP 800-162 and Cedar language corpora, the
+  OASIS SAML V2.0 standard with its Errata 05 and the W3C XML Signature,
+  XML Encryption and canonicalization Recommendations, the
   IHE IUA supplement, the IHE BALP content page, Nuts RFC021, and the
   Microsoft Entra, SCIM workload identity and Keycloak documents the issuer
   profiles cite, the ZITADEL documentation and API definitions

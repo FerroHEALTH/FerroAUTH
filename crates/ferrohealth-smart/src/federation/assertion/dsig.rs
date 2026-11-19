@@ -22,8 +22,8 @@ use roxmltree::Node;
 
 use crate::federation::assertion::Floor;
 use crate::federation::assertion::Integrity;
-use crate::federation::assertion::c14n;
 use crate::federation::assertion::signer::TrustedSigner;
+use crate::xml::c14n;
 
 /// The XML-DSig namespace.
 pub(super) const DSIG: &str = "http://www.w3.org/2000/09/xmldsig#";

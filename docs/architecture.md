@@ -2304,6 +2304,7 @@ four agree on and settles each difference:
 | `audience` is required, as a list | `rfc9068 §4`; `rfc8725 §3.9` | a FerroTERM deployment that set no audience must set one |
 | One `401` for every invalid credential, naming nothing; `403` naming no scope | `rfc6750 §3.1`; `rfc9068 §4`; the omissions are our own design | none |
 | `503` when the key set cannot be read | our own design | none |
+| FerroSMART speaks standard SAML 2.0 upstream beside OpenID Connect, the Web Browser SSO profile with the HTTP-Redirect, HTTP-POST and HTTP-Artifact bindings, and ships no national profile (13.25) | owner decision 2026-11-19 (FerroHEALTH/FerroSMART#687, #688) | none |
 | The `patient` claim is read from the access token when present | our own design (SMART places the context in the token response and the introspection response) | none |
 | Under the `rfc9068` profile only `scope` counts; under the `jwt` profile `scp` is read as a fallback when `scope` is absent, for an issuer such as Entra ID that mints the array form | `rfc9068 §2.2.3` names `scope`; `scp` is no specification's, so it is admitted only outside the profile (owner decision 2026-10-19) | none |
 | Product scopes (`ferrobridge.operator`, `ferroterm/admin`) are renamed to a form SMART's Extensibility section admits, a `__` prefix or a full URI, during each product's migration | `smart scopes-and-launch-context`, Extensibility (owner decision 2026-10-19) | each product's migration names the new scope and the deployments that must update their authorization server |
@@ -4338,3 +4339,159 @@ FerroSMART authenticates upstream with `private_key_jwt` alone (13.22,
 #619). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
 RFC 10070's audience rule, need PAR and DPoP and are the lane's next
 target.
+
+### 13.25 Upstream providers: SAML 2.0
+
+A person can log in at an upstream identity provider that speaks SAML 2.0
+rather than OpenID Connect: FerroSMART is then a service provider of the
+OASIS SAML 2.0 Web Browser SSO profile (`saml-profiles-2.0-os §4.1`, as
+the Errata 05 composite amends it), with the standard bindings and nothing
+national (owner decision 2026-11-19 on FerroHEALTH/FerroSMART#687 and
+#688). A country or a deployment configures its provider with the standard
+settings; which attribute or name identifier becomes the person's
+identifier is deployment configuration (#674). The protocol machinery is
+`app/ferrosmart/src/saml/`; it holds no configuration and does no I/O. The
+protocol-neutral provider entry of #678 drives it: the `protocol = "saml"`
+entry, the login routes, the store record of each admitted assertion `ID`
+and the login audit record land with that entry. Citation keys: `saml-core`,
+`saml-bindings`, `saml-profiles` and `saml-metadata` are the 2005 OASIS
+Standard documents and `errata E26` an entry of SAML V2.0 Errata 05, all
+under `docs/specs/oasis-saml/`; `xmldsig-core1`, `xmlenc-core1` and
+`Exc-C14N` are the W3C Recommendations under `docs/specs/w3c-xmlsec/`.
+
+**What FerroSMART does.**
+
+- **The request.** An `AuthnRequest` (`saml-core §3.4.1`) with
+  `AssertionConsumerServiceURL` and `ProtocolBinding` (HTTP-POST or
+  HTTP-Artifact), `ForceAuthn` when the provider sets it, a `NameIDPolicy`
+  when the provider names a format, and the provider's minimum assurance
+  as `RequestedAuthnContext Comparison="exact"` listing the accepted
+  `AuthnContextClassRef` values (`saml-core §3.3.2.2.1`). It is always
+  signed: the query string of the HTTP-Redirect binding
+  (`saml-bindings §3.4.4.1`) or an enveloped signature for HTTP-POST
+  (`§3.5.4`). `RelayState` is at most 80 bytes (`§3.4.3`).
+- **The response.** Delivered by HTTP-POST (`saml-bindings §3.5`) or by
+  an artifact (`§3.6`), whose `ArtifactResolve` FerroSMART signs and sends
+  over the SOAP binding (`§3.2`) with its TLS client certificate, the
+  mutual authentication `saml-profiles §4.1.4.4` requires. HTTP-Redirect
+  never carries a response (`saml-profiles §4.1.2`).
+- **The checks**, each its own `Refusal`: `Version` 2.0;
+  `InResponseTo` naming the request, so an unsolicited response is refused
+  (`§4.1.5`); `Destination` where the response arrived, required on a
+  signed posted response (`saml-bindings §3.5.5.2`); the `Issuer` the
+  provider's entity ID in the entity format; status success; one bearer
+  `SubjectConfirmationData` with the assertion consumer service as
+  `Recipient`, the request as `InResponseTo`, no `NotBefore` and a
+  `NotOnOrAfter` not passed (`saml-profiles §4.1.4.2`, `§4.1.4.3`,
+  errata E26); `NotBefore` and `NotOnOrAfter` of the conditions; an
+  `AudienceRestriction` naming FerroSMART, and every one present naming it
+  (`saml-core §2.5.1.4`, errata E46); `OneTimeUse` and `ProxyRestriction`
+  understood, any other condition refused (`§2.5.1.1`); an instant ahead
+  of now refused; the `AuthnContextClassRef` one of the accepted values;
+  the clock skew configurable (errata E92 suggests 3 to 5 minutes).
+- **Replay.** The assertion `ID` is admitted once, remembered until the
+  bearer confirmation's `NotOnOrAfter` (`saml-profiles §4.1.4.5`); the
+  artifact itself is single use at the provider (`saml-bindings
+  §3.6.5.2`), and the request it answers is consumed with the pending
+  authorization.
+
+**The rules beyond the profile**, our own design, each held by a test:
+
+- Exactly one assertion, plain or encrypted, and no `saml:Advice`: there
+  is one assertion to read and no nested one to confuse it with.
+- The assertion is covered by a verified signature whatever the binding:
+  its own, the `Response`'s, or the `ArtifactResponse`'s that carried it.
+  `saml-profiles §4.1.4.5` (as errata E26 words it) requires this for
+  HTTP-POST; FerroSMART holds HTTP-Artifact to it too, so the transport
+  is never the only protection.
+- Exactly one `AuthnStatement`, with an `AuthnContextClassRef`.
+- An attribute value is text, or one `saml:NameID`; anything else is
+  refused.
+
+**Signature wrapping.** The signature check is handed the element the
+caller then reads, never an ID to look up. The `ds:Signature` must be a
+child of that element in its schema place, its one `ds:Reference` must
+name that element's `ID` (`saml-core §5.4.2`), the digest is taken over
+that element as parsed, and every value is read from it by child path. A
+document in which any attribute named `ID`, `Id` or `id` carries a value
+twice is refused before any check, and so is a `ds:Signature` anywhere but
+as the child of the `ArtifactResponse`, the `Response` or the assertion,
+each of which is verified when it carries one. The corpus under
+`app/ferrosmart/tests/it/saml/attacks.rs` holds the eight XSW shapes of
+Somorovsky et al. (USENIX Security 2012), a signature by a key the
+metadata does not publish, a reference to another ID, a second signature,
+a `ds:Object` (`saml-core §5.4` as errata E91 extends it), an unsigned
+assertion added to or swapped into a signed response, and a comment
+splitting the `NameID`: a value is read only from an element holding text
+alone, since the canonical form without comments drops a comment that a
+reader would split the text at.
+
+**Algorithms** (`xmldsig-core1 §6.1`, `xmlenc-core1 §5.1`; our own
+choice within them):
+
+| Role | Accepted | Refused |
+|---|---|---|
+| Canonicalization | Exclusive XML Canonicalization 1.0 without comments, with an `InclusiveNamespaces PrefixList` | inclusive C14N, `#WithComments` |
+| Transforms | the enveloped signature transform, then exclusive canonicalization | any other list |
+| Digest | SHA-256, SHA-384, SHA-512 | SHA-1, SHA-224 |
+| Signature | RSASSA-PKCS1-v1_5 with SHA-256, -384 or -512 on RSA keys of 2048 bits or more; ECDSA with SHA-256 on P-256, SHA-384 on P-384, SHA-512 on P-521 | SHA-1 (`xmldsig-core1` discourages it; it is broken), DSA, every HMAC (a MAC keyed by a public key is an algorithm confusion) |
+| Key transport | RSA-OAEP, `rsa-oaep-mgf1p` or `xmlenc11#rsa-oaep`, digest and MGF1 both SHA-1, -256, -384 or -512, with an `OAEPparams` label | RSA-v1.5 (Bleichenbacher), key agreement, key wrap, mixed digest and MGF1 |
+| Data | AES-128, -192 and -256 in GCM; in CBC only when a verified signature covers the encrypted element (`saml-core §6.2` as errata E93 replaces it), checked before anything is decrypted | Triple DES, CBC without a covering signature |
+
+SHA-1 is refused although `xmldsig-core1 §6.1` lists RSA with SHA-1 as
+recommended for verification: an identity provider that still signs with
+it is refused until it moves to SHA-256. The keys are the provider's
+metadata's `use="signing"` (or unmarked) `KeyDescriptor`s; `ds:KeyInfo`
+in a message is never read. A certificate in metadata is a key carrier:
+its dates and issuer are not checked, since the metadata is the trust. A
+decryption failure is one refusal whatever step failed, so it tells an
+attacker nothing.
+
+**Metadata.** The provider's `md:EntityDescriptor` is read, alone or
+inside `md:EntitiesDescriptor` aggregates (`saml-metadata §2.3`): its
+`IDPSSODescriptor` supporting SAML 2.0, its signing keys, its
+`SingleSignOnService` and `ArtifactResolutionService` endpoints (each an
+`https` URL), `WantAuthnRequestsSigned`, and the earliest `validUntil`,
+past which the metadata is refused (`§2.2.1`, `§4.3`). With the
+deployment's metadata signing certificates configured, the descriptor or
+an aggregate above it carries a signature they verify (`§3`), checked as
+every SAML signature is. FerroSMART publishes its own
+`md:EntityDescriptor` with an `SPSSODescriptor`
+(`AuthnRequestsSigned="true"`, `WantAssertionsSigned="true"`), its signing
+certificate, one encryption certificate per decryption key with the
+algorithms it accepts, the requested name identifier formats, and the
+assertion consumer service under HTTP-POST (index 0, the default) and
+HTTP-Artifact (index 1).
+
+**Not built.** Single Logout (`saml-profiles §4.4`) is its own profile,
+which the Web Browser SSO profile does not require; FerroSMART's grants of
+a SAML login end with their own lifetimes. IdP-initiated (unsolicited)
+login is refused, since FerroSMART logs a person in only for a pending
+authorization. No national profile, default or example is shipped.
+
+**The library choice.** The XML parser is `roxmltree` 0.21, pure Rust
+and read-only, already in the workspace for the eHDSI assertion check: it
+refuses a document type declaration by default, so neither an external
+entity nor entity expansion can be expressed, and it keeps every node's
+source range, which the canonical form needs to keep the signer's
+prefixes. The exclusive canonicalization is `ferrohealth_smart::xml`, the
+eHDSI check's implementation (3.18) moved into its own module behind the
+`xml` feature so both checks share one copy, with its linear pre-scan of
+depth and namespace declarations, its line-end translation and its tests
+against `xmllint --exc-c14n`; FerroSMART reads SAML messages under caps of
+256 KiB, 16 384 nodes, depth 32 and 256 namespace declarations. The
+cryptography is `aws-lc-rs`, the provider `jsonwebtoken` and `rustls`
+already link: RSA and ECDSA verification and signing, RSA-OAEP
+decryption, AES-GCM and AES-CBC. `x509-parser` reads the certificates,
+and `flate2` (pure Rust behind `rust_backend`) writes the raw DEFLATE of
+the HTTP-Redirect binding. The alternatives were weighed: `samael`, the
+one SAML crate for Rust, verifies signatures only through `xmlsec` and
+`libxml2` over C bindings, resolves references by ID inside libxmlsec,
+which is the wrapping surface this design closes by construction, and
+would add two C libraries to the static distroless image; the `xmlsec`
+crate is the same C library alone. No pure-Rust XML Signature or XML
+Encryption crate exists at a maturity worth trusting over a check shaped
+for SAML's one signature form, so the check is our own, over primitives
+that are each established, and the case
+`app/ferrosmart/tests/it/saml/interop.rs` holds it against a response
+canonicalized by libxml2 and signed by OpenSSL.
