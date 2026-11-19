@@ -180,8 +180,18 @@ A `ferrosmart-vX.Y.Z` tag starts `.github/workflows/release-ferrosmart.yml`
 in place of `release.yml`. The tag names the server, like each crate's tag
 names its crate, so the four version lines never share a tag and
 `plan.sh prev-tag` orders each line apart. The release pull request and the
-tag follow the steps above with the server's manifest and changelog, and two
+tag follow the steps above with the server's manifest and changelog, and three
 differences:
+
+- **Take the screenshots again.** The book's screenshots name the release
+  they show (`website/book/src/integrate/img/captured-version.txt`), so the
+  guard `screenshots::every_page_route_has_a_screenshot_in_light_and_dark`
+  fails after the version moves until they are taken at the new one.
+  Install the browser (`scripts/release/journey-tools.sh
+  target/journey-tools`) and run `FERROSMART_SCREENSHOTS=1 cargo nextest run
+  -p ferrosmart -E 'test(the_book_shows_every_page)'` with
+  `FERROSMART_TEST_PG_URL` naming a PostgreSQL server. Look at the images
+  before you commit them.
 
 - **No semver check and no install line.** The server has no Rust API and is
   never on crates.io (`publish = false`). In their place the plan checks that

@@ -44,6 +44,39 @@ reach: the server's own `.well-known/smart-configuration` names FerroSMART's
    the `code_verifier`, a public client with its `client_id`, a confidential
    one with its client assertion.
 
+![The patient picker: a search by name or identifier, and the three synthetic patients it found, each with its birth date, gender and record number](img/picker.png)
+
+The patient picker, with a search and its results.
+[Dark theme](img/picker-dark.png).
+
+![The consent page of a patient app: who is signed in, the app's name, each scope it asks for in words, a tick box per scope, the choice to remember the decision, and Allow and Deny](img/consent-patient.png)
+
+The consent page of an app that reads one patient's record.
+[Dark theme](img/consent-patient-dark.png).
+
+![The consent page of a clinician app: who is signed in, the app's name, each scope it asks for in words, a tick box per scope, the choice to remember the decision, and Allow and Deny](img/consent-clinician.png)
+
+The consent page of an app a clinician uses across patients.
+[Dark theme](img/consent-clinician-dark.png).
+
+When a request cannot go on, FerroSMART tells the person on a page of its
+own and never redirects to an address it has not checked.
+
+![The page titled "This app is not registered here", a bad request: the app named a client or a return address the server does not know](img/error-unknown-client.png)
+
+A request from an app nobody registered.
+[Dark theme](img/error-unknown-client-dark.png).
+
+![The page titled "This request has ended": the sign-in took too long or was already finished, and the person starts again at the app](img/error-lapsed.png)
+
+The consent page reached after the request lapsed.
+[Dark theme](img/error-lapsed-dark.png).
+
+![The page titled "This sign-in began elsewhere": the sign-in did not begin in this browser, so it cannot finish here](img/error-other-browser.png)
+
+A login that came back to a browser that did not begin it.
+[Dark theme](img/error-other-browser-dark.png).
+
 The token response carries `access_token`, `token_type: Bearer`,
 `expires_in`, the granted `scope`, an `id_token` when `openid` was granted,
 a `refresh_token` when a refresh scope was, and the launch context:

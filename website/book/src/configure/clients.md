@@ -176,6 +176,11 @@ which revokes the grants it covered with every token under them. The page
 also lists every app that still holds `offline_access` or `online_access`,
 remembered or not, and says how long it stays connected.
 
+![The management page, titled "Apps you allowed": one app that stays connected after sign-out, the scopes it holds in words, and the Withdraw button](../integrate/img/manage.png)
+
+The management page, with one app that keeps access.
+[Dark theme](../integrate/img/manage-dark.png).
+
 The consent and management pages read each scope in words, with plain
 words before the common FHIR resource types, such as "Measurements and test
 results (Observation)".

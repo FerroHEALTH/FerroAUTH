@@ -209,6 +209,31 @@ pins, so every book in the family builds with the same tools.
 | mdbook-lint | `0.14.4` | `scripts/site/toolchain.sh` reads it |
 | lychee | `0.24.2` | `scripts/site/toolchain.sh` reads it |
 
+## The screenshot capture
+
+The book's screenshots of FerroSMART's pages (`app/ferrosmart/tests/it/screenshots/`,
+#623) are taken in headless Chrome over WebDriver, through chromedriver,
+with the `thirtyfour` client, a test-only dependency of the server. The
+capture runs on a developer's machine behind `FERROSMART_SCREENSHOTS=1`,
+never in CI, which runs only the guard over the committed images.
+`scripts/release/journey-tools.sh target/journey-tools` installs Chrome and
+chromedriver as one Chrome for Testing release, so the browser and its
+driver always match. It takes each download URL from the Chrome for Testing
+JSON API and checks each zip against the SHA-256 below before it unpacks
+it. Chrome for Testing publishes no SHA-256; the four digests are the ones
+FerroHEALTH/FerroPIX pins for the same release, taken on 2026-11-03 of
+downloads whose MD5 equals the `x-goog-hash` the storage bucket serves, and
+the two macOS ones were checked again here on 2026-11-19.
+
+| Item | Pin | Repeated in |
+|---|---|---|
+| thirtyfour | `0.38.1` | `Cargo.toml` |
+| Chrome for Testing (Chrome and chromedriver) | `157.0.8103.38` | `scripts/release/journey-tools.sh` |
+| Chrome for Testing, `chrome-linux64.zip` SHA-256 | `8cdeb344e9b2cefe59f4aea8d1d93d5d93054c03cde217665c16fc1f62e72a66` | `scripts/release/journey-tools.sh` |
+| Chrome for Testing, `chrome-mac-arm64.zip` SHA-256 | `3406b38b52b7d341d74450eb7b369be038c9fec9894c8b8a9e9e9f97333caf2f` | `scripts/release/journey-tools.sh` |
+| Chrome for Testing, `chromedriver-linux64.zip` SHA-256 | `329525fa0bf02be19794de1e9475772ef64695e0456f142888bd70df3147dc1e` | `scripts/release/journey-tools.sh` |
+| Chrome for Testing, `chromedriver-mac-arm64.zip` SHA-256 | `e59394fda6a05067362c225678e185e46e473cebea1593025deb2b2641b75688` | `scripts/release/journey-tools.sh` |
+
 ## The CI tools
 
 | Item | Pin | Repeated in |

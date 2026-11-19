@@ -14,6 +14,10 @@ and this project adheres to
 
 ### Added
 
+- The book shows every page a person meets during a launch, in the light
+  and the dark theme: the consent page of a clinician app and of a patient
+  app, the patient picker, the management page and the three error pages.
+  The README and the landing page show the consent page (#623).
 - `[ferrosmart.brand]` publishes the deployment's User Access Brands Bundle
   at `GET {issuer}/brands` (SMART App Launch 2.2.0, User Access Brands and
   Endpoints): a primary brand that references every FHIR endpoint, its
