@@ -14,12 +14,21 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.23.0] - 2026-11-17
+
+Releases beside `ferrohealth-smart` 0.30.0, whose `resource::Caller`,
+`client::cache::TokenSource` and `config::endpoint::RetrySection` this
+crate carries in its public API.
+
 ### Changed
 
 - The repository is FerroSMART again, at
   <https://github.com/FerroHEALTH/FerroSMART>, and the crate's `repository`
   and `homepage` point there (owner decision 2026-11-17). The FerroAUTH
   address redirects, and the crate name stays.
+- Breaking: requires `ferrohealth-smart` 0.30.0 (caret `0.30.0`) in place of
+  `0.29.0`. Upgrade: move `ferrohealth-smart` to 0.30.0 with this
+  crate, so one copy links (#631).
 
 ## [0.22.0] - 2026-11-17
 
@@ -398,7 +407,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.22.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.23.0...HEAD
+[0.23.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.22.0...ferrohealth-authz-v0.23.0
 [0.22.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.21.0...ferrohealth-authz-v0.22.0
 [0.21.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.20.0...ferrohealth-authz-v0.21.0
 [0.20.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.19.0...ferrohealth-authz-v0.20.0
