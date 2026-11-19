@@ -4228,9 +4228,9 @@ configuration module warns; #650 holds the decision, and the PKCE and
 `aud` FerroSMART requires of every authorization request are the next
 barrier it names.
 
-What the lane found, each held by its issue in `expected.tsv`: the
-relying party accepted an ID Token without `iat` (#646) and refused one
-without `kid` whose key set holds a single matching key (#648). The
+What the lane found: the relying party accepted an ID Token without
+`iat` (#646) and refused one without `kid` whose key set holds a single
+matching key (#648), both fixed and now held as passes. The
 client-secret module and the Basic relying party plan fail because
 FerroSMART authenticates upstream with `private_key_jwt` alone (13.22,
 #619). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
