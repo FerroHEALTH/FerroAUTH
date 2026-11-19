@@ -63,6 +63,8 @@ pub struct Settings {
     pub roles: BTreeMap<String, Vec<String>>,
     /// The deployment's name and words on the pages.
     pub branding: BrandingSection,
+    /// The User Access Brands Bundle, when the deployment publishes one.
+    pub brand: Option<crate::brands::Brands>,
     /// Where every login and token is recorded.
     pub audit: AuditSettings,
 }
@@ -187,6 +189,24 @@ impl Config {
                 .transpose()?,
             roles: roles(&section.role)?,
             branding: branding(&section.branding)?,
+            brand: section
+                .brand
+                .as_ref()
+                .map(|brand| {
+                    let fhir: Vec<String> = section
+                        .resource
+                        .iter()
+                        .filter(|resource| resource.kind == crate::config::ResourceKind::Fhir)
+                        .map(|resource| resource.base.clone())
+                        .collect();
+                    let bundle = format!(
+                        "{}{}",
+                        section.issuer.trim_end_matches('/'),
+                        crate::brands::BRANDS_ROUTE
+                    );
+                    crate::brands::Brands::resolve(brand, &fhir, &bundle)
+                })
+                .transpose()?,
             audit: audit(&section.audit, &issuer)?,
         })
     }

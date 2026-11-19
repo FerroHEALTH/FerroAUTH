@@ -26,3 +26,7 @@
 /dist/
 # The quickstart's secret files (compose.yaml), never committed.
 /secrets/
+
+# The FHIR packages the Brands Bundle check reads, fetched by
+# scripts/vendor/fhir-packages.sh; only each PROVENANCE.md is committed.
+/docs/specs/fhir-packages/*/package.tgz

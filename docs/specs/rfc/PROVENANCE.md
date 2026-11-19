@@ -7,10 +7,10 @@ Vendored verbatim by `scripts/vendor/rfcs.sh` from the RFC Editor
 (<https://www.rfc-editor.org/rfc/>), the text form of each, as published. Never edit a file here:
 change the pin in docs/VERSIONS.md and re-run the script.
 
-- Fetched: 2026-11-16
-- Files: 35
+- Fetched: 2026-11-17
+- Files: 36
 - Tree digest (sha256 over the sorted per-file `sha256  path` listing,
-  `PROVENANCE.md` excluded): `060fa695a8b79ca4f50fff4df9d3f10207e626b0fad4c18bda07170e011b575c`
+  `PROVENANCE.md` excluded): `6986b3605eb7a03d40793d44967da493f1d7b3c41792625b85bdf633f86c3a58`
 - Upstream licence: each RFC but RFC 3986 is "Copyright (c) <year> IETF Trust and the
   persons identified as the document authors. All rights reserved." and is
   "subject to BCP 78 and the IETF Trust's Legal Provisions Relating to IETF
@@ -77,6 +77,7 @@ change the pin in docs/VERSIONS.md and re-run the script.
 | RFC 9207 | OAuth 2.0 Authorization Server Issuer Identification | March 2022 | PROPOSED STANDARD | none | `c9c17b9824315aca9bda5c0b5e3627cb24aa28d54324292f3761006209b705fd` |
 | RFC 9864 | Fully-Specified Algorithms for JSON Object Signing and Encryption (JOSE) and CBOR Object Signing and Encryption (COSE) | October 2025 | PROPOSED STANDARD | none | `0f9b6dd26b3285fd9fe7f7e0a82e684d06512dee642703d51c6f88a7b0edaa2b` |
 | RFC 10070 | Updates to OAuth 2.0 JSON Web Token (JWT) Client Authentication and Assertion-Based Authorization Grants | November 2026 | PROPOSED STANDARD | none | `bca193c44b10f864396706e29192a091256d9c15a66c1549b01e75866165e163` |
+| RFC 9110 | HTTP Semantics | June 2022 | INTERNET STANDARD | none | `21c1cdce6ab0e5509b04d84a28000836c7a087cf786efe6f04877ebfff47232a` |
 
 An "Updated by" entry names an RFC that changes the document without
 replacing it; the design reads each update that bears on the resource

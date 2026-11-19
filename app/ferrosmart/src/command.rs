@@ -178,7 +178,19 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
         }
         None => None,
     };
-    let state = AppState::new(settings, store, audit);
+    let brands =
+        match &settings.brand {
+            Some(brands) => Some(crate::brands::publish(brands, &store).await.map_err(
+                |error| {
+                    Failure::not_up(error).with_context("cannot record the brands' last change")
+                },
+            )?),
+            None => None,
+        };
+    let mut state = AppState::new(settings, store, audit);
+    if let Some(brands) = brands {
+        state = state.with_brands(brands);
+    }
     let state = Arc::new(match party {
         Some(party) => state.with_login(party),
         None => state,

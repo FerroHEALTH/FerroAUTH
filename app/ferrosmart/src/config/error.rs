@@ -52,6 +52,9 @@ pub enum Error {
     /// `ferrosmart.branding.smart_style_url` is no https URL.
     #[error("`ferrosmart.branding.smart_style_url` is no https URL")]
     StyleUrl,
+    /// `[ferrosmart.brand]` breaks a rule.
+    #[error(transparent)]
+    Brand(#[from] crate::brands::BrandError),
     /// A role table breaks a rule.
     #[error("`ferrosmart.role`: {rule}")]
     Role {
