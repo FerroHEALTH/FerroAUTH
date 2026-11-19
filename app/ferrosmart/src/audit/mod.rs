@@ -259,6 +259,10 @@ pub enum Event {
     GrantRevoked,
     /// A refresh token rotated (OAuth 2.1 draft §4.3.1).
     RefreshRotated,
+    /// A rotated refresh token presented again by its client within the
+    /// repeat window, answered with the same successor
+    /// (`docs/architecture.md` §13.6 item 11).
+    RefreshRepeated,
     /// A rotated refresh token presented again, its grant revoked (RFC 9700
     /// §4.14.2).
     RefreshReused,
@@ -295,6 +299,7 @@ impl Event {
             Self::TokenRevoked => "token-revoked",
             Self::GrantRevoked => "grant-revoked",
             Self::RefreshRotated => "refresh-rotated",
+            Self::RefreshRepeated => "refresh-repeated",
             Self::RefreshReused => "refresh-reused",
             Self::CodeReused => "code-reused",
             Self::SessionEnded => "session-ended",
@@ -326,6 +331,7 @@ impl Event {
             Self::TokenRevoked => "Access token revoked",
             Self::GrantRevoked => "Grant revoked",
             Self::RefreshRotated => "Refresh token rotated",
+            Self::RefreshRepeated => "Refresh token repeated within the window",
             Self::RefreshReused => "Refresh token reused",
             Self::CodeReused => "Authorization code reused",
             Self::SessionEnded => "Upstream session ended",
@@ -347,7 +353,9 @@ impl Event {
             Self::CodeIssued | Self::LaunchRegistered | Self::PickerToken => {
                 (USER_AUTHENTICATION, vec![own], "C")
             }
-            Self::RefreshRotated | Self::LaunchRedeemed => (USER_AUTHENTICATION, vec![own], "E"),
+            Self::RefreshRotated | Self::RefreshRepeated | Self::LaunchRedeemed => {
+                (USER_AUTHENTICATION, vec![own], "E")
+            }
             Self::ConsentRemembered | Self::ConsentApproved | Self::ConsentFirstParty => {
                 (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "C")
             }

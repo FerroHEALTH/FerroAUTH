@@ -134,14 +134,15 @@ pub fn server_error(state: &AppState, error: &dyn std::error::Error) -> Response
 }
 
 /// Returns the consent page of `pending` for `client`, in the language the
-/// request's `Accept-Language` prefers among the catalog's.
+/// request's `ui_locales`, then its `Accept-Language`, prefer among the
+/// catalog's.
 pub fn consent(
     state: &AppState,
     headers: &HeaderMap,
     client: &Client,
     pending: &Pending,
 ) -> Response {
-    let locale = negotiated(headers);
+    let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let with = |id: &str, args: &[(&'static str, Arg)]| locale.lookup_with(&*CATALOG, id, args);
     let offered: Vec<&str> = pending
@@ -330,7 +331,7 @@ pub fn picker(
     found: Option<&[crate::picker::Found]>,
     notice: Option<&str>,
 ) -> Response {
-    let locale = negotiated(headers);
+    let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let action = state.settings().endpoint(crate::picker::PICKER_ROUTE);
     let (name, identifier) = asked.unwrap_or_default();
@@ -409,7 +410,7 @@ pub fn encounter_picker(
     (pending, patient): (&Pending, &str),
     found: &[crate::picker::encounter::FoundEncounter],
 ) -> Response {
-    let locale = negotiated(headers);
+    let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let choices = if found.is_empty() {
         Html::raw(format!(
@@ -517,7 +518,7 @@ pub fn ehr_picker(
     looked_up: Option<(&str, Option<&crate::picker::openehr::FoundEhr>)>,
 ) -> Response {
     let asked = looked_up.map(|(asked, _)| asked);
-    let locale = negotiated(headers);
+    let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let action = state.settings().endpoint(crate::picker::PICKER_ROUTE);
     let input = Html::raw(format!(
@@ -608,7 +609,7 @@ pub fn manage(
     pending: &Pending,
     remembered: &[Remembered],
 ) -> Response {
-    let locale = negotiated(headers);
+    let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let action = state.settings().endpoint(MANAGE_ROUTE);
     let rows = if remembered.is_empty() {
@@ -727,14 +728,36 @@ fn resource_words(locale: &Locale, resource: &str) -> String {
         )
 }
 
-/// Returns the locale the request's `Accept-Language` prefers among the
-/// catalog's, English when none matches.
-fn negotiated(headers: &HeaderMap) -> Locale {
+/// Returns the locale the request's `ui_locales`, then its
+/// `Accept-Language`, prefer among the catalog's, English when none matches.
+fn negotiated(headers: &HeaderMap, pending: &Pending) -> Locale {
     let accept = headers
         .get(header::ACCEPT_LANGUAGE)
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    Locale::negotiate_with(accept, &*CATALOG, Locale::default()).with_catalog(&*CATALOG)
+    // NOTE: OpenID Connect Core 1.0 §3.1.2.1: ui_locales names the languages wanted,
+    // most preferred first, so they go before the browser's own.
+    let wanted = pending
+        .asking
+        .ui_locales
+        .as_deref()
+        .unwrap_or_default()
+        .split(' ')
+        .filter(|tag| !tag.is_empty())
+        .chain(std::iter::once(accept).filter(|accept| !accept.is_empty()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Locale::negotiate_with(&wanted, &*CATALOG, Locale::default()).with_catalog(&*CATALOG)
+}
+
+/// Returns the languages the pages are drawn in, as BCP 47 tags: the
+/// catalog's (OpenID Connect Discovery 1.0 §3, `ui_locales_supported`).
+#[must_use]
+pub fn ui_locales() -> Vec<String> {
+    use fluent_templates::Loader as _;
+    let mut tags: Vec<String> = CATALOG.locales().map(ToString::to_string).collect();
+    tags.sort();
+    tags
 }
 
 /// Returns `content` as a whole document in the centred layout, with the

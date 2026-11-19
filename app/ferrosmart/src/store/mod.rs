@@ -507,6 +507,69 @@ pub struct Pending {
     /// (`docs/architecture.md` §13.6 item 5), which the access token's
     /// `roles` claim carries (RFC 9068 §2.2.3.1).
     pub roles: Vec<String>,
+    /// What the app asked of the login under OpenID Connect Core 1.0
+    /// §3.1.2.1.
+    pub asking: Asking,
+}
+
+/// What an app's authorization request asks of the person's login and the
+/// pages under OpenID Connect Core 1.0 §3.1.2.1, beside SMART App Launch
+/// 2.2.0's own parameters.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Asking {
+    /// The `prompt` values the request carries.
+    pub prompt: Prompt,
+    /// `max_age`: the most seconds since the person last authenticated.
+    pub max_age: Option<i64>,
+    /// `ui_locales`: the languages the pages are wanted in, most preferred
+    /// first, space separated.
+    pub ui_locales: Option<String>,
+    /// Whether the upstream login was begun again because its
+    /// authentication was older than `max_age`.
+    pub reauthenticated: bool,
+}
+
+/// The `prompt` values of an authorization request FerroSMART acts on
+/// (OpenID Connect Core 1.0 §3.1.2.1); `none` never reaches the login.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Prompt {
+    /// `login`, or `max_age=0`: the upstream login authenticates the person
+    /// again.
+    pub login: bool,
+    /// `consent`: the consent page is shown even when a remembered consent
+    /// or an approval would answer.
+    pub consent: bool,
+    /// `select_account`: the upstream login offers its accounts.
+    pub select_account: bool,
+}
+
+impl Prompt {
+    /// Returns the values, space separated, as the store writes them.
+    #[must_use]
+    pub fn values(self) -> String {
+        [
+            (self.login, "login"),
+            (self.consent, "consent"),
+            (self.select_account, "select_account"),
+        ]
+        .iter()
+        .filter(|(asked, _)| *asked)
+        .map(|(_, value)| *value)
+        .collect::<Vec<_>>()
+        .join(" ")
+    }
+
+    /// Returns the values of the space-separated `prompt`; a value it does
+    /// not act on is left out.
+    #[must_use]
+    pub fn of(prompt: &str) -> Self {
+        let values: Vec<&str> = prompt.split(' ').collect();
+        Self {
+            login: values.contains(&"login"),
+            consent: values.contains(&"consent"),
+            select_account: values.contains(&"select_account"),
+        }
+    }
 }
 
 /// What a login is for.

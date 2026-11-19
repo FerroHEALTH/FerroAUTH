@@ -23,6 +23,28 @@ and this project adheres to
   `policy_uri` and `tos_uri` (RFC 7591 §2, absolute `https` URLs), which the
   consent page links and draws, with the logo's origin admitted by the
   page's `img-src` alone. The store gains a migration (#668).
+- A refresh request may name a `resource` (RFC 8707 §2.2): the grant's
+  own resource server or the FHIR base paired with its openEHR base, so an
+  app signed in at the openEHR base gets a token for the platform's FHIR
+  server on the same grant. The token's `aud` is that resource alone and
+  its scope is the grant's, less the clinical scopes of the other kind;
+  the scope never widens, and any other resource is `invalid_target`
+  (#663).
+- The authorization endpoint meets what OpenID Connect Core 1.0 §15.1
+  has every OpenID Provider implement, beside SMART App Launch 2.2.0's
+  PKCE and `aud`, which stay required. `prompt=none` answers
+  `login_required` with no page, and `none` beside another value is
+  `invalid_request`. `prompt=login` and `select_account` reach the upstream
+  login, and `prompt=consent` shows the consent page where a remembered
+  consent or an organisation approval would answer. `max_age` reaches the
+  upstream login: a login older than it, or one that names no
+  `auth_time`, is begun again once with `prompt=login`, and one still
+  older answers `login_required`. The ID Token's `auth_time` is the
+  upstream login's. `ui_locales` reaches the upstream login and chooses
+  the pages' language before `Accept-Language`. `display`,
+  `claims_locales` and `acr_values` are taken. The OpenID Connect
+  discovery document names `display_values_supported` and
+  `ui_locales_supported` (#662).
 - An administrator can mark an approved app as the organisation's own with
   `first_party = true` on its `[ferrosmart.client.organisation_approval]`.
   Its approval may then list `patient/` scopes, and a patient, related
@@ -87,6 +109,18 @@ and this project adheres to
   `introspection_endpoint_auth_methods_supported` lists
   `client_secret_basic` and `client_secret_post` beside `private_key_jwt`
   (#639).
+
+### Changed
+
+- A client presenting a rotated refresh token again within 10 seconds of
+  its rotation, while the new refresh token is neither used nor revoked,
+  gets that same new refresh token and a fresh access token instead of
+  having the grant revoked, so a retry after a lost response or two
+  requests racing (two tabs, two backend instances, two replicas) keep the
+  grant. A repeat after the window, by another client, or once the new
+  token was used still revokes the grant (RFC 9700 §2.2.2, §4.14.2; the
+  window is FerroSMART's own design). Each repeat is recorded as
+  `refresh-repeated`. The store gains a migration (#667).
 
 ### Fixed
 

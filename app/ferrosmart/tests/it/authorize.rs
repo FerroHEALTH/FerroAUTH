@@ -103,19 +103,26 @@ impl Provider {
         subject: &str,
         fhir_user: &str,
     ) {
+        let claims = json!({
+            "sub": subject, "nonce": nonce, "name": "Synthetic Clinician",
+            "roles": roles, "fhir_user": fhir_user
+        });
+        self.answer_claims(&claims).await;
+    }
+
+    /// Answers the next code exchange with an ID Token carrying `claims`
+    /// beside its `iss`, `aud`, `iat` and `exp`.
+    pub(crate) async fn answer_claims(&self, claims: &Value) {
         let now = jiff::Timestamp::now().as_second();
+        let mut body = json!({
+            "iss": self.server.uri(), "aud": UPSTREAM_CLIENT, "iat": now, "exp": now + 300
+        });
+        if let (Some(base), Some(over)) = (body.as_object_mut(), claims.as_object()) {
+            base.extend(over.clone());
+        }
         let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(String::from("op-1"));
-        let id_token = jsonwebtoken::encode(
-            &header,
-            &json!({
-                "iss": self.server.uri(), "aud": UPSTREAM_CLIENT, "sub": subject,
-                "nonce": nonce, "iat": now, "exp": now + 300, "name": "Synthetic Clinician",
-                "roles": roles, "fhir_user": fhir_user
-            }),
-            &self.encoding,
-        )
-        .expect("signs");
+        let id_token = jsonwebtoken::encode(&header, &body, &self.encoding).expect("signs");
         Mock::given(matchers::method("POST"))
             .and(matchers::path("/token"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -1384,7 +1391,14 @@ async fn an_offline_access_launch_issues_a_refresh_token_that_rotates() {
     assert_eq!(json!("Practitioner/synthetic-1"), access["fhirUser"]);
     let second = renewed["refresh_token"].as_str().expect("rotated");
     assert_ne!(first, second);
-    // NOTE: RFC 9700 §4.14.2, the rotated token presented again revokes the grant.
+    // NOTE: RFC 9700 §4.14.2, the rotated token presented again after the repeat
+    // window revokes the grant (docs/architecture.md §13.6 item 11).
+    crate::support::rotated_ago(
+        secrecy::ExposeSecret::expose_secret(&smart.database.url),
+        first,
+        11,
+    )
+    .await;
     let (status, replay) = refresh(&smart, first).await;
     assert_eq!(StatusCode::BAD_REQUEST, status);
     assert_eq!(json!("invalid_grant"), replay["error"]);
@@ -1971,6 +1985,7 @@ async fn a_token_response_is_readable_from_the_app_s_origin_alone() {
 }
 
 mod approval;
+mod core_op;
 mod ehr_picker;
 mod encounter_picker;
 mod paired_picker;
