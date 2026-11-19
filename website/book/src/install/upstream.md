@@ -21,8 +21,14 @@ At the provider, register FerroSMART as a confidential web client:
 - an ID Token claim with the person's roles, which
   [`[[ferrosmart.role]]`](../configure/clients.md#roles) maps to scopes;
 - optionally FerroSMART's `{issuer}/backchannel-logout` as the back-channel
-  logout URI, so a logout at the provider ends the person's
-  `online_access` grants.
+  logout URI, or, at a provider that offers only front-channel logout such
+  as Microsoft Entra ID, `{issuer}/frontchannel-logout` as the front-channel
+  logout URI with `frontchannel_logout_session_required` (the provider
+  sends `iss` and `sid`), so a logout at the provider ends the person's
+  `online_access` grants;
+- optionally FerroSMART's `{issuer}/logout/return` as a post-logout
+  redirect URI, so a logout an app starts at FerroSMART's end-session
+  endpoint also logs the person out at the provider and comes back.
 
 FerroSMART authenticates to every provider with `private_key_jwt` (OpenID
 Connect Core 1.0 §9): a JWT signed by its assertion key, configured under
@@ -150,6 +156,7 @@ the discovery document, key set and token answer Entra ID publishes.
 | Client authentication | a certificate of FerroSMART's current assertion key, uploaded to the registration; each assertion names it by `x5t#S256`, signed `PS256` |
 | `fhirUser` | a directory extension attribute `fhirUser`, set per user, as an ID Token optional claim, which Entra ID emits as `extn.fhirUser` |
 | Roles | the app role `clinician`, assigned to people under Enterprise applications; the ID Token carries it in `roles` |
+| Logout | the front-channel logout URL `{issuer}/frontchannel-logout`, and `{issuer}/logout/return` as a second redirect URI for the end-session endpoint's return. FerroSMART ends a session only from a request with `iss` and `sid`: check that the tenant's discovery document says `frontchannel_logout_session_supported` and that the ID Token carries `sid` |
 | Tested by | a contract test that runs the example against Entra ID's discovery document, key set and token answer |
 
 ```toml

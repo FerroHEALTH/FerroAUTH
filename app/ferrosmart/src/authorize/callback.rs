@@ -24,8 +24,8 @@ use crate::store::{Asking, Login, Pending, Purpose};
 
 use super::consent::{Basis, approve, offer};
 use super::{
-    Back, CONSENT_ROUTE, Denial, MANAGE_ROUTE, cookie, forget, found, now, random, registered,
-    see_other, set_cookie,
+    Back, CONSENT_ROUTE, COOKIE, Denial, MANAGE_ROUTE, cookie, forget, found, now, random,
+    registered, see_other, set_cookie,
 };
 
 /// `GET {issuer}/callback`, where the upstream provider sends the browser
@@ -51,7 +51,7 @@ pub async fn callback(
         Err(response) => return *response,
     };
     // NOTE: RFC 9700 §4.7, the login completes in the browser that began it.
-    if cookie(&headers).as_deref() != Some(pending.id.as_str()) {
+    if cookie(&headers, COOKIE).as_deref() != Some(pending.id.as_str()) {
         return pages::fault(&state, Fault::OtherBrowser);
     }
     let Some(party) = state.relying_party() else {
@@ -358,7 +358,7 @@ pub(crate) async fn onward(
         Err(response) => return *response,
     };
     let mut response = approve(state, &pending, asked.offered, basis, back, from).await;
-    set_cookie(state, &mut response, "", 0);
+    set_cookie(state, &mut response, COOKIE, "", 0);
     response
 }
 

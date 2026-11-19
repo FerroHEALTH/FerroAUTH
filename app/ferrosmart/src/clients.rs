@@ -90,6 +90,10 @@ pub struct ClientSection {
     pub secret_hash_file: Option<PathBuf>,
     /// The client's complete redirect URIs.
     pub redirect_uris: Vec<String>,
+    /// The URIs the browser may be sent back to after a logout at the
+    /// end-session endpoint, each matched exactly (OpenID Connect
+    /// RP-Initiated Logout 1.0 §3.1, `post_logout_redirect_uris`).
+    pub post_logout_redirect_uris: Vec<String>,
     /// The scopes the client may be granted at most.
     pub scopes: Vec<String>,
     /// The grant types the client may use.
@@ -202,6 +206,8 @@ pub struct Client {
     pub secret_hash: Option<SecretHash>,
     /// Its redirect URIs.
     pub redirect_uris: Vec<String>,
+    /// Its post-logout redirect URIs.
+    pub post_logout_redirect_uris: Vec<String>,
     /// Its scope ceiling.
     pub scopes: Vec<String>,
     /// Its grant types, sorted and without repetition.
@@ -313,6 +319,15 @@ pub enum ClientError {
     /// A redirect URI is no absolute URL, or carries a fragment.
     #[error("the client `{client_id}`: a redirect URI is not an absolute URL without a fragment")]
     RedirectUri {
+        /// The client.
+        client_id: String,
+    },
+    /// A post-logout redirect URI is no absolute URL, or carries a
+    /// fragment.
+    #[error(
+        "the client `{client_id}`: a post-logout redirect URI is not an absolute URL without a fragment"
+    )]
+    PostLogoutRedirectUri {
         /// The client.
         client_id: String,
     },
@@ -485,6 +500,7 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
             return Err(ClientError::RedirectUri { client_id: id() });
         }
     }
+    check_post_logout(section, &grant_types)?;
     if !section
         .scopes
         .iter()
@@ -510,6 +526,7 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
         keys,
         secret_hash,
         redirect_uris: section.redirect_uris.clone(),
+        post_logout_redirect_uris: section.post_logout_redirect_uris.clone(),
         scopes: section.scopes.clone(),
         grant_types,
         launch_uri,
@@ -547,6 +564,32 @@ fn resolve_about(section: &ClientSection) -> Result<About, ClientError> {
 }
 
 /// Returns the launch URL the client `section` registers, normalized; it
+/// Checks the client's `post_logout_redirect_uris`: absolute, with no
+/// fragment, and only beside the authorization code grant.
+fn check_post_logout(
+    section: &ClientSection,
+    grant_types: &[GrantType],
+) -> Result<(), ClientError> {
+    // NOTE: RP-Initiated Logout 1.0 §3.1, a post-logout redirect follows a login of an
+    // ID Token, so it needs the authorization code grant; absolute, no fragment.
+    if !section.post_logout_redirect_uris.is_empty()
+        && !grant_types.contains(&GrantType::AuthorizationCode)
+    {
+        return Err(ClientError::Rule {
+            client_id: section.client_id.clone(),
+            rule: "`post_logout_redirect_uris` needs `authorization_code`",
+        });
+    }
+    for uri in &section.post_logout_redirect_uris {
+        if !Url::parse(uri).is_ok_and(|url| url.fragment().is_none()) {
+            return Err(ClientError::PostLogoutRedirectUri {
+                client_id: section.client_id.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
 /// needs the authorization code grant an EHR launch continues in.
 fn resolve_launch_uri(
     section: &ClientSection,

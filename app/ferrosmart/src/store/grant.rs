@@ -366,7 +366,7 @@ fn read_grant(row: &sqlx::postgres::PgRow) -> Result<GrantRecord, StoreError> {
 
 /// Revokes the grant `grant_id` with every token under it inside `tx`, and
 /// returns whether the grant was live.
-async fn revoke_in(
+pub(super) async fn revoke_in(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     grant_id: &str,
 ) -> Result<bool, StoreError> {

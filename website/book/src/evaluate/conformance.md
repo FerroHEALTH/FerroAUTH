@@ -76,6 +76,8 @@ consents they remembered and the apps that keep offline or online access.
 | `POST {issuer}/revoke` | Token revocation | RFC 7009 §2 |
 | `POST {issuer}/launch` | The EHR launch API | our own design |
 | `POST {issuer}/backchannel-logout` | The identity provider's logout notice | OpenID Connect Back-Channel Logout 1.0 |
+| `GET {issuer}/frontchannel-logout` | The identity provider's logout notice, in its iframe | OpenID Connect Front-Channel Logout 1.0 |
+| `GET`, `POST {issuer}/logout` | The end-session endpoint, with its confirmation at `{issuer}/logout/confirm` and the provider's return at `{issuer}/logout/return` | OpenID Connect RP-Initiated Logout 1.0 |
 | `GET {issuer}/audit` | FerroSMART's own audit records | our own design |
 | `GET {issuer}/upstream-jwks` | The keys FerroSMART signs its own client assertions to the identity provider with | our own design |
 | `GET {issuer}/health`, `/health/liveness`, `/health/readiness`, `/health/info` | Health | the FerroHEALTH family |
@@ -122,7 +124,8 @@ and the architecture records it as its own design:
   shows a patient the page. An app's `prompt=consent` always shows the
   page.
 - **`online_access`.** An online refresh token ends when the person's login
-  at the identity provider ends, signalled by back-channel logout, or after
+  at the identity provider ends, signalled by back-channel or front-channel
+  logout, when the person logs out at the end-session endpoint, or after
   `online_idle` unused.
 - **The person's `sub`.** A pairwise identifier derived from the identity
   provider's issuer and `sub`, so the provider's identifier never reaches a

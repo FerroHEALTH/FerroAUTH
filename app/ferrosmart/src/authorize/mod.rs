@@ -116,7 +116,7 @@ pub(crate) async fn logged_in(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<Pending, Box<Response>> {
-    let Some(id) = cookie(headers) else {
+    let Some(id) = cookie(headers, COOKIE) else {
         return Err(Box::new(pages::fault(state, Fault::Lapsed)));
     };
     let pending = found(state, state.store().pending(&id).await)?;
@@ -208,27 +208,33 @@ fn no_store(mut response: Response) -> Response {
     response
 }
 
-/// Sets the request cookie to `value` for `max_age` seconds, scoped to the
+/// Sets the cookie `name` to `value` for `max_age` seconds, scoped to the
 /// issuer's path: `HttpOnly`, `Secure` and `SameSite=Lax`, which the
 /// provider's redirect back still carries.
-fn set_cookie(state: &AppState, response: &mut Response, value: &str, max_age: i64) {
+pub(crate) fn set_cookie(
+    state: &AppState,
+    response: &mut Response,
+    name: &str,
+    value: &str,
+    max_age: i64,
+) {
     let path = state.settings().issuer_url.path();
     let cookie =
-        format!("{COOKIE}={value}; Path={path}; Max-Age={max_age}; HttpOnly; Secure; SameSite=Lax");
+        format!("{name}={value}; Path={path}; Max-Age={max_age}; HttpOnly; Secure; SameSite=Lax");
     if let Ok(value) = HeaderValue::from_str(&cookie) {
         response.headers_mut().append(header::SET_COOKIE, value);
     }
 }
 
-/// Returns the request cookie's value.
-fn cookie(headers: &HeaderMap) -> Option<String> {
+/// Returns the value of the request's cookie `name`.
+pub(crate) fn cookie(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
         .get_all(header::COOKIE)
         .iter()
         .filter_map(|value| value.to_str().ok())
         .flat_map(|value| value.split(';'))
         .filter_map(|pair| pair.trim().split_once('='))
-        .find(|(name, _)| *name == COOKIE)
+        .find(|(found, _)| *found == name)
         .map(|(_, value)| value.to_owned())
         .filter(|value| !value.is_empty())
 }
@@ -257,6 +263,6 @@ pub fn sha256(value: &str) -> String {
 }
 
 /// Returns the time now in seconds since the epoch.
-fn now() -> i64 {
+pub(crate) fn now() -> i64 {
     jiff::Timestamp::now().as_second()
 }
