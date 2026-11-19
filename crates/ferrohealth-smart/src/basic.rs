@@ -225,8 +225,10 @@ impl PasswordStore {
     /// lives between nine tenths of `ttl` and `ttl`, by a jitter per
     /// credential; in its last tenth one request re-derives it while the
     /// others are still admitted, and concurrent misses for one credential
-    /// share one derivation. No specification governs the cache: our own
-    /// design.
+    /// share one derivation. The cache holds at most 4096 credentials: a
+    /// full one keeps what it holds and admits no new entry until one
+    /// expires, so a credential beyond the cap pays the derivation on every
+    /// request. No specification governs the cache: our own design.
     ///
     /// # Errors
     ///
@@ -238,6 +240,13 @@ impl PasswordStore {
             Some(VerifiedCache::new(ttl)?)
         };
         Ok(self)
+    }
+
+    /// Returns the cap, the entries and the estimated bytes of the
+    /// verified-credential cache, or `None` when the store keeps none.
+    #[must_use]
+    pub fn cache_usage(&self) -> Option<crate::usage::CacheUsage> {
+        self.cache.as_ref().map(VerifiedCache::usage)
     }
 
     /// Returns this store admitting `username` with the password `hash`
@@ -674,6 +683,21 @@ mod tests {
                 .count()
         });
         assert_eq!(1, derived, "one Argon2id derivation for the burst");
+    }
+
+    #[test]
+    fn the_store_reports_its_cache_when_it_keeps_one() {
+        assert_eq!(None, store().cache_usage(), "no cache, nothing to report");
+        let cached = store()
+            .with_cache(Duration::from_secs(60))
+            .expect("the cache key is drawn");
+        let empty = cached.cache_usage().expect("a cache");
+        assert_eq!((4096, 0, 0), (empty.capacity, empty.entries, empty.bytes));
+        assert!(cached.verify(&header("Basic", "alice", "s3cret")).is_ok());
+        assert!(cached.verify(&header("Basic", "alice", "nope")).is_err());
+        let held = cached.cache_usage().expect("a cache");
+        assert_eq!(1, held.entries, "only the credential that verified");
+        assert!(held.bytes > 0);
     }
 
     #[test]

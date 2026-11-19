@@ -116,6 +116,8 @@ pub mod roles;
 pub mod scope;
 #[cfg(resource_server)]
 pub mod sender;
+#[cfg(resource_server)]
+pub mod usage;
 
 // The Rust examples of this crate's README and the repository's README
 // compile as doctests, with the features they guard a router with.

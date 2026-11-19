@@ -99,7 +99,9 @@ pub struct IntrospectionSettings {
     /// The longest an active response is used before the endpoint is asked
     /// again; zero caches nothing.
     pub cache_max_age: Duration,
-    /// The most responses held at once.
+    /// The most responses held at once. A full cache drops the responses
+    /// whose time has ended, then the one that ends soonest, for a new one;
+    /// zero holds none.
     pub cache_capacity: usize,
     /// How long one call to the authorization server may take.
     pub timeout: Duration,
@@ -340,6 +342,36 @@ struct Entry {
     until: Instant,
     /// The caller it admitted.
     caller: Caller,
+    /// An estimate of the bytes the entry takes: its key, itself and the
+    /// members of the response as JSON.
+    bytes: usize,
+}
+
+/// A sink that counts the bytes written to it and keeps none.
+struct Counted(usize);
+
+impl std::io::Write for Counted {
+    fn write(&mut self, buffer: &[u8]) -> std::io::Result<usize> {
+        self.0 = self.0.saturating_add(buffer.len());
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Returns an estimate of the bytes a held `caller` takes under its
+/// 32-byte key.
+fn weigh(caller: &Caller) -> usize {
+    let mut members = Counted(0);
+    // NOTE: no specification governs this: our own design; the sink takes every
+    // write, and a response that came from JSON goes back into it.
+    let written = serde_json::to_writer(&mut members, caller.claims());
+    let members = if written.is_ok() { members.0 } else { 0 };
+    size_of::<[u8; 32]>()
+        .saturating_add(size_of::<Entry>())
+        .saturating_add(members)
 }
 
 /// The introspection check of one authorization server.
@@ -730,8 +762,22 @@ impl Introspector {
             Entry {
                 until: now.checked_add(age).unwrap_or(now),
                 caller: caller.clone(),
+                bytes: weigh(caller),
             },
         );
+    }
+
+    /// Returns the cap, the entries and the estimated bytes of the response
+    /// cache: per entry its key, its record and the response's members as
+    /// JSON.
+    #[must_use]
+    pub fn cache_usage(&self) -> crate::usage::CacheUsage {
+        let cache = self.cache.lock().unwrap_or_else(PoisonError::into_inner);
+        let bytes = cache
+            .values()
+            .map(|entry| entry.bytes)
+            .fold(0_usize, usize::saturating_add);
+        crate::usage::CacheUsage::new(self.settings.cache_capacity, cache.len(), bytes)
     }
 }
 
