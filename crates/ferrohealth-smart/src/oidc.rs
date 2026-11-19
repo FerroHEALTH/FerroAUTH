@@ -667,10 +667,42 @@ impl RelyingParty {
     /// (`invalid_grant` among them), [`OidcError::Malformed`] and
     /// [`OidcError::TokenType`].
     pub async fn refresh(&self, refresh_token: &Secret) -> Result<Refreshed, OidcError> {
-        let grant = [
+        self.refresh_grant(refresh_token, None).await
+    }
+
+    /// Sends `refresh_token` to the token endpoint for a new access token
+    /// for the resource server `resource` (RFC 6749 §6, RFC 8707 §2.2), on
+    /// the same grant.
+    ///
+    /// The provider audience-restricts the token to `resource` and decides
+    /// which resources the grant reaches; the refresh token it rotates stays
+    /// bound to the whole grant (RFC 8707 §2.2).
+    ///
+    /// # Errors
+    ///
+    /// As [`RelyingParty::refresh`], with [`OidcError::Refused`] carrying
+    /// `invalid_target` for a resource the provider refuses (RFC 8707 §2).
+    pub async fn refresh_for(
+        &self,
+        refresh_token: &Secret,
+        resource: &str,
+    ) -> Result<Refreshed, OidcError> {
+        self.refresh_grant(refresh_token, Some(resource)).await
+    }
+
+    /// The refresh grant of `refresh_token`, naming `resource` when given.
+    async fn refresh_grant(
+        &self,
+        refresh_token: &Secret,
+        resource: Option<&str>,
+    ) -> Result<Refreshed, OidcError> {
+        let mut grant = vec![
             ("grant_type", "refresh_token"),
             ("refresh_token", refresh_token.expose()),
         ];
+        if let Some(resource) = resource {
+            grant.push(("resource", resource));
+        }
         let tokens = self.token_request(&grant).await?;
         // NOTE: OpenID Connect Core 1.0 §12.2: a refresh answer might not contain
         // an `id_token`, so one it carries is not read; the sign-in's stays.

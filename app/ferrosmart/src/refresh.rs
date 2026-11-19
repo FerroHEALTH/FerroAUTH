@@ -10,11 +10,15 @@
 //! grant with every token under it, which is the replay detection RFC 9700
 //! §4.14.2 requires for public clients and FerroSMART applies to every
 //! client, except that the same client presenting it again within
-//! [`crate::store::grant::REPEAT_WINDOW`], while its successor is unused, gets the same successor
-//! back: a retried or racing request is not a replay. A refresh token lapses after its idle time, `refresh_idle` for
+//! [`crate::store::grant::REPEAT_WINDOW`], while its successor is unused,
+//! gets the same successor back: a retried or racing request is not a
+//! replay. A refresh token lapses after its idle time, `refresh_idle` for
 //! `offline_access` and `online_access`'s shorter `online_idle`, and an
 //! `online_access` one with the person's upstream login
-//! (`docs/architecture.md` §13.6 item 7).
+//! (`docs/architecture.md` §13.6 item 7). A refresh that names a
+//! `resource` gets a token for that resource server alone, its own
+//! audience or the FHIR base paired with it, with the scopes its kind
+//! takes (RFC 8707 §2.2, `docs/architecture.md` §13.6 item 11).
 
 use serde_json::{Map, Value};
 
@@ -58,20 +62,7 @@ pub(crate) async fn refresh(
         .get("refresh_token")
         .ok_or(Refusal::request("the request carries no refresh_token"))?;
     let hash = sha256(presented);
-    // NOTE: SMART App Launch 2.2.0, Refresh access token, Request: a scope names no
-    // permission the grant lacks; it is checked before the token is used up.
-    let granted = state
-        .store()
-        .refresh_token(&hash)
-        .await
-        .map_err(|error| server_error("the refresh token cannot be read", &error))?
-        .filter(|record| record.grant.client_id == client.client_id)
-        .map(|record| record.grant.scope);
-    let scope = match (&granted, form.get("scope")) {
-        (Some(granted), Some(requested)) => narrowed(granted, requested)?,
-        (Some(granted), None) => granted.clone(),
-        (None, _) => String::new(),
-    };
+    let (scope, target) = requested(state, &client, form, &hash).await?;
     let (grant, successor) = redeem(state, &client, presented, &hash, from).await?;
     let context = grant.context.as_object().cloned().unwrap_or_default();
     let fhir_user = grant
@@ -83,7 +74,7 @@ pub(crate) async fn refresh(
         &client,
         Grant {
             subject: &grant.subject,
-            audience: &grant.audience,
+            audience: target.as_deref().unwrap_or(&grant.audience),
             scope: &scope,
             fhir_user,
             code_hash: None,
@@ -183,6 +174,43 @@ async fn redeem(
         // is dropped and its request is recorded as the ITI-71 refusal alone.
         Rotation::OtherClient | Rotation::Invalid => Err(invalid("the refresh token is not valid")),
     }
+}
+
+/// Returns the scope and the audience a refresh request asks for: the
+/// grant's scope narrowed by its `scope`, and the resource its `resource`
+/// names with the scope its kind takes. An unknown token asks for nothing,
+/// and the rotation refuses it.
+async fn requested(
+    state: &AppState,
+    client: &Client,
+    form: &Params,
+    hash: &str,
+) -> Result<(String, Option<String>), Refusal> {
+    // NOTE: SMART App Launch 2.2.0, Refresh access token, Request: a scope names no
+    // permission the grant lacks; it is checked before the token is used up.
+    let granted = state
+        .store()
+        .refresh_token(hash)
+        .await
+        .map_err(|error| server_error("the refresh token cannot be read", &error))?
+        .filter(|record| record.grant.client_id == client.client_id)
+        .map(|record| (record.grant.scope, record.grant.audience));
+    let mut scope = match (&granted, form.get("scope")) {
+        (Some((granted, _)), Some(requested)) => narrowed(granted, requested)?,
+        (Some((granted, _)), None) => granted.clone(),
+        (None, _) => String::new(),
+    };
+    // NOTE: RFC 8707 §2.2, a refresh request's `resource` names the token's target,
+    // which the grant's policy limits; it is checked before the token is used up.
+    let target = match (&granted, form.get("resource")) {
+        (Some((_, audience)), Some(named)) => {
+            let target = reachable(state, audience, named)?;
+            scope = for_kind(&scope, state.settings().openehr_resources.contains(&target))?;
+            Some(target)
+        }
+        _ => None,
+    };
+    Ok((scope, target))
 }
 
 /// What redeeming a code opens: the grant every token of the launch is
@@ -341,6 +369,62 @@ fn narrowed(granted: &str, requested: &str) -> Result<String, Refusal> {
         .filter(|scope| requested.contains(scope))
         .collect::<Vec<_>>()
         .join(" "))
+}
+
+/// Returns the resource server `named` when the grant for `audience` may
+/// reach it: the grant's own audience, or the FHIR base paired with it
+/// (`docs/architecture.md` §13.6 item 11). Any other is `invalid_target`
+/// (RFC 8707 §2).
+fn reachable(state: &AppState, audience: &str, named: &str) -> Result<String, Refusal> {
+    let paired = state
+        .settings()
+        .pairings
+        .get(audience)
+        .is_some_and(|pairing| pairing.fhir_base == named);
+    if named == audience || paired {
+        Ok(named.to_owned())
+    } else {
+        Err(Refusal {
+            error: "invalid_target",
+            description: "the grant does not reach the resource",
+        })
+    }
+}
+
+/// Returns the scopes of `scope` a resource server of one kind takes: every
+/// scope but the clinical scopes of the other kind's grammar. A clinical
+/// scope of the `template-`, `composition-` or `aql-` family is openEHR's
+/// (SMART on openEHR draft, Resource Scopes); any other is FHIR's (SMART
+/// App Launch 2.2.0, Scopes for requesting FHIR Resources). A scope
+/// left empty is `invalid_scope` (RFC 6749 §5.2).
+fn for_kind(scope: &str, openehr: bool) -> Result<String, Refusal> {
+    let taken: Vec<&str> = scope
+        .split(' ')
+        .filter(|held| !held.is_empty())
+        .filter(|held| clinical_kind(held).is_none_or(|kind| kind == openehr))
+        .collect();
+    if taken.is_empty() {
+        return Err(Refusal {
+            error: "invalid_scope",
+            description: "the grant holds no scope the resource takes",
+        });
+    }
+    Ok(taken.join(" "))
+}
+
+/// Returns whether the clinical scope `scope` is openEHR's, or `None` for a
+/// scope that names no resource.
+fn clinical_kind(scope: &str) -> Option<bool> {
+    let (context, rest) = scope.split_once('/')?;
+    if !matches!(context, "patient" | "user" | "system") {
+        return None;
+    }
+    let (resource, _) = rest.rsplit_once('.')?;
+    Some(
+        ["template-", "composition-", "aql-"]
+            .iter()
+            .any(|family| resource.starts_with(family)),
+    )
 }
 
 /// Commits `tx` with the record of `happening`, or refuses the request as

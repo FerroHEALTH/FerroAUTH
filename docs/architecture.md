@@ -2773,7 +2773,8 @@ document (13.8).
 | `fhirUser` in the `id_token` whenever `openid` and `fhirUser` are granted; a `Patient`, `Practitioner`, `PractitionerRole`, `RelatedPerson` or `Person` URL, absolute or relative to `aud` | SHALL | same | 3 |
 | ID Tokens signed with `RS256` | SHALL | same; `discovery §3` | 2 |
 | ID Token claims `iss`, `sub`, `aud`, `exp`, `iat`, `nonce` when sent, `auth_time` when `max_age` is requested | REQUIRED | `oidc core §2`, `§3.1.2.1` | 3 |
-| `claims`, request objects and UserInfo | MAY | `smart scopes-and-launch-context`, Scopes for requesting identity data | later |
+| `claims`, request objects and UserInfo | MAY | `smart scopes-and-launch-context`, Scopes for requesting identity data | not built: no UserInfo Endpoint, which `oidc core §15.2` requires only of a Dynamic OP (owner decision of 2026-11-19, #650) |
+| What every OpenID Provider implements (`oidc core §15.1`) | MUST | `oidc core §15.1` | met, 13.25 |
 
 **Refresh tokens**
 
@@ -2783,6 +2784,7 @@ document (13.8).
 | The server decides which client types get offline access | MAY | `smart app-launch`, Refresh access token | 6 |
 | A refresh token is bound to its `client_id` and carries the same or fewer grants | SHALL | same | 6 |
 | A refresh request's `scope` is a strict subset, or absent for the original scope; the response carries `access_token`, `token_type`, `expires_in`, `scope` (the original's) and the context | SHALL | `smart app-launch`, Refresh access token, Request and Response | 6 |
+| A refresh request's `resource` names the token's target, limited by policy to what the grant reaches; an unacceptable one is `invalid_target` and the token is audience-restricted to the one named | SHOULD (audience restriction) | `rfc8707 §2`, `§2.2` | 6 |
 | Public clients' refresh tokens are rotated or sender-constrained | MUST | `rfc9700 §2.2.2`, `§4.14` | 6 |
 | A rotated refresh token keeps the grant's scope; idle refresh tokens expire | MUST; SHOULD | `oauth21 §4.3.3` | 6 |
 | Backend Services issues no refresh token | SHOULD NOT | `smart backend-services`, Enforce Authorization | 2 |
@@ -3209,7 +3211,24 @@ specification governs.
     decides. Redeeming a code opens the grant every token of the launch is
     issued under, with the launch context and the upstream session the
     person logged in under; withdrawing a remembered consent revokes the
-    grants it covered with every token under them.
+    grants it covered with every token under them. A refresh request may
+    name a `resource` (`rfc8707 §2.2`: "for all grant types", with the
+    acceptable resources "at its sole discretion" and limited "to those
+    that were originally granted"). FerroSMART takes the grant's own
+    audience or the `fhir_base` paired with it (#574), so one grant at an
+    openEHR base reaches the platform's FHIR server, and refuses any other
+    with `invalid_target` (`rfc8707 §2`). The token's `aud` is that
+    resource alone (`rfc8707 §2`, SHOULD audience-restrict; `rfc9068 §3`;
+    `rfc9700 §4.10.2`), and its scope is the grant's, narrowed by the
+    request's `scope`, less the clinical scopes of the other kind's
+    grammar: a `template-`, `composition-` or `aql-` scope is openEHR's
+    (`soe master08`, Resource Scopes), any other clinical scope FHIR's.
+    The identity, launch and access scopes stay. The scope is never wider
+    than the grant's, and a scope left empty is `invalid_scope`. The
+    rotated refresh token keeps the grant's audience and whole scope
+    (`rfc8707 §2.2`, "bound to the full original grant"), and a refresh
+    without `resource` keeps the grant's audience. Which resource a grant
+    reaches through a pairing is our own design (FerroHEALTH/FerroSMART#663).
 12. **A client's registered origins.** `smart app-launch`, Considerations
     for CORS support, has the token endpoint readable "for requests from a
     client's registered origin(s)" and says nothing of how an origin is
@@ -3292,7 +3311,7 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 |---|---|---|
 | `client` | `client_id` | type (public, symmetric, asymmetric), secret hash, `jwks` or `jwks_uri`, redirect URIs, launch URI, registered origins, scope ceiling, grant types, offline access allowed, name and logo, disabled time |
 | `signing_key` | `kid` | algorithm, public JWK, signer reference (file path or KMS key id), state (`next`, `active`, `retiring`), the times of each state |
-| `pending_authorization` | random id | the validated request (client, redirect URI, scope, `state`, `nonce`, PKCE challenge, `aud`, launch), the upstream `state`, `nonce` and PKCE verifier, expiry |
+| `pending_authorization` | random id | the validated request (client, redirect URI, scope, `state`, `nonce`, PKCE challenge, `aud`, launch, and the OpenID Connect `prompt`, `max_age` and `ui_locales` of 13.25), the upstream `state`, `nonce` and PKCE verifier, expiry |
 | `authorization_code` | code hash | the grant it opens, the PKCE challenge, the redirect URI, expiry, redemption time |
 | `authorization_grant` | grant id | client, subject, `fhirUser`, `aud`, scope, launch context, `auth_time`, upstream session, access (`offline`, `online`, none), creation and revocation times (`grant` is an SQL keyword, so the table takes RFC 6749 §1.3's full name) |
 | `refresh_token` | token hash | grant, predecessor, idle expiry, use time (set when rotated, kept for reuse detection), revocation |
@@ -4334,11 +4353,16 @@ modules (its own `ignored_modules`), and the lane records them as not run.
 
 **As the OpenID Provider**, the suite is the static client `oidf-suite`, a
 confidential symmetric client, and Keycloak is FerroSMART's upstream.
-FerroSMART has no UserInfo Endpoint (13.5, "later"), so every module of
-the Basic plan stops before its authorization request and the
-configuration module warns; #650 holds the decision, and the PKCE and
-`aud` FerroSMART requires of every authorization request are the next
-barrier it names.
+FerroSMART has no UserInfo Endpoint, so every module of the Basic plan
+stops before its authorization request and the configuration module
+warns. The owner decided on 2026-11-19 (#650) that FerroSMART builds none:
+`oidc core §15.1` does not list it, `§15.2` requires it only of a Dynamic
+OP, and SMART App Launch 2.2.0 makes it a MAY. The modules would stop at
+the authorization request even with one, since they send neither the PKCE
+challenge nor the `aud` SMART App Launch 2.2.0 requires, so the Basic OP
+plan does not apply to a SMART authorization server and its 36 modules
+stay held as failures under #650. What `§15.1` requires of every OP is
+tested through the endpoints instead (13.25).
 
 What the lane found: the relying party accepted an ID Token without
 `iat` (#646) and refused one without `kid` whose key set holds a single
@@ -4348,3 +4372,24 @@ FerroSMART authenticates upstream with `private_key_jwt` alone (13.22,
 #619). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
 RFC 10070's audience rule, need PAR and DPoP and are the lane's next
 target.
+
+### 13.25 What every OpenID Provider implements
+
+OpenID Connect Core 1.0 §15.1 lists what every OpenID Provider implements,
+and FerroSMART is one toward its apps. Each requirement holds beside SMART
+App Launch 2.2.0's own rules: an authorization request without the S256
+PKCE challenge or the `aud` is refused before any of these is read
+(13.6). FerroSMART keeps no session of its own: every authorization
+request logs the person in at the upstream provider, so the parameters
+that ask about the login go there (`app/ferrosmart/src/authorize/oidc.rs`).
+The tests are in `app/ferrosmart/tests/it/authorize/core_op.rs`.
+
+| Requirement | What FerroSMART does | Citation | Test |
+|---|---|---|---|
+| Signing ID Tokens with RS256 | every ID Token is signed RS256 with the current key of `[ferrosmart.keys]`, and the discovery document names `RS256` | `oidc core §15.1`, `§2`; `discovery §3` | `the_id_token_is_rs256_and_carries_the_upstream_login_s_auth_time`, `the_document_names_rs256_the_display_values_and_the_page_languages` |
+| `prompt`, with `none` and `login` | `none` answers `login_required` to the app with no page and no login, as FerroSMART holds no session in which the person is already authenticated; `none` beside another value is `invalid_request`; `login` and `select_account` go to the upstream login; `consent` shows the consent page where a remembered consent or an organisation approval would answer (13.6 item 6); another value is taken and ignored, which no specification governs: our own design | `oidc core §15.1`, `§3.1.2.1`, `§3.1.2.6` | `prompt_none_answers_login_required_without_a_page`, `prompt_login_and_select_account_reach_the_upstream_login`, `prompt_consent_shows_the_page_an_approval_would_skip` |
+| `display` | `page`, `popup`, `touch` and `wap` are taken, and the same page answers at any size; `display_values_supported` names the four | `oidc core §15.1`, `§3.1.2.1`; `discovery §3` | `display_locales_and_acr_values_are_taken`, `the_document_names_rs256_the_display_values_and_the_page_languages` |
+| `ui_locales` and `claims_locales` | `ui_locales` goes to the upstream login, and the pages take its first language the catalog holds before the browser's `Accept-Language`; `ui_locales_supported` names the catalog's languages. `claims_locales` is taken; no claim FerroSMART returns depends on a language, so the document names no `claims_locales_supported` | `oidc core §15.1`, `§3.1.2.1`, `§5.2`; `discovery §3` | `display_locales_and_acr_values_are_taken` |
+| `auth_time` | every ID Token carries `auth_time`, the upstream ID Token's own, or the time the upstream login returned when it names none; a refresh keeps it | `oidc core §15.1`, `§2` | `the_id_token_is_rs256_and_carries_the_upstream_login_s_auth_time` |
+| `max_age` | goes to the upstream login; an upstream `auth_time` older than `max_age`, or none, begins the upstream login again with `prompt=login`, once, and a login still older answers `login_required`; `max_age=0` is `prompt=login`; a value that is no number of seconds is `invalid_request` | `oidc core §15.1`, `§3.1.2.1`, `§3.1.2.6` | `an_upstream_login_older_than_max_age_is_begun_again_with_prompt_login` |
+| `acr_values` | taken, and the request goes on as without it; FerroSMART does not pass it upstream, so its ID Tokens carry no `acr` and the document names no `acr_values_supported`, which no specification requires: our own design | `oidc core §15.1`, `§3.1.2.1` | `display_locales_and_acr_values_are_taken` |
