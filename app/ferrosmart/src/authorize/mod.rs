@@ -160,11 +160,26 @@ impl Back {
         self.send(&[("code", code)])
     }
 
+    /// Returns the URL that sends the browser back with `denial`, for a
+    /// page that names the reason first.
+    fn denial_url(&self, denial: Denial) -> Option<Url> {
+        self.url(&[
+            ("error", denial.error),
+            ("error_description", denial.description),
+        ])
+    }
+
     /// Sends the browser back with `pairs`, the `state` and the `iss`.
     fn send(&self, pairs: &[(&str, &str)]) -> Response {
-        let Ok(mut url) = Url::parse(&self.redirect_uri) else {
-            return StatusCode::BAD_REQUEST.into_response();
-        };
+        match self.url(pairs) {
+            Some(url) => see_other(url.as_str()),
+            None => StatusCode::BAD_REQUEST.into_response(),
+        }
+    }
+
+    /// Returns the redirect URI with `pairs`, the `state` and the `iss`.
+    fn url(&self, pairs: &[(&str, &str)]) -> Option<Url> {
+        let mut url = Url::parse(&self.redirect_uri).ok()?;
         {
             let mut query = url.query_pairs_mut();
             query.extend_pairs(pairs);
@@ -173,7 +188,7 @@ impl Back {
             }
             query.append_pair("iss", &self.issuer);
         }
-        see_other(url.as_str())
+        Some(url)
     }
 }
 
