@@ -243,6 +243,19 @@ check_version() {
 
 check_changelog_structure() { bash scripts/checks/changelog-structure.sh "$CHANGELOG"; }
 
+# The cut assembled every fragment of the crate into its section
+# (scripts/release/changelog.sh --assemble), so none is left at the tag.
+check_changelog_fragments() {
+  local left path
+  left="$(find "changelog.d/$CRATE" -maxdepth 1 -type f 2>/dev/null | sort)"
+  if [[ -n "$left" ]]; then
+    echo "::error::changelog.d/$CRATE/ still holds fragments the cut did not assemble; run scripts/release/changelog.sh --assemble $CRATE $VERSION <date> on the release branch:" >&2
+    while IFS= read -r path; do echo "  $path"; done <<<"$left" >&2
+    return 1
+  fi
+  echo "changelog.d/$CRATE/ holds no fragment"
+}
+
 # The crate's public API and its public dependencies against its newest
 # version on crates.io: a break needs a minor bump
 # (https://doc.rust-lang.org/cargo/reference/semver.html), which keeps a
@@ -387,6 +400,7 @@ check_milestone The milestone titled as the tag holds no open item
 check_version The tag matches the version of the crate it releases
 check_semver The public API breaks nothing its version does not allow (cargo-semver-checks)
 check_changelog_structure Changelog structure (no duplicate subsections, Keep a Changelog types only)
+check_changelog_fragments Every changelog fragment of the crate is assembled into its section
 check_changelog_links The changelog links compare from the tag being cut
 check_changelog_security The Security section of the cut names its advisories and its reason
 check_readme_pin The install lines of the crate pin the version being released
@@ -502,6 +516,16 @@ self_test() {
   expect "a fixed tag and a comment are no quickstart pin" "$got" ""
   got="$(printf '%s\n' 'Pin ferrohealth-smart = "=9.9.9" in prose.' 'ferrohealth-smart = "0.8"' 'cargo add ferrohealth-smart' | readme_pins ferrohealth-smart)"
   expect "prose and an inexact requirement are no install line" "$got" ""
+  local stub
+  stub="$(mktemp -d)"
+  mkdir -p "$stub/changelog.d/ferrosmart" "$stub/changelog.d/ferrohealth-authz"
+  echo '- Another crate.' > "$stub/changelog.d/ferrohealth-authz/1-other.added.md"
+  got="$(cd "$stub" && CRATE=ferrosmart VERSION=0.2.0 check_changelog_fragments 2> /dev/null || echo "$refused")"
+  expect "another crate's fragment leaves the cut alone" "$got" "changelog.d/ferrosmart/ holds no fragment"
+  echo '- Left behind.' > "$stub/changelog.d/ferrosmart/2-left.added.md"
+  got="$(cd "$stub" && CRATE=ferrosmart VERSION=0.2.0 check_changelog_fragments 2> /dev/null || echo "$refused")"
+  expect "a fragment the cut left behind" "$got" "$refused"
+  rm -r -- "$stub"
   if [[ "$fails" -gt 0 ]]; then
     echo "plan.sh self-test FAILED ($fails case(s))" >&2
     exit 1

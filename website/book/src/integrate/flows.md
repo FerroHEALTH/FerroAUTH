@@ -14,13 +14,18 @@ reach: the server's own `.well-known/smart-configuration` names FerroSMART's
    `GET` or a form `POST`: `response_type=code`, its `client_id`, a
    registered `redirect_uri`, `scope`, `state`, a PKCE `code_challenge`
    with `code_challenge_method=S256`, and `aud`, the base URL of the server
-   the token is for (`resource` is taken as a synonym). An `aud` FerroSMART
-   does not serve is refused. An unknown client or redirect URI is shown to
+   the token is for (`resource` is taken as a synonym). SMART requires the
+   app to send `aud`, so send it. A deployment that configures one resource
+   server takes a missing `aud` as that server, as its token endpoint does
+   for `resource`; with two or more, a request without `aud` is refused. An
+   `aud` FerroSMART does not serve is refused. An unknown client or redirect URI is shown to
    the person and never redirected to.
 2. **Log in.** FerroSMART sends the person to the identity provider and
    back to `{issuer}/callback`.
 3. **Pick the patient.** When the app asks for `launch/patient` and the
-   server can be searched, FerroSMART shows its patient picker. At a FHIR
+   server can be searched, FerroSMART shows its patient picker. A
+   standalone app that asks a `patient/` scope without `launch/patient` is
+   treated as asking it, and the granted `scope` says so. At a FHIR
    server the person searches by name or identifier
    (`GET [base]/Patient`); at an openEHR server whose
    `[[ferrosmart.resource]]` names a `subject_namespace`, the person enters
@@ -145,8 +150,12 @@ token's `sub` is the client id.
 `online_access` granted. `grant_type=refresh_token` with the token, and a
 `scope` equal to the grant's or narrower, returns a new access token and a
 new refresh token: FerroSMART rotates every client's refresh token on each
-use. A rotated token presented again, even by two requests racing, revokes
-the grant with every token under it. An `offline_access` token lapses after
+use. A rotated token presented again revokes the grant with every token
+under it, except within 10 seconds of its rotation: the same client
+presenting it again then gets the same new refresh token and a fresh access
+token, so a retry after a lost response, or two tabs or two backend
+instances refreshing at once, keeps the grant. A repeat after the window,
+by another client, or once the new refresh token was used, is a replay. An `offline_access` token lapses after
 `refresh_idle` unused; an `online_access` token after `online_idle`, or when
 the person's login at the identity provider ends through back-channel
 logout.

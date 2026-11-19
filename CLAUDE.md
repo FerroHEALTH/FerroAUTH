@@ -165,8 +165,11 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   hold only the provenance of cache-only pages, fetched into the ignored
   `.vendor-cache/`, and the MyHealth@EU Requirements Catalogue is recorded
   by sha256 and never copied).
+- `changelog.d/`: the changelog fragments, one directory per package, which
+  the release cut assembles into the package's changelog.
 - `scripts/`: `vendor/` (the corpus fetchers), `checks/` (the committed
-  guards), `release/` (the release plan, the crate publish, the Trivy
+  guards), `release/` (the release plan, the changelog fragment tool
+  `changelog.sh`, the crate publish, the Trivy
   install and the Chrome install of the screenshot capture), `gh/` (the tracker helpers).
 - `.github/`: CI with a single required `conclusion` job, the vendored
   specification guard, CodeQL, Scorecard, Dependabot, the release lane with
@@ -227,8 +230,13 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   code comment. A `PreToolUse` hook blocks a commit or PR command carrying
   one.
 - **Never weaken, skip, or delete a test** (`.claude/rules/testing.md`).
-- **Keep the changelog** (`crates/<crate>/CHANGELOG.md` of the crate a change
-  ships in, Keep a Changelog 1.1.0).
+- **Keep the changelog** with a fragment, never an edit of `[Unreleased]`:
+  a change a product sees adds
+  `changelog.d/<package>/<issue>-<kebab-slug>.<section>.md` for the
+  package it ships in (`ferrosmart`, `ferrohealth-smart`,
+  `ferrohealth-authz`, `ferrohealth-session`), and the release cut
+  assembles the fragments into that package's Keep a Changelog 1.1.0
+  section (`.claude/rules/changelog.md`, `changelog.d/README.md`).
 
 ## Licence
 
@@ -242,6 +250,7 @@ upstream terms, recorded beside them.
 
 - Rules: `writing-style`, `rust-style`, `reliability`, `comments`, `testing`,
   `spec-adherence`, `vendored-inputs`, `ci-cd`, `crates-publishing`,
+  `changelog`,
   `issue-workflow`, `issue-relationships`, `project-board`.
 - Agents: `implementer`, `spec-researcher`. Skills: `next-task`,
   `phase-done`, `phase-status`.

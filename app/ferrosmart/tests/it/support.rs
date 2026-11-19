@@ -477,3 +477,20 @@ pub(crate) fn one_table(app: &str) -> ferrohealth_smart::profile::ProfileKeys {
         ..ferrohealth_smart::profile::ProfileKeys::default()
     }
 }
+
+/// Moves the rotation of the refresh token `token` in the database at `url`
+/// back by `seconds`, past the repeat window when `seconds` exceeds it.
+pub(crate) async fn rotated_ago(url: &str, token: &str, seconds: u32) {
+    use sqlx::Connection as _;
+    let mut connection = sqlx::PgConnection::connect(url).await.expect("connects");
+    let moved = sqlx::query(
+        "UPDATE refresh_token SET used_at = used_at - make_interval(secs => $2) \
+         WHERE token_hash = $1 AND used_at IS NOT NULL",
+    )
+    .bind(ferrosmart::authorize::sha256(token))
+    .bind(f64::from(seconds))
+    .execute(&mut connection)
+    .await
+    .expect("the rotation moves");
+    assert_eq!(1, moved.rows_affected(), "the token was rotated");
+}

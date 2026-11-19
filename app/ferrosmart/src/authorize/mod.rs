@@ -14,6 +14,7 @@
 pub mod callback;
 pub mod consent;
 pub mod manage;
+mod oidc;
 pub mod request;
 
 use axum::response::{IntoResponse, Response};

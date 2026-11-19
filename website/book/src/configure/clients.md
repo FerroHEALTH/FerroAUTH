@@ -34,6 +34,10 @@ registry; the configuration is the place to change a client.
 | `secret_hash_file` | A file holding the Argon2id hash of a confidential symmetric client's secret, never the secret |
 | `redirect_uris` | The client's complete redirect URIs, compared by exact string |
 | `launch_uri` | Optional: the app's launch URL, absolute `https`, by which an EHR's [launch registration](../integrate/ehr-launch.md) may name the app (`app_launch_uri`), as a SMART Task does; compared after RFC 3986 normalization, one client per URL |
+| `client_uri` | Optional: the app's home page, absolute `https`, linked from the consent page (RFC 7591 §2) |
+| `logo_uri` | Optional: the app's logo, absolute `https`, drawn on the consent page; the page's CSP admits that origin for images alone |
+| `policy_uri` | Optional: the app's privacy policy, absolute `https`, linked from the consent page |
+| `tos_uri` | Optional: the app's terms of service, absolute `https`, linked from the consent page |
 | `scopes` | The ceiling: every scope the client may ever be granted |
 | `grant_types` | Any of `authorization_code`, `client_credentials` and `refresh_token` |
 
@@ -188,7 +192,14 @@ With both refresh scopes granted, `offline_access` decides.
 
 Every flow with a person shows the consent page, unless the organisation
 approved the app (below). The person approves the offered scopes, unticks
-any, or refuses, which sends the app an `access_denied` error. FerroSMART draws the page itself, with the
+any access to their data (`patient/`, `user/` and extension scopes), or
+refuses, which sends the app an `access_denied` error. Sign-in, launch and
+refresh scopes (`openid`, `fhirUser`, `profile`, `email`, `launch`,
+`launch/patient`, `launch/encounter`, `offline_access`, `online_access`)
+are listed as fixed lines with no box: the app needs them to work, and they
+give no access to data on their own. The page shows the app's logo and
+links to its home page, privacy policy and terms when the client registers
+them. FerroSMART draws the page itself, with the
 deployment's name and `consent_text` from `[ferrosmart.branding]`.
 
 When the person ticks "Remember this choice", FerroSMART keeps the consent

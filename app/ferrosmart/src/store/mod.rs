@@ -22,8 +22,9 @@ use secrecy::ExposeSecret as _;
 use serde_json::Value;
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use sqlx::{Postgres, Row as _};
+use url::Url;
 
-use crate::clients::{Approval, Client, ClientKeys, ClientKind, GrantType, SecretHash};
+use crate::clients::{About, Approval, Client, ClientKeys, ClientKind, GrantType, SecretHash};
 use crate::launch::context::Context;
 
 /// How long a request waits for a connection before the store answers that
@@ -134,13 +135,7 @@ impl Store {
     /// Returns [`StoreError::Database`] when the query fails and
     /// [`StoreError::Corrupt`] for a row the server never writes.
     pub async fn client(&self, client_id: &str) -> Result<Option<Client>, StoreError> {
-        self.client_by(
-            "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
-             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at, \
-             first_party FROM client WHERE client_id = $1",
-            client_id,
-        )
-        .await
+        self.client_by(ClientKey::ClientId, client_id).await
     }
 
     /// Returns the client whose normalized launch URL is `launch_uri`.
@@ -149,22 +144,21 @@ impl Store {
     /// Returns [`StoreError::Database`] when the query fails and
     /// [`StoreError::Corrupt`] for a row the server never writes.
     pub async fn client_launched_at(&self, launch_uri: &str) -> Result<Option<Client>, StoreError> {
-        self.client_by(
-            "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
-             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at, \
-             first_party FROM client WHERE launch_uri = $1",
-            launch_uri,
-        )
-        .await
+        self.client_by(ClientKey::LaunchUri, launch_uri).await
     }
 
-    /// Returns the client the one-parameter `query` finds for `value`.
-    async fn client_by(
-        &self,
-        query: &'static str,
-        value: &str,
-    ) -> Result<Option<Client>, StoreError> {
-        let row = sqlx::query(query)
+    /// Returns the client whose column `key` holds `value`.
+    async fn client_by(&self, key: ClientKey, value: &str) -> Result<Option<Client>, StoreError> {
+        let column = match key {
+            ClientKey::ClientId => "client_id",
+            ClientKey::LaunchUri => "launch_uri",
+        };
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
+            "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
+             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at, \
+             first_party, client_uri, logo_uri, policy_uri, tos_uri \
+             FROM client WHERE {column} = $1"
+        )))
             .bind(value)
             .fetch_optional(&self.pool)
             .await?;
@@ -304,6 +298,15 @@ impl Store {
     }
 }
 
+/// The unique column a client is looked up by.
+#[derive(Debug, Clone, Copy)]
+enum ClientKey {
+    /// `client_id`.
+    ClientId,
+    /// The normalized `launch_uri`.
+    LaunchUri,
+}
+
 /// Writes `client` as a configured client.
 async fn upsert(
     tx: &mut sqlx::Transaction<'_, Postgres>,
@@ -321,11 +324,12 @@ async fn upsert(
         .collect();
     sqlx::query(
         "INSERT INTO client (client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types, secret_hash, \
-         launch_uri, approved_scope, approved_by, approved_at, first_party, source) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14, 'config') \
+         launch_uri, approved_scope, approved_by, approved_at, first_party, client_uri, logo_uri, policy_uri, tos_uri, source) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14, $15, $16, $17, $18, 'config') \
          ON CONFLICT (client_id) DO UPDATE SET name = $2, kind = $3, jwks_uri = $4, jwks = $5, \
          redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, launch_uri = $10, \
          approved_scope = $11, approved_by = $12, approved_at = to_timestamp($13), first_party = $14, \
+         client_uri = $15, logo_uri = $16, policy_uri = $17, tos_uri = $18, \
          source = 'config', updated_at = now()",
     )
     .bind(&client.client_id)
@@ -342,6 +346,10 @@ async fn upsert(
     .bind(client.approval.as_ref().map(|approval| &approval.approved_by))
     .bind(client.approval.as_ref().map(|approval| approval.approved_at))
     .bind(client.approval.as_ref().is_some_and(|approval| approval.first_party))
+    .bind(client.about.home.as_ref().map(Url::as_str))
+    .bind(client.about.logo.as_ref().map(Url::as_str))
+    .bind(client.about.policy.as_ref().map(Url::as_str))
+    .bind(client.about.terms.as_ref().map(Url::as_str))
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -405,8 +413,25 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
         grant_types,
         launch_uri: row.try_get("launch_uri")?,
         approval,
+        about: About {
+            home: read_url(row, "client_uri", &corrupt)?,
+            logo: read_url(row, "logo_uri", &corrupt)?,
+            policy: read_url(row, "policy_uri", &corrupt)?,
+            terms: read_url(row, "tos_uri", &corrupt)?,
+        },
         client_id,
     })
+}
+
+/// Reads the URL column `column` of a `client` row, none when it is null.
+fn read_url(
+    row: &sqlx::postgres::PgRow,
+    column: &str,
+    corrupt: &dyn Fn() -> StoreError,
+) -> Result<Option<Url>, StoreError> {
+    row.try_get::<Option<String>, _>(column)?
+        .map(|url| url.parse().map_err(|_unparsed| corrupt()))
+        .transpose()
 }
 
 /// What the store records of an issued access token.
@@ -482,6 +507,69 @@ pub struct Pending {
     /// (`docs/architecture.md` §13.6 item 5), which the access token's
     /// `roles` claim carries (RFC 9068 §2.2.3.1).
     pub roles: Vec<String>,
+    /// What the app asked of the login under OpenID Connect Core 1.0
+    /// §3.1.2.1.
+    pub asking: Asking,
+}
+
+/// What an app's authorization request asks of the person's login and the
+/// pages under OpenID Connect Core 1.0 §3.1.2.1, beside SMART App Launch
+/// 2.2.0's own parameters.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Asking {
+    /// The `prompt` values the request carries.
+    pub prompt: Prompt,
+    /// `max_age`: the most seconds since the person last authenticated.
+    pub max_age: Option<i64>,
+    /// `ui_locales`: the languages the pages are wanted in, most preferred
+    /// first, space separated.
+    pub ui_locales: Option<String>,
+    /// Whether the upstream login was begun again because its
+    /// authentication was older than `max_age`.
+    pub reauthenticated: bool,
+}
+
+/// The `prompt` values of an authorization request FerroSMART acts on
+/// (OpenID Connect Core 1.0 §3.1.2.1); `none` never reaches the login.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Prompt {
+    /// `login`, or `max_age=0`: the upstream login authenticates the person
+    /// again.
+    pub login: bool,
+    /// `consent`: the consent page is shown even when a remembered consent
+    /// or an approval would answer.
+    pub consent: bool,
+    /// `select_account`: the upstream login offers its accounts.
+    pub select_account: bool,
+}
+
+impl Prompt {
+    /// Returns the values, space separated, as the store writes them.
+    #[must_use]
+    pub fn values(self) -> String {
+        [
+            (self.login, "login"),
+            (self.consent, "consent"),
+            (self.select_account, "select_account"),
+        ]
+        .iter()
+        .filter(|(asked, _)| *asked)
+        .map(|(_, value)| *value)
+        .collect::<Vec<_>>()
+        .join(" ")
+    }
+
+    /// Returns the values of the space-separated `prompt`; a value it does
+    /// not act on is left out.
+    #[must_use]
+    pub fn of(prompt: &str) -> Self {
+        let values: Vec<&str> = prompt.split(' ').collect();
+        Self {
+            login: values.contains(&"login"),
+            consent: values.contains(&"consent"),
+            select_account: values.contains(&"select_account"),
+        }
+    }
 }
 
 /// What a login is for.

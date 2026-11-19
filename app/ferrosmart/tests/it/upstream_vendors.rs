@@ -511,7 +511,8 @@ async fn to_consent(smart: &Smart, contract: &Contract, upstream: &Url, cookie: 
         "the provider's name: {page}"
     );
     assert!(
-        page.contains("value=\"user/Observation.rs\"") && page.contains("value=\"fhirUser\""),
+        page.contains("value=\"user/Observation.rs\"")
+            && page.contains("<code class=\"fui-scope-raw\">fhirUser</code>"),
         "the role the provider names grants its scopes, and fhirUser is offered: {page}"
     );
     page.split("name=\"form_token\" value=\"")

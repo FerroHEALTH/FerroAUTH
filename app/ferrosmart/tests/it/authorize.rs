@@ -103,19 +103,26 @@ impl Provider {
         subject: &str,
         fhir_user: &str,
     ) {
+        let claims = json!({
+            "sub": subject, "nonce": nonce, "name": "Synthetic Clinician",
+            "roles": roles, "fhir_user": fhir_user
+        });
+        self.answer_claims(&claims).await;
+    }
+
+    /// Answers the next code exchange with an ID Token carrying `claims`
+    /// beside its `iss`, `aud`, `iat` and `exp`.
+    pub(crate) async fn answer_claims(&self, claims: &Value) {
         let now = jiff::Timestamp::now().as_second();
+        let mut body = json!({
+            "iss": self.server.uri(), "aud": UPSTREAM_CLIENT, "iat": now, "exp": now + 300
+        });
+        if let (Some(base), Some(over)) = (body.as_object_mut(), claims.as_object()) {
+            base.extend(over.clone());
+        }
         let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(String::from("op-1"));
-        let id_token = jsonwebtoken::encode(
-            &header,
-            &json!({
-                "iss": self.server.uri(), "aud": UPSTREAM_CLIENT, "sub": subject,
-                "nonce": nonce, "iat": now, "exp": now + 300, "name": "Synthetic Clinician",
-                "roles": roles, "fhir_user": fhir_user
-            }),
-            &self.encoding,
-        )
-        .expect("signs");
+        let id_token = jsonwebtoken::encode(&header, &body, &self.encoding).expect("signs");
         Mock::given(matchers::method("POST"))
             .and(matchers::path("/token"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({
@@ -205,6 +212,8 @@ impl Smart {
              [ferrosmart.branding]\nsmart_style_url = {STYLE:?}\n{resource}\
              [[ferrosmart.role]]\nname = \"clinician\"\nscopes = {role}\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nname = \"Synthetic App\"\nkind = \"public\"\n\
+             client_uri = \"https://app.example.org/\"\nlogo_uri = \"https://cdn.example.org/app.png\"\n\
+             policy_uri = \"https://app.example.org/privacy\"\ntos_uri = \"https://app.example.org/terms\"\n\
              redirect_uris = [{REDIRECT:?}]\ngrant_types = {grants}\nscopes = {ceiling}",
             secrecy::ExposeSecret::expose_secret(&database.url),
             provider.server.uri()
@@ -661,6 +670,108 @@ async fn a_request_the_client_may_never_be_granted_names_no_role() {
     smart.stop().await;
 }
 
+// NOTE: docs/architecture.md §13.6 item 3 (owner, 2026-11-19, #668): identity,
+// launch and refresh scopes are fixed lines; resource scopes keep their boxes.
+#[tokio::test]
+async fn the_consent_page_draws_identity_scopes_as_fixed_lines_and_the_app_s_links() {
+    let smart = Smart::start().await;
+    let (cookie, _token) = to_consent(&smart, &["clinician"]).await;
+    let (_, headers, page) = smart.get("/consent", Some(&cookie)).await;
+    for fixed in ["openid", "fhirUser"] {
+        assert!(
+            !page.contains(&format!("value=\"{fixed}\"")),
+            "no box: {page}"
+        );
+        assert!(
+            page.contains(&format!("<code class=\"fui-scope-raw\">{fixed}</code>")),
+            "a fixed line: {page}"
+        );
+    }
+    assert!(
+        page.contains("value=\"user/Observation.rs\" checked"),
+        "{page}"
+    );
+    // NOTE: RFC 7591 §2, client_uri, logo_uri, policy_uri and tos_uri.
+    for link in [
+        "href=\"https://app.example.org/\"",
+        "href=\"https://app.example.org/privacy\"",
+        "href=\"https://app.example.org/terms\"",
+        "<img src=\"https://cdn.example.org/app.png\" alt=\"Logo of Synthetic App\"",
+    ] {
+        assert!(page.contains(link), "{link}: {page}");
+    }
+    let policy = headers
+        .get(header::CONTENT_SECURITY_POLICY)
+        .and_then(|value| value.to_str().ok())
+        .expect("a policy");
+    assert!(
+        policy.contains("img-src 'self' https://cdn.example.org;"),
+        "the logo's origin alone: {policy}"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_consent_form_without_its_fixed_scopes_still_grants_them() {
+    let smart = Smart::start().await;
+    let (cookie, token) = to_consent(&smart, &["clinician"]).await;
+    let (status, headers, _) = smart
+        .post(
+            "/consent",
+            &[("form_token", &token), ("decision", "approve")],
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let code = param(&location(&headers), "code").expect("a code: the fixed scopes are granted");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        json!("openid fhirUser"),
+        body["scope"],
+        "every resource scope unticked, the identity scopes kept"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_consent_form_cannot_add_a_scope_that_was_not_offered() {
+    let smart = Smart::start().await;
+    let (cookie, token) = to_consent(&smart, &["clinician"]).await;
+    let (_, headers, _) = smart
+        .post(
+            "/consent",
+            &[
+                ("form_token", &token),
+                ("decision", "approve"),
+                ("scope", "user/Patient.rs"),
+                ("scope", "offline_access"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (_, _, body) = smart.post("/token", &exchange, None).await;
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(json!("openid fhirUser"), body["scope"], "{body}");
+    smart.stop().await;
+}
+
 #[tokio::test]
 async fn a_declined_consent_sends_access_denied_back() {
     let smart = Smart::start().await;
@@ -714,6 +825,61 @@ async fn a_request_the_endpoint_cannot_trust_is_shown_never_redirected() {
             "the error page of a 400: {page}"
         );
     }
+    smart.stop().await;
+}
+
+// NOTE: SMART App Launch 2.2.0 requires aud of the app; with one base configured
+// FerroSMART defaults a missing one to it, as the token endpoint does (#670).
+#[tokio::test]
+async fn a_request_without_aud_defaults_to_the_one_configured_base() {
+    let smart = Smart::start().await;
+    let (status, headers, _) = smart.get(&authorize_path(&[("aud", "")]), None).await;
+    assert_eq!(StatusCode::SEE_OTHER, status);
+    let upstream = location(&headers);
+    assert!(
+        param(&upstream, "error").is_none() && param(&upstream, "nonce").is_some(),
+        "on to the login: {upstream}"
+    );
+    let (_, headers, _) = smart
+        .get(
+            &authorize_path(&[("aud", "https://other.example.org/fhir")]),
+            None,
+        )
+        .await;
+    assert_eq!(
+        Some(String::from("invalid_request")),
+        param(&location(&headers), "error"),
+        "a wrong aud is refused with one base too"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_request_without_aud_is_refused_with_two_bases() {
+    let smart = Smart::start_over(
+        "[\"authorization_code\"]",
+        "[\"openid\", \"user/Observation.rs\"]",
+        "[\"user/Observation.rs\"]",
+        &format!(
+            "[[ferrosmart.resource]]\nbase = {RESOURCE:?}\n\
+             [[ferrosmart.resource]]\nbase = \"https://second.example.org/fhir\"\n"
+        ),
+    )
+    .await;
+    let (_, headers, _) = smart.get(&authorize_path(&[("aud", "")]), None).await;
+    let back = location(&headers);
+    assert!(back.as_str().starts_with(REDIRECT), "{back}");
+    assert_eq!(Some(String::from("invalid_request")), param(&back, "error"));
+    let (_, headers, _) = smart
+        .get(
+            &authorize_path(&[("aud", "https://second.example.org/fhir")]),
+            None,
+        )
+        .await;
+    assert!(
+        param(&location(&headers), "error").is_none(),
+        "a named base"
+    );
     smart.stop().await;
 }
 
@@ -846,7 +1012,12 @@ async fn a_code_exchange_that_does_not_hold_is_refused_and_burns_nothing() {
     let (status, _, body) = smart.post("/token", &exchange, None).await;
     assert_eq!(StatusCode::OK, status, "{body}");
     let body: Value = serde_json::from_str(&body).expect("JSON");
-    assert!(body.get("id_token").is_none(), "no openid, no ID Token");
+    // NOTE: docs/architecture.md §13.6 item 3, openid is a fixed line, granted
+    // with the app though the form left it out.
+    assert!(
+        body.get("id_token").is_some(),
+        "openid is granted, so an ID Token"
+    );
     smart.stop().await;
 }
 
@@ -942,7 +1113,7 @@ async fn a_person_is_granted_an_extension_scope_that_the_ceiling_and_a_role_list
     assert_eq!(StatusCode::OK, status, "{body}");
     let body: Value = serde_json::from_str(&body).expect("JSON");
     assert_eq!(
-        json!("openid user/Observation.rs __ferroehr.platform"),
+        json!("openid fhirUser user/Observation.rs __ferroehr.platform"),
         body["scope"]
     );
     let claims: Value = jsonwebtoken::dangerous::insecure_decode_claims(
@@ -950,7 +1121,7 @@ async fn a_person_is_granted_an_extension_scope_that_the_ceiling_and_a_role_list
     )
     .expect("claims");
     assert_eq!(
-        json!("openid user/Observation.rs __ferroehr.platform"),
+        json!("openid fhirUser user/Observation.rs __ferroehr.platform"),
         claims["scope"]
     );
     smart.stop().await;
@@ -1347,7 +1518,14 @@ async fn an_offline_access_launch_issues_a_refresh_token_that_rotates() {
     assert_eq!(json!("Practitioner/synthetic-1"), access["fhirUser"]);
     let second = renewed["refresh_token"].as_str().expect("rotated");
     assert_ne!(first, second);
-    // NOTE: RFC 9700 §4.14.2, the rotated token presented again revokes the grant.
+    // NOTE: RFC 9700 §4.14.2, the rotated token presented again after the repeat
+    // window revokes the grant (docs/architecture.md §13.6 item 11).
+    crate::support::rotated_ago(
+        secrecy::ExposeSecret::expose_secret(&smart.database.url),
+        first,
+        11,
+    )
+    .await;
     let (status, replay) = refresh(&smart, first).await;
     assert_eq!(StatusCode::BAD_REQUEST, status);
     assert_eq!(json!("invalid_grant"), replay["error"]);
@@ -1667,6 +1845,67 @@ pub(crate) fn form_token(page: &str) -> String {
         .to_owned()
 }
 
+// NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, Standalone apps: the
+// server may infer launch/patient for a patient/ scope (#669).
+#[tokio::test]
+async fn a_standalone_patient_scope_without_launch_patient_goes_to_the_picker() {
+    let (smart, fhir, _) = picker_launch().await;
+    let base = format!("{}/fhir", fhir.uri());
+    let cookie = to_picker_asking(
+        &smart,
+        &base,
+        "openid fhirUser patient/Observation.rs",
+        "synthetic-person",
+        "Practitioner/synthetic-1",
+    )
+    .await;
+    let (_, _, page) = smart.get("/picker?name=Synthetic", Some(&cookie)).await;
+    let token = form_token(&page);
+    let (_, headers, _) = smart
+        .post(
+            "/picker",
+            &[("form_token", &token), ("patient", "p-1")],
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!("/consent", location(&headers).path());
+    let (_, _, page) = smart.get("/consent", Some(&cookie)).await;
+    assert!(page.contains("value=\"patient/Observation.rs\""), "{page}");
+    let token = form_token(&page);
+    let (_, headers, _) = smart
+        .post(
+            "/consent",
+            &[
+                ("form_token", token.as_str()),
+                ("decision", "approve"),
+                ("scope", "openid"),
+                ("scope", "fhirUser"),
+                ("scope", "launch/patient"),
+                ("scope", "patient/Observation.rs"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    let code = param(&location(&headers), "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(
+        json!("openid fhirUser patient/Observation.rs launch/patient"),
+        body["scope"],
+        "the granted scope names the inferred launch/patient"
+    );
+    assert_eq!(json!("p-1"), body["patient"]);
+    smart.stop().await;
+}
+
 #[tokio::test]
 async fn a_standalone_launch_picks_a_patient_the_person_may_see() {
     let (smart, fhir, seen) = picker_launch().await;
@@ -1934,6 +2173,7 @@ async fn a_token_response_is_readable_from_the_app_s_origin_alone() {
 }
 
 mod approval;
+mod core_op;
 mod ehr_picker;
 mod encounter_picker;
 mod paired_picker;
