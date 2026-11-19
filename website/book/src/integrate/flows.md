@@ -25,7 +25,11 @@ reach: the server's own `.well-known/smart-configuration` names FerroSMART's
 3. **Pick the patient.** When the app asks for `launch/patient` and the
    server can be searched, FerroSMART shows its patient picker. A
    standalone app that asks a `patient/` scope without `launch/patient` is
-   treated as asking it, and the granted `scope` says so. At a FHIR
+   treated as asking it, and the granted `scope` says so. A patient
+   whose `fhirUser` names their own `Patient` at that server (or at the
+   FHIR server paired with the openEHR server asked) sees no picker: their
+   own record, read again as them, is the context, and they get the app's
+   `patient/` scopes without a role at the identity provider. At a FHIR
    server the person searches by name or identifier
    (`GET [base]/Patient`); at an openEHR server whose
    `[[ferrosmart.resource]]` names a `subject_namespace`, the person enters
