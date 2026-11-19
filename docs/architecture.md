@@ -2783,6 +2783,7 @@ document (13.8).
 | The server decides which client types get offline access | MAY | `smart app-launch`, Refresh access token | 6 |
 | A refresh token is bound to its `client_id` and carries the same or fewer grants | SHALL | same | 6 |
 | A refresh request's `scope` is a strict subset, or absent for the original scope; the response carries `access_token`, `token_type`, `expires_in`, `scope` (the original's) and the context | SHALL | `smart app-launch`, Refresh access token, Request and Response | 6 |
+| A refresh request's `resource` names the token's target, limited by policy to what the grant reaches; an unacceptable one is `invalid_target` and the token is audience-restricted to the one named | SHOULD (audience restriction) | `rfc8707 §2`, `§2.2` | 6 |
 | Public clients' refresh tokens are rotated or sender-constrained | MUST | `rfc9700 §2.2.2`, `§4.14` | 6 |
 | A rotated refresh token keeps the grant's scope; idle refresh tokens expire | MUST; SHOULD | `oauth21 §4.3.3` | 6 |
 | Backend Services issues no refresh token | SHOULD NOT | `smart backend-services`, Enforce Authorization | 2 |
@@ -3200,7 +3201,24 @@ specification governs.
     decides. Redeeming a code opens the grant every token of the launch is
     issued under, with the launch context and the upstream session the
     person logged in under; withdrawing a remembered consent revokes the
-    grants it covered with every token under them.
+    grants it covered with every token under them. A refresh request may
+    name a `resource` (`rfc8707 §2.2`: "for all grant types", with the
+    acceptable resources "at its sole discretion" and limited "to those
+    that were originally granted"). FerroSMART takes the grant's own
+    audience or the `fhir_base` paired with it (#574), so one grant at an
+    openEHR base reaches the platform's FHIR server, and refuses any other
+    with `invalid_target` (`rfc8707 §2`). The token's `aud` is that
+    resource alone (`rfc8707 §2`, SHOULD audience-restrict; `rfc9068 §3`;
+    `rfc9700 §4.10.2`), and its scope is the grant's, narrowed by the
+    request's `scope`, less the clinical scopes of the other kind's
+    grammar: a `template-`, `composition-` or `aql-` scope is openEHR's
+    (`soe master08`, Resource Scopes), any other clinical scope FHIR's.
+    The identity, launch and access scopes stay. The scope is never wider
+    than the grant's, and a scope left empty is `invalid_scope`. The
+    rotated refresh token keeps the grant's audience and whole scope
+    (`rfc8707 §2.2`, "bound to the full original grant"), and a refresh
+    without `resource` keeps the grant's audience. Which resource a grant
+    reaches through a pairing is our own design (FerroHEALTH/FerroSMART#663).
 12. **A client's registered origins.** `smart app-launch`, Considerations
     for CORS support, has the token endpoint readable "for requests from a
     client's registered origin(s)" and says nothing of how an origin is
