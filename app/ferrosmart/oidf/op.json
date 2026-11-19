@@ -1,0 +1,29 @@
+{
+  "alias": "ferrosmart-op",
+  "description": "FerroSMART as the OpenID Provider",
+  "server": {
+    "discoveryUrl": "https://localhost.emobix.co.uk:9443/.well-known/openid-configuration"
+  },
+  "client": {
+    "client_id": "oidf-suite",
+    "client_secret": "synthetic-oidf-suite-secret"
+  },
+  "client2": {
+    "client_id": "oidf-suite-2",
+    "client_secret": "synthetic-oidf-suite-second-secret"
+  },
+  "browser": [
+    {
+      "match": "https://localhost.emobix.co.uk:9443/authorize*",
+      "tasks": [
+        {
+          "task": "Verify Complete",
+          "match": "*/test/*/callback*",
+          "commands": [
+            ["wait", "id", "submission_complete", 10]
+          ]
+        }
+      ]
+    }
+  ]
+}

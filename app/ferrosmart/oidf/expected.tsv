@@ -1,0 +1,7 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+# plan	module	result	login	issue	reason
+oidcc-client-test-plan	oidcc-client-test	PASSED	accepted	-	
+oidcc-client-basic-certification-test-plan	oidcc-client-test	PASSED	accepted	-	
+oidcc-config-certification-test-plan	oidcc-discovery-endpoint-verification	PASSED	-	-	
+oidcc-basic-certification-test-plan	oidcc-server	PASSED	-	-	

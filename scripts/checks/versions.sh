@@ -54,6 +54,8 @@
 #                        the matrix, and Cargo.toml the thirtyfour version.
 #   4g. third-party lane the HAPI FHIR and Envoy images the lane runs are
 #                        pinned by digest, and the lane reads both rows.
+#   4h. OIDF lane        the conformance suite, its TLS front and MongoDB
+#                        are pinned by digest, and the lane reads the rows.
 #   5. the licence       no first-party file claims a licence other than
 #                        BUSL-1.1 in its SPDX header; the vendored trees are
 #                        third-party material and are left out.
@@ -426,6 +428,18 @@ for item in "HAPI FHIR server image" "Envoy token validator image"; do
     fail "$third_party does not run the $item of docs/VERSIONS.md"
 done
 [ "$failures" -ne "$before" ] || ok "the third-party lane runs its FHIR server and validator at their pins"
+
+# ---- 4h. the OpenID Foundation lane's images -------------------------------
+before="$failures"
+oidf_lane="scripts/oidf/lane.sh"
+for item in "OpenID Foundation conformance suite image" \
+  "OpenID Foundation conformance suite TLS front image" "MongoDB test image"; do
+  grep -qE '^[^ ]+@sha256:[0-9a-f]{64},' <<< "$(corpus_pin_cell "$item")" ||
+    fail "docs/VERSIONS.md does not pin the $item by tag and digest"
+  grep -qF "pinned_image '$item'" "$oidf_lane" ||
+    fail "$oidf_lane does not run the $item of docs/VERSIONS.md"
+done
+[ "$failures" -ne "$before" ] || ok "the OpenID Foundation lane runs the suite at its pins"
 
 # ---- 5. the licence ---------------------------------------------------------
 licence="$(awk '{ print $1; exit }' <<< "$(corpus_pin_cell "Project licence")")"

@@ -1,0 +1,13 @@
+{
+  "alias": "ferrosmart",
+  "description": "FerroSMART's upstream login as the relying party",
+  "waitTimeoutSeconds": 5,
+  "client": {
+    "client_id": "ferrosmart",
+    "client_secret": "the-basic-profile-fixes-a-secret-ferrosmart-never-sends",
+    "redirect_uri": "https://localhost.emobix.co.uk:9443/callback",
+    "jwks": {
+      "keys": []
+    }
+  }
+}
