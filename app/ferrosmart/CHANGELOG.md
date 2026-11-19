@@ -14,6 +14,10 @@ and this project adheres to
 
 ### Added
 
+- `.well-known/smart-configuration` and the RFC 8414 metadata name the EHR
+  launch API as `launch_registration_endpoint` (`{issuer}/launch`) whenever
+  the app launch is configured, so an EHR reads it from the documents
+  instead of building the path (#657).
 - A `[[ferrosmart.role]]` may grant extension scopes, those that start with
   two underscores (SMART App Launch 2.2.0, Scopes and Launch Context,
   Extensibility), such as FerroEHR's `__ferroehr.platform`. A person is
