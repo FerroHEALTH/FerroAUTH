@@ -20,7 +20,9 @@ reach: the server's own `.well-known/smart-configuration` names FerroSMART's
 2. **Log in.** FerroSMART sends the person to the identity provider and
    back to `{issuer}/callback`.
 3. **Pick the patient.** When the app asks for `launch/patient` and the
-   server can be searched, FerroSMART shows its patient picker. At a FHIR
+   server can be searched, FerroSMART shows its patient picker. A
+   standalone app that asks a `patient/` scope without `launch/patient` is
+   treated as asking it, and the granted `scope` says so. At a FHIR
    server the person searches by name or identifier
    (`GET [base]/Patient`); at an openEHR server whose
    `[[ferrosmart.resource]]` names a `subject_namespace`, the person enters

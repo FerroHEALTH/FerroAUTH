@@ -14,6 +14,11 @@ and this project adheres to
 
 ### Added
 
+- A standalone authorization request that asks a `patient/` scope without
+  `launch/patient` is read as asking `launch/patient`, so the patient picker
+  supplies the patient instead of the `patient/` scopes being dropped, and
+  the granted `scope` names the inferred `launch/patient` (SMART App Launch
+  2.2.0, Scopes and Launch Context, Standalone apps) (#669).
 - The consent page draws identity, launch and refresh scopes (`openid`,
   `fhirUser`, `profile`, `email`, `launch`, `launch/*`, `offline_access`,
   `online_access`) as fixed lines with no box, granted with the app whatever
