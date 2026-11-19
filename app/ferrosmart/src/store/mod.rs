@@ -138,7 +138,7 @@ impl Store {
         self.client_by(
             "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
              launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at, \
-             client_uri, logo_uri, policy_uri, tos_uri \
+             first_party, client_uri, logo_uri, policy_uri, tos_uri \
              FROM client WHERE client_id = $1",
             client_id,
         )
@@ -154,7 +154,7 @@ impl Store {
         self.client_by(
             "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
              launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at, \
-             client_uri, logo_uri, policy_uri, tos_uri \
+             first_party, client_uri, logo_uri, policy_uri, tos_uri \
              FROM client WHERE launch_uri = $1",
             launch_uri,
         )
@@ -324,12 +324,12 @@ async fn upsert(
         .collect();
     sqlx::query(
         "INSERT INTO client (client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types, secret_hash, \
-         launch_uri, approved_scope, approved_by, approved_at, client_uri, logo_uri, policy_uri, tos_uri, source) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14, $15, $16, $17, 'config') \
+         launch_uri, approved_scope, approved_by, approved_at, first_party, client_uri, logo_uri, policy_uri, tos_uri, source) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14, $15, $16, $17, $18, 'config') \
          ON CONFLICT (client_id) DO UPDATE SET name = $2, kind = $3, jwks_uri = $4, jwks = $5, \
          redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, launch_uri = $10, \
-         approved_scope = $11, approved_by = $12, approved_at = to_timestamp($13), \
-         client_uri = $14, logo_uri = $15, policy_uri = $16, tos_uri = $17, \
+         approved_scope = $11, approved_by = $12, approved_at = to_timestamp($13), first_party = $14, \
+         client_uri = $15, logo_uri = $16, policy_uri = $17, tos_uri = $18, \
          source = 'config', updated_at = now()",
     )
     .bind(&client.client_id)
@@ -345,6 +345,7 @@ async fn upsert(
     .bind(client.approval.as_ref().map(|approval| &approval.scopes))
     .bind(client.approval.as_ref().map(|approval| &approval.approved_by))
     .bind(client.approval.as_ref().map(|approval| approval.approved_at))
+    .bind(client.approval.as_ref().is_some_and(|approval| approval.first_party))
     .bind(client.about.home.as_ref().map(Url::as_str))
     .bind(client.about.logo.as_ref().map(Url::as_str))
     .bind(client.about.policy.as_ref().map(Url::as_str))
@@ -397,6 +398,7 @@ fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
             scopes,
             approved_by,
             approved_at,
+            first_party: row.try_get("first_party")?,
         }),
         (None, None, None) => None,
         _ => return Err(corrupt()),

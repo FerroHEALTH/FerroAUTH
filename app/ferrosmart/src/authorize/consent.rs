@@ -292,8 +292,15 @@ async fn issue_code(
         .await
         .map_err(audit::RecordFailure::Store)?;
     if let Basis::Organisation(approval) = basis {
+        // NOTE: docs/architecture.md §13.6 item 6, the record names which approval
+        // skipped the page: the organisation's for its staff, or its own app's.
+        let event = if approval.first_party {
+            audit::Event::ConsentFirstParty
+        } else {
+            audit::Event::ConsentApproved
+        };
         let approved = audit::happened(&happening(
-            audit::Event::ConsentApproved,
+            event,
             vec![
                 ("scope", grant.scope.clone()),
                 ("approved_by", approval.approved_by.clone()),
@@ -302,7 +309,7 @@ async fn issue_code(
         ));
         tx.record(&lane.row(
             &approved,
-            audit::Event::ConsentApproved.code(),
+            event.code(),
             Some(&grant.subject),
             Some(&grant.client_id),
         )?)

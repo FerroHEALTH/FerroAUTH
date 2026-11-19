@@ -206,11 +206,15 @@ pub(crate) struct Asked<'a> {
 }
 
 /// Returns the organisation approval of the client that `asked` falls
-/// under: the person is a professional, the request names no `patient/`
-/// scope, and the approval covers every scope offered
-/// (`docs/architecture.md` §13.6 item 6).
+/// under: the approval covers every scope offered and, unless the app is
+/// the organisation's own (first party), the person is a professional and
+/// the request names no `patient/` scope (`docs/architecture.md` §13.6
+/// item 6).
 fn approved<'a>(asked: &Asked<'a>) -> Option<&'a Approval> {
     let approval = asked.client.approval.as_ref()?;
+    if approval.first_party {
+        return approval.covers(asked.offered).then_some(approval);
+    }
     // NOTE: SMART App Launch 2.2.0, Scopes for requesting identity data, a
     // fhirUser of these types is the patient or speaks for one: they decide.
     let own_data = asked.fhir_user.is_some_and(|reference| {

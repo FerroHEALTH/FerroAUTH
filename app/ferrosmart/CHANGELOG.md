@@ -23,6 +23,15 @@ and this project adheres to
   `policy_uri` and `tos_uri` (RFC 7591 §2, absolute `https` URLs), which the
   consent page links and draws, with the logo's origin admitted by the
   page's `img-src` alone. The store gains a migration (#668).
+- An administrator can mark an approved app as the organisation's own with
+  `first_party = true` on its `[ferrosmart.client.organisation_approval]`.
+  Its approval may then list `patient/` scopes, and a patient, related
+  person or person who logs in to it sees no consent page while the
+  approval covers every scope offered. An app without the mark keeps the
+  page for every patient. Each skipped page is audited as
+  `consent-first-party-approved`, the management page lists the app as the
+  organisation's own, and setting or clearing the mark withdraws the old
+  approval with every token issued on it (#666).
 - A `[[ferrosmart.client]]` may register its app's `launch_uri`, and the
   EHR launch API takes `app_launch_uri` in place of `app_client_id`, so an
   EHR acting on a SMART `task-ehr-launch` Task, which names the app only by
