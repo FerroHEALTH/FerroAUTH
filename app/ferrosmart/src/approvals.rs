@@ -74,6 +74,7 @@ pub async fn withdraw_lapsed(
                     ("scope", approval.scopes.join(" ")),
                     ("approved_by", approval.approved_by.clone()),
                     ("approved_at", approval.approved_at.to_string()),
+                    ("first_party", approval.first_party.to_string()),
                     ("revoked", revoked.to_string()),
                 ],
             },

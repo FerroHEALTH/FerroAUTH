@@ -220,6 +220,20 @@ management page lists the app as approved by the organisation, which the
 person cannot withdraw there. Remove or change the table and restart: the
 approval is withdrawn, and every token issued on it is revoked.
 
+For the organisation's own app, such as its patient portal, add
+`first_party = true` to the approval. A first-party approval may also list
+`patient/` scopes, and a patient, related person or person who logs in to
+the app sees no consent page either, as long as the approval covers every
+scope offered. The organisation processes its patients' data in its own
+app on its own legal basis (GDPR Art. 9(2)(h)), so the consent page adds
+nothing there. An app of another party keeps the page for every patient:
+the patient decides whether to share their data with it, and withdraws it
+on the management page. The audit record of a skipped page says
+`consent-first-party-approved`, and the management page lists the app as
+the organisation's own, which only the administrator withdraws. Setting or
+clearing `first_party` is a new approval: the old one is withdrawn with
+every token issued on it.
+
 ![The management page, titled "Apps you allowed": one app that stays connected after sign-out, the scopes it holds in words, and the Withdraw button](../integrate/img/manage.png)
 
 The management page, with one app that keeps access.

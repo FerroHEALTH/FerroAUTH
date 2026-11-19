@@ -152,6 +152,12 @@ impl Smart {
 
     /// Mounts the provider's code exchange for one login carrying `nonce`.
     async fn answer(&self, nonce: &str) {
+        self.answer_as(nonce, "Practitioner/synthetic-1").await;
+    }
+
+    /// Has the provider answer the next code with an ID Token for the
+    /// sign-in `nonce` of the person whose `fhirUser` is `fhir_user`.
+    async fn answer_as(&self, nonce: &str, fhir_user: &str) {
         let now = jiff::Timestamp::now().as_second();
         let mut header = Header::new(Algorithm::ES256);
         header.kid = Some(String::from("op-1"));
@@ -160,7 +166,7 @@ impl Smart {
             &json!({
                 "iss": self.provider.uri(), "aud": UPSTREAM_CLIENT, "sub": "synthetic-person",
                 "nonce": nonce, "iat": now, "exp": now + 300, "name": "Synthetic Clinician",
-                "roles": ["clinician"], "fhir_user": "Practitioner/synthetic-1"
+                "roles": ["clinician"], "fhir_user": fhir_user
             }),
             &self.provider_key,
         )
@@ -587,4 +593,57 @@ async fn an_approved_app_s_ehr_launch_by_a_professional_skips_the_consent_page()
         "the launch context comes along"
     );
     smart.stop().await;
+}
+
+// NOTE: docs/architecture.md §13.6 item 6: the approval of the organisation's own
+// (first-party) app covers a patient's EHR launch too; a third-party app's does not.
+#[tokio::test]
+async fn a_first_party_app_s_ehr_launch_by_a_patient_skips_the_consent_page() {
+    for (first_party, skipped) in [(true, true), (false, false)] {
+        let scopes = if first_party {
+            "[\"openid\", \"fhirUser\", \"launch\", \"launch/patient\", \"patient/Observation.rs\"]"
+        } else {
+            "[\"openid\", \"fhirUser\", \"launch\", \"launch/patient\", \"user/Observation.rs\"]"
+        };
+        let smart = Smart::start_approved(&format!(
+            "[ferrosmart.client.organisation_approval]\nscopes = {scopes}\n\
+             approved_by = \"Synthetic Administrator\"\napproved_at = \"2026-11-19T09:00:00Z\"\n\
+             first_party = {first_party}"
+        ))
+        .await;
+        let launch = smart.launch().await;
+        let scope = "openid fhirUser launch patient/Observation.rs";
+        let (status, headers, _) = smart.get(&authorize_path(&launch, scope), None).await;
+        assert_eq!(StatusCode::SEE_OTHER, status, "on to the provider");
+        let upstream = location(&headers);
+        let cookie = headers
+            .get(header::SET_COOKIE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|cookie| cookie.split(';').next())
+            .and_then(|pair| pair.split_once('='))
+            .map(|(_, value)| value.to_owned())
+            .expect("a cookie");
+        smart
+            .answer_as(
+                &param(&upstream, "nonce").expect("a nonce"),
+                "Patient/synthetic-2",
+            )
+            .await;
+        let callback = format!(
+            "/callback?code=synthetic-upstream-code&state={}",
+            param(&upstream, "state").expect("a state")
+        );
+        let (status, headers, _) = smart.get(&callback, Some(&cookie)).await;
+        assert_eq!(StatusCode::SEE_OTHER, status);
+        let back = location(&headers);
+        if skipped {
+            assert!(
+                back.as_str().starts_with(REDIRECT),
+                "no consent page for the organisation's own app: {back}"
+            );
+        } else {
+            assert_eq!("/consent", back.path(), "a third-party app shows the page");
+        }
+        smart.stop().await;
+    }
 }
