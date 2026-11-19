@@ -95,6 +95,15 @@ pub struct GrantRecord {
 pub enum Rotation {
     /// The token was live: it is used now, and its successor recorded.
     Rotated(Box<GrantRecord>),
+    /// The token was rotated within [`REPEAT_WINDOW`] by the same client
+    /// and its successor is still live: the request is a retry or a race,
+    /// answered with the same successor, derived again with `salt`.
+    Repeated {
+        /// The grant the successor is under.
+        grant: Box<GrantRecord>,
+        /// The salt the successor was derived with.
+        salt: String,
+    },
     /// The token was rotated before: its grant is revoked now, with every
     /// token under it (RFC 9700 §4.14.2).
     Reused {
@@ -106,6 +115,23 @@ pub enum Rotation {
     /// The token is unknown, lapsed or revoked, or its grant or session
     /// ended.
     Invalid,
+}
+
+/// How long a rotated refresh token repeated by its client gets the same
+/// successor.
+///
+/// Within it a repeat is a retry or a race, not a replay
+/// (`docs/architecture.md` §13.6 item 11; no specification governs this: our
+/// own design).
+pub const REPEAT_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// A refresh token's successor as the store records it.
+#[derive(Debug, Clone, Copy)]
+pub struct Successor<'a> {
+    /// The successor's SHA-256.
+    pub hash: &'a str,
+    /// The salt it was derived from the presented token with.
+    pub salt: &'a str,
 }
 
 /// When a refresh token issued now lapses unused, by the access of its
@@ -302,6 +328,16 @@ const LIVE_REFRESH: &str = "r.revoked_at IS NULL AND r.used_at IS NULL AND r.exp
     AND g.revoked_at IS NULL \
     AND (g.access = 'offline' OR (g.access = 'online' AND s.id IS NOT NULL AND s.ended_at IS NULL))";
 
+/// The condition under which the used refresh token `r` of grant `g`, in
+/// the session `s`, is answered as a repeat: used less than `$2` seconds
+/// ago, and its successor neither used nor revoked nor lapsed, in a grant
+/// still live.
+const REPEATABLE: &str = "r.used_at > now() - make_interval(secs => $2) \
+    AND EXISTS (SELECT 1 FROM refresh_token n WHERE n.predecessor = r.token_hash \
+    AND n.revoked_at IS NULL AND n.used_at IS NULL AND n.expires_at > now()) \
+    AND g.revoked_at IS NULL \
+    AND (g.access = 'offline' OR (g.access = 'online' AND s.id IS NOT NULL AND s.ended_at IS NULL))";
+
 /// Reads the `g_` columns of a joined row.
 fn read_grant(row: &sqlx::postgres::PgRow) -> Result<GrantRecord, StoreError> {
     let id: String = row.try_get("g_id")?;
@@ -397,9 +433,11 @@ impl Transaction {
 
     /// Redeems the refresh token whose SHA-256 is `hash` for `client_id`,
     /// in one transaction that holds the token's row: a live token is
-    /// marked used and its successor `successor` (a SHA-256 too) recorded
-    /// under the same grant, lapsing as `idle` says; a token used before
-    /// revokes its grant (RFC 9700 §4.14.2; OAuth 2.1 draft §4.3.1).
+    /// marked used and its successor recorded under the same grant with the
+    /// salt it was derived with, lapsing as `idle` says; a token used within
+    /// [`REPEAT_WINDOW`] whose successor is still live is a repeat; any
+    /// other token used before revokes its grant (RFC 9700 §4.14.2; OAuth
+    /// 2.1 draft §4.3.1).
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when a statement fails; nothing is
@@ -409,11 +447,12 @@ impl Transaction {
         &mut self,
         hash: &str,
         client_id: &str,
-        successor: &str,
+        successor: Successor<'_>,
         idle: IdleUntil,
     ) -> Result<Rotation, StoreError> {
         let row = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "SELECT r.used_at IS NOT NULL AS used, ({LIVE_REFRESH}) AS active, {GRANT_COLUMNS} \
+            "SELECT r.used_at IS NOT NULL AS used, ({LIVE_REFRESH}) AS active, \
+             {GRANT_COLUMNS} \
              FROM refresh_token r JOIN authorization_grant g ON g.id = r.grant_id \
              LEFT JOIN upstream_session s ON s.id = g.upstream_session \
              WHERE r.token_hash = $1 FOR UPDATE OF r"
@@ -429,6 +468,12 @@ impl Transaction {
             return Ok(Rotation::OtherClient);
         }
         if row.try_get::<bool, _>("used")? {
+            if let Some(salt) = self.repeatable(hash).await? {
+                return Ok(Rotation::Repeated {
+                    grant: Box::new(grant),
+                    salt,
+                });
+            }
             revoke_in(&mut self.tx, &grant.id).await?;
             return Ok(Rotation::Reused { grant_id: grant.id });
         }
@@ -440,21 +485,45 @@ impl Transaction {
         if !row.try_get::<bool, _>("active")? {
             return Ok(Rotation::Invalid);
         }
-        sqlx::query("UPDATE refresh_token SET used_at = now() WHERE token_hash = $1")
-            .bind(hash)
-            .execute(&mut *self.tx)
-            .await?;
+        sqlx::query(
+            "UPDATE refresh_token SET used_at = now(), successor_salt = $2 WHERE token_hash = $1",
+        )
+        .bind(hash)
+        .bind(successor.salt)
+        .execute(&mut *self.tx)
+        .await?;
         sqlx::query(
             "INSERT INTO refresh_token (token_hash, grant_id, predecessor, expires_at) \
              VALUES ($1, $2, $3, to_timestamp($4))",
         )
-        .bind(successor)
+        .bind(successor.hash)
         .bind(&grant.id)
         .bind(hash)
         .bind(expires_at)
         .execute(&mut *self.tx)
         .await?;
         Ok(Rotation::Rotated(Box::new(grant)))
+    }
+    /// Returns the successor salt of the used refresh token whose SHA-256 is
+    /// `hash` when [`REPEATABLE`] holds for it.
+    ///
+    /// It runs after [`Self::rotate`] holds the token's row, as a statement
+    /// of its own: a statement that waited for the lock sees under READ
+    /// COMMITTED only what was committed when it began, so the successor a
+    /// racing rotation just committed is read by a new statement alone
+    /// (PostgreSQL 18, 13.2.1 Read Committed Isolation Level).
+    async fn repeatable(&mut self, hash: &str) -> Result<Option<String>, StoreError> {
+        let salt = sqlx::query_scalar::<_, Option<String>>(sqlx::AssertSqlSafe(format!(
+            "SELECT r.successor_salt \
+             FROM refresh_token r JOIN authorization_grant g ON g.id = r.grant_id \
+             LEFT JOIN upstream_session s ON s.id = g.upstream_session \
+             WHERE r.token_hash = $1 AND ({REPEATABLE})"
+        )))
+        .bind(hash)
+        .bind(REPEAT_WINDOW.as_secs_f64())
+        .fetch_optional(&mut *self.tx)
+        .await?;
+        Ok(salt.flatten())
     }
     /// Revokes the grant `grant_id` with every refresh and access token
     /// issued under it, in one transaction, and returns whether the grant

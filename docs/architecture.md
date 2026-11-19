@@ -2615,6 +2615,7 @@ discovery and token shapes for the two SaaS providers.
   | an access token revoked (RFC 7009) | `110113` | `token-revoked` | `D` |
   | a grant revoked by its refresh token (RFC 7009 §2.1) | `110113` | `grant-revoked` | `D` |
   | a refresh token rotated | `110114` | `refresh-rotated` | `E` |
+  | a rotated refresh token repeated by its client within the window, answered with the same successor | `110114` | `refresh-repeated` | `E` |
   | a rotated refresh token reused, its grant revoked | `110113` | `refresh-reused` | `E` |
   | a code redeemed again, its tokens revoked | `110113` | `code-reused` | `E` |
   | an upstream session ended | `110114` | `110123` Logout, `session-ended` | `E` |
@@ -3180,9 +3181,18 @@ specification governs.
     rotation or sender-constraining for public clients; FerroSMART rotates
     every client's refresh token, one fixed behaviour, so reuse detection
     covers confidential clients too (`oauth21 §4.3.2`, MAY issue a new
-    refresh token). A rotated token presented again, including by two
-    requests racing with one token, revokes the grant with every token
-    under it (`oauth21 §4.3.1`). The new token keeps the grant's whole
+    refresh token). A rotated token presented again revokes the grant with
+    every token under it (`oauth21 §4.3.1`), with one exception (owner,
+    2026-11-19, #667): the same client presenting it again within 10
+    seconds, while its successor is neither used nor revoked, gets the same
+    successor and a new access token, so a retry after a lost response or
+    two requests racing (two tabs, two backend instances) is not read as a
+    replay. `rfc9700 §2.2.2` makes rotation a MUST for public clients only
+    and `rfc9700 §4.14.2` gives reuse detection no grace rule; the window is
+    our own design. The successor is the SHA-256 of the presented token and
+    a salt the store keeps beside the presented token's hash, so only a
+    holder of the rotated token can derive it again, and the store still
+    holds no refresh token. The new token keeps the grant's whole
     scope (`oauth21 §4.3.3`) and lapses after `refresh_idle`
     (`offline_access`) or `online_idle` (`online_access`) unused. A
     refresh request's `scope` may equal the grant's (owner, 2026-11-16).
