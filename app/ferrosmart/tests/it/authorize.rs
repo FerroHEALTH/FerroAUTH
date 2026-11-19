@@ -2338,6 +2338,7 @@ mod approval;
 mod core_op;
 mod ehr_picker;
 mod encounter_picker;
+mod fhir_user_lookup;
 mod paired_picker;
 mod preset;
 

@@ -13,6 +13,7 @@ consent-about-home = About { $client }
 consent-about-policy = Privacy policy of { $client }
 consent-about-terms = Terms of service of { $client }
 scope-extension = Access this server defines for its own use: { $scopes }
+consent-no-fhir-user = { $client } asks who you are as a FHIR resource, and your account is linked to no single record here, so it is not told. Ask the administrator of your account to link it.
 consent-allow = Allow
 consent-deny = Deny
 fault-page = Something went wrong

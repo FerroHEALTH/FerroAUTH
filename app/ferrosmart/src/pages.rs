@@ -246,6 +246,7 @@ pub fn consent(
                 &fixed,
             )
         },
+        unknown_user(&locale, pending, &client_name),
         own_words,
         form,
     ]);
@@ -373,6 +374,22 @@ struct Sources<'a> {
     form: &'a [String],
     /// The origins its images load from.
     img: &'a [String],
+}
+
+/// Returns the line that tells the person the app asked who they are as a
+/// FHIR resource and FerroSMART does not know it, or nothing
+/// (`docs/architecture.md` §13.6 item 9).
+fn unknown_user(locale: &Locale, pending: &Pending, client_name: &Arg) -> Html {
+    let asked = pending.scope.split(' ').any(|scope| scope == "fhirUser");
+    if !asked || pending.fhir_user.is_some() {
+        return Html::empty();
+    }
+    let words = locale.lookup_with(
+        &*CATALOG,
+        "consent-no-fhir-user",
+        &[("client", client_name.clone())],
+    );
+    Html::raw(format!("<p>{}</p>", Html::text(words)))
 }
 
 /// Returns the patient picker page of `pending`: the search form, filled
