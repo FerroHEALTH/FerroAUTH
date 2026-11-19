@@ -135,14 +135,7 @@ impl Store {
     /// Returns [`StoreError::Database`] when the query fails and
     /// [`StoreError::Corrupt`] for a row the server never writes.
     pub async fn client(&self, client_id: &str) -> Result<Option<Client>, StoreError> {
-        self.client_by(
-            "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
-             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at, \
-             first_party, client_uri, logo_uri, policy_uri, tos_uri \
-             FROM client WHERE client_id = $1",
-            client_id,
-        )
-        .await
+        self.client_by(ClientKey::ClientId, client_id).await
     }
 
     /// Returns the client whose normalized launch URL is `launch_uri`.
@@ -151,23 +144,21 @@ impl Store {
     /// Returns [`StoreError::Database`] when the query fails and
     /// [`StoreError::Corrupt`] for a row the server never writes.
     pub async fn client_launched_at(&self, launch_uri: &str) -> Result<Option<Client>, StoreError> {
-        self.client_by(
+        self.client_by(ClientKey::LaunchUri, launch_uri).await
+    }
+
+    /// Returns the client whose column `key` holds `value`.
+    async fn client_by(&self, key: ClientKey, value: &str) -> Result<Option<Client>, StoreError> {
+        let column = match key {
+            ClientKey::ClientId => "client_id",
+            ClientKey::LaunchUri => "launch_uri",
+        };
+        let row = sqlx::query(sqlx::AssertSqlSafe(format!(
             "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, scopes, grant_types, \
              launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at, \
              first_party, client_uri, logo_uri, policy_uri, tos_uri \
-             FROM client WHERE launch_uri = $1",
-            launch_uri,
-        )
-        .await
-    }
-
-    /// Returns the client the one-parameter `query` finds for `value`.
-    async fn client_by(
-        &self,
-        query: &'static str,
-        value: &str,
-    ) -> Result<Option<Client>, StoreError> {
-        let row = sqlx::query(query)
+             FROM client WHERE {column} = $1"
+        )))
             .bind(value)
             .fetch_optional(&self.pool)
             .await?;
@@ -305,6 +296,15 @@ impl Store {
         tx.commit().await?;
         Ok(rows.into_iter().collect())
     }
+}
+
+/// The unique column a client is looked up by.
+#[derive(Debug, Clone, Copy)]
+enum ClientKey {
+    /// `client_id`.
+    ClientId,
+    /// The normalized `launch_uri`.
+    LaunchUri,
 }
 
 /// Writes `client` as a configured client.
