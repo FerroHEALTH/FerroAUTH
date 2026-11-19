@@ -28,6 +28,7 @@ pattern covers it. The subtype comes from FerroSMART's code system
 | A consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
 | A consent withdrawn | `110113` | `110137`, `consent-withdrawn` | `D` |
 | A code issued on the app's organisation approval, with no consent page | `110113` | `110137`, `consent-organisation-approved` | `C` |
+| A code issued on the first-party approval of the organisation's own app, with no consent page | `110113` | `110137`, `consent-first-party-approved` | `C` |
 | An organisation approval withdrawn | `110113` | `110137`, `organisation-approval-withdrawn` | `D` |
 | An access token revoked | `110113` | `token-revoked` | `D` |
 | A grant revoked by its refresh token | `110113` | `grant-revoked` | `D` |

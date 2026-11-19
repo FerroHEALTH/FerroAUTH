@@ -17,7 +17,7 @@ impl Store {
     pub async fn approvals(&self) -> Result<Vec<(String, Approval)>, StoreError> {
         let rows = sqlx::query(
             "SELECT client_id, approved_scope, approved_by, \
-             extract(epoch FROM approved_at)::bigint AS approved_at \
+             extract(epoch FROM approved_at)::bigint AS approved_at, first_party \
              FROM client WHERE approved_at IS NOT NULL ORDER BY client_id",
         )
         .fetch_all(&self.pool)
@@ -30,6 +30,7 @@ impl Store {
                         scopes: row.try_get("approved_scope")?,
                         approved_by: row.try_get("approved_by")?,
                         approved_at: row.try_get("approved_at")?,
+                        first_party: row.try_get("first_party")?,
                     },
                 ))
             })

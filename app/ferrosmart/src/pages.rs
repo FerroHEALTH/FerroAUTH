@@ -488,6 +488,9 @@ pub struct Remembered {
     /// which only an administrator withdraws (`docs/architecture.md`
     /// §13.6 item 6).
     pub organisation: bool,
+    /// Whether that approval is of the organisation's own (first-party)
+    /// app, which the page names as such.
+    pub first_party: bool,
 }
 
 /// Returns the management page of `pending`'s person, listing `remembered`
@@ -516,10 +519,12 @@ pub fn manage(
                 .filter(|scope| !scope.is_empty())
                 .collect();
             let form = if each.organisation {
-                Html::raw(format!(
-                    "<p>{}</p>",
-                    Html::text(words("manage-organisation"))
-                ))
+                let words_id = if each.first_party {
+                    "manage-first-party"
+                } else {
+                    "manage-organisation"
+                };
+                Html::raw(format!("<p>{}</p>", Html::text(words(words_id))))
             } else {
                 Html::raw(format!(
                     "<form method=\"post\" action=\"{action}\">\
