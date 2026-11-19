@@ -40,6 +40,8 @@ versions `docs/VERSIONS.md` pins:
      `docs/specs/openid-connect-rpinitiated/`.
    - OpenID Connect Back-Channel Logout 1.0:
      `docs/specs/openid-connect-backchannel/`.
+   - OpenID Connect Front-Channel Logout 1.0:
+     `docs/specs/openid-connect-frontchannel/`.
 2. **Official documentation of the tools:** the docs.rs page of each pinned
    crate (`jsonwebtoken`, `argon2`, `reqwest`, `secrecy`, `axum`, `tower`),
    the Rust book and reference.
