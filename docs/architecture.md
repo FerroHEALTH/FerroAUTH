@@ -2981,7 +2981,16 @@ specification governs.
    that asks a `patient/` scope without `launch/patient` is read as asking
    it, and the granted scope names it (`smart scopes-and-launch-context`,
    Standalone apps: the server MAY infer `launch/patient`; owner,
-   2026-11-19, #669). The picker is a server-rendered form
+   2026-11-19, #669). A person whose
+   `fhirUser` names a `Patient` at that server (absolute, or relative to
+   the request's base, `smart scopes-and-launch-context`, `fhirUser`), or
+   at the FHIR base paired with the openEHR base asked, sees no picker:
+   FerroSMART reads that record again as them and puts it in context, with
+   their EHR at a paired base, and a record it cannot read is a page that
+   says so, never the picker. Such a person is offered the `patient/`
+   scopes the client's ceiling allows with no role, since they reach their
+   own record alone (owner, 2026-11-19, #673). The picker is a
+   server-rendered form
    over a FHIR R4 search (`GET [base]/Patient?name=…&identifier=…`). The
    search runs as the signed-in person, never as a system: FerroSMART
    issues itself a token whose `sub` is the person's pairwise subject and
@@ -3054,7 +3063,13 @@ specification governs.
    result to differ from the request (`smart app-launch`, Obtain access
    token, Response) and requires the server's policy to win (`smart
    scopes-and-launch-context`, SMART's scopes are used to delegate access).
-   The mapping is content, never code. A role maps to `user/` and
+   The mapping is content, never code. When the intersection leaves no
+   scope at all, FerroSMART draws a page that names the configured roles
+   that would grant a requested scope the ceiling admits (or says the app
+   asks for access the server does not give it), never a claim value, and
+   its one way on returns to the app with `access_denied`, the `state` and
+   the `iss` (`rfc6749 §4.1.2.1`, `rfc9207 §2`; owner, 2026-11-19, #672; the
+   page first is our own design). A role maps to `user/` and
    `patient/` scopes and to extension scopes, "any string starting with
    `__` (two underscores)" that a resource server defines for its own API
    (`smart scopes-and-launch-context`, Extensibility): such a scope is

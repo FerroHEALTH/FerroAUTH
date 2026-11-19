@@ -47,31 +47,46 @@ pub(super) async fn choose(
     let Some(id) = form.get("patient").filter(|id| is_fhir_id(id)) else {
         return pages::fault(state, Fault::BadRequest);
     };
+    match context_of(state, pending, from, pairing, id).await {
+        Ok(Some(context)) => enter(state, pending, &context, from).await,
+        Ok(None) => pages::picker(state, headers, pending, None, None, Some(NO_EHR)),
+        Err(response) => *response,
+    }
+}
+
+/// Reads the patient `id` at the FHIR server of `pairing` again as the
+/// person and looks their EHR up at the openEHR server of `pending`,
+/// returning the context with both, or `None` when the patient has no EHR
+/// the person may see.
+///
+/// # Errors
+/// Returns the page that says why the patient or the EHR could not be read.
+pub(super) async fn context_of(
+    state: &AppState,
+    pending: &Pending,
+    from: IpAddr,
+    pairing: &Pairing,
+    id: &str,
+) -> Result<Option<Context>, Box<Response>> {
     let Some(namespace) = state.settings().subject_namespaces.get(&pending.audience) else {
-        return pages::fault(state, Fault::Server);
+        return Err(Box::new(pages::fault(state, Fault::Server)));
     };
-    let patient = match read_patient(state, pending, from, &pairing.fhir_base, id).await {
-        Ok(patient) => patient,
-        Err(response) => return *response,
-    };
+    let patient = read_patient(state, pending, from, &pairing.fhir_base, id).await?;
     let subject_id = match subject_id(&patient, &pairing.subject_system) {
         Ok(Some(subject_id)) => subject_id,
-        Ok(None) => return pages::picker(state, headers, pending, None, None, Some(NO_EHR)),
-        Err(error) => return pages::server_error(state, &error),
+        Ok(None) => return Ok(None),
+        Err(error) => return Err(Box::new(pages::server_error(state, &error))),
     };
     // NOTE: SMART on openEHR draft, Context Selection, `ehrId` names the EHR of the
     // selected FHIR Patient, which is looked up as the person.
     match openehr::by_subject(state, pending, from, namespace, subject_id).await {
-        Ok(Some(found)) => {
-            let context = Context {
-                patient: Some(id.to_owned()),
-                ehr_id: Some(found.ehr_id),
-                ..Context::default()
-            };
-            enter(state, pending, &context, from).await
-        }
-        Ok(None) => pages::picker(state, headers, pending, None, None, Some(NO_EHR)),
-        Err(error) => pages::server_error(state, &error),
+        Ok(Some(found)) => Ok(Some(Context {
+            patient: Some(id.to_owned()),
+            ehr_id: Some(found.ehr_id),
+            ..Context::default()
+        })),
+        Ok(None) => Ok(None),
+        Err(error) => Err(Box::new(pages::server_error(state, &error))),
     }
 }
 

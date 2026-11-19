@@ -22,7 +22,7 @@ use crate::pages::{self, Fault};
 use crate::server::AppState;
 use crate::store::{Asking, Login, Pending, Purpose};
 
-use super::consent::{Basis, approve, offer};
+use super::consent::{Basis, FhirUser, approve, offer};
 use super::{
     Back, CONSENT_ROUTE, Denial, MANAGE_ROUTE, cookie, forget, found, now, random, registered,
     see_other, set_cookie,
@@ -240,21 +240,25 @@ async fn proceed(
         Ok(client) => client,
         Err(response) => return *response,
     };
+    let own = crate::picker::own_patient(state, &pending.audience, login.fhir_user.as_deref())
+        .map(str::to_owned);
+    let fhir_user = match (&login.fhir_user, &own) {
+        (None, _) => FhirUser::Absent,
+        (Some(_), None) => FhirUser::Present,
+        (Some(_), Some(_)) => FhirUser::ThePatient,
+    };
     let offered = offer(
         &pending.scope,
         &client,
         &held,
         &state.settings().roles,
-        login.fhir_user.is_some(),
+        fhir_user,
         pending.launch_context.as_ref(),
         crate::picker::reach(state, &pending.audience),
     );
     if offered.is_empty() {
         forget(state, pending).await;
-        return back.deny(Denial {
-            error: "invalid_scope",
-            description: "no requested scope can be granted to this person",
-        });
+        return no_scope(state, &client, &pending.scope, back);
     }
     login.offered_scope = offered.join(" ");
     if let Err(error) = state.store().logged_in(&pending.id, &login).await {
@@ -264,6 +268,15 @@ async fn proceed(
     // NOTE: SMART App Launch 2.2.0, Obtain authorization code, the patient is
     // chosen within the authorization flow, before the consent.
     if pending.launch_context.is_none() && offered.contains(&"launch/patient") {
+        // NOTE: docs/architecture.md §13.6 item 4 (owner, 2026-11-19, #673): a patient's
+        // own record is the context, read again as them, with no picker.
+        if let Some(id) = &own {
+            return match state.store().pending(&pending.id).await {
+                Ok(Some(signed_in)) => crate::picker::own_record(state, &signed_in, from, id).await,
+                Ok(None) => pages::fault(state, Fault::Lapsed),
+                Err(error) => pages::server_error(state, &error),
+            };
+        }
         return see_other(&state.settings().endpoint(crate::picker::PICKER_ROUTE));
     }
     let asked = Asked {
@@ -307,6 +320,50 @@ async fn looked_up(
         crate::picker::fhir_user::Resolved::Found(fhir_user) => Some(fhir_user),
         _ => None,
     }
+}
+
+/// Answers a request of which no scope can be granted to the person: a page
+/// naming the roles that would grant one, whose way on sends the browser
+/// back with `access_denied` (RFC 6749 §4.1.2.1; the page first is our own
+/// design, `docs/architecture.md` §13.6 item 5).
+fn no_scope(state: &AppState, client: &Client, requested: &str, back: &Back) -> Response {
+    let roles = granting_roles(client, requested, &state.settings().roles);
+    tracing::info!(
+        target: "ferrosmart::audit",
+        event = "authorization.refused",
+        client_id = %client.client_id,
+        reason = "no requested scope can be granted to this person",
+        "no scope could be granted"
+    );
+    let Some(url) = back.denial_url(Denial {
+        error: "access_denied",
+        description: "no requested scope can be granted to this person",
+    }) else {
+        return pages::fault(state, Fault::UnknownRedirect);
+    };
+    pages::no_scope(state, client, &roles, url.as_str())
+}
+
+/// Returns the configured roles, in name order, that grant at least one
+/// scope of `requested` the client's ceiling admits.
+fn granting_roles<'a>(
+    client: &Client,
+    requested: &str,
+    roles: &'a std::collections::BTreeMap<String, Vec<String>>,
+) -> Vec<&'a str> {
+    let wanted: Vec<&str> = requested
+        .split(' ')
+        .filter(|scope| !scope.is_empty() && crate::scopes::admits(&client.scopes, scope))
+        .collect();
+    roles
+        .iter()
+        .filter(|(_, scopes)| {
+            wanted
+                .iter()
+                .any(|scope| crate::scopes::admits(scopes, scope))
+        })
+        .map(|(name, _)| name.as_str())
+        .collect()
 }
 
 /// What a person, logged in with the launch context complete, was asked
