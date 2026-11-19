@@ -11,7 +11,7 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.31.0] - 2026-11-19
+## [0.31.0] - 2026-11-20
 
 ### Changed
 
