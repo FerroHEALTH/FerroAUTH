@@ -3063,7 +3063,13 @@ specification governs.
    result to differ from the request (`smart app-launch`, Obtain access
    token, Response) and requires the server's policy to win (`smart
    scopes-and-launch-context`, SMART's scopes are used to delegate access).
-   The mapping is content, never code. A role maps to `user/` and
+   The mapping is content, never code. When the intersection leaves no
+   scope at all, FerroSMART draws a page that names the configured roles
+   that would grant a requested scope the ceiling admits (or says the app
+   asks for access the server does not give it), never a claim value, and
+   its one way on returns to the app with `access_denied`, the `state` and
+   the `iss` (`rfc6749 §4.1.2.1`, `rfc9207 §2`; owner, 2026-11-19, #672; the
+   page first is our own design). A role maps to `user/` and
    `patient/` scopes and to extension scopes, "any string starting with
    `__` (two underscores)" that a resource server defines for its own API
    (`smart scopes-and-launch-context`, Extensibility): such a scope is

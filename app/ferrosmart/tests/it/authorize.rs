@@ -598,6 +598,78 @@ async fn a_standalone_launch_logs_in_upstream_asks_consent_and_issues_tokens() {
     smart.stop().await;
 }
 
+/// Runs the flow asking `scope` for a person holding `roles` through the
+/// callback, and returns the callback's answer.
+async fn through_callback(
+    smart: &Smart,
+    roles: &[&str],
+    scope: &str,
+) -> (StatusCode, http::HeaderMap, String) {
+    let (_, headers, _) = smart.get(&authorize_path(&[("scope", scope)]), None).await;
+    let upstream = location(&headers);
+    let cookie = set_cookie(&headers);
+    smart
+        .provider
+        .answer(&param(&upstream, "nonce").expect("a nonce"), roles)
+        .await;
+    let callback = format!(
+        "/callback?code=synthetic-upstream-code&state={}",
+        param(&upstream, "state").expect("a state")
+    );
+    smart.get(&callback, Some(&cookie)).await
+}
+
+// NOTE: RFC 6749 §4.1.2.1, access_denied; the page that names the missing role
+// first is our own design (owner, 2026-11-19, #672).
+#[tokio::test]
+async fn a_person_without_a_granting_role_sees_which_role_is_missing() {
+    let smart = Smart::start().await;
+    let (status, headers, page) = through_callback(&smart, &[], "user/Observation.rs").await;
+    assert_eq!(StatusCode::FORBIDDEN, status, "{page}");
+    assert!(
+        page.contains("Synthetic App cannot be given any access for your account"),
+        "{page}"
+    );
+    assert!(page.contains("A role that would: clinician."), "{page}");
+    assert!(
+        !page.contains("synthetic-person") && !page.contains("Practitioner/synthetic-1"),
+        "no claim value: {page}"
+    );
+    assert!(
+        headers.get(header::LOCATION).is_none(),
+        "the page, no redirect"
+    );
+    let back = page
+        .split("href=\"")
+        .map(|rest| {
+            rest.split('"')
+                .next()
+                .unwrap_or_default()
+                .replace("&#38;", "&")
+        })
+        .find(|href| href.starts_with(REDIRECT))
+        .expect("the way back to the app");
+    let back = Url::parse(&back).expect("a URL");
+    // NOTE: RFC 6749 §4.1.2.1 the error and state; RFC 9207 §2 the iss.
+    assert_eq!(Some(String::from("access_denied")), param(&back, "error"));
+    assert_eq!(Some(String::from("synthetic-state")), param(&back, "state"));
+    assert_eq!(Some(String::from(ISSUER)), param(&back, "iss"));
+    assert!(param(&back, "code").is_none());
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_request_the_client_may_never_be_granted_names_no_role() {
+    let smart = Smart::start().await;
+    let (status, _, page) = through_callback(&smart, &["clinician"], "user/Encounter.rs").await;
+    assert_eq!(StatusCode::FORBIDDEN, status, "{page}");
+    assert!(
+        page.contains("Synthetic App asks for access this server does not give it."),
+        "{page}"
+    );
+    smart.stop().await;
+}
+
 // NOTE: docs/architecture.md §13.6 item 3 (owner, 2026-11-19, #668): identity,
 // launch and refresh scopes are fixed lines; resource scopes keep their boxes.
 #[tokio::test]
