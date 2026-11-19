@@ -7,6 +7,7 @@ consent-signed-in-plain = You are signed in.
 consent-intro = { $client } asks for the access below. Untick any you do not want to give, then choose Allow.
 consent-scopes = Access asked for
 consent-choose = The access you give
+scope-extension = Access this server defines for its own use: { $scopes }
 consent-allow = Allow
 consent-deny = Deny
 fault-page = Something went wrong

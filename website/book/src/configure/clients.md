@@ -138,8 +138,24 @@ name = "clinician"
 scopes = ["user/Patient.rs", "user/Observation.rs", "patient/Observation.rs"]
 ```
 
-A role grants only `user/` and `patient/` scopes, has a name with no space,
-and is named once. `[ferrosmart.upstream] role_claims` says where in the ID
+A role grants only `user/` and `patient/` scopes and extension scopes,
+has a name with no space, and is named once. An extension scope is any
+scope that starts with two underscores, such as FerroEHR's
+`__ferroehr.platform` (SMART App Launch 2.2.0, Scopes and Launch Context,
+Extensibility): a resource server defines it for an API of its own. A
+person is granted one only when the request asks for it, the client's
+ceiling lists it and one of the person's roles grants it; a request alone
+never grants it. The discovery document lists every extension scope a
+role grants in `scopes_supported`, and the consent page names it in plain
+words beside the SMART scopes:
+
+```toml
+[[ferrosmart.role]]
+name = "administrator"
+scopes = ["user/Patient.rs", "__ferroehr.platform"]
+```
+
+Any other scope outside the SMART set is never granted to a person. `[ferrosmart.upstream] role_claims` says where in the ID
 Token the roles are ([identity providers](../install/upstream.md)).
 
 ## Which scopes the consent page offers
@@ -157,6 +173,7 @@ drops the rest, and shows the person what remains:
 | `launch/patient` | the ceiling lists it and a patient is in context: the EHR launch named one, or the patient picker can choose one |
 | `launch/encounter` | the ceiling lists it and an encounter is in context: the EHR launch named one, or, with `launch/patient` at a FHIR server, the patient picker can choose one |
 | `offline_access`, `online_access` | the ceiling lists it and the client registers `refresh_token` |
+| `__...` (an extension scope) | the ceiling lists it and one of the person's roles grants it |
 
 With both refresh scopes granted, `offline_access` decides.
 
