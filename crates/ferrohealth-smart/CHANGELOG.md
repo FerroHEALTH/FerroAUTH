@@ -15,6 +15,14 @@ and this project adheres to
 
 ### Added
 
+- `xml`, behind the new `xml` feature: the bounded XML reader (`xml::prepare`
+  holds a document to the caller's `xml::Limits`, a byte cap and a linear
+  pre-scan of depth and namespace declarations, and translates its line
+  ends; `xml::parse` refuses a DTD and holds a node cap) and
+  `xml::c14n::canonicalize`, the Exclusive XML Canonicalization 1.0 the
+  eHDSI assertion check verifies with, now public so FerroSMART's upstream
+  SAML 2.0 login verifies with the same implementation (#688).
+  `ehdsi-assertion` enables it; the eHDSI check's behaviour is unchanged.
 - `uri::normalized` and `uri::normalize_percent`: the RFC 3986 §6.2.2
   syntax-based normalization the DPoP `htu` check applies, public so
   FerroSMART compares a registered launch URL the same way.

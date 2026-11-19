@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The pre-scan that holds an assertion's element depth and namespace
+//! The pre-scan that holds a document's element depth and namespace
 //! declarations to their caps before `roxmltree` parses it.
 //!
 //! `roxmltree` copies the namespaces in scope into every element that
@@ -12,21 +12,13 @@
 //! refused by `roxmltree`, and an input it cannot follow is refused, since
 //! `roxmltree` would refuse it too.
 
-/// The deepest element nesting read: the deepest eHDSI path, through
-/// `ds:Signature`, is 7 (no specification governs the cap: our own design).
-pub(super) const MAX_DEPTH: usize = 32;
-/// The most namespace declarations a document carries: an `IdA` that declares
-/// `xs` and `xsi` on every value, as eHDSI Section II Security Services
-/// 10.0.0 §10.1 shows, carries about 50 (our own design).
-pub(super) const MAX_NAMESPACES: usize = 128;
-
 /// An input past a cap, or one the scan cannot follow.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct OutOfBounds;
 
-/// Refuses `xml` when an element nests deeper than [`MAX_DEPTH`] or the
-/// document declares more than [`MAX_NAMESPACES`] namespaces.
-pub(super) fn check(xml: &str) -> Result<(), OutOfBounds> {
+/// Refuses `xml` when an element nests deeper than `max_depth` or the
+/// document declares more than `max_namespaces` namespaces.
+pub(super) fn check(xml: &str, max_depth: usize, max_namespaces: usize) -> Result<(), OutOfBounds> {
     let mut scan = Scan {
         bytes: xml.as_bytes(),
         at: 0,
@@ -49,12 +41,12 @@ pub(super) fn check(xml: &str) -> Result<(), OutOfBounds> {
             scan.skip_past(b">")?;
         } else {
             depth = depth.saturating_add(1);
-            if depth > MAX_DEPTH {
+            if depth > max_depth {
                 return Err(OutOfBounds);
             }
             let tag = scan.start_tag()?;
             namespaces = namespaces.saturating_add(tag.namespaces);
-            if namespaces > MAX_NAMESPACES {
+            if namespaces > max_namespaces {
                 return Err(OutOfBounds);
             }
             if tag.empty {
@@ -183,7 +175,15 @@ impl Scan<'_> {
 mod tests {
     use std::fmt::Write;
 
-    use super::{MAX_DEPTH, MAX_NAMESPACES, OutOfBounds, check};
+    use super::OutOfBounds;
+
+    /// The eHDSI assertion check's caps, which the cases hold.
+    const MAX_DEPTH: usize = 32;
+    const MAX_NAMESPACES: usize = 128;
+
+    fn check(xml: &str) -> Result<(), OutOfBounds> {
+        super::check(xml, MAX_DEPTH, MAX_NAMESPACES)
+    }
 
     fn nested(depth: usize, declare: bool) -> String {
         let mut xml = String::new();
