@@ -14,6 +14,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.26.0] - Unreleased
+
 ## [0.25.1] - 2026-11-19
 
 ### Added

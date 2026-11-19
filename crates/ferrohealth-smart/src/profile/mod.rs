@@ -290,6 +290,9 @@ pub struct ProfileKeys {
     /// [`Profile::act_represents_patient`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub act_represents_patient: Option<bool>,
+    /// [`Profile::fhir_user_patient`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fhir_user_patient: Option<bool>,
     /// [`Profile::token_types`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_types: Option<Vec<String>>,
@@ -369,6 +372,12 @@ pub struct Profile {
     /// representative (RFC 8693 §4.1); `false` by default, and a `patients`
     /// token carrying `act` is then refused.
     pub act_represents_patient: bool,
+    /// Whether a `persons` token through an admitted client is the
+    /// patient's own when its `fhirUser` is `Patient/<x>`, its `patient`
+    /// claim is `x`, and it carries `patient/` scopes with no `user/` or
+    /// `system/` one; `false` by default, and read on a `persons` issuer
+    /// only.
+    pub fhir_user_patient: bool,
     /// The accepted `typ` header values; `at+jwt` and `application/at+jwt`
     /// by default (RFC 9068 §4).
     pub token_types: Vec<String>,
@@ -421,6 +430,7 @@ impl Default for Profile {
             max_actor_chain: 1,
             representation: None,
             act_represents_patient: false,
+            fhir_user_patient: false,
             token_types: vec![String::from("at+jwt"), String::from("application/at+jwt")],
             required_claims: ["iss", "exp", "aud", "sub", "client_id", "iat", "jti"]
                 .iter()
@@ -524,6 +534,7 @@ impl Profile {
             max_actor_chain,
             representation,
             act_represents_patient,
+            fhir_user_patient,
             token_types,
             required_claims,
             scope_claim,
@@ -552,6 +563,7 @@ impl Profile {
         set(&mut self.max_actor_chain, max_actor_chain);
         set_some(&mut self.representation, representation);
         set(&mut self.act_represents_patient, act_represents_patient);
+        set(&mut self.fhir_user_patient, fhir_user_patient);
         set(&mut self.token_types, token_types);
         set(&mut self.required_claims, required_claims);
         set(&mut self.scope_claim, scope_claim);
@@ -693,11 +705,12 @@ mod tests {
     }
 
     // NOTE: RFC 9068 §2.1 and §2.2, FerroSMART's tokens are plain RFC 9068; its
-    // preset narrows `typ` to `at+jwt` and requires the `scope` it always writes.
+    // preset narrows `typ`, requires `scope` and reads a patient's own token.
     #[test]
-    fn the_ferrosmart_preset_is_rfc9068_with_its_token_type_and_scope() {
+    fn the_ferrosmart_preset_is_rfc9068_with_its_token_type_scope_and_patient() {
         let keys = Preset::Ferrosmart.keys().expect("the preset reads");
         let expected = ProfileKeys {
+            fhir_user_patient: Some(true),
             token_types: Some(vec![String::from("at+jwt")]),
             required_claims: Some(
                 [
@@ -747,6 +760,7 @@ mod tests {
                 ground_claim: None,
             }),
             act_represents_patient: Some(true),
+            fhir_user_patient: Some(true),
             token_types: Some(vec![String::from("at+jwt")]),
             required_claims: Some(vec![String::from("iss")]),
             scope_claim: Some(ScopeClaim::default()),
@@ -788,6 +802,7 @@ mod tests {
                 max_actor_chain: Some(profile.max_actor_chain),
                 representation: profile.representation,
                 act_represents_patient: Some(profile.act_represents_patient),
+                fhir_user_patient: Some(profile.fhir_user_patient),
                 token_types: Some(profile.token_types),
                 required_claims: Some(profile.required_claims),
                 scope_claim: Some(profile.scope_claim),
