@@ -26,8 +26,8 @@
 //! encounters when the app asks for `launch/encounter` (Standalone apps,
 //! `context-standalone-encounter`), in [`encounter`]. At an openEHR resource
 //! server paired with the platform's FHIR server, the person picks the
-//! patient there and [`paired`] looks their EHR up, so the context carries
-//! both `patient` and `ehrId`.
+//! patient there and the `paired` module looks their EHR up, so the context
+//! carries both `patient` and `ehrId`.
 
 use std::net::IpAddr;
 use std::sync::Arc;
