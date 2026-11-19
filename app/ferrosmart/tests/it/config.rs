@@ -401,19 +401,19 @@ fn upstream(keys: &Keys, extra: &str) -> String {
     format!(
         "[ferrosmart]\nissuer = \"https://smart.example.org\"\n\
          [ferrosmart.keys]\nprivate_key_file = {current:?}\n\
-         [ferrosmart.upstream]\nissuer = \"https://idp.example.org\"\nclient_id = \"ferrosmart\"\n{extra}"
+         [[ferrosmart.upstream]]\nname = \"idp\"\nprotocol = \"oidc\"\n[ferrosmart.upstream.oidc]\nissuer = \"https://idp.example.org\"\nclient_id = \"ferrosmart\"\n{extra}"
     )
 }
 
-/// The `[ferrosmart.upstream.private_key_jwt]` table with `extra` in it and
+/// The `[ferrosmart.upstream.oidc.private_key_jwt]` table with `extra` in it and
 /// a fresh assertion key under `keys`.
 fn private_key_jwt(keys: &Keys, extra: &str) -> String {
     let key = crate::support::rsa_key(keys.dir.path(), "assertion.pem");
     upstream(
         keys,
         &format!(
-            "[ferrosmart.upstream.private_key_jwt]\n{extra}\n\
-             [ferrosmart.upstream.private_key_jwt.keys]\nprivate_key_file = {:?}\n",
+            "[ferrosmart.upstream.oidc.private_key_jwt]\n{extra}\n\
+             [ferrosmart.upstream.oidc.private_key_jwt.keys]\nprivate_key_file = {:?}\n",
             key.display().to_string()
         ),
     )
@@ -497,7 +497,7 @@ fn an_assertion_ring_holding_a_token_key_or_none_is_refused() {
     let text = upstream(
         &keys,
         &format!(
-            "[ferrosmart.upstream.private_key_jwt]\n[ferrosmart.upstream.private_key_jwt.keys]\n\
+            "[ferrosmart.upstream.oidc.private_key_jwt]\n[ferrosmart.upstream.oidc.private_key_jwt.keys]\n\
          next_private_key_file = {:?}\nprivate_key_file = {:?}\n",
             crate::support::rsa_key(keys.dir.path(), "next.pem")
                 .display()
@@ -509,11 +509,11 @@ fn an_assertion_ring_holding_a_token_key_or_none_is_refused() {
         config(&text, &keys).resolve(),
         Err(Error::Upstream { .. })
     ));
-    let text = upstream(&keys, "[ferrosmart.upstream.private_key_jwt]\n");
+    let text = upstream(&keys, "[ferrosmart.upstream.oidc.private_key_jwt]\n");
     assert!(matches!(
         config(&text, &keys).resolve(),
         Err(Error::Missing {
-            key: "ferrosmart.upstream.private_key_jwt.keys.private_key_file"
+            key: "ferrosmart.upstream.oidc.private_key_jwt.keys.private_key_file"
         })
     ));
 }

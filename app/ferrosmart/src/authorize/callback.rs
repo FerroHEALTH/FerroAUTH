@@ -54,9 +54,19 @@ pub async fn callback(
     if cookie(&headers, COOKIE).as_deref() != Some(pending.id.as_str()) {
         return pages::fault(&state, Fault::OtherBrowser);
     }
-    let Some(party) = state.relying_party() else {
+    // NOTE: the login completes at the provider the request went to, with its
+    // settings alone; a callback another provider's login answers fails its check.
+    let Some(provider) = pending
+        .upstream_provider
+        .as_deref()
+        .and_then(|name| state.providers().named(name))
+    else {
+        return pages::fault(&state, Fault::Lapsed);
+    };
+    let Some(party) = provider.oidc() else {
         return pages::fault(&state, Fault::BadRequest);
     };
+    let upstream = provider.upstream();
     let back = Back::of(&state, &pending);
     let sign_in = PendingSignIn::from_parts(
         pending.upstream_state.clone(),
@@ -73,7 +83,7 @@ pub async fn callback(
             } else {
                 "the login could not be completed"
             };
-            if let Err(response) = record_login(&state, Err(reason)).await {
+            if let Err(response) = record_login(&state, upstream, Err(reason)).await {
                 return *response;
             }
             if pending.purpose == Purpose::Manage {
@@ -104,7 +114,7 @@ pub async fn callback(
         Fresh::Stale => {
             forget(&state, &pending).await;
             if let Err(response) =
-                record_login(&state, Err("the login is older than max_age")).await
+                record_login(&state, upstream, Err("the login is older than max_age")).await
             {
                 return *response;
             }
@@ -116,7 +126,23 @@ pub async fn callback(
             });
         }
     };
-    proceed(&state, &pending, &back, &signed_in.claims, auth_time, from).await
+    let signed_in = SignedIn {
+        upstream,
+        claims: &signed_in.claims,
+        auth_time,
+    };
+    proceed(&state, &pending, &back, &signed_in, from).await
+}
+
+/// A person's login at a provider, as the steps after it read it.
+#[derive(Debug, Clone, Copy)]
+struct SignedIn<'a> {
+    /// The provider's settings.
+    upstream: &'a crate::upstream::Upstream,
+    /// What the provider's ID Token states.
+    claims: &'a ferrohealth_smart::oidc::IdTokenClaims,
+    /// When the person authenticated, in seconds since the epoch.
+    auth_time: i64,
 }
 
 /// When the person last authenticated, as the request's `max_age` judges
@@ -184,13 +210,14 @@ async fn proceed(
     state: &AppState,
     pending: &Pending,
     back: &Back,
-    claims: &ferrohealth_smart::oidc::IdTokenClaims,
-    auth_time: i64,
+    signed_in: &SignedIn<'_>,
     from: IpAddr,
 ) -> Response {
-    let Some(upstream) = &state.settings().upstream else {
-        return pages::fault(state, Fault::BadRequest);
-    };
+    let SignedIn {
+        upstream,
+        claims,
+        auth_time,
+    } = *signed_in;
     let fhir_user = upstream
         .fhir_user_claim
         .as_deref()
@@ -220,7 +247,7 @@ async fn proceed(
         name: login.display_name.as_deref(),
         client_id: pending.client_id.as_deref(),
     };
-    if let Err(response) = record_login(state, Ok(person)).await {
+    if let Err(response) = record_login(state, upstream, Ok(person)).await {
         return *response;
     }
     if pending.purpose == Purpose::Manage {
@@ -411,12 +438,10 @@ fn read_callback(query: &str) -> Result<Callback, crate::form::Repeated> {
 /// stored does not go on (no specification governs this: our own design).
 async fn record_login(
     state: &AppState,
+    upstream: &crate::upstream::Upstream,
     answer: Result<Person<'_>, &str>,
 ) -> Result<(), Box<Response>> {
-    let Some(upstream) = &state.settings().upstream else {
-        return Err(Box::new(pages::fault(state, Fault::BadRequest)));
-    };
-    let provider = Url::parse(&upstream.issuer)
+    let provider = Url::parse(upstream.issuer())
         .map_err(|error| Box::new(pages::server_error(state, &error)))?;
     let (subject, client_id) = answer.ok().map_or((None, None), |person| {
         (Some(person.subject), person.client_id)

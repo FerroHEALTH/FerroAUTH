@@ -91,12 +91,14 @@ enum Visit {
     OtherBrowser,
     /// The end-session endpoint's confirmation.
     Logout,
+    /// The chooser of an app whose people log in at either provider.
+    Chooser,
 }
 
 /// Every shot: the image's name, without the theme suffix and the
 /// extension, the route of [`ferrosmart::server::PAGES`] it shows, and how
 /// the browser reaches it.
-const SHOTS: [(&str, &str, Visit); 8] = [
+const SHOTS: [(&str, &str, Visit); 9] = [
     ("consent-clinician", "/consent", Visit::ClinicianConsent),
     ("consent-patient", "/consent", Visit::PatientConsent),
     ("picker", "/picker", Visit::Picker),
@@ -105,6 +107,7 @@ const SHOTS: [(&str, &str, Visit); 8] = [
     ("error-lapsed", "/consent", Visit::Lapsed),
     ("error-other-browser", "/callback", Visit::OtherBrowser),
     ("logout-confirm", "/logout", Visit::Logout),
+    ("chooser", "/login", Visit::Chooser),
 ];
 
 /// Whether the page in front of the browser has loaded and, when it loads
@@ -314,6 +317,7 @@ async fn reach(stack: &Stack, visit: Visit) -> (String, Option<String>) {
         Visit::Lapsed => (stack.url("/consent"), None),
         Visit::OtherBrowser => (stack.url(&stack.other_browser().await), None),
         Visit::Logout => (stack.url("/logout?client_id=ward-overview"), None),
+        Visit::Chooser => (stack.url("/login"), Some(stack.chooser().await)),
     }
 }
 

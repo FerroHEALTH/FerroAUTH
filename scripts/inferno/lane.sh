@@ -239,7 +239,7 @@ run() {
     --set "server.tls.certificate_file=$LANE_DIR/smart.crt" \
     --set "server.tls.key_file=$LANE_DIR/smart.key" \
     --set "ferrosmart.keys.private_key_file=$LANE_DIR/signing.pem" \
-    --set "ferrosmart.upstream.private_key_jwt.keys.private_key_file=$LANE_DIR/assertion.pem" \
+    --set "ferrosmart.upstream.0.oidc.private_key_jwt.keys.private_key_file=$LANE_DIR/assertion.pem" \
     --set "ferrosmart.database.url=$LANE_PG/ferrosmart" \
     --set "ferrosmart.client[0].jwks_file=$LANE_DIR/inferno-client.jwks.json" \
     --set "ferrosmart.client[2].secret_hash_file=$LANE_DIR/inferno-ehr.phc" \

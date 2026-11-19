@@ -21,7 +21,9 @@ reach: the server's own `.well-known/smart-configuration` names FerroSMART's
    `aud` FerroSMART does not serve is refused. An unknown client or redirect URI is shown to
    the person and never redirected to.
 2. **Log in.** FerroSMART sends the person to the identity provider and
-   back to `{issuer}/callback`.
+   back to `{issuer}/callback`. When the app's client may use more than one
+   provider (its `upstreams`, or every provider when it names none), the
+   person first chooses one at `{issuer}/login`.
 3. **Pick the patient.** When the app asks for `launch/patient` and the
    server can be searched, FerroSMART shows its patient picker. A
    standalone app that asks a `patient/` scope without `launch/patient` is
@@ -177,6 +179,11 @@ the client did not register is a page and no redirect.
 
 The end-session endpoint's confirmation.
 [Dark theme](img/logout-confirm-dark.png).
+
+![The page titled "Choose how to sign in": one button per identity provider the app's people may use, here Hospital staff and Patient portal](img/chooser.png)
+
+The chooser of an app whose people log in at either of two providers.
+[Dark theme](img/chooser-dark.png).
 
 **Introspection.** `POST {issuer}/introspect` (RFC 7662) answers for any
 token FerroSMART issued. The caller is a confidential client that

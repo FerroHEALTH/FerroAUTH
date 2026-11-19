@@ -81,8 +81,10 @@ pub(crate) struct Stack {
     issuer: String,
     /// The application, which the launches drive.
     app: Router,
-    /// The upstream provider.
+    /// The upstream provider of the staff.
     provider: Provider,
+    /// The upstream provider of the patients, kept for the stack's length.
+    _portal: Provider,
     /// The FHIR server.
     _fhir: MockServer,
     /// The FHIR base, the audience of every launch.
@@ -109,6 +111,7 @@ impl Stack {
             listener.local_addr().expect("the port it bound")
         );
         let provider = Provider::start().await;
+        let portal = Provider::start().await;
         let fhir = MockServer::start().await;
         Mock::given(matchers::method("GET"))
             .respond_with(Patients)
@@ -120,7 +123,11 @@ impl Stack {
         let assertion = crate::support::upstream_assertion(keys.dir.path());
         let text = format!(
             "[ferrosmart]\nissuer = {issuer:?}\n[ferrosmart.database]\nurl = {:?}\n\
-             [ferrosmart.upstream]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\n\
+             [[ferrosmart.upstream]]\nname = \"idp\"\nlabel = \"Hospital staff\"\nprotocol = \"oidc\"\n\
+             [ferrosmart.upstream.oidc]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\n\
+             fhir_user_claim = \"fhir_user\"\n{assertion}\
+             [[ferrosmart.upstream]]\nname = \"portal\"\nlabel = \"Patient portal\"\nprotocol = \"oidc\"\n\
+             [ferrosmart.upstream.oidc]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\n\
              fhir_user_claim = \"fhir_user\"\n{assertion}\
              [ferrosmart.branding]\nname = \"Example Hospital\"\n\
              consent_text = \"Example Hospital records every access to your record.\"\n\
@@ -130,11 +137,17 @@ impl Stack {
              [[ferrosmart.client]]\nclient_id = \"ward-overview\"\nname = \"Ward Overview\"\nkind = \"public\"\n\
              redirect_uris = [{WARD_REDIRECT:?}]\ngrant_types = [\"authorization_code\", \"refresh_token\"]\n\
              scopes = [\"openid\", \"fhirUser\", \"user/Observation.rs\", \"user/Patient.rs\", \"offline_access\"]\n\
+             upstreams = [\"idp\"]\n\
              [[ferrosmart.client]]\nclient_id = \"growth-chart\"\nname = \"Growth Chart\"\nkind = \"public\"\n\
              redirect_uris = [{CHART_REDIRECT:?}]\ngrant_types = [\"authorization_code\"]\n\
+             scopes = [\"openid\", \"fhirUser\", \"launch/patient\", \"patient/Observation.rs\"]\n\
+             upstreams = [\"idp\"]\n\
+             [[ferrosmart.client]]\nclient_id = \"my-record\"\nname = \"My Record\"\nkind = \"public\"\n\
+             redirect_uris = [{WARD_REDIRECT:?}]\ngrant_types = [\"authorization_code\"]\n\
              scopes = [\"openid\", \"fhirUser\", \"launch/patient\", \"patient/Observation.rs\"]",
             secrecy::ExposeSecret::expose_secret(&database.url),
-            provider.server.uri()
+            provider.server.uri(),
+            portal.server.uri()
         );
         let settings = config(&text, &keys).resolve().expect("resolves");
         let store = Store::connect(&settings.database_url, 4)
@@ -142,17 +155,9 @@ impl Stack {
             .expect("connects");
         store.migrate().await.expect("migrates");
         store.register(&settings.clients).await.expect("registered");
-        let callback = url::Url::parse(&settings.endpoint(ferrosmart::authorize::CALLBACK_ROUTE))
-            .expect("a URL");
-        let party = settings
-            .upstream
-            .as_ref()
-            .expect("an upstream")
-            .relying_party(callback)
-            .await
-            .expect("the provider is discovered");
+        let providers = crate::support::providers(&settings).await;
         let audit = audit(&settings);
-        let state = AppState::new(settings, store.clone(), audit).with_login(party);
+        let state = AppState::new(settings, store.clone(), audit).with_login(providers);
         let app = router(Arc::new(state));
         let served = tokio::spawn({
             let app = app.clone();
@@ -167,6 +172,7 @@ impl Stack {
             issuer,
             app,
             provider,
+            _portal: portal,
             _fhir: fhir,
             base,
             store,
@@ -267,8 +273,23 @@ impl Stack {
     async fn log_in(&self, path: &str) -> (String, String) {
         let (status, headers, page) = self.get(path, None).await;
         assert_eq!(StatusCode::SEE_OTHER, status, "{path}: {page}");
-        let upstream = location(&headers);
+        let mut upstream = location(&headers);
         let cookie = set_cookie(&headers);
+        // NOTE: the management page may use either provider, so the clinician
+        // chooses the staff's on the chooser first.
+        if upstream.path() == "/login" {
+            let (_, _, page) = self.get("/login", Some(&cookie)).await;
+            let token = form_token(&page);
+            let (status, headers, page) = self
+                .post(
+                    "/login",
+                    &[("form_token", token.as_str()), ("provider", "idp")],
+                    &cookie,
+                )
+                .await;
+            assert_eq!(StatusCode::SEE_OTHER, status, "{page}");
+            upstream = location(&headers);
+        }
         let (subject, fhir_user) = CLINICIAN;
         self.provider
             .answer_as(
@@ -285,6 +306,16 @@ impl Stack {
         let (status, headers, page) = self.get(&callback, Some(&cookie)).await;
         assert_eq!(StatusCode::SEE_OTHER, status, "{page}");
         (cookie, location(&headers).path().to_owned())
+    }
+
+    /// Brings the chooser of an app whose people log in at either provider
+    /// about and returns its cookie.
+    pub(crate) async fn chooser(&self) -> String {
+        let path = self.authorize_path("my-record", "openid fhirUser launch/patient");
+        let (status, headers, page) = self.get(&path, None).await;
+        assert_eq!(StatusCode::SEE_OTHER, status, "{path}: {page}");
+        assert_eq!("/login", location(&headers).path(), "to the chooser");
+        set_cookie(&headers)
     }
 
     /// Brings the clinician app's consent page about and returns its cookie.

@@ -17,11 +17,11 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use crate::upstream::LoginProvider;
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
 use http::StatusCode;
 use serde::Deserialize;
-use url::Url;
 
 use crate::audit::Connected;
 use crate::server::AppState;
@@ -59,7 +59,11 @@ pub async fn frontchannel_logout(
             StatusCode::BAD_REQUEST
         }
     };
-    framed(&state, status)
+    let provider = query
+        .iss
+        .as_deref()
+        .and_then(|issuer| state.providers().by_issuer(issuer));
+    framed(provider, status)
 }
 
 /// Ends the sessions the request names, or says why not.
@@ -68,16 +72,13 @@ async fn logged_out(
     query: &FrontChannel,
     from: IpAddr,
 ) -> Result<(), &'static str> {
-    let party = state
-        .relying_party()
-        .ok_or("no upstream provider is configured")?;
     let (Some(issuer), Some(sid)) = (query.iss.as_deref(), query.sid.as_deref()) else {
         return Err("the request does not carry both iss and sid");
     };
     // NOTE: Front-Channel Logout 1.0 §2, the RP MAY check iss and sid; a logout
-    // from another issuer is ignored.
-    if issuer != party.provider().issuer() || sid.is_empty() {
-        return Err("the request names another issuer or no session");
+    // from an issuer no provider has is ignored.
+    if state.providers().by_issuer(issuer).is_none() || sid.is_empty() {
+        return Err("the request names no configured issuer or no session");
     }
     super::end_sessions(
         state,
@@ -97,18 +98,8 @@ async fn logged_out(
 /// (Front-Channel Logout 1.0 §2, `Cache-Control: no-store`) and framed by
 /// the provider's own origins alone, where every other page refuses any
 /// frame (RFC 9700 §4.16).
-fn framed(state: &AppState, status: StatusCode) -> Response {
-    let mut ancestors: Vec<String> = Vec::new();
-    if let Some(party) = state.relying_party() {
-        let provider = party.provider();
-        let issuer = Url::parse(provider.issuer()).ok();
-        for url in issuer.iter().chain(provider.end_session_endpoint()) {
-            let origin = url.origin().ascii_serialization();
-            if url.origin().is_tuple() && !ancestors.contains(&origin) {
-                ancestors.push(origin);
-            }
-        }
-    }
+fn framed(provider: Option<&LoginProvider>, status: StatusCode) -> Response {
+    let ancestors = provider.map(LoginProvider::origins).unwrap_or_default();
     let ancestors = if ancestors.is_empty() {
         String::from("'none'")
     } else {

@@ -7,7 +7,7 @@ A person logs in at an OpenID Connect provider upstream of FerroSMART, and
 FerroSMART is a client of that provider. Any provider that publishes an
 OpenID Connect discovery document works; no code in FerroSMART knows a
 vendor. Four have a tested setup, and each section below says what to
-configure at the provider and in `[ferrosmart.upstream]`.
+configure at the provider and in `[[ferrosmart.upstream]]`.
 
 ## What every provider needs
 
@@ -32,7 +32,7 @@ At the provider, register FerroSMART as a confidential web client:
 
 FerroSMART authenticates to every provider with `private_key_jwt` (OpenID
 Connect Core 1.0 §9): a JWT signed by its assertion key, configured under
-`[ferrosmart.upstream.private_key_jwt]`. That table is required, and a
+`[ferrosmart.upstream.oidc.private_key_jwt]`. That table is required, and a
 client secret is refused at start. The assertion key is a key of its own,
 never a token signing key, and FerroSMART publishes it at
 `{issuer}/upstream-jwks` for a provider that reads a key set
@@ -85,16 +85,20 @@ deployment serves both over TLS on their own names.
 | Tested by | a standalone launch in CI through Keycloak's login form, and the compose quickstart lane |
 
 ```toml
-[ferrosmart.upstream]
+[[ferrosmart.upstream]]
+name = "idp"
+protocol = "oidc"
+
+[ferrosmart.upstream.oidc]
 issuer = "https://keycloak.example.org/realms/ferrosmart"
 client_id = "ferrosmart"
 scopes = ["openid"]
 fhir_user_claim = "fhir_user"
 role_claims = ["roles"]
 
-[ferrosmart.upstream.private_key_jwt]
+[ferrosmart.upstream.oidc.private_key_jwt]
 
-[ferrosmart.upstream.private_key_jwt.keys]
+[ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream_assertion_key"
 ```
 
@@ -124,7 +128,11 @@ with the client id ZITADEL generated. Log in at
 | Audience | ZITADEL adds the project to the ID Token's `aud`, so FerroSMART trusts it |
 
 ```toml
-[ferrosmart.upstream]
+[[ferrosmart.upstream]]
+name = "idp"
+protocol = "oidc"
+
+[ferrosmart.upstream.oidc]
 issuer = "https://zitadel.example.org"
 client_id = "<the generated client id>"
 scopes = ["openid", "profile"]
@@ -132,10 +140,10 @@ fhir_user_claim = "fhirUser"
 role_claims = ["urn:zitadel:iam:org:project:ferrosmart:roles"]
 trusted_audiences = ["ferrosmart"]
 
-[ferrosmart.upstream.private_key_jwt]
+[ferrosmart.upstream.oidc.private_key_jwt]
 algorithm = "RS256"
 
-[ferrosmart.upstream.private_key_jwt.keys]
+[ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/zitadel-application-key.pem"
 kid = "<the key id ZITADEL gave the key>"
 ```
@@ -160,18 +168,22 @@ the discovery document, key set and token answer Entra ID publishes.
 | Tested by | a contract test that runs the example against Entra ID's discovery document, key set and token answer |
 
 ```toml
-[ferrosmart.upstream]
+[[ferrosmart.upstream]]
+name = "idp"
+protocol = "oidc"
+
+[ferrosmart.upstream.oidc]
 issuer = "https://login.microsoftonline.com/<tenant id>/v2.0"
 client_id = "<the application (client) id>"
 scopes = ["openid", "profile"]
 fhir_user_claim = "extn.fhirUser"
 role_claims = ["roles"]
 
-[ferrosmart.upstream.private_key_jwt]
+[ferrosmart.upstream.oidc.private_key_jwt]
 algorithm = "PS256"
 certificate_file = "/run/secrets/upstream-assertion.crt"
 
-[ferrosmart.upstream.private_key_jwt.keys]
+[ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream-assertion.pem"
 ```
 
@@ -197,17 +209,21 @@ publishes.
 | Tested by | a contract test that runs the example against the documents Okta publishes |
 
 ```toml
-[ferrosmart.upstream]
+[[ferrosmart.upstream]]
+name = "idp"
+protocol = "oidc"
+
+[ferrosmart.upstream.oidc]
 issuer = "https://example.okta.com/oauth2/default"
 client_id = "<the client id>"
 scopes = ["openid", "profile"]
 fhir_user_claim = "fhir_user"
 role_claims = ["groups"]
 
-[ferrosmart.upstream.private_key_jwt]
+[ferrosmart.upstream.oidc.private_key_jwt]
 algorithm = "RS256"
 
-[ferrosmart.upstream.private_key_jwt.keys]
+[ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream-assertion.pem"
 ```
 

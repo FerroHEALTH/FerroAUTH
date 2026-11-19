@@ -26,7 +26,11 @@ kind = "fhir"
 
 # The person logs in at Keycloak with the realm of
 # app/ferrosmart/examples/keycloak (docs/architecture.md §13.16).
-[ferrosmart.upstream]
+[[ferrosmart.upstream]]
+name = "keycloak"
+protocol = "oidc"
+
+[ferrosmart.upstream.oidc]
 issuer = "http://localhost:8180/realms/ferrosmart"
 client_id = "ferrosmart"
 scopes = ["openid"]
@@ -36,7 +40,7 @@ role_claims = ["roles"]
 # The realm's client authenticates FerroSMART by a JWT its assertion key
 # signs (OpenID Connect Core 1.0 §9), read from {issuer}/upstream-jwks; the
 # lane names the key file.
-[ferrosmart.upstream.private_key_jwt]
+[ferrosmart.upstream.oidc.private_key_jwt]
 
 [[ferrosmart.role]]
 name = "clinician"

@@ -38,16 +38,17 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
             Err(error) => return pages::server_error(&state, &error),
         }
     }
-    let Some(party) = state.relying_party() else {
-        return pages::fault(&state, Fault::BadRequest);
-    };
+    let every: Vec<_> = state.providers().iter().collect();
     let begun = (|| {
-        let upstream = party.authorization_request().map_err(fail)?;
-        Ok::<_, Stop>((upstream, random().map_err(fail)?, random().map_err(fail)?))
+        let start = super::choose::start(&state, &every, &Asking::default())?;
+        Ok::<_, Stop>((start, random().map_err(fail)?, random().map_err(fail)?))
     })();
-    let Ok((upstream, id, form_token)) = begun else {
-        return pages::fault(&state, Fault::Server);
+    let (start, id, form_token) = match begun {
+        Ok(begun) => begun,
+        Err(Stop::Deny(_)) => return pages::fault(&state, Fault::BadRequest),
+        Err(Stop::Fail(_)) => return pages::fault(&state, Fault::Server),
     };
+    let [upstream_state, upstream_nonce, upstream_verifier] = start.sign_in;
     let pending = Pending {
         id: id.clone(),
         client_id: None,
@@ -57,9 +58,10 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
         nonce: None,
         code_challenge: String::new(),
         audience: String::new(),
-        upstream_state: upstream.pending.state().to_owned(),
-        upstream_nonce: upstream.pending.nonce().to_owned(),
-        upstream_verifier: upstream.pending.verifier().expose().to_owned(),
+        upstream_state,
+        upstream_nonce,
+        upstream_verifier,
+        upstream_provider: start.provider,
         form_token,
         subject: None,
         fhir_user: None,
@@ -76,7 +78,7 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
     if let Err(error) = state.store().begin_authorization(&pending).await {
         return pages::server_error(&state, &error);
     }
-    let mut response = see_other(upstream.url.as_str());
+    let mut response = see_other(start.location.as_str());
     set_cookie(&state, &mut response, COOKIE, &id, REQUEST_SECONDS);
     response
 }

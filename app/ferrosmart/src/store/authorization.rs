@@ -15,8 +15,8 @@ use crate::store::{Asking, Code, Login, Pending, Prompt, Purpose, Store, StoreEr
 const PENDING: &str = "SELECT id, client_id, redirect_uri, scope, state, nonce, code_challenge, \
     audience, upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
     display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
-    upstream_session, launch_context, roles, prompt, max_age, ui_locales, reauthenticated \
-    FROM pending_authorization";
+    upstream_session, launch_context, roles, prompt, max_age, ui_locales, reauthenticated, \
+    upstream_provider FROM pending_authorization";
 
 impl Store {
     /// Records the authorization request `pending`.
@@ -27,8 +27,9 @@ impl Store {
         sqlx::query(
             "INSERT INTO pending_authorization (id, client_id, redirect_uri, scope, state, nonce, \
              code_challenge, audience, upstream_state, upstream_nonce, upstream_verifier, form_token, \
-             expires_at, purpose, launch_context, prompt, max_age, ui_locales) VALUES ($1, $2, $3, $4, \
-             $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14, $15, $16, $17, $18)",
+             expires_at, purpose, launch_context, prompt, max_age, ui_locales, upstream_provider) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14, $15, \
+             $16, $17, $18, $19)",
         )
         .bind(&pending.id)
         .bind(&pending.client_id)
@@ -48,6 +49,7 @@ impl Store {
         .bind(pending.asking.prompt.values())
         .bind(pending.asking.max_age)
         .bind(&pending.asking.ui_locales)
+        .bind(&pending.upstream_provider)
         .execute(&self.pool)
         .await?;
         Ok(())
@@ -77,6 +79,34 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// Sends the request `id` to the provider `provider` the person chose,
+    /// under the upstream `state`, `nonce` and PKCE `verifier`, while no
+    /// provider is chosen yet.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn choose_upstream(
+        &self,
+        id: &str,
+        provider: &str,
+        sign_in: [&str; 3],
+    ) -> Result<bool, StoreError> {
+        let [state, nonce, verifier] = sign_in;
+        let chosen = sqlx::query(
+            "UPDATE pending_authorization SET upstream_provider = $2, upstream_state = $3, \
+             upstream_nonce = $4, upstream_verifier = $5 \
+             WHERE id = $1 AND upstream_provider IS NULL AND expires_at > now()",
+        )
+        .bind(id)
+        .bind(provider)
+        .bind(state)
+        .bind(nonce)
+        .bind(verifier)
+        .execute(&self.pool)
+        .await?;
+        Ok(chosen.rows_affected() == 1)
     }
 
     /// Returns the live authorization request `id`.
@@ -182,7 +212,8 @@ impl Store {
              RETURNING id, client_id, redirect_uri, scope, state, nonce, code_challenge, audience, \
              upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
              display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
-             upstream_session, launch_context, roles, prompt, max_age, ui_locales, reauthenticated",
+             upstream_session, launch_context, roles, prompt, max_age, ui_locales, reauthenticated, \
+             upstream_provider",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -318,6 +349,7 @@ fn read_pending(row: &sqlx::postgres::PgRow) -> Result<Pending, StoreError> {
         upstream_state: row.try_get("upstream_state")?,
         upstream_nonce: row.try_get("upstream_nonce")?,
         upstream_verifier: row.try_get("upstream_verifier")?,
+        upstream_provider: row.try_get("upstream_provider")?,
         form_token: row.try_get("form_token")?,
         subject: row.try_get("subject")?,
         fhir_user: row.try_get("fhir_user")?,

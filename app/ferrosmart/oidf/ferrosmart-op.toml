@@ -22,16 +22,20 @@ max_connections = 4
 base = "https://localhost.emobix.co.uk:9443/fhir"
 kind = "fhir"
 
-[ferrosmart.upstream]
+[[ferrosmart.upstream]]
+name = "keycloak"
+protocol = "oidc"
+
+[ferrosmart.upstream.oidc]
 issuer = "http://localhost:8180/realms/ferrosmart"
 client_id = "ferrosmart"
 scopes = ["openid"]
 fhir_user_claim = "fhir_user"
 role_claims = ["roles"]
 
-[ferrosmart.upstream.private_key_jwt]
+[ferrosmart.upstream.oidc.private_key_jwt]
 
-[ferrosmart.upstream.private_key_jwt.keys]
+[ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream_assertion_key"
 
 [[ferrosmart.role]]

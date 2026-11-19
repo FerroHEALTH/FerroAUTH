@@ -292,8 +292,9 @@ fn example_config(example: &str, keys: &Keys, database: Option<&Database>) -> Co
     let upstream = config
         .ferrosmart
         .upstream
-        .as_mut()
-        .expect("the example names its provider");
+        .first_mut()
+        .and_then(|upstream| upstream.oidc.as_mut())
+        .expect("the example names its OpenID Connect provider");
     let jwt = upstream
         .private_key_jwt
         .as_mut()
@@ -321,7 +322,12 @@ impl Smart {
         let keys = Keys::new();
         let database = Database::create().await;
         let mut config = example_config(contract.example, &keys, Some(&database));
-        let upstream = config.ferrosmart.upstream.as_mut().expect("a provider");
+        let upstream = config
+            .ferrosmart
+            .upstream
+            .first_mut()
+            .and_then(|upstream| upstream.oidc.as_mut())
+            .expect("a provider");
         let provider = Provider::start(contract, &upstream.issuer, &keys).await;
         upstream.issuer.clone_from(&provider.issuer);
         let client_id = upstream.client_id.clone();
@@ -331,17 +337,9 @@ impl Smart {
             .expect("connects");
         store.migrate().await.expect("migrates");
         store.register(&settings.clients).await.expect("registered");
-        let callback =
-            Url::parse(&settings.endpoint(ferrosmart::authorize::CALLBACK_ROUTE)).expect("a URL");
-        let party = settings
-            .upstream
-            .as_ref()
-            .expect("an upstream")
-            .relying_party(callback)
-            .await
-            .expect("the provider is discovered");
+        let providers = crate::support::providers(&settings).await;
         let audit = audit(&settings);
-        let state = AppState::new(settings, store.clone(), audit).with_login(party);
+        let state = AppState::new(settings, store.clone(), audit).with_login(providers);
         Self {
             app: router(Arc::new(state)),
             provider,
@@ -693,14 +691,14 @@ async fn the_entra_id_multitenant_authority_is_refused() {
     config
         .ferrosmart
         .upstream
-        .as_mut()
+        .first_mut()
+        .and_then(|upstream| upstream.oidc.as_mut())
         .expect("a provider")
         .issuer = authority.clone();
     let settings = config.resolve().expect("the configuration resolves");
-    let refused = settings
-        .upstream
-        .as_ref()
-        .expect("an upstream")
+    let ferrosmart::upstream::Protocol::Oidc(oidc) =
+        &settings.upstreams.first().expect("an upstream").protocol;
+    let refused = oidc
         .relying_party(Url::parse("https://smart.example.org/callback").expect("a URL"))
         .await
         .expect_err("no relying party for a metadata issuer that is not the authority");
@@ -785,7 +783,7 @@ fn both_examples_resolve_to_their_claim_mapping() {
         let settings = example_config(example, &keys, None)
             .resolve()
             .expect("the example resolves");
-        let upstream = settings.upstream.expect("a provider");
+        let upstream = settings.upstreams.first().expect("a provider");
         assert_eq!(Some(fhir_user), upstream.fhir_user_claim.as_deref());
         assert_eq!(vec![String::from(roles)], upstream.role_claims);
     }

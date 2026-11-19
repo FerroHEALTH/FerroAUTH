@@ -102,3 +102,5 @@ logout-refused = This logout request cannot be used
 logout-refused-hint = The app sent a sign-in token this server did not issue. Go back to the app and log out again.
 logout-refused-client = The app is not registered here, or the sign-in token was issued to another app. Go back to the app and log out again.
 logout-refused-redirect = The app asked to be sent back to an address it did not register. Go back to the app, or ask its supplier.
+chooser-title = Choose how to sign in
+chooser-intro = Sign in with the account you use for this app.

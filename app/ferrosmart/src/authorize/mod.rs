@@ -12,6 +12,7 @@
 //! app. A cookie of FerroSMART's own binds the three to one browser.
 
 pub mod callback;
+pub mod choose;
 pub mod consent;
 pub mod manage;
 mod oidc;
