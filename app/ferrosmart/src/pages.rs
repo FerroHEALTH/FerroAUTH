@@ -738,7 +738,8 @@ pub fn ehr_picker(
     )
 }
 
-/// A consent the person remembered, as the management page lists it.
+/// An app the person remembered a consent for or that holds live access
+/// to their data, as the management page lists it.
 #[derive(Debug, Clone)]
 pub struct Remembered {
     /// The client.
@@ -751,8 +752,8 @@ pub struct Remembered {
     /// the person's data without them.
     pub access: Option<crate::store::grant::Access>,
     /// Whether the app holds its access on the organisation's approval,
-    /// which only an administrator withdraws (`docs/architecture.md`
-    /// §13.6 item 6).
+    /// which disconnecting leaves in place: only an administrator
+    /// withdraws it (`docs/architecture.md` §13.6 item 6).
     pub organisation: bool,
     /// Whether that approval is of the organisation's own (first-party)
     /// app, which the page names as such.
@@ -760,8 +761,8 @@ pub struct Remembered {
 }
 
 /// Returns the management page of `pending`'s person, listing `remembered`
-/// with a withdraw form each, and an app the organisation approved marked
-/// as such, with none.
+/// with a Disconnect form each, an app the organisation approved marked as
+/// such.
 ///
 /// It is the `management_endpoint`, a "URL where an end-user can view which
 /// applications currently have access to data and can make adjustments to
@@ -784,7 +785,7 @@ pub fn manage(
                 .split(' ')
                 .filter(|scope| !scope.is_empty())
                 .collect();
-            let form = if each.organisation {
+            let organisation = if each.organisation {
                 let words_id = if each.first_party {
                     "manage-first-party"
                 } else {
@@ -792,18 +793,21 @@ pub fn manage(
                 };
                 Html::raw(format!("<p>{}</p>", Html::text(words(words_id))))
             } else {
-                Html::raw(format!(
-                    "<form method=\"post\" action=\"{action}\">\
+                Html::empty()
+            };
+            // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, offline_access lasts
+            // "as long as the authorization server and end-user will allow": every app has the form.
+            let form = Html::raw(format!(
+                "<form method=\"post\" action=\"{action}\">\
                  <input type=\"hidden\" name=\"form_token\" value=\"{token}\">\
                  <input type=\"hidden\" name=\"client_id\" value=\"{client}\">\
-                 <button type=\"submit\" class=\"{danger}\">{withdraw}</button></form>",
-                    action = Html::text(&action),
-                    token = Html::text(&pending.form_token),
-                    client = Html::text(&each.client_id),
-                    danger = Variant::Danger.class(),
-                    withdraw = label(None, words("manage-withdraw")),
-                ))
-            };
+                 <button type=\"submit\" class=\"{danger}\">{disconnect}</button></form>",
+                action = Html::text(&action),
+                token = Html::text(&pending.form_token),
+                client = Html::text(&each.client_id),
+                danger = Variant::Danger.class(),
+                disconnect = label(None, words("manage-disconnect")),
+            ));
             let access = match each.access {
                 Some(crate::store::grant::Access::Offline) => {
                     Html::raw(format!("<p>{}</p>", Html::text(words("manage-offline"))))
@@ -817,6 +821,7 @@ pub fn manage(
                 each.name.clone(),
                 Html::join([
                     access,
+                    organisation,
                     scope_list(&locale, &words("manage-scope"), &scopes),
                     form,
                 ]),

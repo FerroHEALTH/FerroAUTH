@@ -2630,7 +2630,7 @@ discovery and token shapes for the two SaaS providers.
   |---|---|---|---|
   | a code issued | `110114` | `authorization-code` | `C` |
   | a consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
-  | a consent withdrawn, with what it covered | `110113` | `110137`, `consent-withdrawn` | `D` |
+  | an app disconnected at the management page, with the remembered consent and the grants it ended | `110113` | `110137`, `consent-withdrawn` | `D` |
   | a code issued with no page, on the client's organisation approval (13.6 item 6) | `110113` | `110137`, `consent-organisation-approved` | `C` |
   | a code issued with no page, on the first-party approval of the organisation's own app (13.6 item 6) | `110113` | `110137`, `consent-first-party-approved` | `C` |
   | an organisation approval withdrawn, with the grants issued on it | `110113` | `110137`, `organisation-approval-withdrawn` | `D` |
@@ -3187,8 +3187,7 @@ specification governs.
    the approval. Each skipped page commits a `consent-organisation-approved`
    record, or `consent-first-party-approved` for a first-party approval,
    naming the approver and the time; the management page lists the app as
-   approved by the organisation, or as the organisation's own app, with no
-   withdraw form. Clearing or changing the
+   approved by the organisation, or as the organisation's own app. Clearing or changing the
    approval in the configuration withdraws it at the next start: every
    grant issued on it is revoked with its tokens, with an
    `organisation-approval-withdrawn` record. Backend Services has no user and
@@ -3200,7 +3199,16 @@ specification governs.
    view which applications currently have access to data and can make
    adjustments to these access rights" (`smart conformance`, Metadata), and
    revoking it revokes the grants it covered. Remembering is our own
-   design.
+   design. The management page lists every app holding live access, a
+   live refresh token or access token, organisation-approved and
+   first-party apps included, each with a Disconnect form (owner,
+   2026-11-20, #725): it forgets the person's remembered consent for the
+   app and revokes every grant, refresh token and access token of the app
+   about them, with a `consent-withdrawn` record naming the grants revoked,
+   and leaves the organisation approval standing, so the next sign-in
+   follows it again. `offline_access` lasts "as long as the authorization
+   server and end-user will allow" (`smart scopes`, `offline_access`), so
+   no app holds lasting access the person cannot end.
 7. **`online_access`.** "As long as the end-user remains online" has no
    mechanism in SMART. FerroSMART ties an online refresh token to the
    upstream login session: it ends at upstream logout and after the
@@ -3393,7 +3401,7 @@ differently.
 | `POST /introspect` | RFC 7662 | `rfc7662 §2` |
 | `POST /revoke` | RFC 7009 | `rfc7009 §2` |
 | `POST /launch` | the EHR launch API | our own design (13.6) |
-| `GET /manage` | the user's grants, with revoke (`management_endpoint`) | `smart conformance`, Metadata |
+| `GET /manage` | the apps holding the user's consent or live access, each with Disconnect (`management_endpoint`) | `smart conformance`, Metadata |
 | `GET /brands` | the deployment's User Access Brands Bundle, when `[ferrosmart.brand]` is set | `smart brands`, Conformance Overview |
 | `/admin/clients`, `/admin/keys` | the registry and the key ring, behind a `ferrohealth-smart` guard | our own design |
 | `/healthz`, `/readyz` | `ferrohealth-health` | the family |
