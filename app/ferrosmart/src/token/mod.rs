@@ -38,6 +38,25 @@ use crate::store::IssuedToken;
 /// The `client_assertion_type` of a JWT client assertion (RFC 7523 §2.2).
 pub const JWT_BEARER: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
 
+/// Returns the grant types the token endpoint serves, with a login or
+/// without.
+///
+/// The client credentials and refresh token grants are always served, since
+/// a refresh token keeps its grant when the deployment stops logging people
+/// in; the authorization code grant needs a login.
+///
+/// The metadata's `grant_types_supported` is this list (RFC 8414 §2), and
+/// the token endpoint refuses every other grant as
+/// `unsupported_grant_type` (RFC 6749 §5.2), so the two never disagree.
+#[must_use]
+pub const fn grant_types(login: bool) -> &'static [&'static str] {
+    if login {
+        &["authorization_code", "client_credentials", "refresh_token"]
+    } else {
+        &["client_credentials", "refresh_token"]
+    }
+}
+
 /// The longest a client assertion may live: "This time SHALL be no more than
 /// five minutes in the future" (SMART App Launch 2.2.0, Client
 /// Authentication: Asymmetric, Request).
@@ -339,15 +358,21 @@ async fn issue(
     from: std::net::IpAddr,
 ) -> Result<Issued, Refusal> {
     let form = read_form(headers, body)?;
-    match form.get("grant_type") {
-        Some("client_credentials") => client_credentials(state, &form).await,
-        Some("authorization_code") => authorization_code(from, state, headers, &form).await,
-        Some("refresh_token") => crate::refresh::refresh(state, headers, &form, from).await,
-        Some(_) => Err(Refusal {
-            error: "unsupported_grant_type",
-            description: "the grant type is not supported",
-        }),
-        None => Err(Refusal::request("the request names no grant_type")),
+    let grant = form
+        .get("grant_type")
+        .ok_or_else(|| Refusal::request("the request names no grant_type"))?;
+    let unsupported = Refusal {
+        error: "unsupported_grant_type",
+        description: "the grant type is not supported",
+    };
+    if !grant_types(!state.providers().is_empty()).contains(&grant) {
+        return Err(unsupported);
+    }
+    match grant {
+        "client_credentials" => client_credentials(state, &form).await,
+        "authorization_code" => authorization_code(from, state, headers, &form).await,
+        "refresh_token" => crate::refresh::refresh(state, headers, &form, from).await,
+        _ => Err(unsupported),
     }
 }
 
