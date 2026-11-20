@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# The `entra` upstream preset: FerroSMART's tested setup with Microsoft
+# Entra ID (docs/architecture.md §13.18; app/ferrosmart/examples/entra).
+# Every key may be set in the entry's `[ferrosmart.upstream.oidc]` table,
+# which wins over this file. Citations are to
+# docs/specs/entra-docs/docs/identity-platform/.
+
+# `profile` brings `name`, `preferred_username` and `oid`
+# (id-token-claims-reference.md, Payload claims).
+scopes = ["openid", "profile"]
+# A directory extension attribute `fhirUser`, configured as an ID Token
+# optional claim, which Entra ID emits as `extn.fhirUser`
+# (optional-claims.md, Directory extension formatting).
+fhir_user_claim = "extn.fhirUser"
+# The app roles assigned to the person, never groups, which overflow into an
+# overage reference (howto-add-app-roles-in-apps.md;
+# id-token-claims-reference.md, Groups overage claim).
+role_claims = ["roles"]
+
+[private_key_jwt]
+# A certificate credential's assertion "Should be PS256"
+# (certificate-credentials.md, Assertion format).
+algorithm = "PS256"

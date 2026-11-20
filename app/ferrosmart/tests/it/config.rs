@@ -442,7 +442,7 @@ fn upstream(keys: &Keys, extra: &str) -> String {
     format!(
         "[ferrosmart]\nissuer = \"https://smart.example.org\"\n\
          [ferrosmart.keys]\nprivate_key_file = {current:?}\n\
-         [[ferrosmart.upstream]]\nname = \"idp\"\nprotocol = \"oidc\"\n[ferrosmart.upstream.oidc]\nissuer = \"https://idp.example.org\"\nclient_id = \"ferrosmart\"\n{extra}"
+         [[ferrosmart.upstream]]\nname = \"idp\"\n[ferrosmart.upstream.oidc]\nissuer = \"https://idp.example.org\"\nclient_id = \"ferrosmart\"\n{extra}"
     )
 }
 
@@ -480,15 +480,28 @@ fn an_upstream_client_secret_is_refused_when_the_file_loads() {
     }
 }
 
-// NOTE: OpenID Connect Core 1.0 §9: no public client; private_key_jwt or client_secret_basic.
+// NOTE: OpenID Connect Core 1.0 §9: no public client; private_key_jwt unless the
+// entry names client_secret_basic, so an entry with no key for it is refused (#733).
 #[test]
-fn an_upstream_without_private_key_jwt_is_refused() {
+fn an_upstream_takes_private_key_jwt_and_is_refused_without_its_key() {
     let keys = Keys::new();
     assert!(matches!(
         config(&upstream(&keys, ""), &keys).resolve(),
-        Err(Error::Upstream { .. })
+        Err(Error::Missing {
+            key: "ferrosmart.upstream.oidc.private_key_jwt.keys.private_key_file"
+        })
     ));
     assert!(config(&private_key_jwt(&keys, ""), &keys).resolve().is_ok());
+    let keys_alone = upstream(&keys, &crate::support::upstream_assertion(keys.dir.path()));
+    let settings = config(&keys_alone, &keys)
+        .resolve()
+        .expect("the keys table alone selects private_key_jwt");
+    let ferrosmart::upstream::Protocol::Oidc(oidc) =
+        &settings.upstreams.first().expect("a provider").protocol
+    else {
+        panic!("the provider speaks OpenID Connect");
+    };
+    assert_eq!("private_key_jwt", oidc.authentication.method());
 }
 
 // NOTE: RFC 7518 §3.1: the ring holds RSA keys, which sign RS* and PS* alone.

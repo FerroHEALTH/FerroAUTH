@@ -165,7 +165,11 @@ entry, nobody logs in and FerroSMART answers Backend Services alone.
 |---|---|
 | `name` | The provider's name, of letters, digits and `-`, unique among the entries; a client's `upstreams` names it |
 | `label` | The words the chooser page shows for the provider; its `name` when empty |
-| `protocol` | `oidc`, OpenID Connect, with its settings in the entry's `[ferrosmart.upstream.oidc]` table, or `saml`, SAML 2.0, with its settings in `[ferrosmart.upstream.saml]` |
+| `preset` | `keycloak`, `entra`, `okta` or `zitadel`: the defaults of FerroSMART's tested setup with that provider, for an OpenID Connect entry; none by default |
+
+The table present names the protocol: `[ferrosmart.upstream.oidc]` for
+OpenID Connect or `[ferrosmart.upstream.saml]` for SAML 2.0, exactly one
+per entry.
 
 Each entry has its own issuer, and two entries never share one. A client
 lists the providers its people may log in at in `upstreams`; with none
@@ -174,21 +178,36 @@ straight to it; with several, FerroSMART shows a chooser at
 `{issuer}/login`. Several Microsoft Entra ID tenants are several entries,
 one per tenant authority.
 
-`[ferrosmart.upstream.oidc]`:
+`[ferrosmart.upstream.oidc]`. A key the table leaves out takes the
+preset's value, then the default below; a key the table sets wins over
+the preset.
 
 | Key | What it is |
 |---|---|
 | `issuer` | The provider's issuer, whose discovery document FerroSMART reads at start |
 | `client_id` | The client FerroSMART is registered as at the provider |
-| `scopes` | The scopes FerroSMART asks for, `openid` among them |
-| `fhir_user_claim` | The ID Token claim holding the person's `fhirUser`; empty for none |
-| `role_claims` | The ID Token claims holding the person's roles, each a dotted path; a claim name with a dot is read whole first |
-| `trusted_audiences` | Audiences an ID Token may carry beside the client id, such as a project the provider adds; empty trusts none |
+| `scopes` | The scopes FerroSMART asks for, `openid` among them; `["openid"]` by default |
+| `fhir_user_claim` | The ID Token claim holding the person's `fhirUser`; empty for none, the default |
+| `role_claims` | The ID Token claims holding the person's roles, each a dotted path; a claim name with a dot is read whole first. `roles`, `groups` and `entitlements` by default |
+| `trusted_audiences` | Audiences an ID Token may carry beside the client id, such as a project the provider adds; empty trusts none, the default |
 
-`[ferrosmart.upstream.oidc.private_key_jwt]`, the default, or
-`[ferrosmart.upstream.oidc.client_secret_basic]`: each provider names
-exactly one, and FerroSMART refuses a provider whose discovery document
-does not list the method.
+| Preset | `scopes` | `fhir_user_claim` | `role_claims` | `algorithm` |
+|---|---|---|---|---|
+| `keycloak` | `openid` | `fhir_user` | `roles` | `RS256` |
+| `entra` | `openid profile` | `extn.fhirUser` | `roles` | `PS256` |
+| `okta` | `openid profile` | `fhir_user` | `groups` | `RS256` |
+| `zitadel` | `openid profile` | `fhirUser` | `urn:zitadel:iam:org:project:roles` | `RS256` |
+
+Each preset is a data file under `app/ferrosmart/presets/` with the
+provider's documentation cited beside each value
+([identity providers](../install/upstream.md)).
+
+FerroSMART authenticates at the provider with `private_key_jwt` unless
+the entry names `[ferrosmart.upstream.oidc.client_secret_basic]`; the
+assertion keys go in `[ferrosmart.upstream.oidc.private_key_jwt.keys]`,
+and the `private_key_jwt` table itself is needed only for a key below.
+An entry never names both, and FerroSMART refuses a provider whose
+discovery document does not list the method.
 
 | Key of `client_secret_basic` | What it is |
 |---|---|
@@ -198,7 +217,7 @@ The `private_key_jwt` table:
 
 | Key | What it is |
 |---|---|
-| `algorithm` | The JWS algorithm the provider's registration names; `RS256` by default |
+| `algorithm` | The JWS algorithm the provider's registration names; the preset's, else `RS256` |
 | `certificate_file` | The X.509 certificate of the current assertion key, for a provider that knows the key by its certificate; each assertion then names it by `x5t#S256` |
 | `[ferrosmart.upstream.oidc.private_key_jwt.keys]` | The assertion ring, with the same keys as `[ferrosmart.keys]`; it may share no key with the token ring. Its `kid` is the id the provider knows the key by, such as ZITADEL's key id |
 
@@ -335,16 +354,11 @@ kind = "fhir"
 
 [[ferrosmart.upstream]]
 name = "idp"
-protocol = "oidc"
+preset = "keycloak"
 
 [ferrosmart.upstream.oidc]
 issuer = "https://idp.example.org/realms/hospital"
 client_id = "ferrosmart"
-scopes = ["openid", "profile"]
-fhir_user_claim = "fhir_user"
-role_claims = ["roles"]
-
-[ferrosmart.upstream.oidc.private_key_jwt]
 
 [ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream-assertion.pem"

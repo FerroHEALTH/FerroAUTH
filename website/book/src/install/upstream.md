@@ -33,9 +33,38 @@ At the provider, register FerroSMART as a confidential web client:
   redirect URI, so a logout an app starts at FerroSMART's end-session
   endpoint also logs the person out at the provider and comes back.
 
+`ferrosmart upstream registration <name>` prints this list for the entry
+`<name>`, with FerroSMART's URIs, the client authentication, the scopes,
+the claims and the roles filled in from the configuration:
+
+```text
+$ ferrosmart --config ferrosmart.toml upstream registration keycloak
+Register FerroSMART at the provider `keycloak` (OpenID Connect) with:
+  issuer                    http://localhost:8180/realms/ferrosmart
+  client id                 ferrosmart
+  client type               confidential web client
+  grant                     authorization code, PKCE S256
+  redirect URI              http://localhost:8080/callback
+  post-logout redirect URI  http://localhost:8080/logout/return
+  back-channel logout URI   http://localhost:8080/backchannel-logout
+  front-channel logout URI  http://localhost:8080/frontchannel-logout, with iss and sid, where the provider has no back-channel logout
+  client authentication     private_key_jwt, signed RS256
+  JWK Set URL               http://localhost:8080/upstream-jwks
+  scopes                    openid
+  fhirUser claim            fhir_user, in the ID Token
+  role claims               roles, in the ID Token
+  roles                     clinician
+```
+
+An entry names the vendor it is set up for as `preset`, and the preset
+brings that setup's scopes, claims and assertion algorithm; each provider
+below lists what its preset holds. A key set in the entry's
+`[ferrosmart.upstream.oidc]` table wins over the preset
+([the keys](../configure/configuration.md#ferrosmartupstream)).
+
 FerroSMART authenticates to a provider with `private_key_jwt` (OpenID
 Connect Core 1.0 §9) by default: a JWT signed by its assertion key,
-configured under `[ferrosmart.upstream.oidc.private_key_jwt]`. For a
+configured under `[ferrosmart.upstream.oidc.private_key_jwt.keys]`. For a
 provider that offers no `private_key_jwt` to a web client, name
 `[ferrosmart.upstream.oidc.client_secret_basic]` with `secret_file`
 instead: FerroSMART then sends the client secret as HTTP Basic (RFC 6749
@@ -67,7 +96,11 @@ authentication, `fhirUser`, roles, and how the setup is tested.
 FerroSMART checks the provider's ID Token by OpenID Connect Core 1.0
 §3.1.3.7, refuses one without the `nonce` it sent, and reads only the
 claims you name. The person's `sub` at FerroSMART is derived from the
-provider's issuer and `sub`, so it never reaches a resource server.
+provider's issuer and `sub`, so the provider's `sub` never reaches a
+resource server. To bind a person at a resource server, take their
+FerroSMART `sub` from `ferrosmart subject --upstream <name> --sub <their
+sub at the provider>`, or let them read it on the management page at
+`{issuer}/manage`.
 
 ## Keycloak
 
@@ -93,19 +126,17 @@ deployment serves both over TLS on their own names.
 | Roles | a realm role mapper, multivalued, writes `roles` into the ID Token; the realm role `clinician` |
 | Tested by | a standalone launch in CI through Keycloak's login form, and the compose quickstart lane |
 
+The `keycloak` preset holds the scope `openid`, the claims `fhir_user`
+and `roles`, and `RS256`.
+
 ```toml
 [[ferrosmart.upstream]]
 name = "idp"
-protocol = "oidc"
+preset = "keycloak"
 
 [ferrosmart.upstream.oidc]
 issuer = "https://keycloak.example.org/realms/ferrosmart"
 client_id = "ferrosmart"
-scopes = ["openid"]
-fhir_user_claim = "fhir_user"
-role_claims = ["roles"]
-
-[ferrosmart.upstream.oidc.private_key_jwt]
 
 [ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream_assertion_key"
@@ -136,21 +167,22 @@ with the client id ZITADEL generated. Log in at
 | Tested by | a standalone launch in CI through ZITADEL |
 | Audience | ZITADEL adds the project to the ID Token's `aud`, so FerroSMART trusts it |
 
+The `zitadel` preset holds the scopes `openid profile`, the claim
+`fhirUser`, the roles of the application's own project in
+`urn:zitadel:iam:org:project:roles`, and `RS256`. The example reads the
+roles of the project `ferrosmart` by its id instead, which ZITADEL
+recommends, and trusts that project as an audience:
+
 ```toml
 [[ferrosmart.upstream]]
 name = "idp"
-protocol = "oidc"
+preset = "zitadel"
 
 [ferrosmart.upstream.oidc]
 issuer = "https://zitadel.example.org"
 client_id = "<the generated client id>"
-scopes = ["openid", "profile"]
-fhir_user_claim = "fhirUser"
 role_claims = ["urn:zitadel:iam:org:project:ferrosmart:roles"]
 trusted_audiences = ["ferrosmart"]
-
-[ferrosmart.upstream.oidc.private_key_jwt]
-algorithm = "RS256"
 
 [ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/zitadel-application-key.pem"
@@ -186,20 +218,19 @@ group, rather than each person, needs a paid Microsoft Entra ID licence
 (P1 or higher) is not stated in the Microsoft pages FerroSMART vendors, so
 check your tenant's licence before you plan on group assignment.
 
+The `entra` preset holds the scopes `openid profile`, the claims
+`extn.fhirUser` and `roles`, and `PS256`.
+
 ```toml
 [[ferrosmart.upstream]]
 name = "idp"
-protocol = "oidc"
+preset = "entra"
 
 [ferrosmart.upstream.oidc]
 issuer = "https://login.microsoftonline.com/<tenant id>/v2.0"
 client_id = "<the application (client) id>"
-scopes = ["openid", "profile"]
-fhir_user_claim = "extn.fhirUser"
-role_claims = ["roles"]
 
 [ferrosmart.upstream.oidc.private_key_jwt]
-algorithm = "PS256"
 certificate_file = "/run/secrets/upstream-assertion.crt"
 
 [ferrosmart.upstream.oidc.private_key_jwt.keys]
@@ -227,20 +258,17 @@ publishes.
 | Roles | a groups claim `groups` in the ID Token, always, filtered to FerroSMART's role groups; the group `clinician`, assigned to the app integration |
 | Tested by | a contract test that runs the example against the documents Okta publishes |
 
+The `okta` preset holds the scopes `openid profile`, the claims
+`fhir_user` and `groups`, and `RS256`.
+
 ```toml
 [[ferrosmart.upstream]]
 name = "idp"
-protocol = "oidc"
+preset = "okta"
 
 [ferrosmart.upstream.oidc]
 issuer = "https://example.okta.com/oauth2/default"
 client_id = "<the client id>"
-scopes = ["openid", "profile"]
-fhir_user_claim = "fhir_user"
-role_claims = ["groups"]
-
-[ferrosmart.upstream.oidc.private_key_jwt]
-algorithm = "RS256"
 
 [ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream-assertion.pem"
@@ -256,11 +284,13 @@ next key's JWK to the integration before the ring makes it current.
 FerroSMART is a service provider of the OASIS SAML 2.0 Web Browser SSO
 profile, with the standard bindings and no national profile. Configure
 FerroSMART once as a service provider in `[ferrosmart.saml]`, then one
-`protocol = "saml"` entry per identity provider
+entry with a `[ferrosmart.upstream.saml]` table per identity provider
 ([the keys](../configure/configuration.md#ferrosmartsaml)).
 
 At the identity provider, register FerroSMART by its metadata at
-`{issuer}/saml/metadata`. It names:
+`{issuer}/saml/metadata` (`ferrosmart upstream registration <name>` prints
+it with the entity IDs, the assertion consumer service and the attributes
+the entry reads). It names:
 
 - FerroSMART's entity ID and its signing certificate: every
   `AuthnRequest` is signed;
@@ -293,7 +323,6 @@ certificate_file = "/run/secrets/saml-decryption.crt"
 [[ferrosmart.upstream]]
 name = "saml-idp"
 label = "Your organisation's login"
-protocol = "saml"
 
 [ferrosmart.upstream.saml]
 entity_id = "https://idp.example.org/saml"

@@ -19,33 +19,28 @@ kind = "fhir"
 # from Okta, Add a custom claim to a token). Its RFC 8414 metadata is at
 # /.well-known/oauth-authorization-server/oauth2/default (Okta, Authorization
 # servers, Discovery endpoints). FerroSMART is the Web Application
-# integration's client.
+# integration's client. The `okta` preset (app/ferrosmart/presets/okta.toml)
+# brings the scopes `openid profile`, the custom claim `fhir_user` and the
+# groups claim `groups`, both in the ID Token always, and the assertion
+# algorithm RS256; a key set below wins over it. `ferrosmart upstream
+# registration okta` prints what the integration needs.
 [[ferrosmart.upstream]]
 name = "okta"
-protocol = "oidc"
+preset = "okta"
 
 [ferrosmart.upstream.oidc]
 issuer = "https://example.okta.com/oauth2/default"
 client_id = "0oaexampleferrosmart"
-scopes = ["openid", "profile"]
-# The custom claim whose expression reads the person's `fhirUser` profile
-# attribute, and the groups claim filtered to FerroSMART's role groups, both
-# in the ID Token always.
-fhir_user_claim = "fhir_user"
-role_claims = ["groups"]
 
 # The integration's client authentication is "Public key / Private key"
 # (Okta OpenID Connect & OAuth 2.0 API, Client authentication, JWT with
-# private key): its public keys hold the JWK FerroSMART publishes at
+# private key), the `private_key_jwt` FerroSMART takes when no table names
+# another: its public keys hold the JWK FerroSMART publishes at
 # {issuer}/upstream-jwks, and FerroSMART signs each client assertion with
 # the current key of its own assertion ring, never a token key
-# (RFC 8725 §3.12), RS256, one of the algorithms Okta lists (OpenID
-# Connect Core 1.0 §9, private_key_jwt).
-[ferrosmart.upstream.oidc.private_key_jwt]
-algorithm = "RS256"
-
-# The assertion ring, read as [ferrosmart.keys] is; a rotation adds the next
-# key's JWK to the integration before the ring makes it current.
+# (RFC 8725 §3.12). The ring is read as [ferrosmart.keys] is; a rotation
+# adds the next key's JWK to the integration before the ring makes it
+# current.
 [ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream-assertion.pem"
 

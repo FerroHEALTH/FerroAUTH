@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# The `keycloak` upstream preset: FerroSMART's tested setup with Keycloak
+# 26.8.2 (docs/architecture.md §13.16; app/ferrosmart/examples/keycloak).
+# Every key may be set in the entry's `[ferrosmart.upstream.oidc]` table,
+# which wins over this file. Citations are to docs/specs/keycloak-docs/,
+# server administration guide topics/.
+
+# The realm's ID Token carries the profile claims under its default client
+# scopes, so `openid` alone is asked for.
+scopes = ["openid"]
+# A user attribute mapper (`oidc-usermodel-attribute-mapper`) writes the
+# user's `fhir_user` attribute into the ID Token under that name
+# (clients/con-protocol-mappers.adoc).
+fhir_user_claim = "fhir_user"
+# A realm role mapper (`oidc-usermodel-realm-role-mapper`, multivalued)
+# writes the realm roles into the ID Token as `roles`
+# (clients/con-protocol-mappers.adoc).
+role_claims = ["roles"]
+
+[private_key_jwt]
+# The client authenticator "Signed JWT" (`client-jwt`) reads
+# {issuer}/upstream-jwks and checks the algorithm the client names
+# (clients/oidc/con-confidential-client-credentials.adoc).
+algorithm = "RS256"

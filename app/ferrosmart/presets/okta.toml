@@ -1,0 +1,23 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# The `okta` upstream preset: FerroSMART's tested setup with Okta's
+# `default` custom authorization server (docs/architecture.md §13.19;
+# app/ferrosmart/examples/okta). Every key may be set in the entry's
+# `[ferrosmart.upstream.oidc]` table, which wins over this file. Okta's
+# pages are cited by page and section (docs/specs/okta/PROVENANCE.md).
+
+scopes = ["openid", "profile"]
+# A custom claim on the authorization server, in the ID Token always,
+# reading the person's `fhirUser` profile attribute (Customize tokens
+# returned from Okta, Add a custom claim to a token).
+fhir_user_claim = "fhir_user"
+# A groups claim on the authorization server, in the ID Token always,
+# filtered to FerroSMART's role groups (Customize tokens with a groups
+# claim, Add a groups claim for a custom authorization server).
+role_claims = ["groups"]
+
+[private_key_jwt]
+# Public key / Private key client authentication, signed RS256 (OpenID
+# Connect & OAuth 2.0 API, Client authentication, JWT with private key).
+algorithm = "RS256"

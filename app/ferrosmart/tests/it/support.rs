@@ -41,12 +41,13 @@ fn pem(der: &[u8]) -> String {
     )
 }
 
-/// The `[ferrosmart.upstream.oidc.private_key_jwt]` tables of a case, with a
-/// fresh assertion key under `dir`, the one client authentication FerroSMART
-/// uses upstream (OpenID Connect Core 1.0 §9).
+/// The `[ferrosmart.upstream.oidc.private_key_jwt.keys]` table of a case,
+/// with a fresh assertion key under `dir`: `private_key_jwt`, the client
+/// authentication FerroSMART takes upstream when no table names another
+/// (OpenID Connect Core 1.0 §9).
 pub(crate) fn upstream_assertion(dir: &Path) -> String {
     format!(
-        "[ferrosmart.upstream.oidc.private_key_jwt]\n[ferrosmart.upstream.oidc.private_key_jwt.keys]\n\
+        "[ferrosmart.upstream.oidc.private_key_jwt.keys]\n\
          private_key_file = {:?}\n",
         rsa_key(dir, "upstream-assertion.pem").display().to_string()
     )

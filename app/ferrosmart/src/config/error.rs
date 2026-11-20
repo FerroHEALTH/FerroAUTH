@@ -59,6 +59,17 @@ pub enum Error {
         /// The rule broken.
         rule: &'static str,
     },
+    /// An upstream preset's compiled file does not read.
+    #[error(transparent)]
+    Preset(#[from] crate::upstream::preset::PresetError),
+    /// No `[[ferrosmart.upstream]]` entry has the name asked for.
+    #[error("no `ferrosmart.upstream` entry is named `{name}`; the names are: {known}")]
+    NoUpstream {
+        /// The name asked for.
+        name: String,
+        /// The names configured, comma-separated.
+        known: String,
+    },
     /// A SAML table breaks a rule, or names a key or file that cannot be
     /// used.
     #[error(transparent)]

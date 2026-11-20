@@ -234,7 +234,7 @@ impl Smart {
         let assertion = crate::support::upstream_assertion(keys.dir.path());
         let text = format!(
             "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
-             [[ferrosmart.upstream]]\nname = \"idp\"\nprotocol = \"oidc\"\n[ferrosmart.upstream.oidc]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\nfhir_user_claim = \"fhir_user\"\n{assertion}\
+             [[ferrosmart.upstream]]\nname = \"idp\"\n[ferrosmart.upstream.oidc]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\nfhir_user_claim = \"fhir_user\"\n{assertion}\
              [ferrosmart.branding]\nsmart_style_url = {STYLE:?}\n{resource}\
              [[ferrosmart.role]]\nname = \"clinician\"\nscopes = {role}\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nname = \"Synthetic App\"\nkind = \"public\"\n\
@@ -1458,6 +1458,14 @@ async fn a_remembered_consent_answers_again_until_it_is_withdrawn() {
     assert!(
         page.contains("<h1 class=\"fui-page-card-title\">Apps you allowed</h1>"),
         "{page}"
+    );
+    // NOTE: docs/architecture.md §13.6 item 9, the page shows the person their own
+    // pairwise sub, the one `ferrosmart subject` prints (#733).
+    let own = ferrosmart::upstream::pairwise(&smart.provider.server.uri(), "synthetic-person");
+    assert!(page.contains(&format!("<code>{own}</code>")), "{page}");
+    assert!(
+        !page.contains("synthetic-person"),
+        "no upstream sub: {page}"
     );
     let form_token = page
         .split("name=\"form_token\" value=\"")

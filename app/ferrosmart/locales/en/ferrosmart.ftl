@@ -45,6 +45,7 @@ manage-organisation = Your organisation approved this app for its staff. Disconn
 manage-first-party = This is your organisation's own app, which it approved for you. Disconnect ends its access now; the app works again the next time you sign in to it.
 manage-disconnect = Disconnect
 manage-scope = Access given
+manage-subject = Your identifier at this server. An administrator may ask for it to link you to your records.
 picker-title = Choose a patient
 picker-intro = The app works with one patient. Find the patient by name or identifier; you see only the patients you may see.
 picker-name = Name

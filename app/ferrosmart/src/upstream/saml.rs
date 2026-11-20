@@ -43,7 +43,7 @@ pub const ACS_ROUTE: &str = "/saml/acs";
 const MAX_BODY: usize = 256 * 1024;
 
 /// `[ferrosmart.saml]`: FerroSMART as a SAML 2.0 service provider, needed
-/// once any provider has `protocol = "saml"`.
+/// once any provider has a `[ferrosmart.upstream.saml]` table.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ServiceProviderSection {

@@ -136,7 +136,7 @@ impl Saml {
              signing_certificate_file = {sp_certificate}\n\
              [[ferrosmart.saml.decryption]]\nkey_file = {decryption_key}\ncertificate_file = {decryption_certificate}\n\
              {tls}\
-             [[ferrosmart.upstream]]\nname = \"national\"\nlabel = \"National login\"\nprotocol = \"saml\"\n\
+             [[ferrosmart.upstream]]\nname = \"national\"\nlabel = \"National login\"\n\
              [ferrosmart.upstream.saml]\nentity_id = {idp_entity:?}\nmetadata_file = {metadata}\n\
              request_binding = {request_binding:?}\nresponse_binding = {response_binding:?}\n\
              name_id_format = {PERSISTENT:?}\nauthn_contexts = [{strong:?}]\n\
@@ -628,7 +628,7 @@ async fn the_chooser_lists_a_saml_provider_beside_an_openid_connect_one() {
     let assertion = crate::support::upstream_assertion(held.path());
     let oidc = Provider::start().await;
     let beside = format!(
-        "[[ferrosmart.upstream]]\nname = \"staff\"\nlabel = \"Hospital staff\"\nprotocol = \"oidc\"\n\
+        "[[ferrosmart.upstream]]\nname = \"staff\"\nlabel = \"Hospital staff\"\n\
          [ferrosmart.upstream.oidc]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\n{assertion}",
         oidc.server.uri()
     );
@@ -767,7 +767,7 @@ fn a_saml_provider_without_its_service_provider_or_complete_table_is_refused_at_
     let metadata = written(dir, "metadata.xml", "<md:EntityDescriptor/>");
     let entry = |extra: &str| {
         format!(
-            "[ferrosmart]\nissuer = {ISSUER:?}\n[[ferrosmart.upstream]]\nname = \"national\"\nprotocol = \"saml\"\n\
+            "[ferrosmart]\nissuer = {ISSUER:?}\n[[ferrosmart.upstream]]\nname = \"national\"\n\
              [ferrosmart.upstream.saml]\nentity_id = {:?}\nmetadata_file = {metadata}\n{extra}",
             kit::IDP
         )
@@ -806,7 +806,7 @@ fn a_saml_provider_without_its_service_provider_or_complete_table_is_refused_at_
         assert!(config(&text, &keys).resolve().is_err(), "{case}");
     }
     let http = format!(
-        "[ferrosmart]\nissuer = {ISSUER:?}\n{service_provider}[[ferrosmart.upstream]]\nname = \"national\"\nprotocol = \"saml\"\n\
+        "[ferrosmart]\nissuer = {ISSUER:?}\n{service_provider}[[ferrosmart.upstream]]\nname = \"national\"\n\
          [ferrosmart.upstream.saml]\nentity_id = {:?}\nmetadata_url = \"http://idp.example.org/metadata\"\n",
         kit::IDP
     );
