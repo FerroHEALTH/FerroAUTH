@@ -59,7 +59,7 @@ start() {
     --set "server.tls.certificate_file=$LANE_DIR/host.crt" \
     --set "server.tls.key_file=$LANE_DIR/host.key" \
     --set "ferrosmart.keys.private_key_file=$LANE_DIR/signing.pem" \
-    --set "ferrosmart.upstream.private_key_jwt.keys.private_key_file=$LANE_DIR/assertion.pem" \
+    --set "ferrosmart.upstream.0.oidc.private_key_jwt.keys.private_key_file=$LANE_DIR/assertion.pem" \
     --set "ferrosmart.database.url=$LANE_PG/ferrosmart_oidf_rp" \
     serve > "$log" 2>&1 &
   smart=$!

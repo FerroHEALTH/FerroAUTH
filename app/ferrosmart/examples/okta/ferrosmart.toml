@@ -20,7 +20,11 @@ kind = "fhir"
 # /.well-known/oauth-authorization-server/oauth2/default (Okta, Authorization
 # servers, Discovery endpoints). FerroSMART is the Web Application
 # integration's client.
-[ferrosmart.upstream]
+[[ferrosmart.upstream]]
+name = "okta"
+protocol = "oidc"
+
+[ferrosmart.upstream.oidc]
 issuer = "https://example.okta.com/oauth2/default"
 client_id = "0oaexampleferrosmart"
 scopes = ["openid", "profile"]
@@ -37,12 +41,12 @@ role_claims = ["groups"]
 # the current key of its own assertion ring, never a token key
 # (RFC 8725 §3.12), RS256, one of the algorithms Okta lists (OpenID
 # Connect Core 1.0 §9, private_key_jwt).
-[ferrosmart.upstream.private_key_jwt]
+[ferrosmart.upstream.oidc.private_key_jwt]
 algorithm = "RS256"
 
 # The assertion ring, read as [ferrosmart.keys] is; a rotation adds the next
 # key's JWK to the integration before the ring makes it current.
-[ferrosmart.upstream.private_key_jwt.keys]
+[ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream-assertion.pem"
 
 # The policy as content (docs/architecture.md §13.6 item 5): a member of the

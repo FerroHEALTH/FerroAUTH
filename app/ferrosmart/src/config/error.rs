@@ -43,7 +43,17 @@ pub enum Error {
         #[source]
         source: ferrohealth_smart::metadata::DiscoveryError,
     },
-    /// The upstream provider's table breaks a rule.
+    /// A client names a provider no `[[ferrosmart.upstream]]` entry is.
+    #[error(
+        "the client `{client_id}` names the upstream provider `{name}`, which is not configured"
+    )]
+    UnknownUpstream {
+        /// The client.
+        client_id: String,
+        /// The name.
+        name: String,
+    },
+    /// An upstream provider's table breaks a rule.
     #[error("`ferrosmart.upstream`: {rule}")]
     Upstream {
         /// The rule broken.

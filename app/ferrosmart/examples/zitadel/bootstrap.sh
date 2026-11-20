@@ -137,7 +137,11 @@ issuer = "$FERROSMART_ISSUER"
 base = "http://localhost:8090/fhir"
 kind = "fhir"
 
-[ferrosmart.upstream]
+[[ferrosmart.upstream]]
+name = "zitadel"
+protocol = "oidc"
+
+[ferrosmart.upstream.oidc]
 issuer = "$ZITADEL_API"
 client_id = "$client_id"
 scopes = ["openid", "profile"]
@@ -148,10 +152,10 @@ role_claims = ["urn:zitadel:iam:org:project:ferrosmart:roles"]
 trusted_audiences = ["ferrosmart"]
 
 # The application's key, which ZITADEL knows by its key id.
-[ferrosmart.upstream.private_key_jwt]
+[ferrosmart.upstream.oidc.private_key_jwt]
 algorithm = "RS256"
 
-[ferrosmart.upstream.private_key_jwt.keys]
+[ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "$OUT/upstream-assertion.pem"
 kid = "$key_id"
 

@@ -110,7 +110,7 @@ impl Smart {
         let assertion = crate::support::upstream_assertion(keys.dir.path());
         let text = format!(
             "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
-             [ferrosmart.upstream]\nissuer = {uri:?}\nclient_id = {UPSTREAM_CLIENT:?}\nfhir_user_claim = \"fhir_user\"\n{assertion}\
+             [[ferrosmart.upstream]]\nname = \"idp\"\nprotocol = \"oidc\"\n[ferrosmart.upstream.oidc]\nissuer = {uri:?}\nclient_id = {UPSTREAM_CLIENT:?}\nfhir_user_claim = \"fhir_user\"\n{assertion}\
              [ferrosmart.branding]\nsmart_style_url = {STYLE:?}\n\
              [[ferrosmart.role]]\nname = \"clinician\"\nscopes = [\"user/Observation.rs\", \"patient/Observation.rs\"]\n\
              [[ferrosmart.client]]\nclient_id = \"ehr\"\nkind = \"confidential_asymmetric\"\n\
@@ -128,17 +128,9 @@ impl Smart {
             .expect("connects");
         store.migrate().await.expect("migrates");
         store.register(&settings.clients).await.expect("registered");
-        let callback =
-            Url::parse(&settings.endpoint(ferrosmart::authorize::CALLBACK_ROUTE)).expect("a URL");
-        let party = settings
-            .upstream
-            .as_ref()
-            .expect("an upstream")
-            .relying_party(callback)
-            .await
-            .expect("the provider is discovered");
+        let providers = crate::support::providers(&settings).await;
         let audit = audit(&settings);
-        let state = AppState::new(settings, store.clone(), audit).with_login(party);
+        let state = AppState::new(settings, store.clone(), audit).with_login(providers);
         Self {
             app: router(Arc::new(state)),
             provider,

@@ -72,9 +72,22 @@ async fn logged_out(
     let token = form
         .get("logout_token")
         .ok_or("the request carries no logout_token")?;
+    // NOTE: Back-Channel Logout 1.0 §2.6, the token's iss names the provider whose
+    // keys must verify it; reading it first only picks that provider.
+    let issuer = jsonwebtoken::dangerous::insecure_decode_claims::<serde_json::Value>(token)
+        .ok()
+        .and_then(|claims| {
+            claims
+                .get("iss")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        })
+        .ok_or("the logout_token does not verify")?;
     let party = state
-        .relying_party()
-        .ok_or("no upstream provider is configured")?;
+        .providers()
+        .by_issuer(&issuer)
+        .and_then(crate::upstream::LoginProvider::oidc)
+        .ok_or("the logout_token names no configured provider")?;
     let claims = party.logout_token(token).await.map_err(|error| {
         tracing::info!(error = %ferrohealth_server::run::chain(&error), "a Logout Token was refused");
         "the logout_token does not verify"

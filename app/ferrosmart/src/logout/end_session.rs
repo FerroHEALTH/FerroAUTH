@@ -91,7 +91,7 @@ async fn end_session(state: &AppState, encoded: &[u8]) -> Response {
     let Ok(params) = Params::parse(encoded, &[]) else {
         return pages::fault(state, Fault::BadRequest);
     };
-    if state.relying_party().is_none() {
+    if state.providers().is_empty() {
         return pages::fault(state, Fault::BadRequest);
     }
     let checked = match checked(state, &params).await {
@@ -112,7 +112,12 @@ async fn end_session(state: &AppState, encoded: &[u8]) -> Response {
     let Ok((id, form_token, upstream_state)) = drawn else {
         return pages::fault(state, Fault::Server);
     };
+    let upstream_provider = match followed_by(state, checked.subject.as_deref()).await {
+        Ok(provider) => provider,
+        Err(error) => return pages::server_error(state, &error),
+    };
     let pending = PendingLogout {
+        upstream_provider,
         id,
         client_id: checked.client_id,
         subject: checked.subject,
@@ -134,6 +139,38 @@ async fn end_session(state: &AppState, encoded: &[u8]) -> Response {
         REQUEST_SECONDS,
     );
     response
+}
+
+/// Returns the provider whose own logout follows the person `subject`'s:
+/// the one they last logged in at, or the one provider configured.
+async fn followed_by(
+    state: &AppState,
+    subject: Option<&str>,
+) -> Result<Option<String>, crate::store::StoreError> {
+    let issuer = match subject {
+        Some(subject) => state.store().person_issuer(subject).await?,
+        None => None,
+    };
+    let mut providers = state.providers().iter();
+    let provider = match issuer {
+        Some(issuer) => state.providers().by_issuer(&issuer),
+        None => match (providers.next(), providers.next()) {
+            (Some(only), None) => Some(only),
+            _ => None,
+        },
+    };
+    Ok(provider.map(|provider| provider.name().to_owned()))
+}
+
+/// Returns the login provider `pending`'s logout is followed by, if any.
+fn provider_of<'a>(
+    state: &'a AppState,
+    pending: &PendingLogout,
+) -> Option<&'a crate::upstream::LoginProvider> {
+    pending
+        .upstream_provider
+        .as_deref()
+        .and_then(|name| state.providers().named(name))
 }
 
 /// What a checked request asks.
@@ -229,21 +266,14 @@ async fn checked(
 /// upstream provider's end-session endpoint and the app's redirect, which
 /// a page's `form-action` must admit.
 fn forms_reach(state: &AppState, pending: &PendingLogout) -> Vec<String> {
-    let upstream = state
-        .relying_party()
+    let upstream = provider_of(state, pending)
+        .and_then(crate::upstream::LoginProvider::oidc)
         .and_then(|party| party.provider().end_session_endpoint().cloned());
     let app = pending
         .redirect_uri
         .as_deref()
         .and_then(|uri| Url::parse(uri).ok());
-    let mut origins: Vec<String> = Vec::new();
-    for url in upstream.iter().chain(app.iter()) {
-        let origin = url.origin();
-        if origin.is_tuple() && !origins.contains(&origin.ascii_serialization()) {
-            origins.push(origin.ascii_serialization());
-        }
-    }
-    origins
+    crate::upstream::origins_of(upstream.iter().chain(app.iter()))
 }
 
 /// `POST {issuer}/logout/confirm`: the person's answer.
@@ -267,8 +297,8 @@ pub async fn end_session_confirm(
             Err(error) => pages::server_error(&state, &error),
         };
     }
-    let upstream = state
-        .relying_party()
+    let upstream = provider_of(&state, &pending)
+        .and_then(crate::upstream::LoginProvider::oidc)
         .and_then(|party| party.end_session_url(None, Some(pending.upstream_state.as_str())));
     match logged_out(&state, &pending, upstream.is_none(), from).await {
         // NOTE: RP-Initiated Logout 1.0 §2, the OP that is itself an RP forwards the

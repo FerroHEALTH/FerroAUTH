@@ -9,7 +9,7 @@ kind signs nothing the other is trusted for (RFC 8725 §3.12):
 | Ring | Configured in | Published at | Signs |
 |---|---|---|---|
 | The token keys | `[ferrosmart.keys]` | `{issuer}/jwks`, which every discovery document names | Access tokens and ID Tokens |
-| The assertion keys | `[ferrosmart.upstream.private_key_jwt.keys]` | `{issuer}/upstream-jwks`, which no discovery document names | FerroSMART's own client assertions to the identity provider |
+| The assertion keys | `[ferrosmart.upstream.oidc.private_key_jwt.keys]` | `{issuer}/upstream-jwks`, which no discovery document names | FerroSMART's own client assertions to the identity provider |
 
 The two rings may share no key; FerroSMART refuses to start when they do.
 Each key is a PEM file from a mounted secret. The private key never enters

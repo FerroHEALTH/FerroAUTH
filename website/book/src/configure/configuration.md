@@ -121,11 +121,26 @@ claim = "staff_id"
 system = "urn:example:staff"
 ```
 
-## `[ferrosmart.upstream]`
+## `[[ferrosmart.upstream]]`
 
-The OpenID Connect provider people log in at
-([identity providers](../install/upstream.md)). Without this table, nobody
-logs in and FerroSMART answers Backend Services alone.
+The identity providers people log in at
+([identity providers](../install/upstream.md)), one entry each. Without an
+entry, nobody logs in and FerroSMART answers Backend Services alone.
+
+| Key | What it is |
+|---|---|
+| `name` | The provider's name, of letters, digits and `-`, unique among the entries; a client's `upstreams` names it |
+| `label` | The words the chooser page shows for the provider; its `name` when empty |
+| `protocol` | `oidc`, OpenID Connect, the one protocol today; its settings are the `[ferrosmart.upstream.oidc]` table of the entry |
+
+Each entry has its own issuer, and two entries never share one. A client
+lists the providers its people may log in at in `upstreams`; with none
+listed it may use every provider. With one provider the browser goes
+straight to it; with several, FerroSMART shows a chooser at
+`{issuer}/login`. Several Microsoft Entra ID tenants are several entries,
+one per tenant authority.
+
+`[ferrosmart.upstream.oidc]`:
 
 | Key | What it is |
 |---|---|
@@ -136,7 +151,7 @@ logs in and FerroSMART answers Backend Services alone.
 | `role_claims` | The ID Token claims holding the person's roles, each a dotted path; a claim name with a dot is read whole first |
 | `trusted_audiences` | Audiences an ID Token may carry beside the client id, such as a project the provider adds; empty trusts none |
 
-`[ferrosmart.upstream.private_key_jwt]` is required: FerroSMART
+`[ferrosmart.upstream.oidc.private_key_jwt]` is required: FerroSMART
 authenticates to the provider with a signed assertion (`private_key_jwt`)
 and takes no client secret.
 
@@ -144,7 +159,7 @@ and takes no client secret.
 |---|---|
 | `algorithm` | The JWS algorithm the provider's registration names; `RS256` by default |
 | `certificate_file` | The X.509 certificate of the current assertion key, for a provider that knows the key by its certificate; each assertion then names it by `x5t#S256` |
-| `[ferrosmart.upstream.private_key_jwt.keys]` | The assertion ring, with the same keys as `[ferrosmart.keys]`; it may share no key with the token ring. Its `kid` is the id the provider knows the key by, such as ZITADEL's key id |
+| `[ferrosmart.upstream.oidc.private_key_jwt.keys]` | The assertion ring, with the same keys as `[ferrosmart.keys]`; it may share no key with the token ring. Its `kid` is the id the provider knows the key by, such as ZITADEL's key id |
 
 ## `[[ferrosmart.role]]` and `[[ferrosmart.client]]`
 
@@ -241,16 +256,20 @@ private_key_file = "/run/secrets/rs256.pem"
 base = "https://ehr.example.org/fhir"
 kind = "fhir"
 
-[ferrosmart.upstream]
+[[ferrosmart.upstream]]
+name = "idp"
+protocol = "oidc"
+
+[ferrosmart.upstream.oidc]
 issuer = "https://idp.example.org/realms/hospital"
 client_id = "ferrosmart"
 scopes = ["openid", "profile"]
 fhir_user_claim = "fhir_user"
 role_claims = ["roles"]
 
-[ferrosmart.upstream.private_key_jwt]
+[ferrosmart.upstream.oidc.private_key_jwt]
 
-[ferrosmart.upstream.private_key_jwt.keys]
+[ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream-assertion.pem"
 
 [[ferrosmart.role]]

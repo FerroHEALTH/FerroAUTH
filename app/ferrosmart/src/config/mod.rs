@@ -140,10 +140,10 @@ pub struct FerroSmartSection {
     /// `[[ferrosmart.resource]]`: the FHIR and openEHR servers a token may
     /// be for, each its own audience.
     pub resource: Vec<ResourceSection>,
-    /// `[ferrosmart.upstream]`: the OpenID Connect provider people log in
-    /// at; without it the server answers Backend Services alone.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub upstream: Option<crate::upstream::UpstreamSection>,
+    /// `[[ferrosmart.upstream]]`: the identity providers people log in at,
+    /// each by name; without one the server answers Backend Services alone.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub upstream: Vec<crate::upstream::UpstreamSection>,
     /// `[[ferrosmart.role]]`: the scopes each upstream role may be granted,
     /// the policy as content (`docs/architecture.md` §13.6 item 5).
     pub role: Vec<RoleSection>,
@@ -321,7 +321,7 @@ impl Default for FerroSmartSection {
             database: DatabaseSection::default(),
             client: Vec::new(),
             resource: Vec::new(),
-            upstream: None,
+            upstream: Vec::new(),
             role: Vec::new(),
             branding: BrandingSection::default(),
             brand: None,

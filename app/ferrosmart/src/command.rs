@@ -20,6 +20,7 @@ use crate::config::Config;
 use crate::config::settings::Settings;
 use crate::server::AppState;
 use crate::store::Store;
+use crate::upstream::Providers;
 
 /// How long `healthcheck` waits for the readiness answer, shorter than the
 /// five seconds a container `HEALTHCHECK` commonly allows.
@@ -177,23 +178,13 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
         (forwarder, running)
     });
     let sweeper = tokio::spawn(sweep(store.clone()));
-    let callback = settings.endpoint(crate::authorize::CALLBACK_ROUTE);
-    let party = match &settings.upstream {
-        Some(upstream) => {
-            let callback = url::Url::parse(&callback).map_err(|error| {
-                Failure::from(error).with_context("the issuer gives no callback URL")
-            })?;
-            let party = upstream.relying_party(callback).await.map_err(|error| {
-                Failure::not_up(error).with_context("cannot reach the upstream provider")
-            })?;
-            // NOTE: RP-Initiated Logout 1.0 §3, the provider's logout sends the browser
-            // back to FerroSMART, which sends it on to the app.
-            Some(party.with_post_logout_redirect_uri(
-                settings.endpoint_url(crate::logout::end_session::END_SESSION_RETURN_ROUTE),
-            ))
-        }
-        None => None,
-    };
+    let providers = Providers::connect(
+        &settings.upstreams,
+        &settings.endpoint_url(crate::authorize::CALLBACK_ROUTE),
+        &settings.endpoint_url(crate::logout::end_session::END_SESSION_RETURN_ROUTE),
+    )
+    .await
+    .map_err(|error| Failure::not_up(error).with_context("cannot reach an upstream provider"))?;
     let brands =
         match &settings.brand {
             Some(brands) => Some(crate::brands::publish(brands, &store).await.map_err(
@@ -207,10 +198,7 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
     if let Some(brands) = brands {
         state = state.with_brands(brands);
     }
-    let state = Arc::new(match party {
-        Some(party) => state.with_login(party),
-        None => state,
-    });
+    let state = Arc::new(state.with_login(providers));
     let listener = tokio::net::TcpListener::bind(listen)
         .await
         .map_err(|error| Failure::from(error).with_context("cannot bind the listen address"))?;

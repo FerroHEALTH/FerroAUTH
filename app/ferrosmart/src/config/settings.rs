@@ -21,7 +21,10 @@ use secrecy::SecretString;
 use url::Url;
 
 use crate::clients::Client;
-use crate::upstream::{Authentication, PrivateKeyJwtSection, Upstream, UpstreamSection};
+use crate::upstream::{
+    Authentication, OidcSection, OidcUpstream, PrivateKeyJwtSection, Protocol, ProtocolName,
+    Upstream, UpstreamSection,
+};
 
 use crate::config::error::Error;
 use crate::config::{AuditSection, BrandingSection, Config, KeysSection};
@@ -62,8 +65,8 @@ pub struct Settings {
     /// The `fhirUser` lookups of each FHIR base that names any
     /// (`docs/architecture.md` §13.6 item 9).
     pub fhir_user_lookups: BTreeMap<String, Vec<crate::config::FhirUserLookupSection>>,
-    /// The upstream provider, when people log in.
-    pub upstream: Option<Upstream>,
+    /// The upstream providers people log in at, in configuration order.
+    pub upstreams: Vec<Upstream>,
     /// The scopes each role may be granted.
     pub roles: BTreeMap<String, Vec<String>>,
     /// The deployment's name and words on the pages.
@@ -178,7 +181,7 @@ impl Config {
             keys: Arc::clone(&keys),
             database_url,
             max_connections: section.database.max_connections,
-            clients: crate::clients::resolve(&section.client)?,
+            clients: clients_of(&section.client, &section.upstream)?,
             resources: resources(&section.resource)?,
             openehr_resources: section
                 .resource
@@ -189,11 +192,7 @@ impl Config {
             subject_namespaces: subject_namespaces(&section.resource)?,
             pairings: pairings(&section.resource)?,
             fhir_user_lookups: fhir_user_lookups(&section.resource)?,
-            upstream: section
-                .upstream
-                .as_ref()
-                .map(|upstream_section| upstream(upstream_section, &keys))
-                .transpose()?,
+            upstreams: upstreams(&section.upstream, &keys)?,
             roles: roles(&section.role)?,
             branding: branding(&section.branding)?,
             brand: section
@@ -284,12 +283,12 @@ const TOKEN_KEYS: RingNames = RingNames {
     next: "ferrosmart.keys.next_private_key_file",
 };
 
-/// The names of `[ferrosmart.upstream.private_key_jwt.keys]`, the ring that
+/// The names of `[ferrosmart.upstream.oidc.private_key_jwt.keys]`, the ring that
 /// signs client assertions to the upstream provider.
 const ASSERTION_KEYS: RingNames = RingNames {
-    current: "ferrosmart.upstream.private_key_jwt.keys.private_key_file",
-    previous: "ferrosmart.upstream.private_key_jwt.keys.previous_private_key_file",
-    next: "ferrosmart.upstream.private_key_jwt.keys.next_private_key_file",
+    current: "ferrosmart.upstream.oidc.private_key_jwt.keys.private_key_file",
+    previous: "ferrosmart.upstream.oidc.private_key_jwt.keys.previous_private_key_file",
+    next: "ferrosmart.upstream.oidc.private_key_jwt.keys.next_private_key_file",
 };
 
 /// Returns the ring `keys` names: the current key, the previous one for its
@@ -472,9 +471,99 @@ fn pairings(
     Ok(pairings)
 }
 
-/// Returns the upstream provider `section` names, authenticating with
-/// `keys`' current key under `private_key_jwt`.
+/// Returns the clients `sections` register, each naming only providers
+/// `upstreams` configures.
+fn clients_of(
+    sections: &[crate::clients::ClientSection],
+    upstreams: &[UpstreamSection],
+) -> Result<Vec<Client>, Error> {
+    let clients = crate::clients::resolve(sections)?;
+    for client in &clients {
+        if let Some(unknown) = client
+            .upstreams
+            .iter()
+            .find(|name| !upstreams.iter().any(|upstream| &upstream.name == *name))
+        {
+            return Err(Error::UnknownUpstream {
+                client_id: client.client_id.clone(),
+                name: unknown.clone(),
+            });
+        }
+    }
+    Ok(clients)
+}
+
+/// Returns the providers `sections` name, each by a name of its own and an
+/// issuer of its own (OpenID Connect Discovery 1.0 §4.3 holds each issuer
+/// to its metadata), checking each assertion ring against `keys`.
+fn upstreams(sections: &[UpstreamSection], keys: &KeyRing) -> Result<Vec<Upstream>, Error> {
+    let mut resolved: Vec<Upstream> = Vec::with_capacity(sections.len());
+    for section in sections {
+        let upstream = upstream(section, keys)?;
+        if resolved.iter().any(|other| other.name == upstream.name) {
+            return Err(Error::Upstream {
+                rule: "each entry has a name of its own",
+            });
+        }
+        if resolved
+            .iter()
+            .any(|other| other.issuer() == upstream.issuer())
+        {
+            return Err(Error::Upstream {
+                rule: "each entry has an issuer of its own",
+            });
+        }
+        resolved.push(upstream);
+    }
+    Ok(resolved)
+}
+
+/// Returns the provider `section` names.
 fn upstream(section: &UpstreamSection, keys: &KeyRing) -> Result<Upstream, Error> {
+    let named = !section.name.is_empty()
+        && section
+            .name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-');
+    if !named {
+        return Err(Error::Upstream {
+            rule: "`name` is set, of letters, digits and `-`",
+        });
+    }
+    let (protocol, fhir_user_claim, role_claims) = match (section.protocol, &section.oidc) {
+        (Some(ProtocolName::Oidc), Some(oidc)) => (
+            Protocol::Oidc(oidc_upstream(oidc, keys)?),
+            oidc.fhir_user_claim.clone(),
+            oidc.role_claims.clone(),
+        ),
+        (None, _) => {
+            return Err(Error::Upstream {
+                rule: "`protocol` is set",
+            });
+        }
+        (Some(ProtocolName::Oidc), None) => {
+            return Err(Error::Upstream {
+                rule: "`protocol = \"oidc\"` has its `[ferrosmart.upstream.oidc]` table",
+            });
+        }
+    };
+    let named = |claim: &String| !claim.is_empty();
+    Ok(Upstream {
+        name: section.name.clone(),
+        label: if section.label.is_empty() {
+            section.name.clone()
+        } else {
+            section.label.clone()
+        },
+        fhir_user_claim: Some(fhir_user_claim).filter(named),
+        role_claims: role_claims.into_iter().filter(named).collect(),
+        protocol,
+    })
+}
+
+/// Returns the OpenID Connect provider `section` names, authenticating
+/// with `keys`' current key under `private_key_jwt`.
+fn oidc_upstream(section: &OidcSection, keys: &KeyRing) -> Result<OidcUpstream, Error> {
     if section.issuer.is_empty() || section.client_id.is_empty() {
         return Err(Error::Upstream {
             rule: "`issuer` and `client_id` are set",
@@ -482,23 +571,15 @@ fn upstream(section: &UpstreamSection, keys: &KeyRing) -> Result<Upstream, Error
     }
     let Some(jwt) = &section.private_key_jwt else {
         return Err(Error::Upstream {
-            rule: "`[ferrosmart.upstream.private_key_jwt]` is set: FerroSMART authenticates to the provider by `private_key_jwt` alone",
+            rule: "`[ferrosmart.upstream.oidc.private_key_jwt]` is set: FerroSMART authenticates to the provider by `private_key_jwt` alone",
         });
     };
     let authentication = assertion_keys(jwt, keys)?;
-    let named = |claim: &String| !claim.is_empty();
-    Ok(Upstream {
+    Ok(OidcUpstream {
         issuer: section.issuer.clone(),
         client_id: section.client_id.clone(),
         authentication,
         scopes: section.scopes.clone(),
-        fhir_user_claim: Some(section.fhir_user_claim.clone()).filter(named),
-        role_claims: section
-            .role_claims
-            .iter()
-            .filter(|claim| named(claim))
-            .cloned()
-            .collect(),
         trusted_audiences: section.trusted_audiences.clone(),
     })
 }
@@ -510,7 +591,7 @@ fn assertion_keys(
     section: &PrivateKeyJwtSection,
     tokens: &KeyRing,
 ) -> Result<Authentication, Error> {
-    const KEY: &str = "ferrosmart.upstream.private_key_jwt";
+    const KEY: &str = "ferrosmart.upstream.oidc.private_key_jwt";
     let algorithm = section
         .algorithm
         .parse::<Algorithm>()
@@ -528,7 +609,7 @@ fn assertion_keys(
     let mut key = ring.current().clone();
     if let Some(path) = section.certificate_file.as_deref() {
         let pem = std::fs::read(path).map_err(|source| Error::KeyFile {
-            key: "ferrosmart.upstream.private_key_jwt.certificate_file",
+            key: "ferrosmart.upstream.oidc.private_key_jwt.certificate_file",
             path: path.to_owned(),
             source,
         })?;

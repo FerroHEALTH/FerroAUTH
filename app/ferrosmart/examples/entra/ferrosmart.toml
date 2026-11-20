@@ -18,7 +18,11 @@ kind = "fhir"
 # is {issuer}/.well-known/openid-configuration (OpenID Connect Discovery 1.0
 # §4; v2-protocols-oidc.md, Find your app's OpenID configuration document
 # URI). FerroSMART is the registration's confidential web client.
-[ferrosmart.upstream]
+[[ferrosmart.upstream]]
+name = "entra"
+protocol = "oidc"
+
+[ferrosmart.upstream.oidc]
 issuer = "https://login.microsoftonline.com/aaaabbbb-0000-cccc-1111-dddd2222eeee/v2.0"
 client_id = "00001111-aaaa-2222-bbbb-3333cccc4444"
 # `profile` brings `name` and `preferred_username` (id-token-claims-reference.md).
@@ -35,14 +39,14 @@ role_claims = ["roles"]
 # assertion ring, never a token key (RFC 8725 §3.12), PS256, naming the
 # certificate uploaded to the registration by `x5t#S256`
 # (certificate-credentials.md, Assertion format; OpenID Connect Core 1.0 §9).
-[ferrosmart.upstream.private_key_jwt]
+[ferrosmart.upstream.oidc.private_key_jwt]
 algorithm = "PS256"
 certificate_file = "/run/secrets/upstream-assertion.crt"
 
 # The assertion ring, read as [ferrosmart.keys] is; a rotation uploads the
 # next key's certificate to the registration before the ring makes it
 # current.
-[ferrosmart.upstream.private_key_jwt.keys]
+[ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream-assertion.pem"
 
 # The policy as content (docs/architecture.md §13.6 item 5): a person holding
