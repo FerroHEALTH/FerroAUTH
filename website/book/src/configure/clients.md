@@ -166,7 +166,7 @@ name = "administrator"
 scopes = ["user/Patient.rs", "__ferroehr.platform"]
 ```
 
-Any other scope outside the SMART set is never granted to a person. `[ferrosmart.upstream] role_claims` says where in the ID
+Any other scope outside the SMART set is never granted to a person. `[ferrosmart.upstream.oidc] role_claims` says where in the ID
 Token the roles are ([identity providers](../install/upstream.md)).
 
 ## Which scopes the consent page offers

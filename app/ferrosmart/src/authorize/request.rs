@@ -161,11 +161,9 @@ async fn begin(
     } else {
         scope.to_owned()
     };
-    let party = state
-        .relying_party()
-        .ok_or(Stop::Deny(Denial::request("no login is configured")))?;
-    let upstream = party.authorization_request().map_err(fail)?;
-    let upstream_url = super::oidc::upstream(upstream.url.clone(), &asking);
+    let allowed = state.providers().allowed(&client.upstreams);
+    let start = super::choose::start(state, &allowed, &asking)?;
+    let [upstream_state, upstream_nonce, upstream_verifier] = start.sign_in;
     let id = random().map_err(fail)?;
     let pending = Pending {
         id: id.clone(),
@@ -176,9 +174,10 @@ async fn begin(
         nonce: params.get("nonce").map(str::to_owned),
         code_challenge: challenge.to_owned(),
         audience: audience.to_owned(),
-        upstream_state: upstream.pending.state().to_owned(),
-        upstream_nonce: upstream.pending.nonce().to_owned(),
-        upstream_verifier: upstream.pending.verifier().expose().to_owned(),
+        upstream_state,
+        upstream_nonce,
+        upstream_verifier,
+        upstream_provider: start.provider,
         form_token: random().map_err(fail)?,
         subject: None,
         fhir_user: None,
@@ -198,7 +197,7 @@ async fn begin(
         .begin_authorization(&pending)
         .await
         .map_err(fail)?;
-    let mut response = see_other(upstream_url.as_str());
+    let mut response = see_other(start.location.as_str());
     set_cookie(state, &mut response, COOKIE, &id, REQUEST_SECONDS);
     Ok(response)
 }

@@ -551,6 +551,65 @@ pub fn encounter_picker(
     )
 }
 
+/// Returns the page on which the person of `pending` chooses the provider
+/// they log in at, one button per provider of `providers`.
+///
+/// The choice posts to FerroSMART, which sends the browser on to the
+/// provider's authorization endpoint, so the page's `form-action` admits
+/// each provider's origin.
+#[must_use]
+pub fn chooser(
+    state: &AppState,
+    headers: &HeaderMap,
+    pending: &Pending,
+    providers: &[&crate::upstream::LoginProvider],
+) -> Response {
+    let locale = negotiated(headers, pending);
+    let words = |id: &str| locale.lookup(&*CATALOG, id);
+    let buttons = Html::join(providers.iter().map(|provider| {
+        Html::raw(format!(
+            "<button type=\"submit\" name=\"provider\" value=\"{name}\" class=\"{primary}\">{label}</button>",
+            name = Html::text(provider.name()),
+            primary = Variant::Primary.class(),
+            label = label(None, &provider.upstream().label),
+        ))
+    }));
+    let form = Html::raw(format!(
+        "<form method=\"post\" action=\"{action}\" class=\"fui-stack\">\
+         <input type=\"hidden\" name=\"form_token\" value=\"{token}\">\
+         <div class=\"fui-stack\">{buttons}</div></form>",
+        action = Html::text(
+            state
+                .settings()
+                .endpoint(crate::authorize::choose::LOGIN_ROUTE)
+        ),
+        token = Html::text(&pending.form_token),
+    ));
+    let endpoints: Vec<Url> = providers
+        .iter()
+        .filter_map(|provider| provider.oidc())
+        .map(|party| party.provider().authorization_endpoint().clone())
+        .collect();
+    let reach = crate::upstream::origins_of(endpoints.iter());
+    let body = Html::join([
+        Html::raw(format!("<p>{}</p>", Html::text(words("chooser-intro")))),
+        form,
+    ]);
+    let title = words("chooser-title");
+    let page = page_card(Some(brand_lockup(state, &locale)), title.clone(), body);
+    respond(
+        state,
+        StatusCode::OK,
+        &locale,
+        title,
+        page,
+        Sources {
+            form: &reach,
+            img: &[],
+        },
+    )
+}
+
 /// Returns the picker page of `locale` with the catalog's title and intro of
 /// `[title, intro]`, the form `search` and the `results` below it.
 fn picker_card(

@@ -41,12 +41,12 @@ fn pem(der: &[u8]) -> String {
     )
 }
 
-/// The `[ferrosmart.upstream.private_key_jwt]` tables of a case, with a
+/// The `[ferrosmart.upstream.oidc.private_key_jwt]` tables of a case, with a
 /// fresh assertion key under `dir`, the one client authentication FerroSMART
 /// uses upstream (OpenID Connect Core 1.0 §9).
 pub(crate) fn upstream_assertion(dir: &Path) -> String {
     format!(
-        "[ferrosmart.upstream.private_key_jwt]\n[ferrosmart.upstream.private_key_jwt.keys]\n\
+        "[ferrosmart.upstream.oidc.private_key_jwt]\n[ferrosmart.upstream.oidc.private_key_jwt.keys]\n\
          private_key_file = {:?}\n",
         rsa_key(dir, "upstream-assertion.pem").display().to_string()
     )
@@ -493,4 +493,16 @@ pub(crate) async fn rotated_ago(url: &str, token: &str, seconds: u32) {
     .await
     .expect("the rotation moves");
     assert_eq!(1, moved.rows_affected(), "the token was rotated");
+}
+
+/// Returns the logins of every provider `settings` configures, discovered
+/// at their stubs.
+pub(crate) async fn providers(settings: &Settings) -> ferrosmart::upstream::Providers {
+    ferrosmart::upstream::Providers::connect(
+        &settings.upstreams,
+        &settings.endpoint_url(ferrosmart::authorize::CALLBACK_ROUTE),
+        &settings.endpoint_url(ferrosmart::logout::end_session::END_SESSION_RETURN_ROUTE),
+    )
+    .await
+    .expect("the providers are discovered")
 }

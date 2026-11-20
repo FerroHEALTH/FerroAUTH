@@ -94,6 +94,10 @@ pub struct ClientSection {
     /// end-session endpoint, each matched exactly (OpenID Connect
     /// RP-Initiated Logout 1.0 §3.1, `post_logout_redirect_uris`).
     pub post_logout_redirect_uris: Vec<String>,
+    /// The `[[ferrosmart.upstream]]` providers a person may log in at for
+    /// the client, by name; every provider when empty. With more than one,
+    /// the person chooses on a page.
+    pub upstreams: Vec<String>,
     /// The scopes the client may be granted at most.
     pub scopes: Vec<String>,
     /// The grant types the client may use.
@@ -208,6 +212,8 @@ pub struct Client {
     pub redirect_uris: Vec<String>,
     /// Its post-logout redirect URIs.
     pub post_logout_redirect_uris: Vec<String>,
+    /// The providers a person may log in at for it, every one when empty.
+    pub upstreams: Vec<String>,
     /// Its scope ceiling.
     pub scopes: Vec<String>,
     /// Its grant types, sorted and without repetition.
@@ -527,6 +533,7 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
         secret_hash,
         redirect_uris: section.redirect_uris.clone(),
         post_logout_redirect_uris: section.post_logout_redirect_uris.clone(),
+        upstreams: section.upstreams.clone(),
         scopes: section.scopes.clone(),
         grant_types,
         launch_uri,

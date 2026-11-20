@@ -34,7 +34,7 @@ use crate::discovery::{
     SMART_CONFIGURATION_ROUTE, TOKEN_ROUTE, UPSTREAM_JWKS_ROUTE,
 };
 use crate::store::Store;
-use ferrohealth_smart::oidc::RelyingParty;
+use crate::upstream::Providers;
 
 /// The `Cache-Control` of the JWK Set: an hour, and a next key is published
 /// at least that long before it signs (`docs/architecture.md` §13.11). No
@@ -46,13 +46,14 @@ pub const JWKS_CACHE_CONTROL: &str = "public, max-age=3600";
 /// They are the consent page, the patient picker, the management page, and
 /// the error pages the authorization endpoint and the upstream callback
 /// draw. The book shows each (`website/book/src/integrate/img/`).
-pub const PAGES: [&str; 6] = [
+pub const PAGES: [&str; 7] = [
     AUTHORIZE_ROUTE,
     CALLBACK_ROUTE,
     CONSENT_ROUTE,
     crate::picker::PICKER_ROUTE,
     MANAGE_ROUTE,
     crate::logout::end_session::END_SESSION_ROUTE,
+    authorize::choose::LOGIN_ROUTE,
 ];
 
 /// What every request reads.
@@ -72,8 +73,8 @@ pub struct AppState {
     store: Store,
     /// The clients' JWK Sets.
     client_keys: ClientKeySets,
-    /// The relying party of the upstream login, when people log in.
-    relying_party: Option<RelyingParty>,
+    /// The upstream providers people log in at.
+    providers: Providers,
     /// The audit lane every login and token is recorded in.
     audit: Audit,
     /// The HTTP client the patient picker searches the resource servers
@@ -99,7 +100,7 @@ impl AppState {
             lifecycle: Lifecycle::default(),
             store,
             client_keys: ClientKeySets::new(reqwest::Client::new()),
-            relying_party: None,
+            providers: Providers::default(),
             audit,
             fhir: reqwest::Client::new(),
             brands: None,
@@ -120,22 +121,25 @@ impl AppState {
         self.brands.as_ref()
     }
 
-    /// Returns this state logging people in through `party`, and serving
-    /// the authorization code flow.
+    /// Returns this state logging people in at `providers`, and serving the
+    /// authorization code flow when there is one.
     #[must_use]
-    pub fn with_login(mut self, party: RelyingParty) -> Self {
+    pub fn with_login(mut self, providers: Providers) -> Self {
+        if providers.is_empty() {
+            return self;
+        }
         let metadata = discovery::metadata(&self.settings, true);
         self.smart = discovery::smart_configuration(&self.settings, &metadata, true);
         self.openid = Some(discovery::openid_configuration(&metadata));
         self.metadata = discovery::metadata_document(&metadata);
-        self.relying_party = Some(party);
+        self.providers = providers;
         self
     }
 
-    /// Returns the relying party of the upstream login, when people log in.
+    /// Returns the upstream providers people log in at.
     #[must_use]
-    pub const fn relying_party(&self) -> Option<&RelyingParty> {
-        self.relying_party.as_ref()
+    pub const fn providers(&self) -> &Providers {
+        &self.providers
     }
 
     /// Returns the clients' JWK Sets.
@@ -198,6 +202,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             get(authorize::request::authorize_get).post(authorize::request::authorize_post),
         )
         .route(CALLBACK_ROUTE, get(authorize::callback::callback))
+        .route(
+            authorize::choose::LOGIN_ROUTE,
+            get(authorize::choose::choose_get).post(authorize::choose::choose_post),
+        )
         .route(
             crate::logout::BACKCHANNEL_LOGOUT_ROUTE,
             post(crate::logout::backchannel_logout),
@@ -293,14 +301,30 @@ async fn jwks(State(state): State<Arc<AppState>>) -> Response {
 /// (RFC 7517 §5), when people log in at an upstream provider; `404`
 /// otherwise.
 async fn upstream_jwks(State(state): State<Arc<AppState>>) -> Response {
-    let Some(set) = state
+    // NOTE: RFC 7517 §5, one set of every provider's assertion keys; each
+    // provider's registration finds its own by kid.
+    let mut keys: Vec<Value> = Vec::new();
+    for set in state
         .settings
-        .upstream
-        .as_ref()
-        .map(crate::upstream::Upstream::assertion_keys)
-    else {
+        .upstreams
+        .iter()
+        .filter_map(crate::upstream::Upstream::assertion_keys)
+    {
+        for key in set
+            .get("keys")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            if !keys.contains(key) {
+                keys.push(key.clone());
+            }
+        }
+    }
+    if state.settings.upstreams.is_empty() {
         return StatusCode::NOT_FOUND.into_response();
-    };
+    }
+    let set = serde_json::json!({ "keys": keys });
     let mut response = public(Json(set).into_response());
     response.headers_mut().insert(
         header::CACHE_CONTROL,

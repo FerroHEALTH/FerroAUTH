@@ -31,6 +31,9 @@ pub struct PendingLogout {
     pub form_token: String,
     /// The `state` sent to the upstream provider's end-session endpoint.
     pub upstream_state: String,
+    /// The `[[ferrosmart.upstream]]` provider whose logout follows, when
+    /// one is known.
+    pub upstream_provider: Option<String>,
     /// When it lapses, in seconds since the epoch.
     pub expires_at: i64,
 }
@@ -53,6 +56,7 @@ fn read(row: &sqlx::postgres::PgRow) -> Result<PendingLogout, StoreError> {
         state: row.try_get("state")?,
         form_token: row.try_get("form_token")?,
         upstream_state: row.try_get("upstream_state")?,
+        upstream_provider: row.try_get("upstream_provider")?,
         expires_at: row.try_get("expires_at")?,
     })
 }
@@ -60,7 +64,7 @@ fn read(row: &sqlx::postgres::PgRow) -> Result<PendingLogout, StoreError> {
 /// The columns [`read`] takes, as a literal the statements are built of.
 macro_rules! columns {
     () => {
-        "id, client_id, subject, redirect_uri, state, form_token, upstream_state, \
+        "id, client_id, subject, redirect_uri, state, form_token, upstream_state, upstream_provider, \
          extract(epoch FROM expires_at)::bigint AS expires_at"
     };
 }
@@ -73,7 +77,8 @@ impl Store {
     pub async fn begin_logout(&self, logout: &PendingLogout) -> Result<(), StoreError> {
         sqlx::query(
             "INSERT INTO pending_logout (id, client_id, subject, redirect_uri, state, form_token, \
-             upstream_state, expires_at) VALUES ($1, $2, $3, $4, $5, $6, $7, to_timestamp($8))",
+             upstream_state, upstream_provider, expires_at) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, to_timestamp($9))",
         )
         .bind(&logout.id)
         .bind(&logout.client_id)
@@ -82,6 +87,7 @@ impl Store {
         .bind(&logout.state)
         .bind(&logout.form_token)
         .bind(&logout.upstream_state)
+        .bind(&logout.upstream_provider)
         .bind(logout.expires_at)
         .execute(&self.pool)
         .await?;
@@ -102,6 +108,22 @@ impl Store {
         .fetch_optional(&self.pool)
         .await?;
         row.as_ref().map(read).transpose()
+    }
+
+    /// Returns the issuer of the upstream provider the person `subject` last
+    /// logged in at, of the sessions their grants were issued under.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn person_issuer(&self, subject: &str) -> Result<Option<String>, StoreError> {
+        Ok(sqlx::query_scalar(
+            "SELECT s.issuer FROM authorization_grant g JOIN upstream_session s \
+             ON s.id = g.upstream_session WHERE g.subject = $1 \
+             ORDER BY s.last_seen DESC LIMIT 1",
+        )
+        .bind(subject)
+        .fetch_optional(&self.pool)
+        .await?)
     }
 
     /// Takes the live pending logout `id` whose upstream `state` is
