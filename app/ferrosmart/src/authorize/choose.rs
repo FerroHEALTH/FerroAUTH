@@ -26,21 +26,94 @@ use crate::server::AppState;
 use crate::store::{Asking, Pending, Purpose};
 use crate::upstream::LoginProvider;
 
-use super::{COOKIE, Stop, constant_eq, cookie, fail, random, see_other};
+use super::{COOKIE, REQUEST_SECONDS, Stop, constant_eq, cookie, fail, random, see_other};
 
 /// The chooser's route under the issuer.
 pub const LOGIN_ROUTE: &str = "/login";
+
+/// The cookie that binds a SAML login to the browser that began it.
+///
+/// It is sent with the identity provider's cross-site post to the
+/// assertion consumer service, which `SameSite=Lax` would withhold (RFC
+/// 6265bis §5.6.7.1). No specification governs the cookie: our own design.
+pub const SAML_COOKIE: &str = "ferrosmart_saml_login";
+
+/// Where the browser goes to log in.
+#[derive(Debug, Clone)]
+pub(crate) enum Departure {
+    /// Redirected: to an OpenID Provider, to the chooser, or to a SAML
+    /// provider by HTTP-Redirect when `saml` says so.
+    Redirect {
+        /// The location.
+        to: Url,
+        /// Whether a SAML login begins there.
+        saml: bool,
+    },
+    /// Posting a SAML `AuthnRequest` to the provider (HTTP-POST).
+    Post {
+        /// The single sign-on location.
+        action: Url,
+        /// The `SAMLRequest` value.
+        saml_request: String,
+        /// The `RelayState` value.
+        relay_state: String,
+    },
+}
+
+impl Departure {
+    /// Returns the response that sends the browser of the request
+    /// `pending_id` on, binding a SAML login to it with [`SAML_COOKIE`].
+    pub(crate) fn respond(&self, state: &AppState, pending_id: &str) -> Response {
+        let (mut response, saml) = match self {
+            Self::Redirect { to, saml } => (see_other(to.as_str()), *saml),
+            Self::Post {
+                action,
+                saml_request,
+                relay_state,
+            } => (
+                pages::saml::post(
+                    state,
+                    action,
+                    &[("SAMLRequest", saml_request), ("RelayState", relay_state)],
+                ),
+                true,
+            ),
+        };
+        if saml {
+            saml_cookie(state, &mut response, pending_id, REQUEST_SECONDS);
+        }
+        response
+    }
+}
+
+/// Sets [`SAML_COOKIE`] to `value` for `max_age` seconds on the assertion
+/// consumer service's path: `HttpOnly`, `Secure` and `SameSite=None`.
+pub(crate) fn saml_cookie(state: &AppState, response: &mut Response, value: &str, max_age: i64) {
+    let path = state
+        .settings()
+        .endpoint_url(crate::upstream::saml::ACS_ROUTE);
+    let cookie = format!(
+        "{SAML_COOKIE}={value}; Path={}; Max-Age={max_age}; HttpOnly; Secure; SameSite=None",
+        path.path()
+    );
+    if let Ok(value) = http::HeaderValue::from_str(&cookie) {
+        response
+            .headers_mut()
+            .append(http::header::SET_COOKIE, value);
+    }
+}
 
 /// Where a new request's browser goes first, and what the request records
 /// of it.
 #[derive(Debug)]
 pub(super) struct Start {
     /// The provider's login, or the chooser.
-    pub(super) location: Url,
+    pub(super) departure: Departure,
     /// The provider chosen, when only one was allowed.
     pub(super) provider: Option<String>,
-    /// The upstream `state`, `nonce` and PKCE verifier; drawn at random
-    /// until a provider is chosen, so no callback can match them.
+    /// The upstream `state`, `nonce` and PKCE verifier, or a SAML login's
+    /// `RelayState`, request `ID` and an unused random value; drawn at
+    /// random until a provider is chosen, so no callback can match them.
     pub(super) sign_in: [String; 3],
 }
 
@@ -54,15 +127,18 @@ pub(super) fn start(
     match allowed {
         [] => Err(Stop::Deny(super::Denial::request("no login is configured"))),
         [only] => {
-            let (location, sign_in) = sign_in_at(only, asking)?;
+            let (departure, sign_in) = sign_in_at(only, asking)?;
             Ok(Start {
-                location,
+                departure,
                 provider: Some(only.name().to_owned()),
                 sign_in,
             })
         }
         _ => Ok(Start {
-            location: state.settings().endpoint_url(LOGIN_ROUTE),
+            departure: Departure::Redirect {
+                to: state.settings().endpoint_url(LOGIN_ROUTE),
+                saml: false,
+            },
             provider: None,
             sign_in: [
                 random().map_err(fail)?,
@@ -74,18 +150,47 @@ pub(super) fn start(
 }
 
 /// Returns the login request at `provider`, carrying what `asking` passes
-/// on, with its `state`, `nonce` and PKCE verifier.
+/// on, with its `state`, `nonce` and PKCE verifier, or for a SAML provider
+/// its `RelayState`, its request `ID` and an unused random value.
 pub(super) fn sign_in_at(
     provider: &LoginProvider,
     asking: &Asking,
-) -> Result<(Url, [String; 3]), Stop> {
+) -> Result<(Departure, [String; 3]), Stop> {
+    if let Some(login) = provider.saml() {
+        // NOTE: saml-bindings-2.0-os §3.4.3, the RelayState is at most 80 bytes; 256
+        // random bits in base64url are 43, and they find the pending request again.
+        let relay_state = random().map_err(fail)?;
+        // NOTE: OpenID Connect Core 1.0 §3.1.2.1, prompt=login asks for a fresh
+        // authentication, which a SAML request asks by ForceAuthn (saml-core §3.4.1).
+        let begun = login
+            .begin(relay_state, asking.prompt.login)
+            .map_err(fail)?;
+        let departure = match begun.leg {
+            crate::upstream::saml::Leg::Redirect(to) => Departure::Redirect { to, saml: true },
+            crate::upstream::saml::Leg::Post {
+                action,
+                saml_request,
+            } => Departure::Post {
+                action,
+                saml_request,
+                relay_state: begun.relay_state.clone(),
+            },
+        };
+        return Ok((
+            departure,
+            [begun.relay_state, begun.request_id, random().map_err(fail)?],
+        ));
+    }
     let party = provider
         .oidc()
         .ok_or(Stop::Deny(super::Denial::request("no login is configured")))?;
     let upstream = party.authorization_request().map_err(fail)?;
     let location = super::oidc::upstream(upstream.url.clone(), asking);
     Ok((
-        location,
+        Departure::Redirect {
+            to: location,
+            saml: false,
+        },
         [
             upstream.pending.state().to_owned(),
             upstream.pending.nonce().to_owned(),
@@ -143,7 +248,7 @@ pub async fn choose_post(
         Ok(chosen) => chosen,
         Err(page) => return *page,
     };
-    let Ok((location, [upstream_state, nonce, verifier])) = sign_in_at(provider, &pending.asking)
+    let Ok((departure, [upstream_state, nonce, verifier])) = sign_in_at(provider, &pending.asking)
     else {
         return pages::fault(&state, Fault::Server);
     };
@@ -156,7 +261,7 @@ pub async fn choose_post(
         )
         .await
     {
-        Ok(true) => see_other(location.as_str()),
+        Ok(true) => departure.respond(&state, &pending.id),
         Ok(false) => pages::fault(&state, Fault::Lapsed),
         Err(error) => pages::server_error(&state, &error),
     }

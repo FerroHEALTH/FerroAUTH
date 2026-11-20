@@ -181,6 +181,31 @@ impl Store {
         insert_jti(&self.pool, issuer, jti, expires_at).await
     }
 
+    /// Records the SAML assertion `assertion_id` of the identity provider
+    /// `identity_provider`, kept until `expires_at` (seconds since the
+    /// epoch), and returns whether it was unseen: a `false` is a replay
+    /// (saml-profiles-2.0-os §4.1.4.5).
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn first_assertion(
+        &self,
+        identity_provider: &str,
+        assertion_id: &str,
+        expires_at: i64,
+    ) -> Result<bool, StoreError> {
+        let inserted = sqlx::query(
+            "INSERT INTO seen_saml_assertion (identity_provider, assertion_id, expires_at) \
+             VALUES ($1, $2, to_timestamp($3)) ON CONFLICT (identity_provider, assertion_id) DO NOTHING",
+        )
+        .bind(identity_provider)
+        .bind(assertion_id)
+        .bind(expires_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(inserted.rows_affected() == 1)
+    }
+
     /// Returns whether the access token `jti` was revoked.
     ///
     /// # Errors
@@ -206,14 +231,17 @@ impl Store {
         insert_token(&self.pool, token).await
     }
 
-    /// Deletes the assertion ids, the access and refresh tokens and the
-    /// launches past their expiry, and the grants an hour old with no token
-    /// left.
+    /// Deletes the assertion ids, the SAML assertion ids, the access and
+    /// refresh tokens and the launches past their expiry, and the grants an
+    /// hour old with no token left.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when a statement fails.
     pub async fn sweep(&self) -> Result<(), StoreError> {
         sqlx::query("DELETE FROM seen_jti WHERE expires_at < now()")
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM seen_saml_assertion WHERE expires_at < now()")
             .execute(&self.pool)
             .await?;
         sqlx::query("DELETE FROM access_token WHERE expires_at < now()")
@@ -635,20 +663,23 @@ pub struct PersonClaims {
 }
 
 impl PersonClaims {
-    /// Reads the claims from the upstream ID Token `claims`, each kept only
+    /// Reads the claims from the upstream login `identity`, each kept only
     /// in the type OpenID Connect Core 1.0 §5.1 gives it.
     #[must_use]
-    pub fn from_claims(claims: &ferrohealth_smart::oidc::IdTokenClaims) -> Self {
+    pub fn from_identity(identity: &crate::upstream::Identity) -> Self {
         let text = |value: Option<&str>| {
             value
                 .filter(|text| !text.trim().is_empty())
                 .map(str::to_owned)
         };
         Self {
-            name: text(claims.name.as_deref()),
-            preferred_username: text(claims.preferred_username.as_deref()),
-            email: text(claims.other.get("email").and_then(Value::as_str)),
-            email_verified: claims.other.get("email_verified").and_then(Value::as_bool),
+            name: text(identity.name.as_deref()),
+            preferred_username: text(identity.preferred_username.as_deref()),
+            email: text(identity.claims.get("email").and_then(Value::as_str)),
+            email_verified: identity
+                .claims
+                .get("email_verified")
+                .and_then(Value::as_bool),
         }
     }
 

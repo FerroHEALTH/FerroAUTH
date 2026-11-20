@@ -67,6 +67,9 @@ pub struct Settings {
     pub fhir_user_lookups: BTreeMap<String, Vec<crate::config::FhirUserLookupSection>>,
     /// The upstream providers people log in at, in configuration order.
     pub upstreams: Vec<Upstream>,
+    /// FerroSMART as a SAML 2.0 service provider, when `[ferrosmart.saml]`
+    /// is set.
+    pub saml: Option<Arc<crate::upstream::saml::ServiceProviderSettings>>,
     /// The scopes each role may be granted.
     pub roles: BTreeMap<String, Vec<String>>,
     /// The deployment's name and words on the pages.
@@ -193,6 +196,7 @@ impl Config {
             pairings: pairings(&section.resource)?,
             fhir_user_lookups: fhir_user_lookups(&section.resource)?,
             upstreams: upstreams(&section.upstream, &keys)?,
+            saml: service_provider(section)?,
             roles: roles(&section.role)?,
             branding: branding(&section.branding)?,
             brand: section
@@ -530,20 +534,33 @@ fn upstream(section: &UpstreamSection, keys: &KeyRing) -> Result<Upstream, Error
             rule: "`name` is set, of letters, digits and `-`",
         });
     }
-    let (protocol, fhir_user_claim, role_claims) = match (section.protocol, &section.oidc) {
-        (Some(ProtocolName::Oidc), Some(oidc)) => (
+    let (protocol, fhir_user_claim, role_claims) = match (
+        section.protocol,
+        &section.oidc,
+        &section.saml,
+    ) {
+        (Some(ProtocolName::Oidc), Some(oidc), None) => (
             Protocol::Oidc(oidc_upstream(oidc, keys)?),
             oidc.fhir_user_claim.clone(),
             oidc.role_claims.clone(),
         ),
-        (None, _) => {
+        (Some(ProtocolName::Saml), None, Some(saml)) => {
+            let (resolved, fhir_user_claim, role_claims) = crate::upstream::saml::upstream(saml)?;
+            (Protocol::Saml(resolved), fhir_user_claim, role_claims)
+        }
+        (None, _, _) => {
             return Err(Error::Upstream {
                 rule: "`protocol` is set",
             });
         }
-        (Some(ProtocolName::Oidc), None) => {
+        (Some(ProtocolName::Oidc), _, _) => {
             return Err(Error::Upstream {
-                rule: "`protocol = \"oidc\"` has its `[ferrosmart.upstream.oidc]` table",
+                rule: "`protocol = \"oidc\"` has its `[ferrosmart.upstream.oidc]` table and no other",
+            });
+        }
+        (Some(ProtocolName::Saml), _, _) => {
+            return Err(Error::Upstream {
+                rule: "`protocol = \"saml\"` has its `[ferrosmart.upstream.saml]` table and no other",
             });
         }
     };
@@ -559,6 +576,38 @@ fn upstream(section: &UpstreamSection, keys: &KeyRing) -> Result<Upstream, Error
         role_claims: role_claims.into_iter().filter(named).collect(),
         protocol,
     })
+}
+
+/// Returns FerroSMART's SAML 2.0 service provider `[ferrosmart.saml]`
+/// describes, which every `protocol = "saml"` provider needs; a provider
+/// answering by artifact needs its TLS client identity too
+/// (saml-profiles-2.0-os §4.1.4.4).
+fn service_provider(
+    section: &crate::config::FerroSmartSection,
+) -> Result<Option<Arc<crate::upstream::saml::ServiceProviderSettings>>, Error> {
+    let entries: Vec<&crate::upstream::saml::SamlSection> = section
+        .upstream
+        .iter()
+        .filter_map(|upstream| upstream.saml.as_ref())
+        .collect();
+    let Some(sp) = &section.saml else {
+        if entries.is_empty() {
+            return Ok(None);
+        }
+        return Err(Error::Missing {
+            key: "ferrosmart.saml",
+        });
+    };
+    let resolved = crate::upstream::saml::service_provider(sp, &section.issuer, &entries)?;
+    let artifact = entries
+        .iter()
+        .any(|entry| entry.response_binding == crate::upstream::saml::ResponseBinding::Artifact);
+    if artifact && !resolved.mutual_tls {
+        return Err(Error::Upstream {
+            rule: "a provider answering by artifact needs `[ferrosmart.saml.tls]` with a client identity",
+        });
+    }
+    Ok(Some(Arc::new(resolved)))
 }
 
 /// Returns the OpenID Connect provider `section` names, authenticating

@@ -20,9 +20,7 @@ use crate::pages::{self, Fault};
 use crate::server::AppState;
 use crate::store::{Pending, Purpose};
 
-use super::{
-    Back, COOKIE, Denial, REQUEST_SECONDS, Stop, fail, now, random, see_other, set_cookie,
-};
+use super::{Back, COOKIE, Denial, REQUEST_SECONDS, Stop, fail, now, random, set_cookie};
 
 /// `GET {issuer}/authorize`, the request in the query.
 pub async fn authorize_get(
@@ -197,7 +195,7 @@ async fn begin(
         .begin_authorization(&pending)
         .await
         .map_err(fail)?;
-    let mut response = see_other(start.location.as_str());
+    let mut response = start.departure.respond(state, &id);
     set_cookie(state, &mut response, COOKIE, &id, REQUEST_SECONDS);
     Ok(response)
 }

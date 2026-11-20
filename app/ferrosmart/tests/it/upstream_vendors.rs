@@ -697,7 +697,10 @@ async fn the_entra_id_multitenant_authority_is_refused() {
         .issuer = authority.clone();
     let settings = config.resolve().expect("the configuration resolves");
     let ferrosmart::upstream::Protocol::Oidc(oidc) =
-        &settings.upstreams.first().expect("an upstream").protocol;
+        &settings.upstreams.first().expect("an upstream").protocol
+    else {
+        panic!("the provider speaks OpenID Connect");
+    };
     let refused = oidc
         .relying_party(Url::parse("https://smart.example.org/callback").expect("a URL"))
         .await

@@ -144,6 +144,10 @@ pub struct FerroSmartSection {
     /// each by name; without one the server answers Backend Services alone.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub upstream: Vec<crate::upstream::UpstreamSection>,
+    /// `[ferrosmart.saml]`: FerroSMART as a SAML 2.0 service provider,
+    /// which every `protocol = "saml"` provider needs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saml: Option<crate::upstream::saml::ServiceProviderSection>,
     /// `[[ferrosmart.role]]`: the scopes each upstream role may be granted,
     /// the policy as content (`docs/architecture.md` §13.6 item 5).
     pub role: Vec<RoleSection>,
@@ -322,6 +326,7 @@ impl Default for FerroSmartSection {
             client: Vec::new(),
             resource: Vec::new(),
             upstream: Vec::new(),
+            saml: None,
             role: Vec::new(),
             branding: BrandingSection::default(),
             brand: None,

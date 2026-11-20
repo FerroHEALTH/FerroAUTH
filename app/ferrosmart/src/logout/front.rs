@@ -76,8 +76,13 @@ async fn logged_out(
         return Err("the request does not carry both iss and sid");
     };
     // NOTE: Front-Channel Logout 1.0 §2, the RP MAY check iss and sid; a logout
-    // from an issuer no provider has is ignored.
-    if state.providers().by_issuer(issuer).is_none() || sid.is_empty() {
+    // from an issuer no OpenID Connect provider has is ignored.
+    let known = state
+        .providers()
+        .by_issuer(issuer)
+        .and_then(LoginProvider::oidc)
+        .is_some();
+    if !known || sid.is_empty() {
         return Err("the request names no configured issuer or no session");
     }
     super::end_sessions(

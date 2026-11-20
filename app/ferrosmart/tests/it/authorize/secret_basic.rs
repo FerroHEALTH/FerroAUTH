@@ -98,6 +98,7 @@ async fn a_provider_that_does_not_list_the_method_is_refused_at_start() {
         &settings.upstreams,
         &settings.endpoint_url(ferrosmart::authorize::CALLBACK_ROUTE),
         &settings.endpoint_url(ferrosmart::logout::end_session::END_SESSION_RETURN_ROUTE),
+        None,
     )
     .await
     .expect_err("refused");
@@ -124,7 +125,10 @@ fn the_secret_never_shows_in_a_debug_rendering() {
         "the secret redacts itself: {rendered}"
     );
     let ferrosmart::upstream::Protocol::Oidc(oidc) =
-        &settings.upstreams.first().expect("a provider").protocol;
+        &settings.upstreams.first().expect("a provider").protocol
+    else {
+        panic!("the provider speaks OpenID Connect");
+    };
     assert_eq!("client_secret_basic", oidc.authentication.method());
 }
 

@@ -79,7 +79,7 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
     if let Err(error) = state.store().begin_authorization(&pending).await {
         return pages::server_error(&state, &error);
     }
-    let mut response = see_other(start.location.as_str());
+    let mut response = start.departure.respond(&state, &id);
     set_cookie(&state, &mut response, COOKIE, &id, REQUEST_SECONDS);
     response
 }

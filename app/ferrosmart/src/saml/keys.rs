@@ -113,6 +113,17 @@ impl TrustedKey {
         Ok(Self { kind, public })
     }
 
+    /// Returns the key the one PEM certificate `pem` carries, as a
+    /// deployment configures a key that must sign the metadata.
+    ///
+    /// # Errors
+    ///
+    /// [`KeyError::Pem`] when `pem` is not one `CERTIFICATE` block, and the
+    /// errors of [`TrustedKey::from_certificate_der`].
+    pub fn from_certificate_pem(pem: &[u8]) -> Result<Self, KeyError> {
+        Self::from_certificate_der(&pem_block(pem, "CERTIFICATE")?)
+    }
+
     /// The kind of the key.
     pub(super) fn kind(&self) -> KeyKind {
         self.kind

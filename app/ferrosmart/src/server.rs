@@ -203,6 +203,14 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route(CALLBACK_ROUTE, get(authorize::callback::callback))
         .route(
+            crate::upstream::saml::METADATA_ROUTE,
+            get(authorize::saml::metadata),
+        )
+        .route(
+            crate::upstream::saml::ACS_ROUTE,
+            get(authorize::saml::acs).post(authorize::saml::acs),
+        )
+        .route(
             authorize::choose::LOGIN_ROUTE,
             get(authorize::choose::choose_get).post(authorize::choose::choose_post),
         )

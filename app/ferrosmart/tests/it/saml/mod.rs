@@ -8,7 +8,7 @@
 mod artifact;
 mod attacks;
 mod interop;
-mod kit;
+pub(crate) mod kit;
 mod metadata;
 mod request;
 mod valid;

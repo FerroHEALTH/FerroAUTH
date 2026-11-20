@@ -24,25 +24,25 @@ use jiff::SignedDuration;
 use jiff::Timestamp;
 
 /// The identity provider's entity ID.
-pub(super) const IDP: &str = "https://idp.example.org/saml";
+pub(crate) const IDP: &str = "https://idp.example.org/saml";
 /// FerroSMART's entity ID.
-pub(super) const SP: &str = "https://smart.example.org/saml";
+pub(crate) const SP: &str = "https://smart.example.org/saml";
 /// FerroSMART's assertion consumer service.
-pub(super) const ACS: &str = "https://smart.example.org/saml/acs";
+pub(crate) const ACS: &str = "https://smart.example.org/saml/acs";
 /// The `ID` of the request the responses answer.
-pub(super) const REQUEST: &str = "_0123456789abcdef0123456789abcdef01234567";
+pub(crate) const REQUEST: &str = "_0123456789abcdef0123456789abcdef01234567";
 /// The accepted authentication context classes.
-pub(super) const STRONG: &str = "urn:example:loa:high";
+pub(crate) const STRONG: &str = "urn:example:loa:high";
 /// A class below the provider's minimum.
-pub(super) const WEAK: &str = "urn:example:loa:low";
+pub(crate) const WEAK: &str = "urn:example:loa:low";
 
 /// The time every case checks at.
-pub(super) fn now() -> Timestamp {
+pub(crate) fn now() -> Timestamp {
     "2026-11-19T10:00:00Z".parse().expect("a timestamp")
 }
 
 /// Returns `now` moved by `seconds`, as a SAML instant.
-pub(super) fn at(seconds: i64) -> String {
+pub(crate) fn at(seconds: i64) -> String {
     now()
         .checked_add(SignedDuration::from_secs(seconds))
         .expect("in range")
@@ -51,17 +51,17 @@ pub(super) fn at(seconds: i64) -> String {
 }
 
 /// A key pair as PEM, with a self-signed certificate.
-pub(super) struct Pem {
+pub(crate) struct Pem {
     /// The PKCS#8 private key.
-    pub(super) key: String,
+    pub(crate) key: String,
     /// The certificate.
-    pub(super) certificate: String,
+    pub(crate) certificate: String,
     /// The certificate, DER.
-    pub(super) der: Vec<u8>,
+    pub(crate) der: Vec<u8>,
 }
 
 /// Returns a fresh RSA key of 2048 bits.
-pub(super) fn rsa_pem() -> Pem {
+pub(crate) fn rsa_pem() -> Pem {
     let key = rsa::PrivateDecryptingKey::generate(KeySize::Rsa2048).expect("a key");
     let pkcs8 = key.as_der().expect("PKCS#8");
     let body = STANDARD.encode(pkcs8.as_ref());
@@ -80,7 +80,7 @@ pub(super) fn rsa_pem() -> Pem {
 }
 
 /// Returns a fresh ECDSA key on P-256.
-pub(super) fn p256_pem() -> Pem {
+pub(crate) fn p256_pem() -> Pem {
     let pair = rcgen::KeyPair::generate_for(&rcgen::PKCS_ECDSA_P256_SHA256).expect("a key");
     pem_of(&pair)
 }
@@ -98,25 +98,25 @@ fn pem_of(pair: &rcgen::KeyPair) -> Pem {
 }
 
 /// The keys of one run.
-pub(super) struct Kit {
+pub(crate) struct Kit {
     /// The identity provider's signing key.
-    pub(super) idp: SigningKey,
+    pub(crate) idp: SigningKey,
     /// Its certificate, DER.
-    pub(super) idp_der: Vec<u8>,
+    pub(crate) idp_der: Vec<u8>,
     /// A key the identity provider does not publish.
-    pub(super) stranger: SigningKey,
+    pub(crate) stranger: SigningKey,
     /// FerroSMART's signing key.
-    pub(super) sp: SigningKey,
+    pub(crate) sp: SigningKey,
     /// FerroSMART's decryption key.
-    pub(super) decryption: DecryptionKey,
+    pub(crate) decryption: DecryptionKey,
     /// Its public half, for the test provider to encrypt to.
-    pub(super) encryption: rsa::PublicEncryptingKey,
+    pub(crate) encryption: rsa::PublicEncryptingKey,
     /// The provider as its metadata describes it.
-    pub(super) provider: IdentityProvider,
+    pub(crate) provider: IdentityProvider,
 }
 
 /// The keys of the run, generated once.
-pub(super) static KIT: LazyLock<Kit> = LazyLock::new(|| {
+pub(crate) static KIT: LazyLock<Kit> = LazyLock::new(|| {
     let idp = rsa_pem();
     let stranger = rsa_pem();
     let sp = p256_pem();
@@ -145,7 +145,7 @@ pub(super) static KIT: LazyLock<Kit> = LazyLock::new(|| {
 });
 
 /// Returns the DER of the one PEM block of `pem`.
-pub(super) fn pem_der(pem: &str) -> Vec<u8> {
+pub(crate) fn pem_der(pem: &str) -> Vec<u8> {
     let body: String = pem
         .lines()
         .filter(|line| !line.starts_with("-----"))
@@ -155,7 +155,7 @@ pub(super) fn pem_der(pem: &str) -> Vec<u8> {
 
 /// Writes identity provider metadata naming `certificates` as signing
 /// keys, with `extra` inside the descriptor.
-pub(super) fn metadata(certificates: &[&[u8]], extra: &str) -> String {
+pub(crate) fn metadata(certificates: &[&[u8]], extra: &str) -> String {
     let mut keys = String::new();
     for der in certificates {
         keys.push_str(
@@ -183,10 +183,10 @@ pub(super) fn metadata(certificates: &[&[u8]], extra: &str) -> String {
 }
 
 /// The accepted classes.
-pub(super) static CLASSES: LazyLock<Vec<String>> = LazyLock::new(|| vec![String::from(STRONG)]);
+pub(crate) static CLASSES: LazyLock<Vec<String>> = LazyLock::new(|| vec![String::from(STRONG)]);
 
 /// What FerroSMART expects of a response to [`REQUEST`] at [`now`].
-pub(super) fn expect() -> Expectations<'static> {
+pub(crate) fn expect() -> Expectations<'static> {
     Expectations {
         entity_id: SP,
         acs_url: ACS,
@@ -201,19 +201,19 @@ pub(super) fn expect() -> Expectations<'static> {
 
 /// The parts of an assertion a case changes.
 #[derive(Clone)]
-pub(super) struct Assertion {
-    pub(super) id: String,
-    pub(super) issuer: String,
-    pub(super) subject: String,
-    pub(super) recipient: String,
-    pub(super) in_response_to: String,
-    pub(super) confirm_until: String,
-    pub(super) not_before: String,
-    pub(super) not_on_or_after: String,
-    pub(super) audience: String,
-    pub(super) class: String,
-    pub(super) attributes: String,
-    pub(super) extra_conditions: String,
+pub(crate) struct Assertion {
+    pub(crate) id: String,
+    pub(crate) issuer: String,
+    pub(crate) subject: String,
+    pub(crate) recipient: String,
+    pub(crate) in_response_to: String,
+    pub(crate) confirm_until: String,
+    pub(crate) not_before: String,
+    pub(crate) not_on_or_after: String,
+    pub(crate) audience: String,
+    pub(crate) class: String,
+    pub(crate) attributes: String,
+    pub(crate) extra_conditions: String,
 }
 
 impl Default for Assertion {
@@ -241,7 +241,7 @@ impl Default for Assertion {
 
 impl Assertion {
     /// Writes the assertion, unsigned.
-    pub(super) fn xml(&self) -> String {
+    pub(crate) fn xml(&self) -> String {
         format!(
             concat!(
                 "<saml:Assertion xmlns:saml=\"urn:oasis:names:tc:SAML:2.0:assertion\" ",
@@ -278,23 +278,23 @@ impl Assertion {
     }
 
     /// Writes the assertion signed by the identity provider.
-    pub(super) fn signed(&self) -> String {
+    pub(crate) fn signed(&self) -> String {
         sign(&self.xml(), &KIT.idp)
     }
 }
 
 /// Signs `xml` with `key`.
-pub(super) fn sign(xml: &str, key: &SigningKey) -> String {
+pub(crate) fn sign(xml: &str, key: &SigningKey) -> String {
     dsig::sign(xml, key).expect("the test message signs")
 }
 
 /// Writes a response carrying `assertions`, unsigned.
-pub(super) fn response(assertions: &str) -> String {
+pub(crate) fn response(assertions: &str) -> String {
     response_with("_response1", REQUEST, "Success", assertions)
 }
 
 /// Writes a response with the given `ID`, `InResponseTo` and status.
-pub(super) fn response_with(
+pub(crate) fn response_with(
     id: &str,
     in_response_to: &str,
     status: &str,
@@ -320,13 +320,13 @@ pub(super) fn response_with(
 }
 
 /// Returns `xml` as the `SAMLResponse` form value.
-pub(super) fn posted(xml: &str) -> String {
+pub(crate) fn posted(xml: &str) -> String {
     STANDARD.encode(xml)
 }
 
 /// The data algorithm of a test encryption.
 #[derive(Clone, Copy)]
-pub(super) enum Data {
+pub(crate) enum Data {
     Gcm,
     Cbc,
 }
@@ -334,7 +334,7 @@ pub(super) enum Data {
 /// Wraps `plaintext` in `<saml:{element}>` as XML Encryption writes it
 /// for FerroSMART: AES-256 data, its key transported by RSA-OAEP with
 /// MGF1 and SHA-1.
-pub(super) fn encrypt(element: &str, plaintext: &str, data: Data) -> String {
+pub(crate) fn encrypt(element: &str, plaintext: &str, data: Data) -> String {
     let mut content_key = [0_u8; 32];
     aws_lc_rs::rand::fill(&mut content_key).expect("random");
     let (method, cipher_value) = match data {
@@ -396,6 +396,6 @@ pub(super) fn encrypt(element: &str, plaintext: &str, data: Data) -> String {
 }
 
 /// Returns `key`'s certificate as a trusted key.
-pub(super) fn trusted(der: &[u8]) -> TrustedKey {
+pub(crate) fn trusted(der: &[u8]) -> TrustedKey {
     TrustedKey::from_certificate_der(der).expect("a trusted key")
 }
