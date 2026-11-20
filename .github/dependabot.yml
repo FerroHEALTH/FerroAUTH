@@ -6,6 +6,7 @@ updates:
     directory: "/"
     labels:
       - "dependencies"
+      - "no-changelog"
     schedule:
       interval: "weekly"
     cooldown:
@@ -21,6 +22,7 @@ updates:
     directory: "/"
     labels:
       - "dependencies"
+      - "no-changelog"
     # Daily, so a release of a FerroHEALTH family crate reaches a pull request
     # the next day. A group takes its entry's schedule, and two cargo entries
     # may not share a directory (the Dependabot options reference), so the
@@ -80,6 +82,7 @@ updates:
     directory: "/docker/ferrosmart"
     labels:
       - "dependencies"
+      - "no-changelog"
     schedule:
       interval: "weekly"
     # A bump is a change of digest, so only the default cooldown applies.
