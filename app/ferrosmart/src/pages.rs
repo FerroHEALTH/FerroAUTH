@@ -457,10 +457,11 @@ pub fn picker(
             }));
             Html::raw(format!(
                 "<form method=\"post\" action=\"{action}\" class=\"fui-stack\">\
-                 <input type=\"hidden\" name=\"form_token\" value=\"{token}\">{fields}\
+                 <input type=\"hidden\" name=\"form_token\" value=\"{token}\">{purpose}{fields}\
                  <div class=\"fui-cluster\"><button type=\"submit\" class=\"{primary}\">{choose}</button></div></form>",
                 action = Html::text(&action),
                 token = Html::text(&pending.form_token),
+                purpose = purpose_choice(state, &locale, pending),
                 fields = fieldset(words("picker-results"), choices),
                 primary = Variant::Primary.class(),
                 choose = label(Some(Glyph::CHECK), words("picker-choose")),
@@ -610,6 +611,33 @@ pub fn chooser(
     )
 }
 
+/// Returns the purposes of use the openEHR server of `pending` lists, as
+/// the required choice of a professional's lookup: the one the request
+/// kept once a lookup declared it, checked when it is the one shown, and
+/// nothing when the server lists none (`docs/architecture.md` §13.6 item 4).
+fn purpose_choice(state: &AppState, locale: &Locale, pending: &Pending) -> Html {
+    let Some(purposes) = state.settings().purposes.get(&pending.audience) else {
+        return Html::empty();
+    };
+    let kept = pending.purpose_of_use.as_deref();
+    let shown: Vec<_> = purposes
+        .codes
+        .iter()
+        .filter(|purpose| kept.is_none_or(|kept| kept == purpose.code))
+        .collect();
+    let checked = if shown.len() == 1 { " checked" } else { "" };
+    let radios = Html::join(shown.iter().enumerate().map(|(index, purpose)| {
+        let id = format!("purpose-{index}");
+        let radio = Html::raw(format!(
+            "<input type=\"radio\" id=\"{id}\" name=\"{field}\" value=\"{code}\" required{checked}>",
+            field = crate::picker::purpose::FIELD,
+            code = Html::text(&purpose.code),
+        ));
+        check(&id, purpose.display.clone(), radio)
+    }));
+    fieldset(locale.lookup(&*CATALOG, "picker-purpose"), radios)
+}
+
 /// Returns the picker page of `locale` with the catalog's title and intro of
 /// `[title, intro]`, the form `search` and the `results` below it.
 fn picker_card(
@@ -660,9 +688,10 @@ pub fn ehr_picker(
         Html::text(asked.unwrap_or_default())
     ));
     let search = Html::raw(format!(
-        "<form method=\"get\" action=\"{action}\" role=\"search\" class=\"fui-stack\">{subject}\
+        "<form method=\"get\" action=\"{action}\" role=\"search\" class=\"fui-stack\">{purpose}{subject}\
          <div class=\"fui-cluster\"><button type=\"submit\" class=\"{primary}\">{label}</button></div></form>",
         action = Html::text(&action),
+        purpose = purpose_choice(state, &locale, pending),
         subject = field("subject_id", words("picker-identifier"), None, input),
         primary = Variant::Primary.class(),
         label = label(Some(Glyph::SEARCH), words("picker-search")),

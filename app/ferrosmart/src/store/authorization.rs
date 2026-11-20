@@ -18,7 +18,7 @@ const PENDING: &str = "SELECT id, client_id, redirect_uri, scope, state, nonce, 
     audience, upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
     display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
     upstream_session, launch_context, roles, prompt, max_age, ui_locales, reauthenticated, \
-    upstream_provider, person_claims FROM pending_authorization";
+    upstream_provider, person_claims, purpose_of_use FROM pending_authorization";
 
 impl Store {
     /// Records the authorization request `pending`.
@@ -157,6 +157,24 @@ impl Store {
         Ok(())
     }
 
+    /// Keeps `code` as the purpose of use the picker declares for the
+    /// pending request `id`, and returns whether it is the request's one: a
+    /// request that kept another code is left as it is.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Database`] when the statement fails.
+    pub async fn keep_purpose_of_use(&self, id: &str, code: &str) -> Result<bool, StoreError> {
+        let done = sqlx::query(
+            "UPDATE pending_authorization SET purpose_of_use = $2 WHERE id = $1 \
+             AND (purpose_of_use IS NULL OR purpose_of_use = $2)",
+        )
+        .bind(id)
+        .bind(code)
+        .execute(&self.pool)
+        .await?;
+        Ok(done.rows_affected() == 1)
+    }
+
     /// Puts `context` in the launch context of the pending request `id` and
     /// narrows what the consent page offers to `offered`, as the picker
     /// chose a patient and no encounter.
@@ -217,7 +235,7 @@ impl Store {
              upstream_state, upstream_nonce, upstream_verifier, form_token, subject, fhir_user, \
              display_name, offered_scope, auth_time, extract(epoch FROM expires_at)::bigint AS expires, purpose, \
              upstream_session, launch_context, roles, prompt, max_age, ui_locales, reauthenticated, \
-             upstream_provider, person_claims",
+             upstream_provider, person_claims, purpose_of_use",
         )
         .bind(id)
         .fetch_optional(&self.pool)
@@ -368,6 +386,7 @@ fn read_pending(row: &sqlx::postgres::PgRow) -> Result<Pending, StoreError> {
         launch_context: launch_context(row)?,
         roles: row.try_get("roles")?,
         person_claims: person_claims(row)?,
+        purpose_of_use: row.try_get("purpose_of_use")?,
         asking: Asking {
             prompt: Prompt::of(&row.try_get::<String, _>("prompt")?),
             max_age: row.try_get("max_age")?,

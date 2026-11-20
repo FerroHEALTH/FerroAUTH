@@ -62,6 +62,8 @@ pub struct Settings {
     pub subject_namespaces: BTreeMap<String, String>,
     /// The FHIR base each openEHR base that names one is paired with.
     pub pairings: BTreeMap<String, Pairing>,
+    /// The purposes of use each openEHR base that names any accepts.
+    pub purposes: BTreeMap<String, Purposes>,
     /// The `fhirUser` lookups of each FHIR base that names any
     /// (`docs/architecture.md` §13.6 item 9).
     pub fhir_user_lookups: BTreeMap<String, Vec<crate::config::FhirUserLookupSection>>,
@@ -194,6 +196,7 @@ impl Config {
                 .collect(),
             subject_namespaces: subject_namespaces(&section.resource)?,
             pairings: pairings(&section.resource)?,
+            purposes: purposes(&section.resource)?,
             fhir_user_lookups: fhir_user_lookups(&section.resource)?,
             upstreams: upstreams(&section.upstream, &keys)?,
             saml: service_provider(section)?,
@@ -473,6 +476,95 @@ fn pairings(
         );
     }
     Ok(pairings)
+}
+
+/// The purposes of use an openEHR base accepts, and their header.
+///
+/// A professional's picker lookup declares one in the header. No
+/// specification governs a picker's purpose: our own design, as FerroEHR
+/// reads it (`docs/architecture.md` §13.6 item 4).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Purposes {
+    /// The header.
+    pub header: http::HeaderName,
+    /// The purposes, in configuration order, each code once.
+    pub codes: Vec<PurposeOfUse>,
+}
+
+impl Purposes {
+    /// Returns the purpose whose code is `code`.
+    #[must_use]
+    pub fn get(&self, code: &str) -> Option<&PurposeOfUse> {
+        self.codes.iter().find(|purpose| purpose.code == code)
+    }
+}
+
+/// One purpose of use an openEHR base accepts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PurposeOfUse {
+    /// The code, the header's value.
+    pub code: String,
+    /// The code system.
+    pub system: String,
+    /// The words the picker page shows.
+    pub display: String,
+}
+
+/// The header a purpose is declared in when the table names none, the one
+/// FerroEHR reads by default (its `[audit] purpose_header`).
+const PURPOSE_HEADER: &str = "x-purpose-of-use";
+
+/// Returns the purposes of each openEHR base in `sections` that names any.
+fn purposes(
+    sections: &[crate::config::ResourceSection],
+) -> Result<BTreeMap<String, Purposes>, Error> {
+    let refuse = |rule| Err(Error::Resource { rule });
+    let mut purposes = BTreeMap::new();
+    for section in sections {
+        if section.purpose.is_empty() {
+            if section.purpose_header.is_some() {
+                return refuse("a `purpose_header` comes with `purpose` tables");
+            }
+            continue;
+        }
+        if section.kind != crate::config::ResourceKind::Openehr {
+            return refuse("a `purpose` is for an openEHR base");
+        }
+        let header = section.purpose_header.as_deref().unwrap_or(PURPOSE_HEADER);
+        // NOTE: RFC 9110 §5.1, a field name is a token.
+        let Ok(header) = http::HeaderName::try_from(header) else {
+            return refuse("a `purpose_header` is a header name");
+        };
+        let mut codes: Vec<PurposeOfUse> = Vec::with_capacity(section.purpose.len());
+        for purpose in &section.purpose {
+            // NOTE: RFC 9110 §5.5, a field value of visible characters; a comma would
+            // split it into a list (§5.6.1), so a code carries none.
+            let visible = purpose
+                .code
+                .bytes()
+                .all(|byte| byte.is_ascii_graphic() && byte != b',');
+            if purpose.code.is_empty() || !visible {
+                return refuse("a `purpose` `code` is visible ASCII with no comma");
+            }
+            if codes.iter().any(|known| known.code == purpose.code) {
+                return refuse("a `purpose` `code` is configured once per base");
+            }
+            // NOTE: FHIR R4 Coding.system is a uri, "an absolute URI".
+            if Url::parse(&purpose.system).is_err() {
+                return refuse("a `purpose` `system` is an absolute URI");
+            }
+            if purpose.display.trim().is_empty() {
+                return refuse("a `purpose` names its `display`");
+            }
+            codes.push(PurposeOfUse {
+                code: purpose.code.clone(),
+                system: purpose.system.clone(),
+                display: purpose.display.clone(),
+            });
+        }
+        purposes.insert(section.base.clone(), Purposes { header, codes });
+    }
+    Ok(purposes)
 }
 
 /// Returns the clients `sections` register, each naming only providers

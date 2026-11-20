@@ -189,6 +189,7 @@ async fn begin(
         roles: Vec::new(),
         asking,
         person_claims: crate::store::PersonClaims::default(),
+        purpose_of_use: None,
     };
     state
         .store()

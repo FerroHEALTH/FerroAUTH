@@ -39,8 +39,8 @@ use ehds_logging::classify::Evidence;
 use ehds_logging::label::LabelPolicy;
 use ehds_logging::map::CategoryMap;
 use ehds_logging::record::{
-    AccessRecord, Accessor, Action, DataSubject, Origin, Outcome, PatientIdentifier, Professional,
-    Request,
+    AccessRecord, Accessor, Action, Coded, DataSubject, Origin, Outcome, PatientIdentifier,
+    Professional, Purpose, Request,
 };
 use ehds_logging::retention::RetentionPolicy;
 use http::HeaderMap;
@@ -63,6 +63,7 @@ pub mod encounter;
 pub mod fhir_user;
 pub mod openehr;
 mod paired;
+pub mod purpose;
 
 /// The route of the picker under the issuer.
 pub const PICKER_ROUTE: &str = "/picker";
@@ -167,7 +168,9 @@ pub(crate) async fn own_record(
     id: &str,
 ) -> Response {
     let context = if let Some(pairing) = state.settings().pairings.get(&pending.audience) {
-        match paired::context_of(state, pending, from, pairing, id).await {
+        // NOTE: no specification governs a picker's purpose: our own design, and a
+        // person's lookup of their own record declares none.
+        match paired::context_of(state, pending, from, pairing, (id, None)).await {
             Ok(Some(context)) => context,
             Ok(None) => return pages::fault(state, Fault::NoOwnRecord),
             Err(response) => return *response,
@@ -499,6 +502,10 @@ struct PickerClaims<'a> {
     /// The person's `fhirUser`.
     #[serde(rename = "fhirUser", skip_serializing_if = "Option::is_none")]
     fhir_user: Option<&'a str>,
+    /// The person's mapped roles, as the access token of the same sign-in
+    /// carries them (RFC 9068 §2.2.3.1).
+    #[serde(skip_serializing_if = "<[String]>::is_empty")]
+    roles: &'a [String],
 }
 
 /// One request the picker sends as the signed-in person: where, with
@@ -514,6 +521,9 @@ struct Ask<'a> {
     accept: &'static str,
     /// The access the answer makes, for its record.
     describe: Describe<'a>,
+    /// The purpose of use the request declares, at an openEHR server that
+    /// lists purposes.
+    purpose: Option<purpose::Declared<'a>>,
 }
 
 /// How an [`Ask`] describes the access its answer made.
@@ -568,6 +578,7 @@ fn fhir_ask<'a>(url: &'a Url, audience: &'a str, action: Action) -> Ask<'a> {
                 request: fhir_request(url, action, "Patient"),
             }
         }),
+        purpose: None,
     }
 }
 
@@ -628,6 +639,7 @@ async fn as_person(
         client_id: &settings.issuer,
         scope: ask.scope,
         fhir_user: pending.fhir_user.as_deref(),
+        roles: &pending.roles,
     };
     // NOTE: RFC 9068 §2.1, typ at+jwt.
     let token = settings
@@ -677,6 +689,7 @@ async fn as_person(
         subject,
         from,
         audience: ask.audience,
+        purpose: ask.purpose,
     };
     let recorded = record_access(state, &asker, (ask.describe)(&fetched)).await;
     let revoked = revoke(
@@ -692,15 +705,16 @@ async fn as_person(
 
 /// Sends `ask` with the bearer `token`.
 async fn fetch(state: &AppState, ask: &Ask<'_>, token: &str) -> Result<Value, PickerError> {
-    let answer = state
+    let mut request = state
         .fhir()
         .get(ask.url.clone())
         .bearer_auth(token)
         .header(http::header::ACCEPT, ask.accept)
-        .timeout(REQUEST_TIMEOUT)
-        .send()
-        .await
-        .map_err(PickerError::Fetch)?;
+        .timeout(REQUEST_TIMEOUT);
+    if let Some(declared) = ask.purpose {
+        request = request.header(declared.header, &declared.purpose.code);
+    }
+    let answer = request.send().await.map_err(PickerError::Fetch)?;
     let status = answer.status();
     if !status.is_success() {
         return Err(PickerError::Refused(status));
@@ -735,6 +749,8 @@ struct Asker<'a> {
     from: IpAddr,
     /// The base of the resource server asked.
     audience: &'a str,
+    /// The purpose of use the request declared.
+    purpose: Option<purpose::Declared<'a>>,
 }
 
 /// Stores the access record of one request `asker` sent, as `access`
@@ -749,6 +765,7 @@ async fn record_access(
         subject,
         from,
         audience,
+        ..
     } = *asker;
     let settings = state.settings();
     let recorded = jiff::Timestamp::now();
@@ -823,7 +840,14 @@ fn accessor(issuer: &str, asker: &Asker<'_>) -> Accessor {
         audience: Some(asker.audience.to_owned()),
         provider: None,
         acting: None,
-        roles: Vec::new(),
+        roles: pending
+            .roles
+            .iter()
+            .map(|role| Coded {
+                system: None,
+                code: role.clone(),
+            })
+            .collect(),
         token_id: None,
         assurance: None,
         professional: Professional {
@@ -831,7 +855,14 @@ fn accessor(issuer: &str, asker: &Asker<'_>) -> Accessor {
             ..Professional::default()
         },
         alt_id: None,
-        purposes: Vec::new(),
+        purposes: asker
+            .purpose
+            .map(|declared| Purpose {
+                system: Some(declared.purpose.system.clone()),
+                code: declared.purpose.code.clone(),
+            })
+            .into_iter()
+            .collect(),
         policies: Vec::new(),
         relayed: None,
         binding: None,

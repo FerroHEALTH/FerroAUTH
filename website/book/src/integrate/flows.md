@@ -40,7 +40,10 @@ reach: the server's own `.well-known/smart-configuration` names FerroSMART's
    server paired with its platform's FHIR server (`fhir_base`), the person
    searches the FHIR server instead, and FerroSMART looks the chosen
    patient's EHR up by the identifier `subject_system` names, so the
-   context carries both `patient` and `ehrId`. The search runs as
+   context carries both `patient` and `ehrId`. At an openEHR server that
+   lists purposes of use (`[[ferrosmart.resource.purpose]]`), a
+   professional chooses one on the picker page, and the lookups send it
+   in the server's purpose header. The search runs as
    the person, with a token of their own for that one server that lives 30
    seconds and is revoked after the request, so the server's rules decide
    which patients they see. The chosen patient is read again as them before
