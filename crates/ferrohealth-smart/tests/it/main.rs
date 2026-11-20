@@ -27,6 +27,7 @@ mod audit;
 #[cfg(feature = "fetch")]
 mod auth_tls;
 mod basic;
+mod care_role;
 mod classify;
 #[cfg(feature = "fetch")]
 mod client;

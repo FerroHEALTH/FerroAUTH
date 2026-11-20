@@ -1310,7 +1310,12 @@ field `correlation_id` carries the log correlation id of a chained
 organisation request, which the requester sets and each hop carries on,
 only from the source the table maps (a claim of the verified token or an
 attested `authorization_details` member, never a request header): one
-string, read onto the caller as `Caller::correlation_id`.
+string, read onto the caller as `Caller::correlation_id`. The field
+`trc.care_role` carries the care role a treatment relationship attests for
+the professional (#751): one code with its code system, a string, an
+unsystemed code or two codes refused naming the field, read through
+`External::field`; the value set is the deployment's access policy's, never
+a product's, and a contact point's token carrying it carries the whole TRC.
 
 **The contact-point profile** (`federation::contact`). A
 `contact_point = true` issuer is NCPeH-A's authorization server, and its

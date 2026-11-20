@@ -493,11 +493,11 @@ pub(crate) fn check(external: &External, claims: &Map<String, Value>) -> Result<
 /// 11.01.02).
 fn check_assertions(external: &External, claims: &Map<String, Value>) -> Result<(), Unclassified> {
     // NOTE: eHDSI SAML Profile 10.0.0 §4: the TRC is issued once the patient is identified,
-    // so a discovery-phase token carries no TRC field; one that carries any carries all three.
+    // so a discovery-phase token carries no TRC field; one that carries any carries the three.
     let treatment = [Field::TrcId, Field::TrcNotBefore, Field::TrcNotOnOrAfter];
     let past_discovery = treatment
         .iter()
-        .chain([Field::PatientId].iter())
+        .chain([Field::PatientId, Field::TrcCareRole].iter())
         .any(|field| external.field(*field).is_some());
     let missing: Vec<&'static str> = [
         Field::AssertionIssuer,

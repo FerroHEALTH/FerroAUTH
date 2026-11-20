@@ -165,6 +165,24 @@ harmonised authentication of the openEHR Federation Tier specification
 {{#include profiles/nl-annex-b.toml}}
 ```
 
+#### The treatment relationship fields
+
+A federation table maps these fields of a treatment relationship
+confirmation, each from a claim, a credential subject path, an attested
+`authorization_details` member or a constant, as it maps the professional
+and provider fields:
+
+| Field | Value |
+|---|---|
+| `trc.id` | The confirmation's identifier, one string |
+| `trc.not_before` | The start of its window, in seconds since the epoch |
+| `trc.not_on_or_after` | The end of its window, in seconds since the epoch |
+| `trc.care_role` | The care role it attests for the professional: one coded value with its code system, as a FHIR Coding `[{ "system": "…", "code": "…" }]` or a configured `{ constant = "…", system = "…" }`; a string, a code without a system or two codes refuse the token (`attribute-refused`) |
+
+The products name no care role value set: the deployment's access policy
+names the one it reads. A contact point's token that carries any of these
+fields carries `trc.id` and both window bounds.
+
 ### Why a token was refused
 
 A product refuses a token with `401` and `error="invalid_token"`, or a
