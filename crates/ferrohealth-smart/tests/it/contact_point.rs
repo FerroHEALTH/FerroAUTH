@@ -137,7 +137,17 @@ impl Harness {
 
     /// Returns the caller `claims` authenticate over the bound connection.
     async fn admit(&self, claims: &Value) -> Result<Caller, Rejection> {
-        let server = ResourceServer::discover(self.settings(table()))
+        self.admit_under(table(), claims).await
+    }
+
+    /// Returns the caller `claims` authenticate over the bound connection,
+    /// the issuer under `section`.
+    async fn admit_under(
+        &self,
+        section: FederationSection,
+        claims: &Value,
+    ) -> Result<Caller, Rejection> {
+        let server = ResourceServer::discover(self.settings(section))
             .await
             .expect("the key set file reads");
         let mut header = Header::new(Algorithm::ES256);
@@ -301,6 +311,36 @@ async fn a_discovery_phase_token_is_held_to_the_identity_assertion_window() -> O
     let mut long = discovery();
     long["ehdsi"]["assertion"]["not_before"] = json!(now() - 4 * 3600);
     assert_eq!(integrity, code(h.admit(&long).await), "past 4 hours");
+    Ok(())
+}
+
+// NOTE: eHDSI SAML Profile 10.0.0 §4: a care role is part of the treatment
+// relationship, so a token that carries one carries the whole TRC (#751).
+#[tokio::test]
+async fn an_attested_care_role_comes_with_the_treatment_confirmation() -> Outcome {
+    let h = Harness::new();
+    let mut section = table();
+    section.fields.insert(
+        Field::TrcCareRole,
+        vec![Source::Claim(String::from("ehdsi.trc.care_role"))],
+    );
+    let role = json!([{ "system": "urn:example:care-role", "code": "treating" }]);
+    let mut claims = token();
+    claims["ehdsi"]["trc"]["care_role"] = role.clone();
+    let caller = h.admit_under(section.clone(), &claims).await?;
+    let CallerKind::ExternalPerson(person) = caller.kind() else {
+        panic!("an external person: {caller:?}");
+    };
+    assert!(person.field(Field::TrcCareRole).is_some());
+    let mut alone = discovery();
+    alone["ehdsi"]["trc"] = json!({ "care_role": role });
+    assert_eq!(
+        Some((
+            EhdsiCode::SecDataIntegrityNotEnsured,
+            vec!["trc.id", "trc.not_before", "trc.not_on_or_after"]
+        )),
+        code(h.admit_under(section, &alone).await)
+    );
     Ok(())
 }
 

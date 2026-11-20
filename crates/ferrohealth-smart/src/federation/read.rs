@@ -307,7 +307,8 @@ pub(crate) fn attribute(value: &Value) -> Option<Attribute> {
 }
 
 /// Refuses a value that holds a C0, C1 or bidi-control character, is longer
-/// than the field's cap, or is coded where the field takes one string (no
+/// than the field's cap, is coded where the field takes one string, or is
+/// other than one code with its system where the field takes that (no
 /// specification governs the checks: our own design, against a value that
 /// renders other than it reads).
 pub(crate) fn check_attribute(field: Field, value: &Attribute) -> Result<(), Unclassified> {
@@ -321,7 +322,12 @@ pub(crate) fn check_attribute(field: Field, value: &Attribute) -> Result<(), Unc
             })
     };
     let coded = matches!(value, Attribute::Codes(_));
-    if (coded && field.text_only()) || value.strings().into_iter().any(refused) {
+    let one_systemed_code = matches!(value, Attribute::Codes(held)
+        if held.len() == 1 && held.iter().all(|code| code.system.is_some()));
+    if (coded && field.text_only())
+        || (field.coded_only() && !one_systemed_code)
+        || value.strings().into_iter().any(refused)
+    {
         return Err(Unclassified::Attribute {
             field: field.as_str(),
         });

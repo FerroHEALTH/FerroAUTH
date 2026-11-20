@@ -126,6 +126,11 @@ pub enum Field {
     /// The end of the treatment relationship confirmation's window.
     #[serde(rename = "trc.not_on_or_after")]
     TrcNotOnOrAfter,
+    /// The care role the treatment relationship attests for the
+    /// professional: one coded value with its code system, from the value
+    /// set the deployment's access policy names. Coded only.
+    #[serde(rename = "trc.care_role")]
+    TrcCareRole,
     /// The patient identifier of a patient-data request.
     #[serde(rename = "patient.id")]
     PatientId,
@@ -192,6 +197,7 @@ impl Field {
             Self::TrcId => "trc.id",
             Self::TrcNotBefore => "trc.not_before",
             Self::TrcNotOnOrAfter => "trc.not_on_or_after",
+            Self::TrcCareRole => "trc.care_role",
             Self::PatientId => "patient.id",
             Self::PatientIdSource => "patient.id_source",
             Self::PatientPidIssuerCountry => "patient.pid_issuer_country",
@@ -231,6 +237,12 @@ impl Field {
                 | Self::AssertionNameIdFormat
                 | Self::MessageId
         )
+    }
+
+    /// Returns whether the field takes one code with its code system, never
+    /// a string or an unsystemed code.
+    pub(crate) const fn coded_only(self) -> bool {
+        matches!(self, Self::TrcCareRole)
     }
 
     /// Returns the longest value the field takes, in characters (no
