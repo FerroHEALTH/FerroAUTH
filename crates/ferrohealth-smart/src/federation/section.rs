@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The rules of one `[[auth.federation]]` table: how it is set over a
+//! The rules of one `[auth.issuer.<name>.federation]` table: how it is set over a
 //! preset's defaults, the sources of its fields, and the checks it passes
 //! before the issuer loads.
 

@@ -3,7 +3,7 @@
 
 //! The federation exchange: an onward token of another party's issuer,
 //! which by design names no local person `sub`, checked by the attested
-//! `person_mapping` of its `[[auth.federation]]` table, the field set of
+//! `person_mapping` of its `[auth.issuer.<name>.federation]` table, the field set of
 //! 2026/2099 Annex Table 1 and, on a chained route, the correlation claim.
 
 use std::collections::BTreeMap;

@@ -468,35 +468,32 @@ async fn a_federation_issuer_without_its_table_or_with_roles_fails_to_load() -> 
 #[test]
 fn the_federation_tables_load_from_toml_and_name_their_issuers() -> Outcome {
     let text = format!(
-        r#"[[issuer]]
+        r#"[issuer.i1]
 issuer = "{ISSUER}"
 kind = "federation"
 audience = ["{AUDIENCE}"]
 token_types = ["IUA-JWT"]
 
-[[federation]]
-issuer = "{ISSUER}"
+[issuer.i1.federation]
 contact_point = false
 mapping = "iua"
 countries = ["NL"]
 issuing_authorities = ["CIBG"]
 provider_identifier_prefixes = ["{PREFIX}"]
 
-[federation.fields]
+[issuer.i1.federation.fields]
 "professional.country_code" = [{{ constant = "NL" }}]
 "professional.issuing_authority_name" = [{{ constant = "CIBG" }}]
 "#
     );
     let section: AuthSection = toml::from_str(&text)?;
-    let resolved = section.resolve()?;
+    let resolved = section.resolve(&[])?;
     let settings = resolved.issuers.first().ok_or("one issuer")?;
     assert!(settings.federation.is_some());
-    let stray: AuthSection = toml::from_str(&text.replace(
-        &format!("[[federation]]\nissuer = \"{ISSUER}\""),
-        "[[federation]]\nissuer = \"https://unknown.example.org\"",
-    ))?;
+    let stray: AuthSection =
+        toml::from_str(&text.replace("kind = \"federation\"", "kind = \"persons\""))?;
     assert!(matches!(
-        stray.resolve(),
+        stray.resolve(&[]),
         Err(ConfigError::Federation { .. })
     ));
     Ok(())

@@ -123,7 +123,7 @@ fn basic_users_compare_the_hash_by_value() {
 fn auth_sections_compare_their_tables() {
     let section = |audience: &str| -> AuthSection {
         toml::from_str(&format!(
-            "[[issuer]]\n\
+            "[issuer.i1]\n\
              issuer = \"https://as.example.org\"\n\
              kind = \"machines\"\n\
              audience = [\"{audience}\"]\n\

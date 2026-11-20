@@ -20,7 +20,7 @@
 //! profile's `expect`, it names the requesting client as its actor, and it
 //! names the caller's person: by the profile's `person_equality` claims on
 //! a `persons` issuer, by the attested `person_mapping` of its
-//! `[[auth.federation]]` table on a `federation` issuer, whose token also
+//! `[auth.issuer.<name>.federation]` table on a `federation` issuer, whose token also
 //! keeps the subject's consent decision reference. A `patients` issuer
 //! exchanges a patient's own token alone, and its token must read as a
 //! patient token of that issuer and name the subject token's patient
@@ -470,7 +470,7 @@ pub enum OnwardError {
     /// The issuer's profile sets no `max_onward_lifetime`.
     #[error("the onward issuer's profile sets no max_onward_lifetime")]
     MaxOnwardLifetime,
-    /// The `[[auth.federation]]` table of a `federation` issuer lacks a key
+    /// The `[auth.issuer.<name>.federation]` table of a `federation` issuer lacks a key
     /// the onward check reads.
     #[error("auth.federation.{key} is not set for the onward grants")]
     Federation {

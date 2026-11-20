@@ -168,7 +168,7 @@ impl IdpAdapter for FakeAdapter {
     }
 }
 
-/// The `[[auth.party]]` table of the cases: GUID logins, groups read from
+/// The `[auth.issuer.<name>.party]` table of the cases: GUID logins, groups read from
 /// `groups`.
 pub(crate) fn table() -> PartySection {
     PartySection {

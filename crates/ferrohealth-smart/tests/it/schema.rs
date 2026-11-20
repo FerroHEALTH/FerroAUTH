@@ -2,13 +2,12 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 //! The `[auth]` schema of the caller classification: every issuer a
-//! `[[auth.issuer]]` table with a required `kind` and its own settings, the
+//! `[auth.issuer.<name>]` table with a required `kind` and its own settings, the
 //! profile a preset with keys set over it, and every removed key refused
 //! naming its replacement.
 
 use std::error::Error as StdError;
 
-use ferrohealth_secret::secret_url::SecretUrl;
 use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::kind::IssuerKind;
@@ -20,7 +19,7 @@ type Outcome = Result<(), Box<dyn StdError>>;
 /// An issuer table of `kind` with `extra` keys.
 fn issuer(kind: &str, extra: &str) -> String {
     format!(
-        "[[issuer]]\nissuer = \"https://as.example.org\"\nkind = \"{kind}\"\naudience = [\"a\"]\n{extra}\n"
+        "[issuer.i2]\nissuer = \"https://as.example.org\"\nkind = \"{kind}\"\naudience = [\"a\"]\n{extra}\n"
     )
 }
 
@@ -31,8 +30,8 @@ fn section(text: &str) -> AuthSection {
 
 #[test]
 fn an_issuer_without_kind_fails_to_load() {
-    let refused =
-        section("[[issuer]]\nissuer = \"https://as.example.org\"\naudience = [\"a\"]\n").resolve();
+    let refused = section("[issuer.i3]\nissuer = \"https://as.example.org\"\naudience = [\"a\"]\n")
+        .resolve(&[]);
     assert!(
         matches!(
             refused,
@@ -96,7 +95,7 @@ fn a_banned_key_fails_to_load() {
             "person_key = \"login\"\nunstable_claims = [\"login\"]",
         ),
     ] {
-        let refused = section(&text).resolve();
+        let refused = section(&text).resolve(&[]);
         assert!(
             matches!(refused, Err(ConfigError::Issuer { .. })),
             "{text}: {refused:?}"
@@ -106,7 +105,7 @@ fn a_banned_key_fails_to_load() {
 
 #[test]
 fn a_federation_issuer_without_its_table_fails_to_load() {
-    let refused = section(&issuer("federation", "")).resolve();
+    let refused = section(&issuer("federation", "")).resolve(&[]);
     assert!(
         matches!(refused, Err(ConfigError::Federation { .. })),
         "{refused:?}"
@@ -125,7 +124,7 @@ first_party_clients = ["first-party-app"]
 delegates = [{ sub = "actor-1" }, { client = "third-party-app" }]
 scope_claim = { claim = "scp", form = "array" }"#,
     ))
-    .resolve()?;
+    .resolve(&[])?;
     let profile = &resolved.issuers.first().ok_or("one issuer")?.profile;
     assert_eq!("sub", profile.person_key, "the issuer's key wins");
     assert_eq!(
@@ -156,7 +155,7 @@ fn the_okta_and_keycloak_presets_fail_to_load_until_the_deployment_sets_their_ga
         issuer("machines", "profile = \"keycloak\""),
     ] {
         assert!(
-            matches!(section(&text).resolve(), Err(ConfigError::Issuer { .. })),
+            matches!(section(&text).resolve(&[]), Err(ConfigError::Issuer { .. })),
             "{text}"
         );
     }
@@ -165,7 +164,7 @@ fn the_okta_and_keycloak_presets_fail_to_load_until_the_deployment_sets_their_ga
             "persons",
             "profile = \"okta\"\ntoken_types = [\"JWT\"]"
         ))
-        .resolve()
+        .resolve(&[])
         .is_ok(),
         "okta with its token types"
     );
@@ -174,7 +173,7 @@ fn the_okta_and_keycloak_presets_fail_to_load_until_the_deployment_sets_their_ga
             "machines",
             "profile = \"keycloak\"\napp_only = [{ subjects = [\"service-account-sub\"] }]"
         ))
-        .resolve()
+        .resolve(&[])
         .is_ok(),
         "keycloak with its service accounts"
     );
@@ -189,7 +188,7 @@ fn an_adapter_whose_feature_is_not_compiled_in_fails_to_load() {
         "persons",
         "profile = \"entra\"\nadapter = \"idp-entra\"",
     ))
-    .resolve();
+    .resolve(&[]);
     assert!(
         matches!(refused, Err(ConfigError::Issuer { .. })),
         "{refused:?}"
@@ -204,7 +203,7 @@ fn only_a_compiled_adapter_loads() {
         "persons",
         "profile = \"entra\"\nadapter = \"idp-unknown\"",
     ))
-    .resolve();
+    .resolve(&[]);
     assert!(
         matches!(unknown, Err(ConfigError::Issuer { .. })),
         "{unknown:?}"
@@ -213,7 +212,7 @@ fn only_a_compiled_adapter_loads() {
         "persons",
         "profile = \"entra\"\nadapter = \"idp-entra\"",
     ))
-    .resolve();
+    .resolve(&[]);
     assert_eq!(
         cfg!(feature = "idp-entra"),
         compiled.is_ok(),
@@ -239,85 +238,80 @@ fn a_product_role_list_names_persons_issuers_only() -> Outcome {
     let resolved = section(&format!(
         "{}{}",
         issuer("persons", ""),
-        "[[issuer]]\nissuer = \"https://machines.example.org\"\nkind = \"machines\"\naudience = [\"a\"]\n"
+        "[issuer.machines]\nissuer = \"https://machines.example.org\"\nkind = \"machines\"\naudience = [\"a\"]\n"
     ))
-    .resolve()?;
-    resolved.check_role_issuers(
-        "authz.admin_issuers",
-        &[SecretUrl::new("https://as.example.org")],
-    )?;
-    let refused = resolved.check_role_issuers(
-        "authz.admin_issuers",
-        &[SecretUrl::new("https://machines.example.org")],
+    .resolve(&[])?;
+    assert_eq!(
+        vec![String::from("https://as.example.org")],
+        resolved.role_issuers("authz.admin_issuers", &[String::from("i2")])?,
+        "a name reads as its issuer's identifier"
     );
+    let refused = resolved.role_issuers("authz.admin_issuers", &[String::from("machines")]);
     assert!(
         matches!(
             &refused,
             Err(ConfigError::RoleIssuer {
-                kind: Some(IssuerKind::Machines),
+                kind: IssuerKind::Machines,
                 ..
             })
         ),
         "{refused:?}"
     );
-    let unknown = resolved.check_role_issuers(
-        "authz.admin_issuers",
-        &[SecretUrl::new("https://other.example.org")],
-    );
+    Ok(())
+}
+
+// NOTE: no specification governs the configuration model: our own design (#730),
+// a key that names an issuer by an unknown name is refused, listing the known ones.
+#[test]
+fn an_unknown_issuer_name_is_refused_listing_the_known_names() -> Outcome {
+    let resolved = section(&issuer("persons", "")).resolve(&[])?;
+    let refused = resolved
+        .role_issuers("authz.admin_issuers", &[String::from("other")])
+        .expect_err("an unknown name");
+    let ConfigError::UnknownIssuer { key, name, known } = &refused else {
+        panic!("an unknown issuer, got {refused:?}");
+    };
+    assert_eq!("authz.admin_issuers", *key);
+    assert_eq!("other", name);
+    assert_eq!(&vec![String::from("i2")], known);
+    assert!(refused.to_string().contains("\"i2\""), "{refused}");
+    let described = section(&format!(
+        "described_issuer = \"nope\"\n{}",
+        issuer("persons", "")
+    ))
+    .resolve(&[]);
     assert!(
-        matches!(unknown, Err(ConfigError::RoleIssuer { kind: None, .. })),
-        "an issuer the section does not trust"
+        matches!(
+            described,
+            Err(ConfigError::UnknownIssuer {
+                key: "auth.described_issuer",
+                ..
+            })
+        ),
+        "described_issuer names an issuer by its name"
     );
     Ok(())
 }
 
-/// A role list issuer written with userinfo is refused naming its host, and
-/// its password reaches neither the refusal's `Display` nor its `Debug` nor
-/// any error of its source chain (RFC 3986 §3.2.1, #464).
+// NOTE: no specification governs the configuration model: our own design (#730),
+// a name addressable from the environment.
 #[test]
-fn a_credentialed_role_issuer_is_refused_with_its_password_masked() -> Outcome {
-    let resolved = section(&issuer("persons", "")).resolve()?;
-    let refused = resolved
-        .check_role_issuers(
-            "authz.admin_issuers",
-            &[SecretUrl::new(
-                "https://admin:ROLE_ISSUER_PW@as.example.org",
-            )],
-        )
-        .expect_err("an issuer with userinfo is no trusted persons issuer");
-    assert!(
-        matches!(
-            &refused,
-            ConfigError::RoleIssuer {
-                key: "authz.admin_issuers",
-                kind: None,
-                ..
-            }
-        ),
-        "{refused:?}"
-    );
-    let mut renderings = vec![refused.to_string(), format!("{refused:?}")];
-    let mut source = StdError::source(&refused);
-    while let Some(cause) = source {
-        renderings.push(cause.to_string());
-        renderings.push(format!("{cause:?}"));
-        source = cause.source();
-    }
-    for (index, shown) in renderings.iter().enumerate() {
+fn an_issuer_name_outside_the_name_form_is_refused() {
+    for name in ["Smart", "1st", "a-b", "\"a.b\"", "\"\""] {
+        let text = format!(
+            "[issuer.{name}]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n"
+        );
+        let refused = section(&text).resolve(&[]);
         assert!(
-            !shown.contains("ROLE_ISSUER_PW"),
-            "rendering {index}: the issuer's password"
+            matches!(refused, Err(ConfigError::IssuerName { .. })),
+            "{name}: {refused:?}"
         );
     }
     assert!(
-        refused.to_string().contains("as.example.org"),
-        "the refusal names the host: {refused}"
+        section(&issuer("persons", "").replace("i2", "smart_2"))
+            .resolve(&[])
+            .is_ok()
     );
-    assert!(
-        format!("{refused:?}").contains("as.example.org"),
-        "the Debug rendering names the host"
-    );
-    Ok(())
 }
 
 #[test]
@@ -342,17 +336,17 @@ fn one_jwt_issuer_and_one_introspection_issuer_load_together() -> Outcome {
     let resolved = section(&format!(
         "{}{}",
         issuer("persons", ""),
-        r#"[[issuer]]
+        r#"[issuer.i5]
 issuer = "https://introspected.example.org"
 kind = "machines"
 audience = ["a"]
 mode = "introspection"
-[issuer.introspection.client]
+[issuer.i5.introspection.client]
 client_id = "ferro-rs"
 client_secret = "synthetic-secret"
 "#
     ))
-    .resolve()?;
+    .resolve(&[])?;
     assert_eq!(1, resolved.issuers.len(), "the JWT issuer");
     assert_eq!(1, resolved.introspection.len(), "the introspection issuer");
     assert_eq!(

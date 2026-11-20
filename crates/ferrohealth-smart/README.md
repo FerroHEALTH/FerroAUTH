@@ -38,15 +38,15 @@ ferrohealth-smart = { version = "=0.31.0", features = ["axum", "openehr"] }
   which one a route is checked against.
 - **`roles`**: the roles a caller holds, `Caller::roles()`, read from the
   `roles`, `groups` and `entitlements` claims of RFC 9068 §2.2.3.1 or the
-  paths each `[[auth.issuer]] role_claims` names, or granted to a Basic
+  paths each `[auth.issuer.<name>] role_claims` names, or granted to a Basic
   user by the product (`config::BasicGrants` with
   `PasswordStore::with_grants`, or `Caller::with_granted_roles` and
   `Caller::with_granted_scope` from its own data); the route
   table checks them with `Requirement::Role`, `AnyRole`, `WithoutRole` and
   `All`.
 - **`kind`** and **`profile`**: who stands behind a token. Each
-  `[[auth.issuer]]` declares its `kind` (`persons`, `patients`, `machines`,
-  `federation`) and a `profile`, a preset (`rfc9068`, `entra`, `keycloak`,
+  `[auth.issuer.<name>]` declares its `kind` (`persons`, `patients`, `machines`,
+  `federation`; the preset's when unset) and a `profile`, a preset (`rfc9068`, `entra`, `keycloak`,
   `okta`, `nl`, `ferrosmart`, shipped under `profiles/` with each value's source) with any key
   set over it: the token types, the required claims, the scope claim, the
   person key, the client claims, the app-only and guest markers, the
@@ -67,7 +67,7 @@ ferrohealth-smart = { version = "=0.31.0", features = ["axum", "openehr"] }
   cache, and reads `[auth]` as `config::ProductStandingSection`, where the
   three keys are unknown; `ProductStandingSection::resolve` hands every
   issuer the product's standing.
-- **`party`**: the party a person's login belongs to. One `[[auth.party]]`
+- **`party`**: the party a person's login belongs to. One `[auth.issuer.<name>.party]`
   table per `persons` issuer names the identifiers its logins are matched
   against; the product implements `PartySource` over its own store, and
   `PartyBinding::resolve` (or `Gate::with_party` behind the guard) looks the

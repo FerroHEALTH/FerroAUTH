@@ -472,7 +472,7 @@ async fn a_list_beside_the_products_standing_is_refused() {
 /// `section` keys before it.
 fn auth(section: &str, extra: &str) -> String {
     format!(
-        "{section}\n[[issuer]]\nissuer = \"{ISSUER}\"\nkind = \"persons\"\naudience = [\"{AUDIENCE}\"]\n\
+        "{section}\n[issuer.i1]\nissuer = \"{ISSUER}\"\nkind = \"persons\"\naudience = [\"{AUDIENCE}\"]\n\
          jwks_file = \"/dev/null\"\n{extra}\n"
     )
 }
@@ -483,10 +483,7 @@ fn the_product_section_refuses_the_three_keys_as_unknown() {
         auth("", "first_party_clients = [\"portal\"]"),
         auth("", "delegates = [{ client = \"portal\" }]"),
         auth("", "first_party_clients = []"),
-        auth(
-            &format!("scopeless_subjects = [{{ issuer = \"{ISSUER}\", sub = \"svc\" }}]"),
-            "",
-        ),
+        auth("", "scopeless_subjects = [\"svc\"]"),
     ];
     for text in &refused {
         let error = toml::from_str::<ProductStandingSection>(text)
@@ -536,7 +533,7 @@ fn refused_span<S: serde::de::DeserializeOwned>(text: &str) -> Option<&str> {
 #[test]
 fn an_unknown_key_of_the_product_section_is_refused_at_its_own_position() {
     let issuer = format!(
-        "[[auth.issuer]]\nissuer = \"{ISSUER}\"\nkind = \"persons\"\n\
+        "[auth.issuer.i2]\nissuer = \"{ISSUER}\"\nkind = \"persons\"\n\
          audience = [\"{AUDIENCE}\"]\njwks_file = \"/dev/null\"\n"
     );
     let misspelt = [
@@ -591,7 +588,7 @@ fn the_product_section_reads_and_writes_as_the_default_without_the_lists() -> Ou
 fn the_product_section_hands_every_issuer_its_standing() -> Outcome {
     let product: Arc<dyn Standing> = Arc::new(Product::default());
     let section: ProductStandingSection = toml::from_str(&auth("", ""))?;
-    let resolved = section.resolve(Arc::clone(&product))?;
+    let resolved = section.resolve(Arc::clone(&product), &[])?;
     assert_eq!(1, resolved.issuers.len());
     for issuer in &resolved.issuers {
         assert_eq!(
@@ -600,7 +597,7 @@ fn the_product_section_hands_every_issuer_its_standing() -> Outcome {
         );
     }
     let plain: AuthSection = toml::from_str(&auth("", "first_party_clients = [\"portal\"]"))?;
-    let resolved = plain.resolve()?;
+    let resolved = plain.resolve(&[])?;
     assert_eq!(StandingSource::Lists, resolved.issuers[0].standing);
     assert_eq!(
         vec![String::from(PORTAL)],
@@ -616,22 +613,25 @@ fn a_list_set_in_code_on_the_product_section_is_refused_at_resolution() -> Outco
     let section: ProductStandingSection = toml::from_str(&auth("", ""))?;
     let cases: [SectionCase; 3] = [
         ("auth.issuer.first_party_clients", |auth| {
-            auth.issuer[0].first_party_clients = Some(Vec::new());
+            if let Some(entry) = auth.issuer.values_mut().next() {
+                entry.first_party_clients = Some(Vec::new());
+            }
         }),
         ("auth.issuer.delegates", |auth| {
-            auth.issuer[0].delegates = Some(vec![Delegate::Client(String::from(PORTAL))]);
+            if let Some(entry) = auth.issuer.values_mut().next() {
+                entry.delegates = Some(vec![Delegate::Client(String::from(PORTAL))]);
+            }
         }),
-        ("auth.scopeless_subjects", |auth| {
-            auth.scopeless_subjects = vec![ferrohealth_smart::config::ScopelessSubject {
-                issuer: ferrohealth_secret::secret_url::SecretUrl::new(ISSUER),
-                sub: String::from("svc"),
-            }];
+        ("auth.issuer.scopeless_subjects", |auth| {
+            if let Some(entry) = auth.issuer.values_mut().next() {
+                entry.scopeless_subjects = vec![String::from("svc")];
+            }
         }),
     ];
     for (key_name, set) in cases {
         let mut listed = section.clone();
         set(&mut listed.0);
-        let refusal = listed.resolve(Arc::clone(&product));
+        let refusal = listed.resolve(Arc::clone(&product), &[]);
         assert!(
             matches!(refusal, Err(ConfigError::ListedBesideStanding { key }) if key == key_name),
             "{key_name}: {refusal:?}"
@@ -646,13 +646,13 @@ fn the_product_section_schema_leaves_out_the_three_keys() {
     let product =
         serde_json::to_value(schemars::schema_for!(ProductStandingSection)).expect("the schema");
     let plain = serde_json::to_value(schemars::schema_for!(AuthSection)).expect("the schema");
-    assert!(plain["properties"]["scopeless_subjects"].is_object());
-    assert!(product["properties"].get("scopeless_subjects").is_none());
     assert!(product["properties"]["realm"].is_object());
-    let entry = &product["properties"]["issuer"]["items"]["properties"];
+    let entry = &product["properties"]["issuer"]["additionalProperties"]["properties"];
     assert!(entry["audience"].is_object(), "{product}");
     assert!(entry.get("first_party_clients").is_none(), "{entry}");
     assert!(entry.get("delegates").is_none(), "{entry}");
+    assert!(entry.get("scopeless_subjects").is_none(), "{entry}");
     let defs = plain["$defs"]["IssuerEntry"]["properties"].clone();
     assert!(defs["first_party_clients"].is_object(), "{plain}");
+    assert!(defs["scopeless_subjects"].is_object(), "{plain}");
 }

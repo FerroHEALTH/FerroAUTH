@@ -21,6 +21,20 @@
 # apps are each deployment's. FerroSMART grants no token exchange, so a
 # deployment that uses the onward grants sets them for another issuer.
 
+# FerroSMART signs its people's tokens, and its client credentials tokens,
+# which a `persons` issuer reads as the system (docs/architecture.md §13).
+kind = "persons"
+# SMART App Launch 2.2.0, Scopes and Launch Context, `launch/patient`: the
+# authorization server establishes the patient context, so FerroSMART's
+# `patient` claim is the launch context.
+patient_context = true
+# SMART App Launch 2.2.0 makes the authorization server responsible for the
+# patient picker; FerroSMART's picker calls with its issuer as `client_id`,
+# so that token is the signed-in person acting with no app (#730).
+issuer_client_is_person = true
+# docs/architecture.md §13.6 item 9: FerroSMART's `sub` is a pairwise
+# subject, compared exactly, which a party table binds by default.
+party_identifier_type = "pairwise"
 # RFC 9068 §2.1: FerroSMART writes `typ` `at+jwt` and never the long form.
 token_types = ["at+jwt"]
 # RFC 9068 §2.2 and SMART App Launch 2.2.0, Obtain access token, Response:

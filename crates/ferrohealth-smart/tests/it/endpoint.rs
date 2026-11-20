@@ -53,12 +53,12 @@ fn an_endpoint_table_that_breaks_a_rule_is_refused() {
 #[test]
 fn the_issuer_durations_read_with_their_units_and_the_old_keys_are_refused() {
     let issuer =
-        "[[issuer]]\nissuer = \"https://idp.example\"\nkind = \"persons\"\naudience = [\"a\"]\n";
+        "[issuer.i1]\nissuer = \"https://idp.example\"\nkind = \"persons\"\naudience = [\"a\"]\n";
     let section: AuthSection = toml::from_str(&format!(
         "{issuer}clock_skew = \"30s\"\njwks_max_age = \"1h\"\njwks_refresh_interval = \"5min\"\ntimeout = \"3s\"\n"
     ))
     .expect("the section parses");
-    let entry = section.issuers().first().expect("one issuer");
+    let (_, entry) = section.issuers().next().expect("one issuer");
     assert_eq!(Duration::from_secs(30), entry.clock_skew);
     assert_eq!(Duration::from_hours(1), entry.jwks_max_age);
     assert_eq!(Duration::from_mins(5), entry.jwks_refresh_interval);

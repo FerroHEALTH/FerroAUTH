@@ -96,7 +96,7 @@ fn a_basic_user_role_must_be_one_word() -> Result<(), Box<dyn StdError>> {
         )]
         .into(),
     };
-    let store = section().resolve()?.basic.ok_or("a Basic store")?;
+    let store = section().resolve(&[])?.basic.ok_or("a Basic store")?;
     assert!(matches!(
         store.with_grants(&grants),
         Err(StoreError::Role { username, role }) if username == "etl" && role == "two words"
@@ -107,15 +107,18 @@ fn a_basic_user_role_must_be_one_word() -> Result<(), Box<dyn StdError>> {
 #[test]
 fn a_blank_role_claim_path_is_refused() {
     let mut auth = section();
-    auth.issuer = vec![IssuerEntry {
-        issuer: ferrohealth_secret::secret_url::SecretUrl::new("https://as.example.org"),
-        kind: Some(IssuerKind::Persons),
-        audience: vec![String::from("a")],
-        role_claims: Some(vec![String::from("realm_access..roles")]),
-        ..IssuerEntry::default()
-    }];
+    auth.issuer = std::collections::BTreeMap::from([(
+        String::from("i1"),
+        IssuerEntry {
+            issuer: ferrohealth_secret::secret_url::SecretUrl::new("https://as.example.org"),
+            kind: Some(IssuerKind::Persons),
+            audience: vec![String::from("a")],
+            role_claims: Some(vec![String::from("realm_access..roles")]),
+            ..IssuerEntry::default()
+        },
+    )]);
     assert!(matches!(
-        auth.resolve(),
+        auth.resolve(&[]),
         Err(ConfigError::Missing {
             key: "auth.issuer.role_claims"
         })

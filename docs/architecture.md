@@ -849,7 +849,7 @@ every product (`resource::described::describe`), and its answer carries the
   `issuer` or launch, context, single sign-on or user permission capability.
 - **None:** otherwise the document describes no issuer, and is refused.
 
-The order of the `[[auth.issuer]]` tables never decides, so an environment
+The order of the `[auth.issuer.<name>]` tables never decides, so an environment
 overlay that adds an issuer cannot change the described issuer.
 
 The route stays public: a client reads it before it holds a token. For an
@@ -1046,7 +1046,7 @@ RFC 9068 §2.2.3.1 has an authorization server that puts authorization
 attributes in a JWT access token use the `groups`, `roles` and
 `entitlements` attributes of the SCIM `User` resource (`rfc7643 §4.1.2`) as
 claim types. `Caller::roles()` holds what the configured claims carry
-(each `[[auth.issuer]]` names its own `role_claims`, by default those
+(each `[auth.issuer.<name>]` names its own `role_claims`, by default those
 three; a dotted path such as `realm_access.roles` reaches into a JSON object
 for an issuer that nests them), so a claim is read from that issuer's
 tokens alone, and a `federation` issuer contributes no role. A value is an array element that is a string, an element that is an
@@ -1078,7 +1078,7 @@ RFC 9470 §3 lets a resource server refuse a token whose authentication does
 not meet its requirement, with `401`, `insufficient_user_authentication` and
 the accepted `acr_values`, and leaves the logic that decides it out of scope.
 `assurance::AssuranceSection` holds that logic for every product, on each
-`[[auth.issuer]]` table, since each issuer writes its own values: the claim
+`[auth.issuer.<name>]` table, since each issuer writes its own values: the claim
 the class is read from (`acr` by default, OpenID Connect Core 1.0 §2), the
 level each value stands for (low, substantial, high), and the minimum. The
 issuer assesses each token when it admits it (`Caller::assurance`), and
@@ -1157,7 +1157,7 @@ layers, all in `ferrohealth-smart`:
    not compile in refuses the issuer at load, naming it
    (`ProfileError::Adapter`). The one adapter is `idp-entra` (3.17).
 
-Each `[[auth.issuer]]` declares its `kind`, with no default: `persons`,
+Each `[auth.issuer.<name>]` declares its `kind`, with no default: `persons`,
 `patients`, `machines` or `federation`. A valid token is classified in this
 order, and a token that matches no step for its issuer's kind is refused as
 `Rejection::Unclassified`, an `invalid_token` on the wire whose
@@ -1231,7 +1231,7 @@ scope: our own design (#484), since SMART App Launch 2.2.0 and
 
 How callers are classified is our own design over those sources.
 
-**A `persons` issuer's professional attributes.** One `[[auth.attributes]]`
+**A `persons` issuer's professional attributes.** One `[auth.issuer.<name>.attributes]`
 table per `persons` issuer (`federation::person::AttributesSection`) maps
 the same fields the `federation` kind reads to their sources, a claim path
 or a constant; `mapping = "iua"` reads the IHE IUA §3.71.4.2.2.1.1 claims
@@ -1260,7 +1260,7 @@ naming the field. A table naming no trusted `persons`, `patients` or
 `authorization_details` or presentation source refuse the start. Which claims are read is our own design over IUA and RFC 9396.
 
 **The `federation` kind.** A `federation` issuer's tokens name another
-party's professional or organisation, and its one `[[auth.federation]]`
+party's professional or organisation, and its one `[auth.issuer.<name>.federation]`
 table (`federation::FederationSection`) maps each field, named after the
 Commission Implementing Regulation (EU) 2026/2099 Annex Tables 1 and 2, to
 its sources: a claim path (`mapping = "iua"` reads the IHE IUA
@@ -1388,7 +1388,7 @@ specification 1.0.1 Annex B §B.4a: a requesting care provider signs its own
 client-credentials access token (§B.4a.2), and the healthcare attributes
 travel in an `authorization_details` entry of type `nl-gis-v1` (§B.4a.3).
 A preset file may carry a `federation` table (`Preset::federation`), which
-the issuer's own `[[auth.federation]]` table is set over
+the issuer's own `[auth.issuer.<name>.federation]` table is set over
 (`FederationSection::over`) and which an issuer of another kind refuses.
 The `nl` table declares the issuer domestic in `NL`, with the CIBG as the
 issuing authority (§B.3), the URA prefix `urn:oid:2.16.528.1.1007.3.3.`
@@ -1416,7 +1416,7 @@ SHA-256 of the certificate's DER encoding (`rfc8705 §3.1`, `§3.2`). The
 module is `sender` (FerroHEALTH/FerroSMART#220).
 
 **Per issuer, `sender_constraint`**, `none` (the default) or `required` on
-each `[[auth.issuer]]`. Under `required` a token without `cnf` is refused.
+each `[auth.issuer.<name>]`. Under `required` a token without `cnf` is refused.
 Whatever the setting, a token that carries `cnf` is held to it on every
 verifier of the crate, and the gate holds every caller a product's own
 verifier returns to it too:
@@ -1625,7 +1625,7 @@ over the connection the client opened. It is refused unless:
   and the deployment's `PatientClaim` (3.13), each when the subject token
   carries it;
 - on a `federation` issuer, the subject token's issuer is in its
-  `[[auth.federation]]` table's `exchanges_from`, the token reads under
+  `[auth.issuer.<name>.federation]` table's `exchanges_from`, the token reads under
   that table as 3.14 reads a federation token, a professional's
   `professional.hp_identifier` equals the subject claim `person_mapping`
   names, a person's exchange never yields an organisation's token, the
@@ -1669,7 +1669,7 @@ specification governs resolving a login to a party: our own design, over
 the sources cited here.
 
 **Who is looked up.** A `Person`, `Delegated` or `Representative` caller of
-a `persons` issuer that has an `[[auth.party]]` table, and a Basic user,
+a `persons` issuer that has an `[auth.issuer.<name>.party]` table, and a Basic user,
 whose credential is always a person's (3.14). A representative is looked
 up by their own login, never by the subject they represent. `Patient`,
 `System`, `ExternalPerson` and `ExternalOrganisation` callers are never
@@ -1770,14 +1770,13 @@ beside the 2 ms lookup budget, and fails when the p99 passes the adapter's
 timeout. A bounded cache needs measurements and an owner ruling. The bounds
 are our own design.
 
-**The configuration.** One `[[auth.party]]` table per bound `persons`
+**The configuration.** One `[auth.issuer.<name>.party]` table per bound `persons`
 issuer, with `deny_unknown_fields`, checked when the section resolves:
 
 ```toml
-[[auth.party]]
-issuer = "https://login.example.org/tenant/v2.0"   # a trusted persons issuer
-identifier_issuer = "urn:example:ferroehr:login"   # never shared by two tables
-identifier_type = "guid"                           # declares the canonical form
+[auth.issuer.entra.party]                          # under a persons issuer
+identifier_issuer = "urn:example:ferroehr:login"   # never shared by two tables; unset: the issuer's identifier
+identifier_type = "guid"                           # declares the canonical form; unset: the profile's party_identifier_type
 group_claim = "groups"                             # empty: no group is read
 group_identifier_issuer = "urn:example:ferroehr:groups"   # set with group_claim
 guests = false                                     # whether a guest is looked up
@@ -1905,17 +1904,16 @@ enabled = true                       # a product may refuse `false`
 realm = "ferrobridge"                # the product's default
 capabilities = []                    # SMART capabilities the discovery document adds
 scopes_supported = []                # the scopes the product honours, listed in the discovery document
-# described_issuer = "https://as.example.org/realms/ferro"  # the issuer the discovery document describes; unset for the one eligible issuer (3.8)
+# described_issuer = "sso"           # the name of the issuer the discovery document describes; unset for the one eligible issuer (3.8)
 product_scope = ""                   # the product's own scope: `__name` or a full URI
-scopeless_subjects = [               # app-only subjects granted system-wide access without a scope (3.4)
-  { issuer = "https://as.example.org/realms/ferro", sub = "batch-client" },
-]
 
-[[auth.issuer]]                      # one table per issuer; none with Basic users: a Basic-only surface
+[auth.issuer.sso]                    # one table per issuer, by name; none with Basic users: a Basic-only surface
 issuer = "https://as.example.org/realms/ferro"
-kind = "persons"                     # required: persons, patients, machines or federation (3.14)
+kind = "persons"                     # persons, patients, machines or federation (3.14); unset: the preset's kind
 profile = "rfc9068"                  # or "entra", "keycloak", "okta", "nl", "ferrosmart"; any profile key below overrides it
-audience = ["https://bridge.example.org/fhir"]   # at least one; `aud` must contain one
+audience = ["https://bridge.example.org/fhir"]   # `aud` must contain one; unset: the product's own base URLs
+scopeless_subjects = ["batch-client"]   # app-only subjects granted system-wide access without a scope (3.4)
+patient_context = false              # whether the `patient` claim is the launch context; true under ferrosmart
 algorithms = ["RS256", "RS384", "PS256", "PS384", "ES256", "ES384"]
 clock_skew = "60s"                   # at most 300s
 jwks_max_age = "10min"
@@ -1928,16 +1926,16 @@ delegates = [{ client = "partner-app" }, { sub = "actor-service" }]
 mode = "jwt"                         # or "introspection" (3.10), with the table below
 sender_constraint = "none"           # or "required": a DPoP- or certificate-bound token alone (3.15)
 
-[auth.issuer.assurance]              # the level this issuer's tokens carry (3.12)
+[auth.issuer.sso.assurance]          # the level this issuer's tokens carry (3.12)
 claim = "acr"
 levels = { "urn:example:acr:high" = "high" }
 
-[auth.issuer.introspection]          # only under mode = "introspection"
+[auth.issuer.sso.introspection]      # only under mode = "introspection"
 endpoint = ""                        # empty: the metadata's introspection_endpoint
 cache_max_age = "60s"                # "0s" caches nothing; never past the response's exp
 cache_capacity = 10000
 
-[auth.issuer.introspection.client]   # or .bearer: a grant whose token authorizes the call
+[auth.issuer.sso.introspection.client]   # or .bearer: a grant whose token authorizes the call
 client_id = "ferrobridge-rs"         # the fields of [<lane>.credentials.oauth]; the issuer stands in
 client_secret_file = "/run/secrets/introspection-secret"
 
@@ -1969,10 +1967,33 @@ Every setting of an issuer lives on its own table: no section-level value
 stands in for one an issuer leaves out, and a section-level issuer setting
 is an unknown key. A named refusal of a retired key lives for the one
 release that retires it (owner rule, 2026-11-09); after it the strict load
-refuses the key as unknown. `Resolved` holds each JWT issuer's
-`Settings`, each introspected issuer's settings, and every issuer's kind,
-which `Resolved::check_role_issuers` holds a product's administrator,
-emergency or identifier-reader role list to: only `persons` issuers. An
+refuses the key as unknown. Issuers are a map by name (owner decision
+2026-11-20, #730): every other key, a product's role lists included, names
+an issuer by its table's name, an unknown name is refused at load with the
+known names listed, and the environment form addresses an issuer by name
+(`FERROEHR__AUTH__ISSUER__SSO__AUDIENCE`), never by a position that shifts
+when an issuer is added. A name is a lower-case letter, then lower-case
+letters, digits and `_`, at most 64. The party, federation and attribute
+tables of an issuer sit under it (`[auth.issuer.<name>.party]`), so none
+names its issuer. Defaults derive where one value is the only sensible
+one: the audience is the base URLs the product resolves the section for
+(`AuthSection::resolve(bases)`), `kind` is the preset's (`kind` in its
+file), a party table's `identifier_issuer` is the issuer's own identifier
+and its `identifier_type` the profile's `party_identifier_type`; an
+explicit value wins. `patient_context` is the one setting every product
+reads for whether an issuer may assert the launch context's `patient`: on
+under the `ferrosmart` preset, off otherwise, and the `patient` claim of an
+issuer without it is not read. Under the `ferrosmart` preset
+`issuer_client_is_person` reads a token whose client is the issuer itself
+as the person acting with no app: SMART App Launch 2.2.0 makes the
+authorization server responsible for the patient picker, so trusting
+FerroSMART covers its picker, and the access record still names FerroSMART
+as the client (Regulation (EU) 2025/327 Annex II). `Resolved` holds each
+JWT issuer's `Settings`, each introspected issuer's settings, every
+issuer's kind and its identifier by name; `Resolved::issuer_named` reads a
+product key that names an issuer, and `Resolved::role_issuers` holds a
+product's administrator, emergency or identifier-reader role list to
+`persons` issuers. An
 `IssuerSet` routes a token to the issuer its readable `iss` names, JWT or
 introspected, and an opaque token to the one introspected issuer. The
 product-specific fields of an issuer entry (FerroFED's backend clients,
@@ -2043,9 +2064,9 @@ An outbound integration is one table, `config::endpoint::EndpointSection`:
 `initial_backoff`, `max_backoff`), `tls` and `credentials`, so an operator
 writes every product's integrations with the same keys. `url` is a
 `SecretUrl`, so its userinfo and query render masked, and so is every
-issuer identifier a table names (`[[auth.issuer]] issuer`, the onward and
-the `oauth` issuer, and the issuer `[[auth.attributes]]`, `[[auth.federation]]`,
-`[[auth.party]]` and `scopeless_subjects` name), which renders masked even
+issuer identifier a table names (`[auth.issuer.<name>] issuer`, the onward and
+the `oauth` issuer, and the issuer `[auth.issuer.<name>.attributes]`, `[auth.issuer.<name>.federation]`,
+`[auth.issuer.<name>.party]` and `scopeless_subjects` name), which renders masked even
 before the start refuses an issuer with userinfo (RFC 3986 §3.2.1; #445,
 #456). One call,
 `client::outbound::OutboundClient::build`, turns the table into the HTTP
@@ -2094,7 +2115,7 @@ max_onward_lifetime = "90min"        # required: no preset states one
 # [cdr.credentials.onward.assurance]   # person_mapping required, over the preset's table
 ```
 
-The issuer is described in the table, never borrowed from `[[auth.issuer]]`,
+The issuer is described in the table, never borrowed from `[auth.issuer.<name>]`,
 because the issuer of onward tokens is not always one whose tokens the
 surface admits. The table refuses the start when `issuer`, `kind` or
 `audiences` is unset, beside a Basic `user`, without the lane's `oauth`
@@ -2368,9 +2389,9 @@ four agree on and settles each difference:
 | A product may refuse metadata whose endpoints are off the issuer's origin; the check is opt-in | `rfc6454 §4`, `§5` define the origin; RFC 8414 places no endpoint, so the policy is our own design (#68) | none |
 | Token introspection is a deployment's opt-in (`mode = "introspection"`), under client authentication or a grant's bearer token, with `scope`, `client_id` and `exp` required, `iss` and `aud` checked when present, and a response without `sub` read as the client's | `rfc7662 §2.1`, `§2.2`, `§4`; `smart token-introspection`; `rfc9068 §2.2` | none |
 | A `scopeless_subjects` entry is `{ issuer, sub }` and admits a `System` caller of that issuer alone; `role_claims` sit on each issuer table; the string forms, bare or `<issuer>#<value>`, are refused at load | `rfc7519 §4.1.2` (a `sub` is unique within its issuer); our own design (#215, after GHSA-pfgx-xq28-2629) | a deployment rewrites each entry as a table and moves `role_claims` onto its issuer tables |
-| Every issuer declares its `kind` and a profile (a preset with keys over it), every issuer setting lives on its table, and a valid token is classified as `Patient`, `System`, `Delegated`, `Representative`, `Person` or `Guest`, or refused as `Rejection::Unclassified`; a Basic credential is always a `Person` (3.14) | `rfc9068 §2.2`, `§4`, `§5`; `rfc8693 §4.1`; `oidc-core §5.7`; the vendor documents each preset cites; the classification is our own design (#215, owner ruling 2026-11-05 on Basic) | a deployment writes `[[auth.issuer]]` tables with `kind`, lists its `first_party_clients`, and drops `token_profile`, `acting_for_claim` and `client_tokens` |
-| A `persons` login is resolved to its party through a `PartySource` the product supplies, once per request with no cache, keyed by the issuer profile's `person_key` in the canonical form of its `identifier_type`, against the identifiers of one `[[auth.party]]` table's `identifier_issuer`; two matches are `Ambiguous`, a source failure is an error and never `Unbound`, and the outcome is the product's to answer (3.17) | `oidc-core §5.7`; `rfc7519 §4.1.2`; Microsoft, "Access token claims reference" (the overage markers); the binding is our own design (#216, owner ruling 2026-11-05 on the cache) | a product binds its `persons` issuers with `[[auth.party]]` tables, implements `PartySource`, maps each Basic user to a key, and answers each outcome |
-| A `persons` issuer's `[[auth.attributes]]` table reads the IHE IUA professional attributes and purposes of use, from claims or constants and, with `authorization_details_purposes`, the `system\|code` of each `authorization_details` entry, onto every non-`System` caller as `Caller::attributes`, and the purposes of use alone onto a `System` caller and every caller of a `patients` or `machines` issuer's table; a claim of the wrong shape refuses the token, and a coding with an empty code names none (3.14) | IHE IUA §3.71.4.2.2.1.1; `rfc9396 §2`; FHIR R4 datatypes.html; our own design over them (#376, #438) | a product reads the professional, the organisation and the purposes from `Caller::attributes` and drops its own IUA claim parser |
+| Every issuer declares its `kind` and a profile (a preset with keys over it), every issuer setting lives on its table, and a valid token is classified as `Patient`, `System`, `Delegated`, `Representative`, `Person` or `Guest`, or refused as `Rejection::Unclassified`; a Basic credential is always a `Person` (3.14) | `rfc9068 §2.2`, `§4`, `§5`; `rfc8693 §4.1`; `oidc-core §5.7`; the vendor documents each preset cites; the classification is our own design (#215, owner ruling 2026-11-05 on Basic) | a deployment writes `[auth.issuer.<name>]` tables with `kind`, lists its `first_party_clients`, and drops `token_profile`, `acting_for_claim` and `client_tokens` |
+| A `persons` login is resolved to its party through a `PartySource` the product supplies, once per request with no cache, keyed by the issuer profile's `person_key` in the canonical form of its `identifier_type`, against the identifiers of one `[auth.issuer.<name>.party]` table's `identifier_issuer`; two matches are `Ambiguous`, a source failure is an error and never `Unbound`, and the outcome is the product's to answer (3.17) | `oidc-core §5.7`; `rfc7519 §4.1.2`; Microsoft, "Access token claims reference" (the overage markers); the binding is our own design (#216, owner ruling 2026-11-05 on the cache) | a product binds its `persons` issuers with `[auth.issuer.<name>.party]` tables, implements `PartySource`, maps each Basic user to a key, and answers each outcome |
+| A `persons` issuer's `[auth.issuer.<name>.attributes]` table reads the IHE IUA professional attributes and purposes of use, from claims or constants and, with `authorization_details_purposes`, the `system\|code` of each `authorization_details` entry, onto every non-`System` caller as `Caller::attributes`, and the purposes of use alone onto a `System` caller and every caller of a `patients` or `machines` issuer's table; a claim of the wrong shape refuses the token, and a coding with an empty code names none (3.14) | IHE IUA §3.71.4.2.2.1.1; `rfc9396 §2`; FHIR R4 datatypes.html; our own design over them (#376, #438) | a product reads the professional, the organisation and the purposes from `Caller::attributes` and drops its own IUA claim parser |
 | A `patients` token that carries `act` is the patient's representative under `act_represents_patient`, with the top-level actor only, and is refused without it (3.14) | `rfc8693 §4.1`; Regulation (EU) 2025/327 Art 4(2); our own design (#377) | a product that records a patient's representative sets `act_represents_patient` and reads `CallerKind::PatientRepresentative` |
 | On a `persons` issuer under `fhir_user_patient` (set by the `ferrosmart` preset), a token through an admitted client with no actor and no represented subject is `Patient` when its `fhirUser` is `Patient/<x>`, its `patient` is `x` and its scopes are `patient/` alone (3.13, 3.14) | `smart scopes-and-launch-context` (Patient-specific scopes; Scopes for requesting identity data); Regulation (EU) 2025/327 Art 5 and 9; our own design (owner decision 2026-11-19, #681) | a product trusting FerroSMART drops its own reading of a patient's token (FerroEHR's `patient_issuers`) and reads `Caller::is_the_person` |
 | The discovery document describes the issuer `[auth] described_issuer` names, which must be trusted and have metadata (a named `machines` issuer only while no issuer is eligible for app launch, and then for Backend Services); else the one issuer of a user-token kind with metadata, for app launch; else, when no issuer signs user tokens, the one `machines` issuer with metadata, for Backend Services only; several of a tier without a name, or none, are refused; the table order never decides (3.8) | `smart conformance`, Metadata (`authorization_endpoint` is where a user launch starts); the choice among several is our own design, settled in FerroEHR (FerroHEALTH/FerroEHR#5426), moved here (#469), with the Backend Services tier of #507 (`smart backend-services`, Retrieve `.well-known/smart-configuration`) | a product drops its first-in-table-order choice, offers each issuer as a `Candidate` and serves the document of the one `describe` returns |
@@ -4185,7 +4206,7 @@ adoption issue tracks its own side (#521).
    table: `AuthSection::resolve` refuses a second table naming it (#591).
 
    ```toml
-   [[auth.issuer]]
+   [auth.issuer.<name>]
    issuer = "https://smart.example.org"
    kind = "persons"
    profile = "ferrosmart"

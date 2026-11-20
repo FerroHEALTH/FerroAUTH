@@ -4,7 +4,7 @@
 //! The attributes a `federation` issuer asserts about another party's
 //! professional or organisation, and the bounds they are held to.
 //!
-//! One `[[auth.federation]]` table per `federation` issuer maps each field,
+//! One `[auth.issuer.<name>.federation]` table per `federation` issuer maps each field,
 //! named after the Commission Implementing Regulation (EU) 2026/2099 Annex
 //! Tables 1 and 2, to its sources: a claim path (IHE IUA §3.71.4.2.2.1.1
 //! puts its claims under `extensions.ihe_iua`), a constant, an RFC 9396
@@ -446,16 +446,18 @@ const EHDSI_FIELDS: [Field; 25] = [
     Field::MessageId,
 ];
 
-/// One `[[auth.federation]]` table: what the `federation` issuer `issuer`
+/// One `[auth.issuer.<name>.federation]` table: what the `federation` issuer `issuer`
 /// asserts and the bounds it is held to.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct FederationSection {
-    /// The `[[auth.issuer]]` this table describes, of kind `federation`. It
-    /// renders with any userinfo masked, as
+    /// The issuer this table describes, of kind `federation`: `[auth]` sets
+    /// it from the `[auth.issuer.<name>]` table it sits under. It renders
+    /// with any userinfo masked, as
     /// [`SecretUrl`](ferrohealth_secret::secret_url::SecretUrl) renders itself.
-    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    #[serde(skip)]
     pub issuer: ferrohealth_secret::secret_url::SecretUrl,
     /// Whether the issuer is a MyHealth@EU contact point; required, with no
     /// default.
@@ -496,7 +498,7 @@ pub struct FederationSection {
     pub person_mapping: Option<String>,
 }
 
-/// A `[[auth.federation]]` table that breaks a rule.
+/// A `[auth.issuer.<name>.federation]` table that breaks a rule.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum FederationError {

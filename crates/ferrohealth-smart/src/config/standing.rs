@@ -20,7 +20,6 @@ use serde::Deserializer;
 use serde::de::DeserializeSeed;
 use serde::de::Error as _;
 use serde::de::MapAccess;
-use serde::de::SeqAccess;
 use serde::de::Visitor;
 use serde::de::value::StringDeserializer;
 
@@ -31,6 +30,18 @@ use crate::config::Resolved;
 use crate::config::TlsBuilder;
 use crate::kind::standing::Standing;
 use crate::kind::standing::StandingSource;
+
+/// Forwards every `deserialize_*` method but `deserialize_struct` to
+/// `deserialize_any`.
+macro_rules! forward_but_struct {
+    () => {
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+            bytes byte_buf option unit unit_struct newtype_struct seq tuple
+            tuple_struct map enum identifier ignored_any
+        }
+    };
+}
 
 /// One table the reader holds to a narrower field list.
 struct Level {
@@ -57,16 +68,17 @@ impl Level {
     }
 }
 
-/// Each `[[auth.issuer]]` table, without the client lists.
+/// Each `[auth.issuer.<name>]` table, without the client lists and the
+/// scopeless subjects.
 static ISSUER: Level = Level {
-    refused: &["first_party_clients", "delegates"],
+    refused: &["first_party_clients", "delegates", "scopeless_subjects"],
     accepted: OnceLock::new(),
     nested: None,
 };
 
-/// The `[auth]` table, without the scopeless subjects.
+/// The `[auth]` table, whose issuer tables are held to [`ISSUER`].
 static SECTION: Level = Level {
-    refused: &["scopeless_subjects"],
+    refused: &[],
     accepted: OnceLock::new(),
     nested: Some(("issuer", &ISSUER)),
 };
@@ -88,13 +100,17 @@ impl ProductStandingSection {
     /// # Errors
     ///
     /// Returns [`ConfigError::ListedBesideStanding`] when the section,
-    /// built in code, sets `scopeless_subjects` or an issuer's
+    /// built in code, sets an issuer's `scopeless_subjects`,
     /// `first_party_clients` or `delegates`, and every [`ConfigError`] of
     /// [`AuthSection::resolve`].
-    pub fn resolve(&self, standing: Arc<dyn Standing>) -> Result<Resolved, ConfigError> {
+    pub fn resolve(
+        &self,
+        standing: Arc<dyn Standing>,
+        bases: &[&str],
+    ) -> Result<Resolved, ConfigError> {
         self.listed()?;
         self.0
-            .resolve_over(None, &StandingSource::Product(standing))
+            .resolve_over(None, &StandingSource::Product(standing), bases)
     }
 
     /// Resolves the section as [`ProductStandingSection::resolve`] does,
@@ -109,19 +125,20 @@ impl ProductStandingSection {
         &self,
         tls: &dyn TlsBuilder,
         standing: Arc<dyn Standing>,
+        bases: &[&str],
     ) -> Result<Resolved, ConfigError> {
         self.listed()?;
         self.0
-            .resolve_over(Some(tls), &StandingSource::Product(standing))
+            .resolve_over(Some(tls), &StandingSource::Product(standing), bases)
     }
 
     /// Refuses a list the product's standing answers, set in code.
     fn listed(&self) -> Result<(), ConfigError> {
         let listed = |key| ConfigError::ListedBesideStanding { key };
-        if !self.0.scopeless_subjects.is_empty() {
-            return Err(listed("auth.scopeless_subjects"));
-        }
-        for entry in self.0.issuers() {
+        for (_, entry) in self.0.issuers() {
+            if !entry.scopeless_subjects.is_empty() {
+                return Err(listed("auth.issuer.scopeless_subjects"));
+            }
             if entry.first_party_clients.is_some() {
                 return Err(listed("auth.issuer.first_party_clients"));
             }
@@ -147,7 +164,7 @@ impl schemars::JsonSchema for ProductStandingSection {
         if let Some(items) = section
             .get_mut("properties")
             .and_then(|properties| properties.get_mut("issuer"))
-            .and_then(|property| property.get_mut("items"))
+            .and_then(|property| property.get_mut("additionalProperties"))
         {
             *items = issuer.to_value();
         }
@@ -205,11 +222,7 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Table<D> {
         self.inner.is_human_readable()
     }
 
-    serde::forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        bytes byte_buf option unit unit_struct newtype_struct seq tuple
-        tuple_struct map enum identifier ignored_any
-    }
+    forward_but_struct!();
 }
 
 /// The table reader's visitor, handed the table's entries held to a level.
@@ -284,7 +297,7 @@ impl<'de, A: MapAccess<'de>> MapAccess<'de> for Entries<A> {
     }
 }
 
-/// The seed of an array of tables, each held to `level`.
+/// The seed of a table of tables by name, each held to `level`.
 struct Nested<S> {
     /// The array reader's own seed.
     seed: S,
@@ -303,9 +316,9 @@ impl<'de, S: DeserializeSeed<'de>> DeserializeSeed<'de> for Nested<S> {
     }
 }
 
-/// The deserializer of an array of tables, each held to `level`.
+/// The deserializer of a table of tables by name, each held to `level`.
 struct Array<D> {
-    /// The array's deserializer.
+    /// The table's deserializer.
     inner: D,
     /// The level each table is held to.
     level: &'static Level,
@@ -321,25 +334,23 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Array<D> {
         })
     }
 
-    fn deserialize_seq<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, D::Error> {
-        self.inner.deserialize_seq(Tables {
-            visitor,
-            level: self.level,
-        })
+    fn deserialize_struct<V: Visitor<'de>>(
+        self,
+        _name: &'static str,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, D::Error> {
+        self.deserialize_any(visitor)
     }
 
     fn is_human_readable(&self) -> bool {
         self.inner.is_human_readable()
     }
 
-    serde::forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        bytes byte_buf option unit unit_struct newtype_struct tuple
-        tuple_struct map struct enum identifier ignored_any
-    }
+    forward_but_struct!();
 }
 
-/// The array reader's visitor, handed the elements held to a level.
+/// The map reader's visitor, handed the tables held to a level.
 struct Tables<V> {
     /// The array reader's own visitor.
     visitor: V,
@@ -354,41 +365,45 @@ impl<'de, V: Visitor<'de>> Visitor<'de> for Tables<V> {
         self.visitor.expecting(f)
     }
 
-    fn visit_seq<A: SeqAccess<'de>>(self, seq: A) -> Result<V::Value, A::Error> {
-        self.visitor.visit_seq(Elements {
-            seq,
+    fn visit_map<A: MapAccess<'de>>(self, map: A) -> Result<V::Value, A::Error> {
+        self.visitor.visit_map(Elements {
+            map,
             level: self.level,
         })
     }
 }
 
-/// The elements of an array of tables, each held to `level`.
+/// The tables of a table of tables by name, each held to `level`.
 struct Elements<A> {
-    /// The elements.
-    seq: A,
+    /// The tables.
+    map: A,
     /// The level each is held to.
     level: &'static Level,
 }
 
-impl<'de, A: SeqAccess<'de>> SeqAccess<'de> for Elements<A> {
+impl<'de, A: MapAccess<'de>> MapAccess<'de> for Elements<A> {
     type Error = A::Error;
 
-    fn next_element_seed<S: DeserializeSeed<'de>>(
+    fn next_key_seed<K: DeserializeSeed<'de>>(
         &mut self,
-        seed: S,
-    ) -> Result<Option<S::Value>, A::Error> {
-        self.seq.next_element_seed(Element {
+        seed: K,
+    ) -> Result<Option<K::Value>, A::Error> {
+        self.map.next_key_seed(seed)
+    }
+
+    fn next_value_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<S::Value, A::Error> {
+        self.map.next_value_seed(Element {
             seed,
             level: self.level,
         })
     }
 
     fn size_hint(&self) -> Option<usize> {
-        self.seq.size_hint()
+        self.map.size_hint()
     }
 }
 
-/// The seed of one table of an array, held to `level`.
+/// The seed of one table of a table of tables, held to `level`.
 struct Element<S> {
     /// The table reader's own seed.
     seed: S,

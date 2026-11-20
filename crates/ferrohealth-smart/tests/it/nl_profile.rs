@@ -107,15 +107,14 @@ impl Harness {
     /// `issuer` and its federation table `federation` after the issuer line.
     fn config(&self, issuer: &str, federation: &str) -> String {
         format!(
-            r#"[[issuer]]
+            r#"[issuer.i1]
 issuer = "{ISSUER}"
 profile = "nl"
 audience = ["{AUDIENCE}"]
 jwks_file = "{jwks}"
 {issuer}
 
-[[federation]]
-issuer = "{ISSUER}"
+[issuer.i1.federation]
 {federation}
 "#,
             jwks = self.jwks,
@@ -126,14 +125,14 @@ issuer = "{ISSUER}"
     fn deployed(&self) -> String {
         self.config(
             "kind = \"federation\"\ntoken_types = [\"at+jwt\"]\nsender_constraint = \"required\"",
-            &format!("[federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"),
+            &format!("[issuer.i1.federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"),
         )
     }
 
     /// Returns what loading `config` refuses, as the issuer's rule broken.
     fn refusal(config: &str) -> Option<ResourceError> {
         let section: AuthSection = toml::from_str(config).ok()?;
-        match section.resolve() {
+        match section.resolve(&[]) {
             Err(ConfigError::Issuer { source, .. }) => Some(*source),
             _ => None,
         }
@@ -144,7 +143,7 @@ issuer = "{ISSUER}"
     async fn admit(&self, config: &str, claims: &Value) -> Result<Caller, Box<dyn StdError>> {
         let section: AuthSection = toml::from_str(config)?;
         let settings = section
-            .resolve()?
+            .resolve(&[])?
             .issuers
             .into_iter()
             .next()
@@ -223,7 +222,7 @@ async fn a_deployment_that_only_receives_directed_sending_relaxes_the_required_f
         "kind = \"federation\"\ntoken_types = [\"at+jwt\"]\nsender_constraint = \"required\"",
         &format!(
             "required_fields = [\"purpose_of_use\", \"nl.ura\"]\n\
-             [federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"
+             [issuer.i1.federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"
         ),
     );
     let caller = h.admit(&config, &token(&directed())).await?;
@@ -328,9 +327,9 @@ fn the_profile_is_refused_on_an_issuer_of_another_kind() {
     let persons = h
         .deployed()
         .replace("kind = \"federation\"", "kind = \"persons\"")
-        .replace(&format!("[[federation]]\nissuer = \"{ISSUER}\""), "")
+        .replace("[issuer.i1.federation]\n", "")
         .replace(
-            &format!("[federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"),
+            &format!("[issuer.i1.federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"),
             "",
         );
     assert!(matches!(

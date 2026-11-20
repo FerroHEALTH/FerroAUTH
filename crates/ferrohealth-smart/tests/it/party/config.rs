@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The `[[auth.party]]` tables as a deployment writes them, and every rule
+//! The `[auth.issuer.<name>.party]` tables as a deployment writes them, and every rule
 //! they are loaded under.
 
 use super::*;
@@ -13,7 +13,7 @@ fn section(text: &str) -> Result<AuthSection, toml::de::Error> {
 
 /// The issuer tables of the configuration cases.
 const ISSUERS: &str = r#"
-[[issuer]]
+[issuer.i1]
 issuer = "https://login.example.org/tenant-1/v2.0"
 kind = "persons"
 profile = "entra"
@@ -21,13 +21,13 @@ audience = ["api://ferro"]
 first_party_clients = ["first-party-app"]
 jwks_file = "/dev/null"
 
-[[issuer]]
+[issuer.i2]
 issuer = "https://as.example.org/realms/other"
 kind = "persons"
 audience = ["api://ferro"]
 jwks_file = "/dev/null"
 
-[[issuer]]
+[issuer.i3]
 issuer = "https://as.example.org/realms/machines"
 kind = "machines"
 audience = ["api://ferro"]
@@ -36,7 +36,7 @@ jwks_file = "/dev/null"
 
 /// Returns the party error a section of [`ISSUERS`] and `party` resolves to.
 fn party_error(party: &str) -> Result<PartyError, Box<dyn StdError>> {
-    match section(&format!("{ISSUERS}{party}"))?.resolve() {
+    match section(&format!("{ISSUERS}{party}"))?.resolve(&[]) {
         Err(ConfigError::Party { source }) => Ok(source),
         other => Err(format!("a party error, not {other:?}").into()),
     }
@@ -46,8 +46,7 @@ fn party_error(party: &str) -> Result<PartyError, Box<dyn StdError>> {
 fn a_table_that_sets_claim_is_an_unknown_key_at_load() {
     let read = section(&format!(
         r#"{ISSUERS}
-[[party]]
-issuer = "https://login.example.org/tenant-1/v2.0"
+[issuer.i1.party]
 identifier_issuer = "urn:example:ferro:login"
 identifier_type = "guid"
 claim = "sub"
@@ -62,13 +61,11 @@ claim = "sub"
 fn two_tables_sharing_an_identifier_issuer_fail_to_load_naming_both() -> Outcome2 {
     let error = party_error(
         r#"
-[[party]]
-issuer = "https://login.example.org/tenant-1/v2.0"
+[issuer.i1.party]
 identifier_issuer = "urn:example:ferro:login"
 identifier_type = "guid"
 
-[[party]]
-issuer = "https://as.example.org/realms/other"
+[issuer.i2.party]
 identifier_issuer = "urn:example:ferro:login"
 identifier_type = "login"
 "#,
@@ -95,14 +92,16 @@ fn a_banned_claim_as_key_fails_to_load() -> Outcome2 {
     );
     let text = format!(
         "{banned}
-[[party]]
-issuer = \"https://login.example.org/tenant-1/v2.0\"
+[issuer.i1.party]
 identifier_issuer = \"urn:example:ferro:login\"
 identifier_type = \"guid\"
 "
     );
     assert!(
-        matches!(section(&text)?.resolve(), Err(ConfigError::Issuer { .. })),
+        matches!(
+            section(&text)?.resolve(&[]),
+            Err(ConfigError::Issuer { .. })
+        ),
         "the profile refuses the key at load"
     );
     let source: Arc<dyn PartySource> = FakeSource::answering(one_professional());
@@ -128,8 +127,7 @@ identifier_type = \"guid\"
 fn a_table_loads_with_deny_unknown_fields_and_binds_only_a_persons_issuer() -> Outcome2 {
     let unknown = section(&format!(
         "{ISSUERS}
-[[party]]
-issuer = \"https://login.example.org/tenant-1/v2.0\"
+[issuer.i1.party]
 identifier_issuer = \"urn:example:ferro:login\"
 identifier_type = \"guid\"
 match = \"exact\"
@@ -142,8 +140,7 @@ match = \"exact\"
     assert!(matches!(
         party_error(
             r#"
-[[party]]
-issuer = "https://as.example.org/realms/machines"
+[issuer.i3.party]
 identifier_issuer = "urn:example:ferro:machines"
 identifier_type = "login"
 "#,
@@ -155,15 +152,14 @@ identifier_type = "login"
     ));
     let resolved = section(&format!(
         "{ISSUERS}
-[[party]]
-issuer = \"https://login.example.org/tenant-1/v2.0\"
+[issuer.i1.party]
 identifier_issuer = \"urn:example:ferro:login\"
 identifier_type = \"guid\"
 group_claim = \"groups\"
 group_identifier_issuer = \"urn:example:ferro:groups\"
 "
     ))?
-    .resolve()?;
+    .resolve(&[])?;
     assert_eq!(vec![table()], resolved.party);
     let source: Arc<dyn PartySource> = FakeSource::answering(one_professional());
     let binding = PartyBinding::new(source).with_resolved(&resolved)?;
@@ -193,7 +189,7 @@ fn the_idp_entra_table_builds_its_adapter_and_the_binding_registers_it() -> Outc
         "{ISSUERS}{}",
         entra_table("https://graph.microsoft.com/v1.0")
     ))?
-    .resolve()?;
+    .resolve(&[])?;
     let names: Vec<&str> = resolved.adapters.iter().map(|(name, _)| name).collect();
     assert_eq!(vec![ferrohealth_smart::idp::entra::NAME], names);
     let source: Arc<dyn PartySource> = FakeSource::answering(one_professional());
@@ -218,7 +214,7 @@ fn an_idp_entra_table_breaking_a_rule_is_refused_naming_the_adapter() -> Outcome
         "{ISSUERS}{}",
         entra_table("http://graph.example.org")
     ))?
-    .resolve()
+    .resolve(&[])
     .expect_err("an http Graph root is refused");
     assert!(
         matches!(
@@ -252,7 +248,7 @@ fn an_unknown_key_of_the_idp_tables_is_refused() {
 
 #[test]
 fn without_an_idp_table_no_adapter_is_built() -> Outcome2 {
-    let resolved = section(ISSUERS)?.resolve()?;
+    let resolved = section(ISSUERS)?.resolve(&[])?;
     assert!(resolved.adapters.is_empty(), "{:?}", resolved.adapters);
     Ok(())
 }
