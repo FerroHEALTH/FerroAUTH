@@ -27,7 +27,7 @@ use url::Url;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers};
 
 use crate::support::{
-    Database, Keys, RESOURCE, audit, commit, config, events, from_client, iua_71, records,
+    Database, Keys, RESOURCE, audit, bases, commit, config, events, from_client, iua_71, records,
 };
 
 /// FerroSMART's issuer in every case.
@@ -2498,6 +2498,7 @@ async fn a_token_response_is_readable_from_the_app_s_origin_alone() {
 }
 
 mod approval;
+mod consent_basis;
 mod core_op;
 mod ehr_picker;
 mod encounter_picker;

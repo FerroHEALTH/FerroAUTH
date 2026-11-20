@@ -10,7 +10,8 @@ use crate::store::grant::Access;
 use crate::store::{Store, StoreError, Transaction};
 
 impl Store {
-    /// Returns the scopes `subject` chose to remember for `client_id`.
+    /// Returns the scopes `subject` chose to remember for `client_id` at
+    /// the resource server `audience`.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when the query fails.
@@ -18,23 +19,28 @@ impl Store {
         &self,
         subject: &str,
         client_id: &str,
+        audience: &str,
     ) -> Result<Option<String>, StoreError> {
-        let row = sqlx::query("SELECT scope FROM consent WHERE subject = $1 AND client_id = $2")
-            .bind(subject)
-            .bind(client_id)
-            .fetch_optional(&self.pool)
-            .await?;
+        let row = sqlx::query(
+            "SELECT scope FROM consent WHERE subject = $1 AND client_id = $2 AND audience = $3",
+        )
+        .bind(subject)
+        .bind(client_id)
+        .bind(audience)
+        .fetch_optional(&self.pool)
+        .await?;
         row.map(|row| row.try_get("scope").map_err(StoreError::from))
             .transpose()
     }
 
-    /// Returns every consent `subject` remembered, by client.
+    /// Returns every consent `subject` remembered, by client, one row per
+    /// resource server.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when the query fails.
     pub async fn consents(&self, subject: &str) -> Result<Vec<(String, String)>, StoreError> {
         self.scopes_by_client(
-            "SELECT client_id, scope FROM consent WHERE subject = $1 ORDER BY client_id",
+            "SELECT client_id, scope FROM consent WHERE subject = $1 ORDER BY client_id, audience",
             subject,
         )
         .await
@@ -147,7 +153,8 @@ pub struct Disconnected {
 }
 
 impl Transaction {
-    /// Remembers that `subject` gave `client_id` the scopes `scope`.
+    /// Remembers that `subject` gave `client_id` the scopes `scope` at the
+    /// resource server `audience`.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when the statement fails.
@@ -155,14 +162,16 @@ impl Transaction {
         &mut self,
         subject: &str,
         client_id: &str,
+        audience: &str,
         scope: &str,
     ) -> Result<(), StoreError> {
         sqlx::query(
-            "INSERT INTO consent (subject, client_id, scope) VALUES ($1, $2, $3) \
-             ON CONFLICT (subject, client_id) DO UPDATE SET scope = $3, granted_at = now()",
+            "INSERT INTO consent (subject, client_id, audience, scope) VALUES ($1, $2, $3, $4) \
+             ON CONFLICT (subject, client_id, audience) DO UPDATE SET scope = $4, granted_at = now()",
         )
         .bind(subject)
         .bind(client_id)
+        .bind(audience)
         .bind(scope)
         .execute(&mut *self.tx)
         .await?;

@@ -2636,7 +2636,7 @@ discovery and token shapes for the two SaaS providers.
 
   | Write | `type` | subtypes | `action` |
   |---|---|---|---|
-  | a code issued | `110114` | `authorization-code` | `C` |
+  | a code issued, with its basis: `page`, `remembered`, `organisation` or `first-party` (#727) | `110114` | `authorization-code` | `C` |
   | a consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
   | an app disconnected at the management page, with the remembered consent and the grants it ended | `110113` | `110137`, `consent-withdrawn` | `D` |
   | a code issued with no page, on the client's organisation approval (13.6 item 6) | `110113` | `110137`, `consent-organisation-approved` | `C` |
@@ -3167,11 +3167,15 @@ specification governs.
    organisation, as the client's `organisation_approval` (the approved
    scope set, who approved, when), in the registration path, stored in
    PostgreSQL so every replica answers alike. The approval is per client,
-   never a global mode, and covers only `user/` scopes with the launch,
-   OpenID, refresh and extension scopes that go with them, each within the
-   ceiling. A professional whose request names no `patient/` scope, whose
-   `fhirUser` is no `Patient`, `RelatedPerson` or `Person`, and whose
-   offered scopes the approval covers in full gets a code with no page; the
+   never a global mode, and covers `user/` and `patient/` scopes with the
+   launch, OpenID, refresh and extension scopes that go with them, each
+   within the ceiling. A professional whose `fhirUser` is no `Patient`,
+   `RelatedPerson` or `Person`, whose request names no `patient/` scope or
+   comes from an EHR launch (`launch` offered), and whose offered scopes
+   the approval covers in full gets a code with no page: the approval is
+   the "previous administrative consent" of `oidc-core §3.1.2.4`, and in an
+   EHR launch the professional opened the app for the patient in context
+   (owner, 2026-11-20, #727); the
    granted scope stays the intersection of the request, the ceiling, the
    roles and the approval, and the resource server's access policy still
    decides every request. Anything more shows the page for the whole
@@ -3201,8 +3205,10 @@ specification governs.
    `organisation-approval-withdrawn` record. Backend Services has no user and
    no consent step (`smart backend-services`, Scopes: "The client is
    pre-authorized by the server"). A consent is remembered only when the
-   user ticks to remember it, for that client and that scope set; a request
-   that asks for more shows the page again. A remembered consent is listed
+   user ticks to remember it, for that client, that resource server (the
+   request's `aud`) and that scope set; a request that asks for more, or
+   for another resource server, shows the page again (our own design: what
+   an app may read depends on where, #727). A remembered consent is listed
    and revocable at the `management_endpoint`, "URL where an end-user can
    view which applications currently have access to data and can make
    adjustments to these access rights" (`smart conformance`, Metadata), and

@@ -233,7 +233,7 @@ async fn a_patient_s_own_login_shows_the_page() {
 }
 
 #[test]
-fn an_approval_beyond_the_ceiling_or_of_a_patient_scope_is_refused() {
+fn an_approval_beyond_the_ceiling_or_of_a_system_scope_is_refused() {
     let section = |scopes: &[&str], first_party: bool| ClientSection {
         client_id: String::from("app"),
         kind: ClientKind::Public,
@@ -262,8 +262,13 @@ fn an_approval_beyond_the_ceiling_or_of_a_patient_scope_is_refused() {
     for refused in [&["user/Patient.rs"][..], &["system/Observation.rs"][..]] {
         assert!(resolve(&[section(refused, true)]).is_err(), "{refused:?}");
     }
+    // NOTE: OpenID Connect Core 1.0 §3.1.2.4 (owner, 2026-11-20, #727): a staff
+    // approval may cover patient/ scopes, which answer a professional's EHR launch.
+    assert!(
+        resolve(&[section(&["openid", "patient/Observation.rs"], false)]).is_ok(),
+        "a patient/ scope within the ceiling, for staff"
+    );
     for refused in [
-        &["patient/Observation.rs"][..],
         &["user/Patient.rs"][..],
         &["system/Observation.rs"][..],
         &[][..],
@@ -402,6 +407,11 @@ async fn a_patient_disconnects_the_organisation_s_own_app_and_its_approval_stays
     assert!(back.as_str().starts_with(REDIRECT), "no page: {back}");
     let body = exchange(&smart, &back).await;
     let token = body["refresh_token"].as_str().expect("a refresh token");
+    // NOTE: docs/architecture.md §13.2, the code's record names its basis.
+    assert_eq!(
+        vec![String::from("first-party")],
+        bases(&records(&smart.store).await)
+    );
 
     // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, offline_access lasts
     // "as long as the authorization server and end-user will allow".
@@ -455,6 +465,27 @@ async fn a_patient_disconnects_the_organisation_s_own_app_and_its_approval_stays
     assert!(
         back.as_str().starts_with(REDIRECT),
         "the approval answers the next sign-in: {back}"
+    );
+    smart.stop().await;
+}
+
+// NOTE: OpenID Connect Core 1.0 §3.1.2.4 (owner, 2026-11-20, #727): a staff approval
+// covers patient/ scopes only in an EHR launch; a standalone request shows the page.
+#[tokio::test]
+async fn a_professional_s_standalone_patient_request_under_a_staff_approval_shows_the_page() {
+    let smart =
+        start("[\"openid\", \"fhirUser\", \"user/Observation.rs\", \"patient/Observation.rs\"]")
+            .await;
+    let back = login(
+        &smart,
+        "openid fhirUser user/Observation.rs patient/Observation.rs",
+        "Practitioner/synthetic-1",
+    )
+    .await;
+    assert_eq!(
+        "/consent",
+        back.path(),
+        "no EHR launch, no patient in context"
     );
     smart.stop().await;
 }

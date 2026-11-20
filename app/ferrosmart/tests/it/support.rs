@@ -435,6 +435,22 @@ pub(crate) fn events(records: &[Value]) -> Vec<String> {
         .collect()
 }
 
+/// Returns the basis each `authorization-code` record of `records` names,
+/// in order: the `basis` detail of its entity.
+pub(crate) fn bases(records: &[Value]) -> Vec<String> {
+    records
+        .iter()
+        .filter(|record| events(std::slice::from_ref(*record)) == ["authorization-code"])
+        .filter_map(|record| record.get("entity").and_then(Value::as_array))
+        .flat_map(|entities| entities.iter())
+        .filter_map(|entity| entity.get("detail").and_then(Value::as_array))
+        .flat_map(|details| details.iter())
+        .filter(|detail| detail.get("type").and_then(Value::as_str) == Some("basis"))
+        .filter_map(|detail| detail.get("valueString").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect()
+}
+
 /// FerroSMART's own code system of audit events.
 const OWN_EVENTS: &str = "urn:ferrosmart:audit-event";
 
