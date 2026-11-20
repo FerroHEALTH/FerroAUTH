@@ -585,23 +585,19 @@ mapping = "iua"
         Some(Mapping::Iua),
         patients.attributes.as_ref().ok_or("its table")?.mapping
     );
-    for (from, to) in [(
-        String::from("[issuer.i2.attributes]\nmapping = \"iua\""),
-        String::from(
-            "[issuer.i2.attributes]\nmapping = \"iua\"\n\n\
-                 [issuer.i2.attributes.fields]\n\"professional.name\" = [{ constant = \"x\" }]",
+    let professional = text.replace(
+        "[issuer.i2.attributes]\nmapping = \"iua\"",
+        "[issuer.i2.attributes]\nmapping = \"iua\"\n\n\
+         [issuer.i2.attributes.fields]\n\"professional.name\" = [{ constant = \"x\" }]",
+    );
+    let refused: ferrohealth_smart::config::AuthSection = toml::from_str(&professional)?;
+    assert!(
+        matches!(
+            refused.resolve(&[]),
+            Err(ferrohealth_smart::config::ConfigError::Attributes { .. })
         ),
-    )] {
-        let refused: ferrohealth_smart::config::AuthSection =
-            toml::from_str(&text.replace(&from, &to))?;
-        assert!(
-            matches!(
-                refused.resolve(&[]),
-                Err(ferrohealth_smart::config::ConfigError::Attributes { .. })
-            ),
-            "{to}"
-        );
-    }
+        "a patients issuer states only the purpose of use"
+    );
     let twice = text.replace(
         "[issuer.i2.attributes]",
         "[issuer.i1.attributes]\nmapping = \"iua\"\n\n[issuer.i2.attributes]",

@@ -45,7 +45,7 @@ fn entry(issuer: &str, roles: &[&str]) -> IssuerEntry {
 
 /// Returns a section trusting `entries`, named `i1` on, each with the
 /// subjects of `scopeless` that name its issuer.
-fn section(entries: Vec<IssuerEntry>, scopeless: Vec<(String, String)>) -> AuthSection {
+fn section(entries: Vec<IssuerEntry>, scopeless: &[(String, String)]) -> AuthSection {
     let issuer = entries
         .into_iter()
         .enumerate()
@@ -84,7 +84,7 @@ fn each_issuer_receives_only_its_own_entries() -> Result<(), Box<dyn StdError>> 
             entry(ONE, &["realm_access.roles", "roles"]),
             entry(TWO, &["groups"]),
         ],
-        vec![subject(ONE, "svc")],
+        &[subject(ONE, "svc")],
     )
     .resolve(&[])?;
     assert_eq!(set(&["svc"]), resolved.issuers[0].scopeless_subjects);
@@ -130,7 +130,7 @@ fn a_scopeless_subject_is_refused_on_a_patients_issuer() {
     let mut patients = entry(ONE, &[]);
     patients.kind = Some(IssuerKind::Patients);
     assert!(matches!(
-        section(vec![patients], vec![subject(ONE, "svc")]).resolve(&[]),
+        section(vec![patients], &[subject(ONE, "svc")]).resolve(&[]),
         Err(ConfigError::Issuer { issuer, .. }) if issuer == ONE
     ));
 }
@@ -138,7 +138,7 @@ fn a_scopeless_subject_is_refused_on_a_patients_issuer() {
 #[test]
 fn a_role_claim_path_is_still_checked() {
     assert!(matches!(
-        section(vec![entry(ONE, &["realm_access..roles"])], Vec::new()).resolve(&[]),
+        section(vec![entry(ONE, &["realm_access..roles"])], &[]).resolve(&[]),
         Err(ConfigError::Missing {
             key: "auth.issuer.role_claims"
         })
@@ -162,7 +162,7 @@ async fn a_scopeless_subject_holds_only_for_the_issuer_it_names() -> Result<(), 
     let two = Issuer::start(&[&two_key]).await;
     let auth = section(
         vec![entry(&one.uri(), &[]), entry(&two.uri(), &[])],
-        vec![subject(&one.uri(), CLIENT)],
+        &[subject(&one.uri(), CLIENT)],
     );
     let set = trusted(&auth).await?;
     // NOTE: RFC 9068 §5, a client credentials token whose `sub` is its
@@ -193,7 +193,7 @@ async fn roles_are_read_only_from_the_issuer_that_names_the_claim() -> Result<()
     let two = Issuer::start(&[&two_key]).await;
     let auth = section(
         vec![entry(&one.uri(), &["roles"]), entry(&two.uri(), &[])],
-        Vec::new(),
+        &[],
     );
     let set = trusted(&auth).await?;
     let mut one_claims = one.claims("system/Condition.r");
