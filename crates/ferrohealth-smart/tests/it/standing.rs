@@ -477,12 +477,17 @@ fn auth(section: &str, extra: &str) -> String {
     )
 }
 
+/// The section of [`auth`] whose issuer carries the profile keys `keys`.
+fn profiled(section: &str, keys: &str) -> String {
+    format!("{}[issuer.i1.profile]\n{keys}\n", auth(section, ""))
+}
+
 #[test]
 fn the_product_section_refuses_the_three_keys_as_unknown() {
     let refused = [
-        auth("", "first_party_clients = [\"portal\"]"),
-        auth("", "delegates = [{ client = \"portal\" }]"),
-        auth("", "first_party_clients = []"),
+        profiled("", "first_party_clients = [\"portal\"]"),
+        profiled("", "delegates = [{ client = \"portal\" }]"),
+        profiled("", "first_party_clients = []"),
         auth("", "scopeless_subjects = [\"svc\"]"),
     ];
     for text in &refused {
@@ -574,7 +579,7 @@ fn an_unknown_key_of_the_product_section_is_refused_at_its_own_position() {
 
 #[test]
 fn the_product_section_reads_and_writes_as_the_default_without_the_lists() -> Outcome {
-    let text = auth("realm = \"ferro\"", "client_claims = [\"azp\"]");
+    let text = profiled("realm = \"ferro\"", "client_claims = [\"azp\"]");
     let product: ProductStandingSection = toml::from_str(&text)?;
     let plain: AuthSection = toml::from_str(&text)?;
     assert_eq!(plain, product.0);
@@ -596,7 +601,7 @@ fn the_product_section_hands_every_issuer_its_standing() -> Outcome {
             issuer.standing
         );
     }
-    let plain: AuthSection = toml::from_str(&auth("", "first_party_clients = [\"portal\"]"))?;
+    let plain: AuthSection = toml::from_str(&profiled("", "first_party_clients = [\"portal\"]"))?;
     let resolved = plain.resolve(&[])?;
     assert_eq!(StandingSource::Lists, resolved.issuers[0].standing);
     assert_eq!(
@@ -612,14 +617,14 @@ fn a_list_set_in_code_on_the_product_section_is_refused_at_resolution() -> Outco
     let product: Arc<dyn Standing> = Arc::new(Product::default());
     let section: ProductStandingSection = toml::from_str(&auth("", ""))?;
     let cases: [SectionCase; 3] = [
-        ("auth.issuer.first_party_clients", |auth| {
+        ("auth.issuer.profile.first_party_clients", |auth| {
             if let Some(entry) = auth.issuer.values_mut().next() {
-                entry.first_party_clients = Some(Vec::new());
+                entry.profile.first_party_clients = Some(Vec::new());
             }
         }),
-        ("auth.issuer.delegates", |auth| {
+        ("auth.issuer.profile.delegates", |auth| {
             if let Some(entry) = auth.issuer.values_mut().next() {
-                entry.delegates = Some(vec![Delegate::Client(String::from(PORTAL))]);
+                entry.profile.delegates = Some(vec![Delegate::Client(String::from(PORTAL))]);
             }
         }),
         ("auth.issuer.scopeless_subjects", |auth| {
@@ -649,10 +654,13 @@ fn the_product_section_schema_leaves_out_the_three_keys() {
     assert!(product["properties"]["realm"].is_object());
     let entry = &product["properties"]["issuer"]["additionalProperties"]["properties"];
     assert!(entry["audience"].is_object(), "{product}");
-    assert!(entry.get("first_party_clients").is_none(), "{entry}");
-    assert!(entry.get("delegates").is_none(), "{entry}");
     assert!(entry.get("scopeless_subjects").is_none(), "{entry}");
+    let profile = &entry["profile"]["properties"];
+    assert!(profile["client_claims"].is_object(), "{entry}");
+    assert!(profile.get("first_party_clients").is_none(), "{profile}");
+    assert!(profile.get("delegates").is_none(), "{profile}");
     let defs = plain["$defs"]["IssuerEntry"]["properties"].clone();
-    assert!(defs["first_party_clients"].is_object(), "{plain}");
     assert!(defs["scopeless_subjects"].is_object(), "{plain}");
+    let keys = plain["$defs"]["ProfileKeys"]["properties"].clone();
+    assert!(keys["first_party_clients"].is_object(), "{plain}");
 }

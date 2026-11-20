@@ -23,6 +23,11 @@ fn issuer(kind: &str, extra: &str) -> String {
     )
 }
 
+/// An issuer table of `kind` with `extra` keys and the profile keys `keys`.
+fn profiled(kind: &str, extra: &str, keys: &str) -> String {
+    format!("{}[issuer.i2.profile]\n{keys}\n", issuer(kind, extra))
+}
+
 /// Returns the section `text` reads to.
 fn section(text: &str) -> AuthSection {
     toml::from_str(text).expect("the section parses")
@@ -86,12 +91,13 @@ fn every_retired_key_and_form_is_an_unknown_key_at_load() {
 #[test]
 fn a_banned_key_fails_to_load() {
     for text in [
-        issuer("persons", "person_key = \"email\""),
-        issuer("persons", "person_key = \"preferred_username\""),
-        issuer("persons", "client_claims = [\"name\"]"),
-        issuer("persons", "profile = \"entra\"\nperson_key = \"upn\""),
-        issuer(
+        profiled("persons", "", "person_key = \"email\""),
+        profiled("persons", "", "person_key = \"preferred_username\""),
+        profiled("persons", "", "client_claims = [\"name\"]"),
+        profiled("persons", "preset = \"entra\"", "person_key = \"upn\""),
+        profiled(
             "persons",
+            "",
             "person_key = \"login\"\nunstable_claims = [\"login\"]",
         ),
     ] {
@@ -114,10 +120,10 @@ fn a_federation_issuer_without_its_table_fails_to_load() {
 
 #[test]
 fn a_preset_is_selected_and_every_key_is_set_over_it() -> Outcome {
-    let resolved = section(&issuer(
+    let resolved = section(&profiled(
         "persons",
-        r#"profile = "entra"
-person_key = "sub"
+        "preset = \"entra\"",
+        r#"person_key = "sub"
 client_claims = ["appid", "azp"]
 guest = [{ claim = "acct", value = "1" }]
 first_party_clients = ["first-party-app"]
@@ -151,8 +157,8 @@ scope_claim = { claim = "scp", form = "array" }"#,
 #[test]
 fn the_okta_and_keycloak_presets_fail_to_load_until_the_deployment_sets_their_gaps() {
     for text in [
-        issuer("persons", "profile = \"okta\""),
-        issuer("machines", "profile = \"keycloak\""),
+        issuer("persons", "preset = \"okta\""),
+        issuer("machines", "preset = \"keycloak\""),
     ] {
         assert!(
             matches!(section(&text).resolve(&[]), Err(ConfigError::Issuer { .. })),
@@ -160,18 +166,20 @@ fn the_okta_and_keycloak_presets_fail_to_load_until_the_deployment_sets_their_ga
         );
     }
     assert!(
-        section(&issuer(
+        section(&profiled(
             "persons",
-            "profile = \"okta\"\ntoken_types = [\"JWT\"]"
+            "preset = \"okta\"",
+            "token_types = [\"JWT\"]"
         ))
         .resolve(&[])
         .is_ok(),
         "okta with its token types"
     );
     assert!(
-        section(&issuer(
+        section(&profiled(
             "machines",
-            "profile = \"keycloak\"\napp_only = [{ subjects = [\"service-account-sub\"] }]"
+            "preset = \"keycloak\"",
+            "app_only = [{ subjects = [\"service-account-sub\"] }]"
         ))
         .resolve(&[])
         .is_ok(),
@@ -184,9 +192,10 @@ fn the_okta_and_keycloak_presets_fail_to_load_until_the_deployment_sets_their_ga
 #[cfg(not(feature = "idp-entra"))]
 #[test]
 fn an_adapter_whose_feature_is_not_compiled_in_fails_to_load() {
-    let refused = section(&issuer(
+    let refused = section(&profiled(
         "persons",
-        "profile = \"entra\"\nadapter = \"idp-entra\"",
+        "preset = \"entra\"",
+        "adapter = \"idp-entra\"",
     ))
     .resolve(&[]);
     assert!(
@@ -199,18 +208,20 @@ fn an_adapter_whose_feature_is_not_compiled_in_fails_to_load() {
 // loads and a name no feature compiles in fails in every build.
 #[test]
 fn only_a_compiled_adapter_loads() {
-    let unknown = section(&issuer(
+    let unknown = section(&profiled(
         "persons",
-        "profile = \"entra\"\nadapter = \"idp-unknown\"",
+        "preset = \"entra\"",
+        "adapter = \"idp-unknown\"",
     ))
     .resolve(&[]);
     assert!(
         matches!(unknown, Err(ConfigError::Issuer { .. })),
         "{unknown:?}"
     );
-    let compiled = section(&issuer(
+    let compiled = section(&profiled(
         "persons",
-        "profile = \"entra\"\nadapter = \"idp-entra\"",
+        "preset = \"entra\"",
+        "adapter = \"idp-entra\"",
     ))
     .resolve(&[]);
     assert_eq!(
@@ -227,7 +238,7 @@ fn a_marker_or_a_delegate_in_two_forms_fails_to_parse() {
         "delegates = [{ sub = \"a\", client = \"b\" }]",
     ] {
         assert!(
-            toml::from_str::<AuthSection>(&issuer("persons", extra)).is_err(),
+            toml::from_str::<AuthSection>(&profiled("persons", "", extra)).is_err(),
             "{extra}"
         );
     }

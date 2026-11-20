@@ -16,10 +16,12 @@ const ISSUERS: &str = r#"
 [issuer.i1]
 issuer = "https://login.example.org/tenant-1/v2.0"
 kind = "persons"
-profile = "entra"
+preset = "entra"
 audience = ["api://ferro"]
-first_party_clients = ["first-party-app"]
 jwks_file = "/dev/null"
+
+[issuer.i1.profile]
+first_party_clients = ["first-party-app"]
 
 [issuer.i2]
 issuer = "https://as.example.org/realms/other"
@@ -86,8 +88,8 @@ identifier_type = "login"
 #[test]
 fn a_banned_claim_as_key_fails_to_load() -> Outcome2 {
     let banned = ISSUERS.replacen(
-        "profile = \"entra\"",
-        "profile = \"entra\"\nperson_key = \"email\"",
+        "first_party_clients = [\"first-party-app\"]",
+        "first_party_clients = [\"first-party-app\"]\nperson_key = \"email\"",
         1,
     );
     let text = format!(

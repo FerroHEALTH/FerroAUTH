@@ -1130,9 +1130,13 @@ layers, all in `ferrohealth-smart`:
    never a key). No core rule names a vendor, and an integration test scans
    the core modules for a vendor's name.
 2. **Vendor profiles as data**, `profile`: each issuer's `Profile` is a
-   `Preset` (`rfc9068`, `entra`, `keycloak`, `okta`, `nl`, `ferrosmart`, shipped as
-   `profiles/*.toml` with each value labelled by its source) with any key set
-   over it on the issuer table. The keys: `person_key`, `tenant_claim`,
+   `Preset` (`rfc9068`, `entra`, `keycloak`, `okta`, `ferrosmart`, shipped as
+   `profiles/*.toml` with each value labelled by its source, the issuer's
+   `preset`), a deployment's `profile_file` in the same form set over it, and
+   the keys of the issuer's `[auth.issuer.<name>.profile]` table set over
+   both (#732). The compiled presets are the standards-only one and the
+   vendors'; a national binding is a deployment's file, and the book ships
+   the Dutch Annex B binding as an example. The keys: `person_key`, `tenant_claim`,
    `client_claims`, `app_only` and `guest` (markers), `impersonation_marker`,
    `expect`, `user_claims` (claims every token that is not app-only must
    carry), `person_equality`, `unstable_claims`, `first_party_clients`,
@@ -1365,7 +1369,7 @@ form taken as relayed, and a product reads it as `Caller::message_id`, a
 join its access record to the contact point's audit entry
 (FerroHEALTH/FerroSMART#432).
 
-**The `ferrosmart` profile** (`profile = "ferrosmart"`,
+**The `ferrosmart` profile** (`preset = "ferrosmart"`,
 `profiles/ferrosmart.toml`, #521). FerroSMART (§13) issues plain RFC 9068
 access tokens with no Ferro-specific claim, so the preset keeps every
 `rfc9068` default but three: `token_types` is `at+jwt` alone, the one `typ`
@@ -1382,28 +1386,28 @@ lists none, because the apps belong to each deployment. FerroSMART grants
 no token exchange, so the onward grants stay with another issuer. FerroSMART's own tests read the
 tokens it issues under the preset.
 
-**The `nl` profile** (`profile = "nl"`, `profiles/nl.toml`). The harmonised
-BgZ and eOverdracht authentication of the openEHR Federation Tier
-specification 1.0.1 Annex B §B.4a: a requesting care provider signs its own
-client-credentials access token (§B.4a.2), and the healthcare attributes
-travel in an `authorization_details` entry of type `nl-gis-v1` (§B.4a.3).
-A preset file may carry a `federation` table (`Preset::federation`), which
-the issuer's own `[auth.issuer.<name>.federation]` table is set over
-(`FederationSection::over`) and which an issuer of another kind refuses.
-The `nl` table declares the issuer domestic in `NL`, with the CIBG as the
-issuing authority (§B.3), the URA prefix `urn:oid:2.16.528.1.1007.3.3.`
-(the §B.4a.3 example), the attested entry of type `nl-gis-v1` as the
-organisation's access statement (§B.4a.1 verifies only the organisation),
-`purpose_of_use` and `nl.organisation_type` read from the entry, and
-`required_fields` (`purpose_of_use`, `nl.organisation_type`, `nl.ura`): a
-federated query is the query use case, for which "Organization type must
-travel" (§B.4a.4), and a token missing one is refused as
-`Unclassified::RequiredFields`. The URA is the signing organisation's own,
-so the deployment configures it as a constant. `requires_sender_constraint`
-holds the issuer to `sender_constraint = "required"` (§B.4a.2, FAPI 2.0's
-sender-constrained tokens), and with no `typ` in §B.4a.2 the issuer fails
-to load until it sets `token_types`. The §B.4 Nuts Generic Functions track
-is not this profile: Annex B calls the two "not silently mergeable".
+**A national binding as a profile file.** The products ship no country
+content (owner rule, #732). The harmonised BgZ and eOverdracht
+authentication of the openEHR Federation Tier specification 1.0.1 Annex B
+§B.4a, which a compiled `nl` preset once carried, is the book's example
+profile file (`website/book/src/integrate/profiles/nl-annex-b.toml`): a
+requesting care provider signs its own client-credentials access token
+(§B.4a.2), and the healthcare attributes travel in an
+`authorization_details` entry of type `nl-gis-v1` (§B.4a.3). A profile file,
+like a preset file, may carry `kind` and a `federation` table
+(`ProfileFile`), which the issuer's own `[auth.issuer.<name>.federation]`
+table is set over (`FederationSection::over`) and which an issuer of another
+kind refuses. The example declares the issuer domestic in `NL`, with the
+CIBG as the issuing authority (§B.3), the URA prefix
+`urn:oid:2.16.528.1.1007.3.3.` (the §B.4a.3 example), the attested entry as
+the organisation's access statement (§B.4a.1 verifies only the
+organisation), the purpose of use and organisation type read from the entry,
+and `required_fields` (§B.4a.4: for the query use case "Organization type
+must travel"). The URA is the signing organisation's own, so the deployment
+configures it as a constant. `requires_sender_constraint` holds the issuer to
+`sender_constraint = "required"` (§B.4a.2), and with no `typ` in §B.4a.2 the
+issuer fails to load until it sets `token_types`. The crate's tests load the
+book's file, so the example cannot drift from what the crate reads.
 
 ### 3.15 Sender-constrained tokens
 
@@ -1910,10 +1914,10 @@ product_scope = ""                   # the product's own scope: `__name` or a fu
 [auth.issuer.sso]                    # one table per issuer, by name; none with Basic users: a Basic-only surface
 issuer = "https://as.example.org/realms/ferro"
 kind = "persons"                     # persons, patients, machines or federation (3.14); unset: the preset's kind
-profile = "rfc9068"                  # or "entra", "keycloak", "okta", "nl", "ferrosmart"; any profile key below overrides it
+preset = "rfc9068"                   # or "entra", "keycloak", "okta", "ferrosmart"
+# profile_file = "/etc/ferro/profile.toml"   # a deployment's profile, set over the preset
 audience = ["https://bridge.example.org/fhir"]   # `aud` must contain one; unset: the product's own base URLs
 scopeless_subjects = ["batch-client"]   # app-only subjects granted system-wide access without a scope (3.4)
-patient_context = false              # whether the `patient` claim is the launch context; true under ferrosmart
 algorithms = ["RS256", "RS384", "PS256", "PS384", "ES256", "ES384"]
 clock_skew = "60s"                   # at most 300s
 jwks_max_age = "10min"
@@ -1921,10 +1925,13 @@ jwks_refresh_interval = "60s"
 jwks_file = ""                       # a key set handed over out of band, instead of jwks_uri
 timeout = "10s"                      # one call to the authorization server
 role_claims = ["roles", "groups", "entitlements"]   # this issuer's role paths (3.11); none on federation
-first_party_clients = ["ferrobridge-console"]       # the clients a person signs in through (3.14)
-delegates = [{ client = "partner-app" }, { sub = "actor-service" }]
 mode = "jwt"                         # or "introspection" (3.10), with the table below
 sender_constraint = "none"           # or "required": a DPoP- or certificate-bound token alone (3.15)
+
+[auth.issuer.sso.profile]            # the profile keys, over the preset and the profile file
+first_party_clients = ["ferrobridge-console"]       # the clients a person signs in through (3.14)
+delegates = [{ client = "partner-app" }, { sub = "actor-service" }]
+patient_context = false              # whether the `patient` claim is the launch context; true under ferrosmart
 
 [auth.issuer.sso.assurance]          # the level this issuer's tokens carry (3.12)
 claim = "acr"
@@ -2096,7 +2103,7 @@ with (3.16):
 [cdr.credentials.onward]             # resolved by CredentialsSection::onward
 issuer = "https://login.microsoftonline.com/<tenant>/v2.0"   # issues the onward tokens
 kind = "persons"                     # persons (a delegated exchange), patients or federation
-profile = "entra"                    # the preset: rfc9068, entra, keycloak, okta, nl
+preset = "entra"                     # the preset: rfc9068, entra, keycloak, okta, ferrosmart
 # token_endpoint = "https://…/token" # empty: discovered from issuer
 # client_id = "…"                    # empty: the oauth table's client id
 audiences = ["<cdr app id>"]         # what an onward token's aud may name
@@ -2108,7 +2115,7 @@ scope = "api://<cdr app id>/.default"
 # actor_assertion = true             # default false; name the client the actor of
 #                                    # each exchange with an assertion (rfc8693 §2.1)
 
-[cdr.credentials.onward.keys]        # any profile key over the preset
+[cdr.credentials.onward.profile]     # any profile key over the preset and the profile file
 max_onward_lifetime = "90min"        # required: no preset states one
 
 # [cdr.credentials.onward.federation]  # a federation issuer: exchanges_from and
@@ -4206,11 +4213,11 @@ adoption issue tracks its own side (#521).
    table: `AuthSection::resolve` refuses a second table naming it (#591).
 
    ```toml
-   [auth.issuer.<name>]
+   [auth.issuer.smart]
    issuer = "https://smart.example.org"
-   kind = "persons"
-   profile = "ferrosmart"
-   audience = ["https://ehr.example.org/openehr/v1"]
+   preset = "ferrosmart"
+
+   [auth.issuer.smart.profile]
    delegates = [{ client = "growth-chart" }]
    ```
 

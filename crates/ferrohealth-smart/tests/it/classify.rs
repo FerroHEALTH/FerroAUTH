@@ -1163,7 +1163,6 @@ mod ferrosmart_profile {
             Preset::Entra,
             Preset::Keycloak,
             Preset::Okta,
-            Preset::Nl,
         ] {
             assert!(!Profile::resolve(preset, &ProfileKeys::default())?.fhir_user_patient);
         }

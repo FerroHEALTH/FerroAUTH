@@ -963,7 +963,7 @@ fn one_issuer_in_two_tables_is_refused_naming_both() {
 /// The section of one issuer table under `ferrosmart`, with `extra` keys.
 fn smart_issuer(extra: &str) -> AuthSection {
     toml::from_str(&format!(
-        "[issuer.smart]\nissuer = \"https://smart.example.org\"\nprofile = \"ferrosmart\"\n\
+        "[issuer.smart]\nissuer = \"https://smart.example.org\"\npreset = \"ferrosmart\"\n\
          jwks_file = \"/dev/null\"\n{extra}"
     ))
     .expect("the section parses")
@@ -1070,7 +1070,7 @@ fn patient_context_is_on_under_ferrosmart_and_off_otherwise() {
             .profile
             .patient_context
     );
-    let resolved = smart_issuer("patient_context = false\n")
+    let resolved = smart_issuer("[issuer.smart.profile]\npatient_context = false\n")
         .resolve(&base)
         .expect("resolves");
     assert!(
@@ -1094,5 +1094,108 @@ fn patient_context_is_on_under_ferrosmart_and_off_otherwise() {
             .expect("one")
             .profile
             .patient_context
+    );
+}
+
+// NOTE: no specification governs the profile model: our own design (#732), a
+// deployment's file over the preset and the issuer's profile table over both.
+#[test]
+fn a_profile_file_is_set_over_the_preset_and_the_profile_table_over_both() {
+    let file = crate::support::temp_file(
+        "profile-file.toml",
+        b"kind = \"persons\"\nperson_key = \"oid\"\ntenant_claim = \"tid\"\nclient_claims = [\"azp\"]\n",
+    );
+    let section: AuthSection = toml::from_str(&format!(
+        "[issuer.own]\nissuer = \"https://idp.example.org\"\npreset = \"ferrosmart\"\n\
+         profile_file = {:?}\naudience = [\"a\"]\njwks_file = \"/dev/null\"\n\
+         [issuer.own.profile]\nclient_claims = [\"client_id\"]\n",
+        file.display().to_string()
+    ))
+    .expect("the section parses");
+    let resolved = section.resolve(&[]).expect("resolves");
+    let profile = &resolved.issuers.first().expect("one issuer").profile;
+    assert_eq!("oid", profile.person_key, "the file over the preset");
+    assert_eq!(Some(String::from("tid")), profile.tenant_claim);
+    assert_eq!(
+        vec![String::from("client_id")],
+        profile.client_claims,
+        "the profile table over the file"
+    );
+    assert!(
+        profile.patient_context,
+        "the preset's key the file leaves alone"
+    );
+    assert_eq!(
+        Some(&IssuerKind::Persons),
+        resolved.kinds.get("https://idp.example.org"),
+        "the file's kind"
+    );
+}
+
+#[test]
+fn an_unreadable_or_unknown_profile_file_fails_to_load() {
+    let text = |path: &str| {
+        format!(
+            "[issuer.own]\nissuer = \"https://idp.example.org\"\nkind = \"persons\"\n\
+             profile_file = {path:?}\naudience = [\"a\"]\njwks_file = \"/dev/null\"\n"
+        )
+    };
+    let missing: AuthSection =
+        toml::from_str(&text("/nonexistent/ferro-profile.toml")).expect("parses");
+    assert!(matches!(
+        missing.resolve(&[]),
+        Err(ConfigError::Issuer { .. })
+    ));
+    let unknown = crate::support::temp_file("profile-unknown.toml", b"no_such_key = 1\n");
+    let unknown: AuthSection =
+        toml::from_str(&text(&unknown.display().to_string())).expect("parses");
+    let refused = unknown.resolve(&[]).expect_err("an unknown key");
+    let mut chain = vec![refused.to_string()];
+    let mut source = std::error::Error::source(&refused);
+    while let Some(cause) = source {
+        chain.push(cause.to_string());
+        source = cause.source();
+    }
+    assert!(
+        chain.iter().any(|line| line.contains("no_such_key")),
+        "{chain:?}"
+    );
+}
+
+// NOTE: the products ship no country content (owner rule, #732): the compiled
+// presets are the standards-only one and the vendors'.
+#[test]
+fn the_compiled_presets_are_the_standards_and_the_vendors_only() {
+    let mut shipped: Vec<String> =
+        std::fs::read_dir(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("profiles"))
+            .expect("the presets")
+            .map(|entry| {
+                entry
+                    .expect("an entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+    shipped.sort();
+    assert_eq!(
+        vec![
+            "entra.toml",
+            "ferrosmart.toml",
+            "keycloak.toml",
+            "okta.toml",
+            "rfc9068.toml"
+        ],
+        shipped
+    );
+    let nl: Result<AuthSection, _> =
+        toml::from_str("[issuer.own]\nissuer = \"https://idp.example.org\"\npreset = \"nl\"\n");
+    assert!(nl.is_err(), "no country preset");
+    let old: Result<AuthSection, _> = toml::from_str(
+        "[issuer.own]\nissuer = \"https://idp.example.org\"\nkind = \"persons\"\nperson_key = \"sub\"\n",
+    );
+    assert!(
+        old.is_err(),
+        "a profile key on the issuer table itself is unknown"
     );
 }

@@ -472,6 +472,8 @@ fn the_federation_tables_load_from_toml_and_name_their_issuers() -> Outcome {
 issuer = "{ISSUER}"
 kind = "federation"
 audience = ["{AUDIENCE}"]
+
+[issuer.i1.profile]
 token_types = ["IUA-JWT"]
 
 [issuer.i1.federation]

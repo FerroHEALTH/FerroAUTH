@@ -25,10 +25,12 @@ use wiremock::MockServer;
 use super::ClientKey;
 use super::endpoint;
 
-/// Returns the `[auth]` section of one `persons` issuer with `extra` keys.
-fn section(extra: &str) -> AuthSection {
+/// Returns the `[auth]` section of one `persons` issuer with the profile
+/// keys `keys`.
+fn section(keys: &str) -> AuthSection {
     toml::from_str(&format!(
-        "[issuer.i2]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n{extra}\n"
+        "[issuer.i2]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n\
+         [issuer.i2.profile]\n{keys}\n"
     ))
     .expect("the section parses")
 }

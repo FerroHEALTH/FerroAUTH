@@ -4,8 +4,8 @@
 # The `keycloak` issuer profile: Keycloak 26.8.2 access tokens. Each value
 # is Keycloak's deviation from the `rfc9068` profile, with its source under
 # docs/specs/keycloak-docs/docs/documentation/server_admin/topics/ at tag
-# 26.8.2. Every key can be set on the issuer table, which wins over this
-# file.
+# 26.8.2. Every key can be set in the issuer's
+# `[auth.issuer.<name>.profile]` table, which wins over this file.
 
 # A person signs in at the vendor and a client of the deployment calls with
 # its own token, so its issuers are `persons`, which reads a client

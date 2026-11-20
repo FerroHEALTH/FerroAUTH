@@ -15,6 +15,7 @@ use crate::config::IssuerEntry;
 use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
 use crate::profile::Preset;
+use crate::profile::ProfileFile;
 use crate::profile::ProfileKeys;
 use crate::sender::SenderConstraint;
 use ferrohealth_config::units::Duration;
@@ -24,7 +25,7 @@ impl Default for IssuerEntry {
         Self {
             issuer: ferrohealth_secret::secret_url::SecretUrl::default(),
             kind: None,
-            profile: Preset::Rfc9068,
+            preset: Preset::Rfc9068,
             audience: Vec::new(),
             algorithms: vec![
                 Algorithm::RS256,
@@ -48,37 +49,8 @@ impl Default for IssuerEntry {
             assurance: None,
             sender_constraint: SenderConstraint::None,
             role_claims: None,
-            person_key: None,
-            tenant_claim: None,
-            client_claims: None,
-            app_only: None,
-            guest: None,
-            impersonation_marker: None,
-            expect: None,
-            user_claims: None,
-            person_equality: None,
-            unstable_claims: None,
-            first_party_clients: None,
-            delegates: None,
-            max_actor_chain: None,
-            representation: None,
-            act_represents_patient: None,
-            fhir_user_patient: None,
-            patient_context: None,
-            issuer_client_is_person: None,
-            party_identifier_type: None,
-            token_types: None,
-            required_claims: None,
-            scope_claim: None,
-            app_only_scope_claim: None,
-            adapter: None,
-            max_onward_lifetime: None,
-            onward_grant: None,
-            onward_indicator: None,
-            onward_parameters: None,
-            onward_client_id: None,
-            onward_subject_audience: None,
-            onward_preview: None,
+            profile_file: None,
+            profile: ProfileKeys::default(),
         }
     }
 }
@@ -96,66 +68,59 @@ impl Default for IntrospectionSection {
 }
 
 impl IssuerEntry {
-    /// Returns the profile keys this table sets over its preset.
-    #[must_use]
-    pub fn profile_keys(&self) -> ProfileKeys {
-        ProfileKeys {
-            person_key: self.person_key.clone(),
-            tenant_claim: self.tenant_claim.clone(),
-            client_claims: self.client_claims.clone(),
-            app_only: self.app_only.clone(),
-            guest: self.guest.clone(),
-            impersonation_marker: self.impersonation_marker.clone(),
-            expect: self.expect.clone(),
-            user_claims: self.user_claims.clone(),
-            person_equality: self.person_equality.clone(),
-            unstable_claims: self.unstable_claims.clone(),
-            first_party_clients: self.first_party_clients.clone(),
-            delegates: self.delegates.clone(),
-            max_actor_chain: self.max_actor_chain,
-            representation: self.representation.clone(),
-            act_represents_patient: self.act_represents_patient,
-            fhir_user_patient: self.fhir_user_patient,
-            patient_context: self.patient_context,
-            issuer_client_is_person: self.issuer_client_is_person,
-            party_identifier_type: self.party_identifier_type.clone(),
-            token_types: self.token_types.clone(),
-            required_claims: self.required_claims.clone(),
-            scope_claim: self.scope_claim.clone(),
-            app_only_scope_claim: self.app_only_scope_claim.clone(),
-            adapter: self.adapter.clone(),
-            max_onward_lifetime: self.max_onward_lifetime,
-            onward_grant: self.onward_grant,
-            onward_indicator: self.onward_indicator,
-            onward_parameters: self.onward_parameters.clone(),
-            onward_client_id: self.onward_client_id,
-            onward_subject_audience: self.onward_subject_audience,
-            onward_preview: self.onward_preview.clone(),
-        }
+    /// Returns the profile file this table names, read; `None` when it
+    /// names none.
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigError::Issuer`] when the file cannot be read or is no
+    /// profile.
+    pub fn profile_file(&self) -> Result<Option<ProfileFile>, ConfigError> {
+        self.profile_file
+            .as_deref()
+            .map(ProfileFile::read)
+            .transpose()
+            .map_err(|source| ConfigError::Issuer {
+                issuer: crate::config::shown(&self.issuer),
+                source: Box::new(source.into()),
+            })
     }
 }
 
 /// Returns the federation table `table` of the issuer `issuer` set over the
-/// federation defaults of `preset`, naming that issuer; the defaults alone
-/// when there is no table, and the table alone when the preset has none.
+/// federation defaults of its profile `file`, set over those of `preset`,
+/// naming that issuer; none when no layer declares one.
 pub(super) fn federation_over(
     preset: Preset,
+    file: Option<&ProfileFile>,
     table: Option<FederationSection>,
     issuer: &ferrohealth_secret::secret_url::SecretUrl,
 ) -> Result<Option<FederationSection>, crate::profile::ProfileError> {
-    let merged = match (table, preset.federation()?) {
-        (Some(table), Some(defaults)) => Some(table.over(defaults)),
-        (table, None) => table,
-        (None, Some(defaults)) => Some(defaults),
-    };
-    Ok(merged.map(|table| FederationSection {
+    let defaults = over(
+        file.and_then(|file| file.federation.clone()),
+        preset.federation()?,
+    );
+    Ok(over(table, defaults).map(|table| FederationSection {
         issuer: issuer.clone(),
         ..table
     }))
 }
 
-/// Checks the issuer-level rules of `entry` and returns its kind, its own or
-/// its preset's: an identifier, a kind, and no `federation` issuer in this
+/// Returns the federation table `upper` set over `lower`, either alone when
+/// the other is absent.
+fn over(
+    upper: Option<FederationSection>,
+    lower: Option<FederationSection>,
+) -> Option<FederationSection> {
+    match (upper, lower) {
+        (Some(upper), Some(lower)) => Some(upper.over(lower)),
+        (upper, None) => upper,
+        (None, lower) => lower,
+    }
+}
+
+/// Checks the issuer-level rules of `entry` and returns its kind, its own,
+/// its profile file's or its preset's: an identifier, a kind, and no `federation` issuer in this
 /// build.
 pub(super) fn check_entry(entry: &IssuerEntry) -> Result<IssuerKind, ConfigError> {
     if entry.issuer.is_empty() {
@@ -173,11 +138,12 @@ pub(super) fn check_entry(entry: &IssuerEntry) -> Result<IssuerKind, ConfigError
     if !entry.jwks_file.is_empty() {
         check_jwks_file(entry)?;
     }
-    let preset = entry.profile.kind().map_err(|source| ConfigError::Issuer {
+    let preset = entry.preset.kind().map_err(|source| ConfigError::Issuer {
         issuer: crate::config::shown(&entry.issuer),
         source: Box::new(source.into()),
     })?;
-    let kind = entry.kind.or(preset).ok_or(ConfigError::Missing {
+    let file = entry.profile_file()?.and_then(|file| file.kind);
+    let kind = entry.kind.or(file).or(preset).ok_or(ConfigError::Missing {
         key: "auth.issuer.kind",
     })?;
     if entry.mode == AuthMode::Jwt && entry.introspection.is_some() {

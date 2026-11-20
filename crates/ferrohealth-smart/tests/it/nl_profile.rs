@@ -15,9 +15,11 @@ use ferrohealth_smart::federation::Attribute;
 use ferrohealth_smart::federation::FederationError;
 use ferrohealth_smart::federation::Field;
 use ferrohealth_smart::kind::CallerKind;
+use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::kind::Unclassified;
 use ferrohealth_smart::profile::Preset;
 use ferrohealth_smart::profile::ProfileError;
+use ferrohealth_smart::profile::ProfileFile;
 use ferrohealth_smart::refusal::Reason;
 use ferrohealth_smart::resource::Caller;
 use ferrohealth_smart::resource::Rejection;
@@ -85,7 +87,13 @@ fn token(entry: &Value) -> Value {
     })
 }
 
-/// The issuer of the cases, configured with `profile = "nl"`.
+/// The book's example profile file, which the cases load.
+fn profile_file() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../website/book/src/integrate/profiles/nl-annex-b.toml")
+}
+
+/// The issuer of the cases, configured with the book's example profile file.
 struct Harness {
     /// The signing key, in the key set file.
     key: SigningKey,
@@ -104,27 +112,33 @@ impl Harness {
     }
 
     /// Returns the configuration of the issuer, its issuer table carrying
-    /// `issuer` and its federation table `federation` after the issuer line.
-    fn config(&self, issuer: &str, federation: &str) -> String {
+    /// `issuer`, its profile table `profile` and its federation table
+    /// `federation`.
+    fn config(&self, issuer: &str, profile: &str, federation: &str) -> String {
         format!(
             r#"[issuer.i1]
 issuer = "{ISSUER}"
-profile = "nl"
+profile_file = "{file}"
 audience = ["{AUDIENCE}"]
 jwks_file = "{jwks}"
 {issuer}
+
+[issuer.i1.profile]
+{profile}
 
 [issuer.i1.federation]
 {federation}
 "#,
             jwks = self.jwks,
+            file = profile_file().display(),
         )
     }
 
     /// The configuration a deployment of the profile writes.
     fn deployed(&self) -> String {
         self.config(
-            "kind = \"federation\"\ntoken_types = [\"at+jwt\"]\nsender_constraint = \"required\"",
+            "kind = \"federation\"\nsender_constraint = \"required\"",
+            "token_types = [\"at+jwt\"]",
             &format!("[issuer.i1.federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"),
         )
     }
@@ -219,7 +233,8 @@ async fn the_directed_sending_example_lacks_the_organisation_type_a_query_needs(
 async fn a_deployment_that_only_receives_directed_sending_relaxes_the_required_fields() -> Outcome {
     let h = Harness::new();
     let config = h.config(
-        "kind = \"federation\"\ntoken_types = [\"at+jwt\"]\nsender_constraint = \"required\"",
+        "kind = \"federation\"\nsender_constraint = \"required\"",
+        "token_types = [\"at+jwt\"]",
         &format!(
             "required_fields = [\"purpose_of_use\", \"nl.ura\"]\n\
              [issuer.i1.federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"
@@ -310,7 +325,8 @@ fn the_profile_fails_to_load_without_the_type_or_the_ura() {
         }))
     ));
     let no_ura = h.config(
-        "kind = \"federation\"\ntoken_types = [\"at+jwt\"]\nsender_constraint = \"required\"",
+        "kind = \"federation\"\nsender_constraint = \"required\"",
+        "token_types = [\"at+jwt\"]",
         "",
     );
     assert!(matches!(
@@ -342,10 +358,11 @@ fn the_profile_is_refused_on_an_issuer_of_another_kind() {
 }
 
 #[test]
-fn the_shipped_file_carries_the_annex_values() -> Outcome {
-    let keys = Preset::Nl.keys()?;
-    assert_eq!(Some(Vec::new()), keys.token_types);
-    let federation = Preset::Nl.federation()?.ok_or("a federation table")?;
+fn the_books_example_file_carries_the_annex_values() -> Outcome {
+    let file = ProfileFile::read(&profile_file())?;
+    assert_eq!(Some(Vec::new()), file.keys.token_types);
+    assert_eq!(Some(IssuerKind::Federation), file.kind);
+    let federation = file.federation.ok_or("a federation table")?;
     assert_eq!(
         Some(String::from("nl-gis-v1")),
         federation.authorization_details_type

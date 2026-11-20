@@ -30,6 +30,7 @@ use crate::kind::IssuerKind;
 use crate::kind::standing::StandingSource;
 use crate::party::config::PartySection;
 use crate::profile::Profile;
+use crate::profile::ProfileKeys;
 use crate::resource::Settings;
 use crate::resource::configuration::SmartOptions;
 use crate::resource::configuration::is_capability;
@@ -545,11 +546,17 @@ fn attributes_of(entry: &IssuerEntry) -> Option<AttributesSection> {
 /// federation defaults and attributed to its issuer; the defaults alone
 /// when it has no table, which an issuer of another kind then refuses.
 fn federation_of(entry: &IssuerEntry) -> Result<Option<FederationSection>, ConfigError> {
-    crate::config::issuer::federation_over(entry.profile, entry.federation.clone(), &entry.issuer)
-        .map_err(|source| ConfigError::Issuer {
-            issuer: shown(&entry.issuer),
-            source: Box::new(source.into()),
-        })
+    let file = entry.profile_file()?;
+    crate::config::issuer::federation_over(
+        entry.preset,
+        file.as_ref(),
+        entry.federation.clone(),
+        &entry.issuer,
+    )
+    .map_err(|source| ConfigError::Issuer {
+        issuer: shown(&entry.issuer),
+        source: Box::new(source.into()),
+    })
 }
 
 /// Returns the party table of `entry`, attributed to its issuer, with the
@@ -590,12 +597,19 @@ fn is_issuer_name(name: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
-/// Returns the profile of `entry`: its preset with its own keys over it.
+/// Returns the profile of `entry`: its preset, its profile file over it,
+/// and its `profile` table over both.
 fn profile_of(entry: &IssuerEntry) -> Result<Profile, ConfigError> {
-    Profile::resolve(entry.profile, &entry.profile_keys()).map_err(|source| ConfigError::Issuer {
-        issuer: shown(&entry.issuer),
-        source: Box::new(source.into()),
-    })
+    let file = match entry.profile_file()? {
+        Some(file) => file.keys,
+        None => ProfileKeys::default(),
+    };
+    Profile::resolve(entry.preset, &file)
+        .map(|profile| profile.with_keys(entry.profile.clone()))
+        .map_err(|source| ConfigError::Issuer {
+            issuer: shown(&entry.issuer),
+            source: Box::new(source.into()),
+        })
 }
 
 /// Returns the role claims of `entry`: its own, or the RFC 9068 §2.2.3.1
