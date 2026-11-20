@@ -64,7 +64,7 @@ pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
         token_endpoint: Some(settings.endpoint(TOKEN_ROUTE)),
         token_endpoint_auth_methods_supported: strings(&["private_key_jwt"]),
         token_endpoint_auth_signing_alg_values_supported: strings(&ASSERTION_ALGORITHMS),
-        grant_types_supported: strings(&["client_credentials"]),
+        grant_types_supported: strings(crate::token::grant_types(false)),
         response_types_supported: Some(Vec::new()),
         introspection_endpoint: Some(settings.endpoint(INTROSPECT_ROUTE)),
         revocation_endpoint: Some(settings.endpoint(REVOKE_ROUTE)),
@@ -73,7 +73,7 @@ pub fn metadata(settings: &Settings, login: bool) -> ServerMetadata {
     if login {
         metadata.authorization_endpoint =
             Some(settings.endpoint(crate::authorize::AUTHORIZE_ROUTE));
-        metadata.grant_types_supported = strings(&["authorization_code", "client_credentials"]);
+        metadata.grant_types_supported = strings(crate::token::grant_types(true));
         metadata.token_endpoint_auth_methods_supported = strings(&[
             "private_key_jwt",
             "client_secret_basic",

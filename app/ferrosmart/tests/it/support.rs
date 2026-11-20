@@ -435,6 +435,22 @@ pub(crate) fn events(records: &[Value]) -> Vec<String> {
         .collect()
 }
 
+/// Returns the basis each `authorization-code` record of `records` names,
+/// in order: the `basis` detail of its entity.
+pub(crate) fn bases(records: &[Value]) -> Vec<String> {
+    records
+        .iter()
+        .filter(|record| events(std::slice::from_ref(*record)) == ["authorization-code"])
+        .filter_map(|record| record.get("entity").and_then(Value::as_array))
+        .flat_map(|entities| entities.iter())
+        .filter_map(|entity| entity.get("detail").and_then(Value::as_array))
+        .flat_map(|details| details.iter())
+        .filter(|detail| detail.get("type").and_then(Value::as_str) == Some("basis"))
+        .filter_map(|detail| detail.get("valueString").and_then(Value::as_str))
+        .map(str::to_owned)
+        .collect()
+}
+
 /// FerroSMART's own code system of audit events.
 const OWN_EVENTS: &str = "urn:ferrosmart:audit-event";
 
@@ -506,4 +522,28 @@ pub(crate) async fn providers(settings: &Settings) -> ferrosmart::upstream::Prov
     )
     .await
     .expect("the providers are discovered")
+}
+
+/// Every grant type a token endpoint may be asked for: the four of RFC 6749
+/// §4, the refresh token of §6, and the extension grants of RFC 8693, RFC
+/// 7523 and RFC 8628.
+pub(crate) const GRANT_TYPES: [&str; 8] = [
+    "authorization_code",
+    "implicit",
+    "password",
+    "client_credentials",
+    "refresh_token",
+    "urn:ietf:params:oauth:grant-type:token-exchange",
+    "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    "urn:ietf:params:oauth:grant-type:device_code",
+];
+
+/// Returns the grant types the metadata `document` lists.
+pub(crate) fn listed_grants(document: &Value) -> Vec<String> {
+    document["grant_types_supported"]
+        .as_array()
+        .expect("grant_types_supported")
+        .iter()
+        .map(|grant| grant.as_str().expect("a string").to_owned())
+        .collect()
 }

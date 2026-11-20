@@ -116,14 +116,20 @@ and the architecture records it as its own design:
 - **Scopes.** The granted scope is what the request asks for, narrowed to
   the client's registered ceiling, the scopes the person's roles allow and
   what the person approves ([clients, roles and consent](../configure/clients.md)).
-- **Consent every time.** Every user flow shows the consent page unless the
-  person remembered that choice for that client, or an administrator
-  approved the client for the organisation's professionals and the
-  request stays within that approval (no `patient/` scope, no patient's
-  own login), or marked it as the organisation's own app (`first_party`),
-  whose approval covers its patients too. An app of another party always
-  shows a patient the page. An app's `prompt=consent` always shows the
-  page.
+- **Consent where it protects the person.** A user flow shows the consent
+  page unless the person remembered that choice for that client and
+  resource server, or an administrator approved the client and the
+  request stays within that approval: for the organisation's
+  professionals (with `patient/` scopes only in an EHR launch), and for
+  the organisation's own app (`first_party`) its patients too, lasting
+  access included (OpenID Connect Core 1.0 §3.1.2.4, "previous
+  administrative consent"). An app of another party always shows a
+  patient the page (SMART App Launch 2.2.0, Best Practices). A public
+  client without a claimed `https` redirect, and an app's
+  `prompt=consent`, always show the page (RFC 8252 §8.6; OpenID Connect
+  Core 1.0 §3.1.2.1). Every app holding live access can be disconnected on
+  the management page. [The consent rules](../configure/consent.md) lists
+  every case.
 - **`online_access`.** An online refresh token ends when the person's login
   at the identity provider ends, signalled by back-channel or front-channel
   logout, when the person logs out at the end-session endpoint, or after

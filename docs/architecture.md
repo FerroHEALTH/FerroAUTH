@@ -2657,7 +2657,7 @@ discovery and token shapes for the two SaaS providers.
 
   | Write | `type` | subtypes | `action` |
   |---|---|---|---|
-  | a code issued | `110114` | `authorization-code` | `C` |
+  | a code issued, with its basis: `page`, `remembered`, `organisation` or `first-party` (#727) | `110114` | `authorization-code` | `C` |
   | a consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
   | an app disconnected at the management page, with the remembered consent and the grants it ended | `110113` | `110137`, `consent-withdrawn` | `D` |
   | a code issued with no page, on the client's organisation approval (13.6 item 6) | `110113` | `110137`, `consent-organisation-approved` | `C` |
@@ -3176,8 +3176,11 @@ specification governs.
    response, `rfc6749 §4.1.2.1`). Identity, launch and refresh scopes
    (`openid`, `fhirUser`, `profile`, `email`, `launch`, `launch/*`,
    `offline_access`, `online_access`) are fixed lines with no box, granted
-   with the app whatever the form posts, since unticking one breaks the app
-   and keeps no data back; `patient/`, `user/` and extension scopes keep
+   with the app whatever the form posts, since they give the app no data
+   the boxes do not, SMART issues a refresh token only "if granted"
+   (`smart app-launch`, Refresh access token) so an app copes without one,
+   and the person ends lasting access at the `management_endpoint` (#728);
+   `patient/`, `user/` and extension scopes keep
    their boxes (owner, 2026-11-19, #668; `smart app-launch` §7 Best
    Practices, non-normative, asks for plain descriptions; the split is our
    own design). The page also shows what the client registers about the app
@@ -3188,11 +3191,15 @@ specification governs.
    organisation, as the client's `organisation_approval` (the approved
    scope set, who approved, when), in the registration path, stored in
    PostgreSQL so every replica answers alike. The approval is per client,
-   never a global mode, and covers only `user/` scopes with the launch,
-   OpenID, refresh and extension scopes that go with them, each within the
-   ceiling. A professional whose request names no `patient/` scope, whose
-   `fhirUser` is no `Patient`, `RelatedPerson` or `Person`, and whose
-   offered scopes the approval covers in full gets a code with no page; the
+   never a global mode, and covers `user/` and `patient/` scopes with the
+   launch, OpenID, refresh and extension scopes that go with them, each
+   within the ceiling. A professional whose `fhirUser` is no `Patient`,
+   `RelatedPerson` or `Person`, whose request names no `patient/` scope or
+   comes from an EHR launch (`launch` offered), and whose offered scopes
+   the approval covers in full gets a code with no page: the approval is
+   the "previous administrative consent" of `oidc-core §3.1.2.4`, and in an
+   EHR launch the professional opened the app for the patient in context
+   (owner, 2026-11-20, #727); the
    granted scope stays the intersection of the request, the ceiling, the
    roles and the approval, and the resource server's access policy still
    decides every request. Anything more shows the page for the whole
@@ -3207,7 +3214,13 @@ specification governs.
    every scope offered. The ground is the controller's: its own app
    processes the patient's data under the controller's legal basis (GDPR
    Art. 9(2)(h)), and the OAuth consent page is no GDPR consent and adds no
-   ground for it. A third-party app is the patient's choice to let another
+   ground for it. A first-party approval that lists `offline_access` covers
+   it for patients as for staff, with no page (owner, 2026-11-20, #724):
+   `oidc-core §11` requires consent to an offline refresh token to be
+   obtained, and `§3.1.2.4` names "previous administrative consent" as one
+   way, with no limit on whose; SMART's Best Practices tie the consent
+   requirement to apps of another organisation. The patient's control is
+   the Disconnect action of the `management_endpoint` (#725). A third-party app is the patient's choice to let another
    party read their data, so a client without the mark keeps the page for
    every patient, and the patient approves it and withdraws it at the
    `management_endpoint` (Regulation (EU) 2025/327 gives the natural person
@@ -3222,8 +3235,10 @@ specification governs.
    `organisation-approval-withdrawn` record. Backend Services has no user and
    no consent step (`smart backend-services`, Scopes: "The client is
    pre-authorized by the server"). A consent is remembered only when the
-   user ticks to remember it, for that client and that scope set; a request
-   that asks for more shows the page again. A remembered consent is listed
+   user ticks to remember it, for that client, that resource server (the
+   request's `aud`) and that scope set; a request that asks for more, or
+   for another resource server, shows the page again (our own design: what
+   an app may read depends on where, #727). A remembered consent is listed
    and revocable at the `management_endpoint`, "URL where an end-user can
    view which applications currently have access to data and can make
    adjustments to these access rights" (`smart conformance`, Metadata), and
@@ -4371,7 +4386,11 @@ document carries `issuer` and `jwks_uri` (with `sso-openid-connect`),
 `token_endpoint_auth_signing_alg_values_supported` (`RS384`, `ES384`, as
 `smart client-confidential-asymmetric`, Advertising server support
 requires), `grant_types_supported` (`authorization_code`,
-`client_credentials`), `scopes_supported` (the identity, launch context and
+`client_credentials`, the two options of `smart conformance`, Metadata;
+the RFC 8414 and OpenID Connect metadata list `refresh_token` beside them,
+with or without a login, since RFC 8414 §2 lists every grant the token
+endpoint serves, and the token endpoint refuses any grant its metadata
+leaves out, #735), `scopes_supported` (the identity, launch context and
 refresh scopes FerroSMART honours whatever a client registers; the resource
 scopes depend on each client's ceiling and are left out, since "The server
 SHALL support all scopes listed here"), `response_types_supported`

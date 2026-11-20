@@ -190,20 +190,23 @@ With both refresh scopes granted, `offline_access` decides.
 
 ## Consent
 
-Every flow with a person shows the consent page, unless the organisation
-approved the app (below). The person approves the offered scopes, unticks
+A flow with a person shows the consent page unless an organisation
+approval or a remembered choice answers for them; [The consent
+rules](consent.md) lists every case with the text it rests on. The person
+approves the offered scopes, unticks
 any access to their data (`patient/`, `user/` and extension scopes), or
 refuses, which sends the app an `access_denied` error. Sign-in, launch and
 refresh scopes (`openid`, `fhirUser`, `profile`, `email`, `launch`,
 `launch/patient`, `launch/encounter`, `offline_access`, `online_access`)
-are listed as fixed lines with no box: the app needs them to work, and they
-give no access to data on their own. The page shows the app's logo and
+are listed as fixed lines with no box: they give the app no data the
+boxes do not, and the person ends lasting access on the management page. The page shows the app's logo and
 links to its home page, privacy policy and terms when the client registers
 them. FerroSMART draws the page itself, with the
 deployment's name and `consent_text` from `[ferrosmart.branding]`.
 
 When the person ticks "Remember this choice", FerroSMART keeps the consent
-for that client and that scope set. A later request whose offered scopes it
+for that client, that resource server (the request's `aud`) and that scope
+set; a request to another resource server shows the page again. A later request whose offered scopes it
 covers goes back to the app with a code at once; a request for more shows
 the page again. The person sees each remembered consent at
 `{issuer}/manage`, the SMART `management_endpoint`, with every app that
@@ -219,8 +222,8 @@ end any app's access. The audit record of a disconnect is
 
 ### An app the organisation approved
 
-An administrator can approve one of the organisation's own apps once for
-its staff, so a professional who opens it sees no consent page (SMART App
+An administrator can approve an app once for the organisation's staff, so
+a professional who opens it sees no consent page (SMART App
 Launch 2.2.0, Obtain authorization code, Response: the server "will enforce
 access rules based on local policies and optionally direct end-user
 input"):
@@ -232,12 +235,16 @@ approved_by = "J. de Vries, information security"
 approved_at = "2026-11-19T09:00:00Z"
 ```
 
-The approval lists only `user/` scopes and the launch, OpenID, refresh and
-extension scopes that go with them, each within the client's `scopes`. The
-page is skipped when the request names no `patient/` scope, the person's
-`fhirUser` is not a `Patient`, `RelatedPerson` or `Person`, and the
-approval covers every scope offered; the person still gets no more than
-their roles allow. Anything else shows the page as usual. Each skipped page
+The approval lists `user/` and `patient/` scopes and the launch, OpenID,
+refresh and extension scopes that go with them, each within the client's
+`scopes`. The page is skipped when the person's `fhirUser` is not a
+`Patient`, `RelatedPerson` or `Person`, the request names no `patient/`
+scope or comes from an EHR launch, and the approval covers every scope
+offered; the person still gets no more than their roles allow. The
+approval is the organisation's administrative consent (OpenID Connect Core
+1.0 §3.1.2.4), and in an EHR launch the professional opened the app for
+the patient the EHR has open, so its `patient/` scopes need no page. A
+standalone request for `patient/` scopes shows the page. Anything else shows the page as usual. Each skipped page
 writes an audit record naming the approver and the time, and the
 management page lists the app as approved by the organisation. A person
 who disconnects it there ends their own access; the approval stays, and

@@ -21,6 +21,7 @@
 
 - [Configuration](configure/configuration.md)
 - [Clients, roles and consent](configure/clients.md)
+- [The consent rules](configure/consent.md)
 
 # Integrate
 

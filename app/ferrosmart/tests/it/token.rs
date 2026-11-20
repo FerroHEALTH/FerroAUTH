@@ -554,6 +554,29 @@ async fn an_assertion_breaking_the_profile_is_refused() {
     server.stop().await;
 }
 
+// NOTE: RFC 8414 §2, `grant_types_supported` lists the grant types the
+// server supports, and RFC 6749 §5.2 refuses any other as unsupported.
+#[tokio::test]
+async fn without_a_login_every_listed_grant_is_served_and_every_served_one_listed() {
+    let server = Server::start(None, Algorithm::ES384).await;
+    let request = Request::get("/.well-known/oauth-authorization-server")
+        .body(Body::empty())
+        .expect("a request");
+    let (_, _, metadata) = server.send(request).await;
+    let listed = crate::support::listed_grants(&metadata);
+    assert_eq!(vec!["client_credentials", "refresh_token"], listed);
+    for grant in crate::support::GRANT_TYPES {
+        let (_, _, body) = server.post(&[("grant_type", grant)]).await;
+        let supported = body["error"] != json!("unsupported_grant_type");
+        assert_eq!(
+            listed.iter().any(|listed| listed == grant),
+            supported,
+            "{grant}"
+        );
+    }
+    server.stop().await;
+}
+
 #[tokio::test]
 async fn a_request_outside_the_grant_is_refused_with_its_own_error() {
     let server = Server::start(None, Algorithm::ES384).await;

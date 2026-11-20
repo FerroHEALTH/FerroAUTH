@@ -134,7 +134,9 @@ five minutes, the same default Keycloak uses. An app that works longer than
 that asks for `online_access`, a refresh token that lives while the person's
 login at the identity provider does, or `offline_access`, one that outlives
 it, and refreshes before the token expires (SMART App Launch 2.2.0, Refresh
-access token). A rotated refresh token presented again within ten seconds
+access token). The authorization server metadata lists `refresh_token` in
+`grant_types_supported` (RFC 8414 §2), so a client that reads it knows the
+grant is served. A rotated refresh token presented again within ten seconds
 by the same client gets the same answer, so a retry is safe.
 
 **FerroSMART's pages refuse to be framed.** Every page answers with

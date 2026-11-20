@@ -427,10 +427,13 @@ pub(crate) struct Asked<'a> {
 }
 
 /// Returns the organisation approval of the client that `asked` falls
-/// under: the approval covers every scope offered and, unless the app is
-/// the organisation's own (first party), the person is a professional and
-/// the request names no `patient/` scope (`docs/architecture.md` §13.6
-/// item 6).
+/// under.
+///
+/// The approval covers every scope offered and, unless the app is the
+/// organisation's own (first party), the person is a professional whose
+/// request names no `patient/` scope or comes from an EHR launch, whose
+/// patient the professional opened the app for (`docs/architecture.md`
+/// §13.6 item 6).
 fn approved<'a>(asked: &Asked<'a>) -> Option<&'a Approval> {
     let approval = asked.client.approval.as_ref()?;
     if approval.first_party {
@@ -448,7 +451,11 @@ fn approved<'a>(asked: &Asked<'a>) -> Option<&'a Approval> {
         .scope
         .split(' ')
         .any(|scope| scope.starts_with("patient/"));
-    (!own_data && !patient_scope && approval.covers(asked.offered)).then_some(approval)
+    // NOTE: OpenID Connect Core 1.0 §3.1.2.4, the approval is administrative consent;
+    // in an EHR launch (`launch` offered) it covers the staff member's patient/ scopes.
+    let ehr_launch = asked.offered.contains(&"launch");
+    (!own_data && (!patient_scope || ehr_launch) && approval.covers(asked.offered))
+        .then_some(approval)
 }
 
 /// Goes on once the person logged in and the context is complete: straight
@@ -475,10 +482,14 @@ pub(crate) async fn onward(
         Basis::Organisation(approval)
     } else {
         // NOTE: docs/architecture.md §13.6 item 6, a consent the person chose to
-        // remember answers again while it covers every scope offered.
+        // remember answers again, for this client at this resource server, while it covers every scope offered.
         let remembered = match state
             .store()
-            .remembered(asked.subject, &asked.client.client_id)
+            .remembered(
+                asked.subject,
+                &asked.client.client_id,
+                &asked.pending.audience,
+            )
             .await
         {
             Ok(remembered) => remembered,
