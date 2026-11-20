@@ -268,6 +268,22 @@ pub enum Source {
     Presentation(String),
 }
 
+impl Source {
+    /// Returns the value a configured source holds: a constant as text, a
+    /// coded constant as one code with its system; `None` for a source the
+    /// token is read for.
+    pub(crate) fn configured(&self) -> Option<Attribute> {
+        match self {
+            Self::Constant(value) => Some(Attribute::Text(value.clone())),
+            Self::Coded { system, code } => Some(Attribute::Codes(vec![Code {
+                system: Some(system.clone()),
+                code: code.clone(),
+            }])),
+            Self::Claim(_) | Self::AuthorizationDetails(_) | Self::Presentation(_) => None,
+        }
+    }
+}
+
 /// The table form of a [`Source`].
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
