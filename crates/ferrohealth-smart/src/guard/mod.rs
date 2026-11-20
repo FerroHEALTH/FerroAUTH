@@ -33,7 +33,7 @@ use http::request::Parts;
 
 use crate::basic::PasswordStore;
 use crate::party::binding::PartyBinding;
-use crate::refusal::Refusal;
+use crate::refusal::Denied;
 use crate::refusal::Schemes;
 use crate::resource::Access;
 use crate::resource::Caller;
@@ -140,23 +140,24 @@ where
     }
 }
 
-/// How a product answers a refusal: the body is its own, the status and the
-/// `WWW-Authenticate` challenge are [`Refusal`]'s.
+/// How a product answers a refusal: the body is its own, the status is the
+/// [`Refusal`](crate::refusal::Refusal)'s and the `WWW-Authenticate` challenge [`Denied::challenge`],
+/// which carries the reason code.
 ///
 /// The renderer reads the refused request's parts, so a product negotiates
 /// the body's format from them (the `Accept` header, a FHIR `_format`
 /// parameter in the query) the way its handlers do.
 pub trait Render: Send + Sync + 'static {
-    /// Returns the response of `refusal` to the request `parts` head.
-    fn render(&self, refusal: &Refusal, parts: &Parts) -> Response;
+    /// Returns the response of `denied` to the request `parts` head.
+    fn render(&self, denied: &Denied, parts: &Parts) -> Response;
 }
 
 impl<F> Render for F
 where
-    F: Fn(&Refusal, &Parts) -> Response + Send + Sync + 'static,
+    F: Fn(&Denied, &Parts) -> Response + Send + Sync + 'static,
 {
-    fn render(&self, refusal: &Refusal, parts: &Parts) -> Response {
-        self(refusal, parts)
+    fn render(&self, denied: &Denied, parts: &Parts) -> Response {
+        self(denied, parts)
     }
 }
 
