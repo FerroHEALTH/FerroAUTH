@@ -59,7 +59,10 @@ async fn the_rfc_8414_metadata_names_the_issuer_and_only_what_is_supported() {
         body["token_endpoint"]
     );
     assert_eq!(json!("https://smart.example.org/jwks"), body["jwks_uri"]);
-    assert_eq!(json!(["client_credentials"]), body["grant_types_supported"]);
+    assert_eq!(
+        json!(["client_credentials", "refresh_token"]),
+        body["grant_types_supported"]
+    );
     assert_eq!(
         json!(["private_key_jwt"]),
         body["token_endpoint_auth_methods_supported"]

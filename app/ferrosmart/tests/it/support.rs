@@ -507,3 +507,27 @@ pub(crate) async fn providers(settings: &Settings) -> ferrosmart::upstream::Prov
     .await
     .expect("the providers are discovered")
 }
+
+/// Every grant type a token endpoint may be asked for: the four of RFC 6749
+/// §4, the refresh token of §6, and the extension grants of RFC 8693, RFC
+/// 7523 and RFC 8628.
+pub(crate) const GRANT_TYPES: [&str; 8] = [
+    "authorization_code",
+    "implicit",
+    "password",
+    "client_credentials",
+    "refresh_token",
+    "urn:ietf:params:oauth:grant-type:token-exchange",
+    "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    "urn:ietf:params:oauth:grant-type:device_code",
+];
+
+/// Returns the grant types the metadata `document` lists.
+pub(crate) fn listed_grants(document: &Value) -> Vec<String> {
+    document["grant_types_supported"]
+        .as_array()
+        .expect("grant_types_supported")
+        .iter()
+        .map(|grant| grant.as_str().expect("a string").to_owned())
+        .collect()
+}
