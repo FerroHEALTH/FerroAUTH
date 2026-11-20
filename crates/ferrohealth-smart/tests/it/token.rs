@@ -34,10 +34,10 @@ use ferrohealth_smart::resource::Via;
 use ferrohealth_smart::resource::configuration::PermissionCapability;
 use ferrohealth_smart::resource::configuration::SmartOptions;
 use ferrohealth_smart::scope::Permission;
+use http::StatusCode;
 use jsonwebtoken::Algorithm;
 use jsonwebtoken::EncodingKey;
 use jsonwebtoken::Header;
-use http::StatusCode;
 
 use crate::support::AUDIENCE;
 use crate::support::CLIENT;
