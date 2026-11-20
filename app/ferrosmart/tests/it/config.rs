@@ -460,7 +460,7 @@ fn private_key_jwt(keys: &Keys, extra: &str) -> String {
     )
 }
 
-// NOTE: OpenID Connect Core 1.0 §9: FerroSMART authenticates upstream by private_key_jwt alone.
+// NOTE: OpenID Connect Core 1.0 §9: a secret is named only in the client_secret_basic table (#679).
 #[test]
 fn an_upstream_client_secret_is_refused_when_the_file_loads() {
     let keys = Keys::new();
@@ -480,7 +480,7 @@ fn an_upstream_client_secret_is_refused_when_the_file_loads() {
     }
 }
 
-// NOTE: OpenID Connect Core 1.0 §9: no public client, no secret, private_key_jwt alone.
+// NOTE: OpenID Connect Core 1.0 §9: no public client; private_key_jwt or client_secret_basic.
 #[test]
 fn an_upstream_without_private_key_jwt_is_refused() {
     let keys = Keys::new();

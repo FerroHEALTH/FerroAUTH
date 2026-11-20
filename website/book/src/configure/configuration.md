@@ -151,9 +151,16 @@ one per tenant authority.
 | `role_claims` | The ID Token claims holding the person's roles, each a dotted path; a claim name with a dot is read whole first |
 | `trusted_audiences` | Audiences an ID Token may carry beside the client id, such as a project the provider adds; empty trusts none |
 
-`[ferrosmart.upstream.oidc.private_key_jwt]` is required: FerroSMART
-authenticates to the provider with a signed assertion (`private_key_jwt`)
-and takes no client secret.
+`[ferrosmart.upstream.oidc.private_key_jwt]`, the default, or
+`[ferrosmart.upstream.oidc.client_secret_basic]`: each provider names
+exactly one, and FerroSMART refuses a provider whose discovery document
+does not list the method.
+
+| Key of `client_secret_basic` | What it is |
+|---|---|
+| `secret_file` | The file holding the client secret the provider issued, sent as HTTP Basic (RFC 6749 §2.3.1); `secret` sets it inline |
+
+The `private_key_jwt` table:
 
 | Key | What it is |
 |---|---|

@@ -705,7 +705,7 @@ async fn the_entra_id_multitenant_authority_is_refused() {
     assert!(
         matches!(
             &refused,
-            OidcError::Discovery(DiscoveryError::IssuerMismatch { expected, found })
+            ferrosmart::upstream::UpstreamError::Oidc(OidcError::Discovery(DiscoveryError::IssuerMismatch { expected, found }))
                 if *expected == authority && found == template
         ),
         "{refused:?}"

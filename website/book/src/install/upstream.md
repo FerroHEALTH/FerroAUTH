@@ -30,10 +30,16 @@ At the provider, register FerroSMART as a confidential web client:
   redirect URI, so a logout an app starts at FerroSMART's end-session
   endpoint also logs the person out at the provider and comes back.
 
-FerroSMART authenticates to every provider with `private_key_jwt` (OpenID
-Connect Core 1.0 §9): a JWT signed by its assertion key, configured under
-`[ferrosmart.upstream.oidc.private_key_jwt]`. That table is required, and a
-client secret is refused at start. The assertion key is a key of its own,
+FerroSMART authenticates to a provider with `private_key_jwt` (OpenID
+Connect Core 1.0 §9) by default: a JWT signed by its assertion key,
+configured under `[ferrosmart.upstream.oidc.private_key_jwt]`. For a
+provider that offers no `private_key_jwt` to a web client, name
+`[ferrosmart.upstream.oidc.client_secret_basic]` with `secret_file`
+instead: FerroSMART then sends the client secret as HTTP Basic (RFC 6749
+§2.3.1). Each provider names exactly one of the two, and FerroSMART
+refuses to start when the provider's discovery document does not list the
+method in `token_endpoint_auth_methods_supported`. Prefer the key: a
+secret can leak from a configuration file. The assertion key is a key of its own,
 never a token signing key, and FerroSMART publishes it at
 `{issuer}/upstream-jwks` for a provider that reads a key set
 ([keys and rotation](../operate/keys.md#the-assertion-keys)).

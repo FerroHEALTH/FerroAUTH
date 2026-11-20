@@ -22,8 +22,8 @@ use url::Url;
 
 use crate::clients::Client;
 use crate::upstream::{
-    Authentication, OidcSection, OidcUpstream, PrivateKeyJwtSection, Protocol, ProtocolName,
-    Upstream, UpstreamSection,
+    AssertionKeys, Authentication, OidcSection, OidcUpstream, PrivateKeyJwtSection, Protocol,
+    ProtocolName, Upstream, UpstreamSection,
 };
 
 use crate::config::error::Error;
@@ -569,12 +569,29 @@ fn oidc_upstream(section: &OidcSection, keys: &KeyRing) -> Result<OidcUpstream, 
             rule: "`issuer` and `client_id` are set",
         });
     }
-    let Some(jwt) = &section.private_key_jwt else {
-        return Err(Error::Upstream {
-            rule: "`[ferrosmart.upstream.oidc.private_key_jwt]` is set: FerroSMART authenticates to the provider by `private_key_jwt` alone",
-        });
+    // NOTE: OpenID Connect Core 1.0 §9, private_key_jwt by default, or a secret as
+    // HTTP Basic per provider (owner, 2026-11-19, #679, reversing #619); one of the two.
+    let authentication = match (&section.private_key_jwt, &section.client_secret_basic) {
+        (Some(jwt), None) => Authentication::PrivateKeyJwt(assertion_keys(jwt, keys)?),
+        (None, Some(basic)) => Authentication::ClientSecretBasic(require_secret(
+            "ferrosmart.upstream.oidc.client_secret_basic.secret",
+            basic
+                .secret
+                .as_ref()
+                .map(ferrohealth_secret::secret::Secret::to_secret_string),
+            basic.secret_file.as_deref(),
+        )?),
+        (Some(_), Some(_)) => {
+            return Err(Error::Upstream {
+                rule: "one of `private_key_jwt` and `client_secret_basic` is set, never both",
+            });
+        }
+        (None, None) => {
+            return Err(Error::Upstream {
+                rule: "`[ferrosmart.upstream.oidc.private_key_jwt]` or `[ferrosmart.upstream.oidc.client_secret_basic]` is set",
+            });
+        }
     };
-    let authentication = assertion_keys(jwt, keys)?;
     Ok(OidcUpstream {
         issuer: section.issuer.clone(),
         client_id: section.client_id.clone(),
@@ -590,7 +607,7 @@ fn oidc_upstream(section: &OidcSection, keys: &KeyRing) -> Result<OidcUpstream, 
 fn assertion_keys(
     section: &PrivateKeyJwtSection,
     tokens: &KeyRing,
-) -> Result<Authentication, Error> {
+) -> Result<AssertionKeys, Error> {
     const KEY: &str = "ferrosmart.upstream.oidc.private_key_jwt";
     let algorithm = section
         .algorithm
@@ -617,7 +634,7 @@ fn assertion_keys(
             .with_certificate(&pem)
             .map_err(|source| Error::Key { key: KEY, source })?;
     }
-    Ok(Authentication {
+    Ok(AssertionKeys {
         signer: Box::new(key),
         ring: Arc::new(ring),
     })
