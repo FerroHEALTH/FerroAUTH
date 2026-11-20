@@ -171,7 +171,16 @@ key set are read when the first token needs them, and a read that fails
 answers that token `503` (3.7) and is not repeated inside
 `jwks_refresh_interval`, the bound 3.2 sets on key set reads. No
 specification governs when the key set is first read: our own design,
-FerroFED's, moved into the crate (#55). Both constructors return `Send`
+FerroFED's, moved into the crate (#55). So a product never depends on
+start order (#734): it builds every issuer with `ResourceServer::lazy`,
+calls `IssuerSet::read_in_background` once at start, which reads each
+unread issuer with a bounded back-off (one second, doubling to one
+minute), and answers its readiness route with `IssuerSet::is_ready`, not
+ready until every issuer is read. A token of an unread issuer is refused
+`503` with the reason code `issuer-unread` (`Rejection::Unread`). A
+configuration error (a malformed or plain-HTTP issuer, an unknown preset, a
+symmetric algorithm) still refuses the start, because `lazy` checks the
+settings at once. Both constructors return `Send`
 futures, so a product calls them from a request. The members read are `issuer`, `jwks_uri`,
 `token_endpoint`, `authorization_endpoint`, `registration_endpoint`,
 `introspection_endpoint`, `revocation_endpoint`, `grant_types_supported`,

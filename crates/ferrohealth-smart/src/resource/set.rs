@@ -21,6 +21,12 @@ use crate::resource::Settings;
 use crate::resource::Verifier;
 use crate::sender::Binding;
 
+/// The first wait after a failed background read of an issuer.
+const READ_BACKOFF_FIRST: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The longest wait between two background reads of an issuer.
+const READ_BACKOFF_MAX: std::time::Duration = std::time::Duration::from_mins(1);
+
 impl LazyResourceServer {
     /// Returns this server reading a clinical scope's resource type against
     /// `known`, as [`ResourceServer::with_resource_types`] does.
@@ -53,6 +59,12 @@ impl LazyResourceServer {
         self.server.get()
     }
 
+    /// Returns whether the issuer's metadata and key set have been read.
+    #[must_use]
+    pub fn is_read(&self) -> bool {
+        self.server.get().is_some()
+    }
+
     /// Returns the resource server, reading the issuer's metadata and key
     /// set when no read has succeeded yet.
     ///
@@ -60,8 +72,8 @@ impl LazyResourceServer {
     ///
     /// # Errors
     ///
-    /// Returns [`Rejection::Unavailable`] when the read fails, or failed
-    /// within the refresh interval.
+    /// Returns [`Rejection::Unread`] when the read fails, or failed within
+    /// the refresh interval.
     pub async fn server(&self) -> Result<&Arc<ResourceServer>, Rejection> {
         if let Some(server) = self.server.get() {
             return Ok(server);
@@ -75,8 +87,29 @@ impl LazyResourceServer {
             .filter(|(at, _)| at.elapsed() < interval)
             .map(|(_, source)| Arc::clone(source));
         if let Some(source) = recent {
-            return Err(Rejection::Unavailable { source });
+            return Err(Rejection::Unread { source });
         }
+        self.read().await
+    }
+
+    /// Reads the issuer until a read succeeds, waiting a bounded back-off
+    /// after each failed read: one second, doubling to one minute.
+    ///
+    /// A product runs it beside its listener, so the issuer is read before
+    /// its first token and the product starts whether or not the issuer is
+    /// up ([`IssuerSet::read_in_background`]). No specification governs the
+    /// back-off: our own design.
+    pub async fn read_until_read(&self) {
+        let mut wait = READ_BACKOFF_FIRST;
+        while self.read().await.is_err() {
+            tokio::time::sleep(wait).await;
+            wait = wait.saturating_mul(2).min(READ_BACKOFF_MAX);
+        }
+    }
+
+    /// Reads the issuer's metadata and key set, once a read succeeded
+    /// answering the server it read.
+    async fn read(&self) -> Result<&Arc<ResourceServer>, Rejection> {
         self.server
             .get_or_try_init(|| async {
                 let mut server = ResourceServer::discover(self.settings.clone()).await?;
@@ -94,7 +127,7 @@ impl LazyResourceServer {
                 );
                 *self.failed.lock().unwrap_or_else(PoisonError::into_inner) =
                     Some((Instant::now(), Arc::clone(&source)));
-                Rejection::Unavailable { source }
+                Rejection::Unread { source }
             })
     }
 
@@ -104,7 +137,7 @@ impl LazyResourceServer {
     /// # Errors
     ///
     /// Returns the [`Rejection`] of [`ResourceServer::authenticate`], and
-    /// [`Rejection::Unavailable`] when the issuer cannot be read.
+    /// [`Rejection::Unread`] when the issuer cannot be read.
     pub async fn authenticate(&self, token: &str) -> Result<Caller, Rejection> {
         self.server().await?.authenticate(token).await
     }
@@ -116,7 +149,7 @@ impl LazyResourceServer {
     /// # Errors
     ///
     /// Returns the [`Rejection`] of [`ResourceServer::authenticate_bound`],
-    /// and [`Rejection::Unavailable`] when the issuer cannot be read.
+    /// and [`Rejection::Unread`] when the issuer cannot be read.
     pub async fn authenticate_bound(
         &self,
         token: &str,
@@ -225,6 +258,36 @@ impl IssuerSet {
     #[must_use]
     pub fn server(&self, issuer: &str) -> Option<&Arc<ResourceServer>> {
         self.servers.get(issuer)?.read()
+    }
+
+    /// Returns whether every issuer of the set has been read, the answer a
+    /// product's readiness route gives: not ready while an issuer read on
+    /// its first token has not been read (no specification governs this:
+    /// our own design).
+    #[must_use]
+    pub fn is_ready(&self) -> bool {
+        !self
+            .servers
+            .values()
+            .any(|trusted| matches!(trusted, Trusted::Lazy(lazy) if !lazy.is_read()))
+    }
+
+    /// Spawns, for each issuer read on its first token and not read yet, a
+    /// task that reads it with the bounded back-off of
+    /// [`LazyResourceServer::read_until_read`], and returns the tasks.
+    ///
+    /// A product calls it once at start, inside its Tokio runtime, and
+    /// answers its readiness route with [`IssuerSet::is_ready`].
+    #[must_use]
+    pub fn read_in_background(&self) -> Vec<tokio::task::JoinHandle<()>> {
+        self.servers
+            .values()
+            .filter_map(|trusted| match trusted {
+                Trusted::Lazy(lazy) if !lazy.is_read() => Some(Arc::clone(lazy)),
+                _ => None,
+            })
+            .map(|lazy| tokio::spawn(async move { lazy.read_until_read().await }))
+            .collect()
     }
 
     /// Returns how many issuers the set trusts.

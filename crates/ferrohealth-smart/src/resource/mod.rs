@@ -423,6 +423,15 @@ pub enum Rejection {
         #[source]
         source: Arc<ResourceError>,
     },
+    /// The issuer's metadata or key set has not been read yet, so its tokens
+    /// cannot be checked; answered `503` until a read succeeds
+    /// ([`LazyResourceServer`]).
+    #[error("the issuer's metadata or key set has not been read yet")]
+    Unread {
+        /// Why the last read failed.
+        #[source]
+        source: Arc<ResourceError>,
+    },
     /// An upstream a product's own [`Verifier`] calls (an RFC 7662
     /// introspection endpoint) could not be reached or read, so the token
     /// was not checked. It answers `503`, as [`Rejection::Unavailable`]
