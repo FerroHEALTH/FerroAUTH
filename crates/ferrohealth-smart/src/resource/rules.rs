@@ -75,8 +75,8 @@ pub(super) fn check_issuer_rules(
     Ok(())
 }
 
-/// Refuses an `[[auth.attributes]]` table on a `federation` issuer, which
-/// reads its own `[[auth.federation]]` table, and checks the table of any
+/// Refuses an `[auth.issuer.<name>.attributes]` table on a `federation` issuer, which
+/// reads its own `[auth.issuer.<name>.federation]` table, and checks the table of any
 /// other.
 pub(super) fn check_attributes(
     kind: IssuerKind,

@@ -168,7 +168,7 @@ pub enum ResourceError {
     /// The issuer's profile breaks a rule.
     #[error(transparent)]
     Profile(#[from] ProfileError),
-    /// The issuer's `[[auth.federation]]` table breaks a rule.
+    /// The issuer's `[auth.issuer.<name>.federation]` table breaks a rule.
     #[error(transparent)]
     Federation(#[from] FederationError),
     /// The issuer's assurance mapping breaks a rule.
@@ -181,7 +181,9 @@ pub enum ResourceError {
     /// A `federation` issuer whose table declares
     /// `requires_sender_constraint = true` without `sender_constraint =
     /// "required"`.
-    #[error("the issuer's [[auth.federation]] table requires sender_constraint = \"required\"")]
+    #[error(
+        "the issuer's [auth.issuer.<name>.federation] table requires sender_constraint = \"required\""
+    )]
     SenderConstraintRequired,
     /// A list the product's standing answers in its place is set beside
     /// it ([`StandingSource::Product`]), so it would be read in two places.

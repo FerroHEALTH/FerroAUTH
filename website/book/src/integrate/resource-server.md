@@ -83,18 +83,20 @@ at the server finds FerroSMART.
 ## A FerroHEALTH product
 
 Every FerroHEALTH product does this through `ferrohealth-smart`, the crate
-the FerroSMART repository publishes. It trusts FerroSMART in one `persons`
-issuer table under the `ferrosmart` preset, which keeps every RFC 9068
-default except three: `typ` is `at+jwt` alone, `scope` is required, and a
-patient's own token is read as the patient. `delegates` lists the SMART apps
-the product admits for a person, a patient's apps among them:
+the FerroSMART repository publishes. It trusts FerroSMART in one named
+issuer table under the `ferrosmart` preset. The preset makes the issuer a
+`persons` issuer and keeps every RFC 9068 default except these: `typ` is
+`at+jwt` alone, `scope` is required, a patient's own token is read as the
+patient, the `patient` claim is the launch context (`patient_context`), and
+a token from FerroSMART's own patient picker, whose client is the issuer
+itself, is the signed-in person with no app. The audience is the product's
+own base URL unless the table names another. `delegates` lists the SMART
+apps the product admits for a person, a patient's apps among them:
 
 ```toml
-[[auth.issuer]]
+[auth.issuer.smart]
 issuer = "https://smart.example.org"
-kind = "persons"
 profile = "ferrosmart"
-audience = ["https://ehr.example.org/openehr/v1"]
 delegates = [{ client = "growth-chart" }]
 ```
 
@@ -105,6 +107,9 @@ its scopes are `patient/` with no `user/` or `system/` scope; any other
 person's token, a professional's with `patient/` scopes included, is read as
 the professional's. The product's own SMART document describes
 FerroSMART, and its own rules still apply on top of the token's scopes.
+Every other key names the issuer by its table's name (`smart` here), and
+the environment form does too: `FERROEHR__AUTH__ISSUER__SMART__DELEGATES`.
+An unknown name is refused at start, with the known names listed.
 Each product's book has the details of its `[auth]` section.
 
 ### Why a token was refused

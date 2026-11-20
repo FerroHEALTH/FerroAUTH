@@ -200,9 +200,9 @@ pub(super) struct Admission<'a> {
     pub(super) profile: &'a Profile,
     /// The issuer's assurance mapping, when it has one.
     pub(super) assurance: Option<&'a AssuranceSection>,
-    /// The `[[auth.federation]]` table of a `federation` issuer.
+    /// The `[auth.issuer.<name>.federation]` table of a `federation` issuer.
     pub(super) federation: Option<&'a FederationSection>,
-    /// The `[[auth.attributes]]` table of a `persons` issuer.
+    /// The `[auth.issuer.<name>.attributes]` table of a `persons` issuer.
     pub(super) attributes: Option<&'a AttributesSection>,
     /// This node's audiences, which an `authorization_details` entry names.
     pub(super) audiences: &'a [String],
@@ -297,7 +297,13 @@ pub(super) async fn admit(
                 claim: scope_claim.claim.clone(),
             },
         })?;
-    let patient = text(&claims, "patient");
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `launch/patient`: the
+    // authorization server sets the patient context, read only from an issuer trusted to.
+    let patient = admission
+        .profile
+        .patient_context
+        .then(|| text(&claims, "patient"))
+        .flatten();
     let scopes = match admission.resource_types {
         Some(known) => Scopes::parse_known(&scope, |name| known(name)),
         None => Scopes::parse(&scope),

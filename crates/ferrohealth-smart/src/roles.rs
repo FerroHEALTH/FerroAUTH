@@ -7,7 +7,7 @@
 //! attributes in a JWT access token use the `groups`, `roles` and
 //! `entitlements` attributes of the SCIM `User` resource (RFC 7643 §4.1.2) as
 //! claim types. A deployment names the claims it reads on each
-//! `[[auth.issuer]]` ([`crate::config::IssuerEntry::role_claims`], by
+//! `[auth.issuer.<name>]` ([`crate::config::IssuerEntry::role_claims`], by
 //! default those three); a dotted path reaches into a JSON object, for an
 //! authorization server that nests them. A claim name may itself contain a
 //! dot (OpenID Connect Core 1.0 §5.1.2 lets it be any string, and a

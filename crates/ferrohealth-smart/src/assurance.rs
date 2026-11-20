@@ -7,7 +7,7 @@
 //! context class claim (`acr`, OpenID Connect Core 1.0 §2, by default) to the
 //! three eIDAS levels a deployment reads them as, and refuses a token below
 //! its minimum with the RFC 9470 §3 step-up challenge, which names the
-//! accepted values in `acr_values`. Each `[[auth.issuer]]` carries its own
+//! accepted values in `acr_values`. Each `[auth.issuer.<name>]` carries its own
 //! section, since each issuer writes its own values. Which routes a product holds to these, and
 //! what it records of them, stay the product's; RFC 9470 §3 leaves "the
 //! logic through which the resource server determines that the current

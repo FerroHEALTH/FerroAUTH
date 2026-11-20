@@ -3,7 +3,7 @@
 
 //! What holds per issuer: `scopeless_subjects` entries are `{ issuer, sub }`
 //! and hold for that issuer's app-only tokens alone, `role_claims` sit on
-//! each `[[auth.issuer]]` table and read that issuer's tokens alone, and the
+//! each `[auth.issuer.<name>]` table and read that issuer's tokens alone, and the
 //! string forms of both are refused naming the replacement.
 
 use std::collections::BTreeSet;
@@ -12,7 +12,6 @@ use std::error::Error as StdError;
 use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::IssuerEntry;
-use ferrohealth_smart::config::ScopelessSubject;
 use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::kind::IssuerKind;
 use ferrohealth_smart::resource::Compartment;
@@ -44,21 +43,30 @@ fn entry(issuer: &str, roles: &[&str]) -> IssuerEntry {
     }
 }
 
-/// Returns a section trusting `entries` with the `scopeless` allowlist.
-fn section(entries: Vec<IssuerEntry>, scopeless: Vec<ScopelessSubject>) -> AuthSection {
+/// Returns a section trusting `entries`, named `i1` on, each with the
+/// subjects of `scopeless` that name its issuer.
+fn section(entries: Vec<IssuerEntry>, scopeless: &[(String, String)]) -> AuthSection {
+    let issuer = entries
+        .into_iter()
+        .enumerate()
+        .map(|(index, mut entry)| {
+            entry.scopeless_subjects = scopeless
+                .iter()
+                .filter(|(issuer, _)| issuer == entry.issuer.expose())
+                .map(|(_, sub)| sub.clone())
+                .collect();
+            (format!("i{}", index + 1), entry)
+        })
+        .collect();
     AuthSection {
-        issuer: entries,
-        scopeless_subjects: scopeless,
+        issuer,
         ..AuthSection::default()
     }
 }
 
-/// Returns the entry `{ issuer, sub }`.
-fn subject(issuer: &str, sub: &str) -> ScopelessSubject {
-    ScopelessSubject {
-        issuer: ferrohealth_secret::secret_url::SecretUrl::new(issuer),
-        sub: sub.to_owned(),
-    }
+/// Returns the subject `sub` of `issuer`.
+fn subject(issuer: &str, sub: &str) -> (String, String) {
+    (issuer.to_owned(), sub.to_owned())
 }
 
 fn set(values: &[&str]) -> BTreeSet<String> {
@@ -76,9 +84,9 @@ fn each_issuer_receives_only_its_own_entries() -> Result<(), Box<dyn StdError>> 
             entry(ONE, &["realm_access.roles", "roles"]),
             entry(TWO, &["groups"]),
         ],
-        vec![subject(ONE, "svc")],
+        &[subject(ONE, "svc")],
     )
-    .resolve()?;
+    .resolve(&[])?;
     assert_eq!(set(&["svc"]), resolved.issuers[0].scopeless_subjects);
     assert_eq!(
         owned(&["realm_access.roles", "roles"]),
@@ -97,23 +105,24 @@ fn a_string_scopeless_subject_and_a_section_level_role_claims_are_refused_at_loa
         "role_claims = [\"https://one.example.org#roles\"]",
     ] {
         let read = toml::from_str::<AuthSection>(&format!(
-            "{text}\n[[issuer]]\nissuer = \"{ONE}\"\nkind = \"persons\"\naudience = [\"a\"]\n"
+            "{text}\n[issuer.i2]\nissuer = \"{ONE}\"\nkind = \"persons\"\naudience = [\"a\"]\n"
         ));
         assert!(read.is_err(), "{text} is no key or shape of the section");
     }
 }
 
 #[test]
-fn an_entry_naming_an_untrusted_issuer_is_refused() {
-    assert!(matches!(
-        section(
-            vec![entry(ONE, &[]), entry(TWO, &[])],
-            vec![subject("https://three.example.org", "svc")]
-        )
-        .resolve(),
-        Err(ConfigError::UnknownIssuer { key: "auth.scopeless_subjects", issuer })
-            if issuer == "https://three.example.org"
+fn an_entry_naming_an_issuer_outside_its_table_is_no_key_of_the_section() {
+    // NOTE: no specification governs the allowlist: our own design (#730), each
+    // issuer's subjects sit on its own table, so no entry can name an untrusted one.
+    let read = toml::from_str::<AuthSection>(&format!(
+        "scopeless_subjects = [{{ issuer = \"https://three.example.org\", sub = \"svc\" }}]\n\
+         [issuer.one]\nissuer = \"{ONE}\"\nkind = \"persons\"\naudience = [\"a\"]\n"
     ));
+    assert!(
+        read.is_err(),
+        "a section-level scopeless_subjects is refused"
+    );
 }
 
 #[test]
@@ -121,7 +130,7 @@ fn a_scopeless_subject_is_refused_on_a_patients_issuer() {
     let mut patients = entry(ONE, &[]);
     patients.kind = Some(IssuerKind::Patients);
     assert!(matches!(
-        section(vec![patients], vec![subject(ONE, "svc")]).resolve(),
+        section(vec![patients], &[subject(ONE, "svc")]).resolve(&[]),
         Err(ConfigError::Issuer { issuer, .. }) if issuer == ONE
     ));
 }
@@ -129,7 +138,7 @@ fn a_scopeless_subject_is_refused_on_a_patients_issuer() {
 #[test]
 fn a_role_claim_path_is_still_checked() {
     assert!(matches!(
-        section(vec![entry(ONE, &["realm_access..roles"])], Vec::new()).resolve(),
+        section(vec![entry(ONE, &["realm_access..roles"])], &[]).resolve(&[]),
         Err(ConfigError::Missing {
             key: "auth.issuer.role_claims"
         })
@@ -139,7 +148,7 @@ fn a_role_claim_path_is_still_checked() {
 /// The stub issuers of `auth` behind one `IssuerSet`.
 async fn trusted(auth: &AuthSection) -> Result<IssuerSet, Box<dyn StdError>> {
     let mut set = IssuerSet::new();
-    for settings in auth.resolve()?.issuers {
+    for settings in auth.resolve(&[])?.issuers {
         set = set.with(server(settings).await);
     }
     Ok(set)
@@ -153,7 +162,7 @@ async fn a_scopeless_subject_holds_only_for_the_issuer_it_names() -> Result<(), 
     let two = Issuer::start(&[&two_key]).await;
     let auth = section(
         vec![entry(&one.uri(), &[]), entry(&two.uri(), &[])],
-        vec![subject(&one.uri(), CLIENT)],
+        &[subject(&one.uri(), CLIENT)],
     );
     let set = trusted(&auth).await?;
     // NOTE: RFC 9068 §5, a client credentials token whose `sub` is its
@@ -184,7 +193,7 @@ async fn roles_are_read_only_from_the_issuer_that_names_the_claim() -> Result<()
     let two = Issuer::start(&[&two_key]).await;
     let auth = section(
         vec![entry(&one.uri(), &["roles"]), entry(&two.uri(), &[])],
-        Vec::new(),
+        &[],
     );
     let set = trusted(&auth).await?;
     let mut one_claims = one.claims("system/Condition.r");

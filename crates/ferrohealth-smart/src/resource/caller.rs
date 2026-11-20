@@ -101,7 +101,7 @@ impl Caller {
     }
 
     /// Returns this caller carrying what its token states under the
-    /// issuer's `[[auth.attributes]]` table.
+    /// issuer's `[auth.issuer.<name>.attributes]` table.
     #[must_use]
     pub fn with_attributes(mut self, attributes: Attributes) -> Self {
         self.attributes = Some(attributes);
@@ -109,7 +109,7 @@ impl Caller {
     }
 
     /// Returns what the caller's token states under its issuer's
-    /// `[[auth.attributes]]` table (IHE IUA §3.71.4.2.2.1.1): the
+    /// `[auth.issuer.<name>.attributes]` table (IHE IUA §3.71.4.2.2.1.1): the
     /// professional of a `persons` caller other than `System`, and the
     /// purposes of use of every caller, a `System` or a `patients` caller
     /// included.

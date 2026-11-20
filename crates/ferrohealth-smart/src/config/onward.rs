@@ -8,7 +8,7 @@
 //! The issuer is described in the table itself, its kind, preset, profile
 //! keys and tables, because the issuer of onward tokens is not always one
 //! whose tokens the surface admits: a `federation` issuer of another
-//! party's node must never become an `[[auth.issuer]]` of this one. No
+//! party's node must never become an `[auth.issuer.<name>]` of this one. No
 //! specification governs the configuration model: our own design.
 
 use ferrohealth_secret::secret_url::SecretUrl;
@@ -297,16 +297,11 @@ mod resolve {
             if kind != IssuerKind::Federation {
                 return Ok(self.federation.clone());
             }
-            let defaults = self.profile.federation()?;
-            let table = match (self.federation.clone(), defaults) {
-                (Some(table), Some(defaults)) => Some(table.over(defaults)),
-                (table, None) => table,
-                (None, Some(defaults)) => Some(defaults),
-            };
-            Ok(table.map(|table| FederationSection {
-                issuer: self.issuer.clone(),
-                ..table
-            }))
+            crate::config::issuer::federation_over(
+                self.profile,
+                self.federation.clone(),
+                &self.issuer,
+            )
         }
     }
 }

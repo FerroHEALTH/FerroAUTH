@@ -36,7 +36,7 @@ use crate::resource::Via;
 /// One bound issuer: its table and the adapter its profile names.
 #[derive(Debug, Clone)]
 struct Issuer {
-    /// The `[[auth.party]]` table.
+    /// The `[auth.issuer.<name>.party]` table.
     table: PartySection,
     /// The adapter the issuer's profile names.
     adapter: Option<String>,
@@ -148,7 +148,7 @@ impl PartyBinding {
     }
 
     /// Returns this binding with every adapter the `[auth.idp]` tables of
-    /// `resolved` build, binding every `[[auth.party]]` table of `resolved`
+    /// `resolved` build, binding every `[auth.issuer.<name>.party]` table of `resolved`
     /// against its issuer's kind and profile.
     ///
     /// # Errors

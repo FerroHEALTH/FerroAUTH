@@ -31,7 +31,7 @@ use crate::profile::Profile;
 
 pub mod standing;
 
-/// Whose tokens an issuer signs, declared on every `[[auth.issuer]]`.
+/// Whose tokens an issuer signs, declared on every `[auth.issuer.<name>]`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -434,10 +434,14 @@ pub(crate) async fn classify(
                     represented,
                     own,
                 } => {
-                    let answer = standing
-                        .client(profile, Issued::new(issuer, &client))
-                        .await
-                        .map_err(Refused::Standing)?;
+                    let answer = if the_issuer_itself(profile, claims, issuer, &client) {
+                        ClientStanding::FirstParty
+                    } else {
+                        standing
+                            .client(profile, Issued::new(issuer, &client))
+                            .await
+                            .map_err(Refused::Standing)?
+                    };
                     through(answer, represented, own)?
                 }
             };
@@ -475,7 +479,14 @@ pub(crate) fn classify_listed(
                     client,
                     represented,
                     own,
-                } => through(standing::listed_client(profile, &client), represented, own)?,
+                } => {
+                    let answer = if the_issuer_itself(profile, claims, issuer, &client) {
+                        ClientStanding::FirstParty
+                    } else {
+                        standing::listed_client(profile, &client)
+                    };
+                    through(answer, represented, own)?
+                }
             };
             guested(person, guest)
         }
@@ -654,6 +665,20 @@ fn fhir_user_patient(claims: &Map<String, Value>) -> bool {
         .strip_suffix(patient.as_str())
         .and_then(|rest| rest.strip_suffix("Patient/"))
         .is_some_and(|base| base.is_empty() || (base.ends_with('/') && base.contains("://")))
+}
+
+/// Returns whether `client` is the issuer of `claims` itself under a profile
+/// whose `issuer_client_is_person` reads that token as the person acting
+/// with no app.
+fn the_issuer_itself(
+    profile: &Profile,
+    claims: &Map<String, Value>,
+    issuer: &str,
+    client: &str,
+) -> bool {
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `launch/patient`: the
+    // authorization server's own patient picker acts for the signed-in person.
+    profile.issuer_client_is_person && token_issuer(claims, issuer) == client
 }
 
 /// Returns the kind of a person acting through `actor`, a declared delegate

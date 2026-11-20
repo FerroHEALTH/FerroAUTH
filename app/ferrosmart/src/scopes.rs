@@ -7,8 +7,16 @@
 //! "Servers SHOULD process v1 scopes with the following semantics in v2":
 //! `read` as `rs`, `write` as `cud` and `*` as `cruds` (SMART App Launch
 //! 2.2.0, Scopes and Launch Context, Scopes for requesting FHIR Resources),
-//! and a scope granted as v1 is returned as v1. Matching a scope as written
-//! is our own design.
+//! and a scope granted as v1 is returned as v1.
+//!
+//! A clinical scope names a context, a resource, its permissions and,
+//! optionally, query parameters (`patient/Observation.rs?category=…`). A
+//! listed scope admits a requested one in the same context whose
+//! permissions are a subset of its own (SMART v2 builds a scope from the
+//! letters `c`, `r`, `u`, `d`, `s`, and "the server may grant less than
+//! asked"), on the same resource or under the wildcard `*`, and with the same
+//! query parameters, or any when the listed scope names none. Every other
+//! scope is matched as written (our own design).
 
 /// Returns the v2 form of the clinical scope `scope`: its v1 suffix
 /// replaced by the v2 letters, or the scope itself when it carries none.
@@ -33,14 +41,84 @@ pub fn v2_form(scope: &str) -> String {
     }
 }
 
-/// Returns whether `listed` admits the requested `scope`: as written, or by
-/// its v2 form.
+/// Returns whether `listed` admits the requested `scope`: as written, by
+/// its v2 form, or as a clinical scope inside a listed one ([`covers`]).
 #[must_use]
 pub fn admits(listed: &[String], scope: &str) -> bool {
     let v2 = v2_form(scope);
     listed
         .iter()
-        .any(|allowed| allowed == scope || *allowed == v2)
+        .any(|allowed| allowed == scope || *allowed == v2 || covers(allowed, &v2))
+}
+
+/// One clinical scope in its v2 form: `context/resource.permissions`, with
+/// the query parameters after a `?`.
+struct Clinical<'a> {
+    /// `patient`, `user` or `system`.
+    context: &'a str,
+    /// The resource type, `*`, or a SMART on openEHR resource.
+    resource: &'a str,
+    /// The permission letters.
+    permissions: &'a str,
+    /// The query parameters, when the scope names any.
+    query: Option<&'a str>,
+}
+
+impl<'a> Clinical<'a> {
+    /// Returns the clinical scope `scope` reads as, or `None` for any other
+    /// scope, which is then matched as written.
+    fn read(scope: &'a str) -> Option<Self> {
+        let (head, query) = match scope.split_once('?') {
+            Some((head, query)) => (head, Some(query)),
+            None => (scope, None),
+        };
+        let (context, rest) = head.split_once('/')?;
+        if !matches!(context, "patient" | "user" | "system") {
+            return None;
+        }
+        let (resource, permissions) = rest.rsplit_once('.')?;
+        // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, SMART v2: the
+        // permissions are the letters c, r, u, d, s, in that order.
+        let ordered = permissions
+            .bytes()
+            .try_fold(0_usize, |at, letter| {
+                b"cruds"
+                    .iter()
+                    .skip(at)
+                    .position(|known| *known == letter)
+                    .map(|found| at.saturating_add(found).saturating_add(1))
+            })
+            .is_some();
+        (!resource.is_empty() && !permissions.is_empty() && ordered).then_some(Self {
+            context,
+            resource,
+            permissions,
+            query,
+        })
+    }
+}
+
+/// Returns whether the listed clinical scope `allowed` covers the requested
+/// clinical scope `requested`, both in their v2 form.
+///
+/// It does with the same context, the same resource or the wildcard `*`,
+/// permissions that are a subset of its own, and the same query parameters,
+/// or any when `allowed` names none.
+#[must_use]
+pub fn covers(allowed: &str, requested: &str) -> bool {
+    let (Some(allowed), Some(requested)) = (Clinical::read(allowed), Clinical::read(requested))
+    else {
+        return false;
+    };
+    allowed.context == requested.context
+        && (allowed.resource == "*" || allowed.resource == requested.resource)
+        && requested
+            .permissions
+            .chars()
+            .all(|letter| allowed.permissions.contains(letter))
+        && allowed
+            .query
+            .is_none_or(|query| requested.query == Some(query))
 }
 
 /// Returns whether `scope` is an extension scope.
@@ -91,7 +169,7 @@ pub fn is_fixed(scope: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{admits, is_fixed, v2_form, with_inferred_patient};
+    use super::{admits, covers, is_fixed, v2_form, with_inferred_patient};
 
     #[test]
     fn a_standalone_patient_scope_infers_launch_patient() {
@@ -155,5 +233,81 @@ mod tests {
         assert!(admits(&listed, "user/Observation.rs"));
         assert!(!admits(&listed, "user/Observation.write"));
         assert!(!admits(&listed, "user/Patient.read"));
+    }
+
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, SMART v2: a request
+    // whose permissions are a subset of a listed scope's is inside it (#731).
+    #[test]
+    fn a_ceiling_admits_a_subset_of_its_permission_letters() {
+        let listed = vec![String::from("patient/Composition.crs")];
+        for inside in [
+            "patient/Composition.crs",
+            "patient/Composition.rs",
+            "patient/Composition.r",
+            "patient/Composition.s",
+            "patient/Composition.cr",
+            "patient/Composition.read",
+        ] {
+            assert!(admits(&listed, inside), "{inside}");
+        }
+        for outside in [
+            "patient/Composition.cruds",
+            "patient/Composition.u",
+            "patient/Composition.rd",
+            "user/Composition.r",
+            "patient/Observation.r",
+            "patient/Composition.sr",
+            "patient/Composition.",
+        ] {
+            assert!(!admits(&listed, outside), "{outside}");
+        }
+    }
+
+    #[test]
+    fn a_wildcard_resource_admits_each_resource() {
+        let listed = vec![String::from("user/*.rs")];
+        assert!(admits(&listed, "user/Observation.r"));
+        assert!(admits(&listed, "user/Patient.rs"));
+        assert!(admits(&listed, "user/*.s"));
+        assert!(!admits(&listed, "user/Patient.c"));
+        assert!(!admits(&listed, "patient/Patient.r"), "another context");
+        let named = vec![String::from("user/Observation.rs")];
+        assert!(
+            !admits(&named, "user/*.r"),
+            "a named resource never admits *"
+        );
+    }
+
+    #[test]
+    fn query_parameters_must_match_a_restricted_ceiling() {
+        let restricted = vec![String::from(
+            "patient/Observation.rs?category=http://terminology.hl7.org/CodeSystem/observation-category|vital-signs",
+        )];
+        assert!(admits(
+            &restricted,
+            "patient/Observation.r?category=http://terminology.hl7.org/CodeSystem/observation-category|vital-signs"
+        ));
+        assert!(
+            !admits(&restricted, "patient/Observation.r"),
+            "a restricted ceiling never admits the unrestricted scope"
+        );
+        assert!(!admits(
+            &restricted,
+            "patient/Observation.r?category=laboratory"
+        ));
+        let open = vec![String::from("patient/Observation.rs")];
+        assert!(
+            admits(&open, "patient/Observation.r?category=laboratory"),
+            "a restricted request is inside an unrestricted ceiling"
+        );
+        assert!(
+            !covers("openid", "openid"),
+            "a non-clinical scope matches as written"
+        );
+        assert!(admits(&[String::from("openid")], "openid"));
+        assert!(!admits(
+            &[String::from("launch/patient")],
+            "launch/encounter"
+        ));
     }
 }

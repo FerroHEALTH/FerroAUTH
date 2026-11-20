@@ -22,7 +22,7 @@ use ferrohealth_smart::resource::Settings;
 /// Returns a section of `top` keys and one `persons` issuer table.
 fn one_issuer(top: &str) -> AuthSection {
     toml::from_str(&format!(
-        "{top}\n[[issuer]]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n"
+        "{top}\n[issuer.i1]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n"
     ))
     .expect("the section parses")
 }
@@ -33,12 +33,12 @@ fn each_issuer_table_carries_its_own_settings() {
         r#"
         realm = "ferrobridge"
 
-        [[issuer]]
+        [issuer.i2]
         issuer = "https://one.example.org"
         kind = "persons"
         audience = ["https://bridge.example.org/fhir"]
 
-        [[issuer]]
+        [issuer.i3]
         issuer = "https://two.example.org"
         kind = "machines"
         audience = ["https://other.example.org"]
@@ -49,7 +49,7 @@ fn each_issuer_table_carries_its_own_settings() {
     )
     .expect("the section parses");
     assert_eq!(2, section.issuer.len(), "two issuer tables");
-    let resolved = section.resolve().expect("the section resolves");
+    let resolved = section.resolve(&[]).expect("the section resolves");
     assert_eq!(2, resolved.issuers.len());
     let one = &resolved.issuers[0];
     assert_eq!(IssuerKind::Persons, one.kind);
@@ -86,31 +86,31 @@ fn a_section_that_breaks_a_rule_refuses_the_start() {
     assert!(unknown.is_err(), "deny_unknown_fields");
     let none = AuthSection::default();
     assert!(matches!(
-        none.resolve(),
+        none.resolve(&[]),
         Err(ConfigError::Missing { key: "auth.issuer" })
     ));
     let table = |extra: &str| -> AuthSection {
         toml::from_str(&format!(
-            "[[issuer]]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n{extra}"
+            "[issuer.i4]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n{extra}"
         ))
         .expect("parses")
     };
     assert!(matches!(
-        table("clock_skew = \"301s\"").resolve(),
+        table("clock_skew = \"301s\"").resolve(&[]),
         Err(ConfigError::Issuer { .. })
     ));
     assert!(matches!(
-        table("algorithms = [\"HS256\"]").resolve(),
+        table("algorithms = [\"HS256\"]").resolve(&[]),
         Err(ConfigError::Issuer { .. })
     ));
     let off: AuthSection = toml::from_str("enabled = false").expect("parses");
     assert_eq!(
-        off.resolve().expect("resolves").issuers,
+        off.resolve(&[]).expect("resolves").issuers,
         Vec::<Settings>::new()
     );
     let both: AuthSection = toml::from_str(
         r#"
-        [[issuer]]
+        [issuer.i5]
         issuer = "https://as.example.org"
         kind = "persons"
         audience = ["a"]
@@ -121,7 +121,7 @@ fn a_section_that_breaks_a_rule_refuses_the_start() {
         "#,
     )
     .expect("parses");
-    assert!(matches!(both.resolve(), Err(ConfigError::Secret { .. })));
+    assert!(matches!(both.resolve(&[]), Err(ConfigError::Secret { .. })));
 }
 
 #[test]
@@ -178,7 +178,7 @@ fn a_capability_is_one_smart_defines_or_a_full_uri() {
     let section = one_issuer(
         r#"capabilities = ["launch-ehr", "context-openehr-episode", "https://example.org/capability/x"]"#,
     );
-    let resolved = section.resolve().expect("every capability is defined");
+    let resolved = section.resolve(&[]).expect("every capability is defined");
     assert_eq!(3, resolved.capabilities.len());
     for capability in ["launch-anything", "permission-v3", "x:y", "two words", ""] {
         let section = AuthSection {
@@ -186,7 +186,7 @@ fn a_capability_is_one_smart_defines_or_a_full_uri() {
             ..AuthSection::default()
         };
         assert!(
-            matches!(section.resolve(), Err(ConfigError::Capability { .. })),
+            matches!(section.resolve(&[]), Err(ConfigError::Capability { .. })),
             "SMART App Launch 2.2.0, Conformance, Capabilities reserves {capability:?}"
         );
     }
@@ -197,17 +197,17 @@ fn the_product_scope_is_an_extension_scope() {
     let section = one_issuer("product_scope = \"__ferro.operator\"");
     assert_eq!(
         Some(String::from("__ferro.operator")),
-        section.resolve().expect("resolves").product_scope
+        section.resolve(&[]).expect("resolves").product_scope
     );
     let none = one_issuer("");
-    assert_eq!(None, none.resolve().expect("resolves").product_scope);
+    assert_eq!(None, none.resolve(&[]).expect("resolves").product_scope);
     for scope in ["ferro.operator", "system/*.rs", "__", "__two words"] {
         let section = AuthSection {
             product_scope: String::from(scope),
             ..AuthSection::default()
         };
         assert!(
-            matches!(section.resolve(), Err(ConfigError::ProductScope { .. })),
+            matches!(section.resolve(&[]), Err(ConfigError::ProductScope { .. })),
             "SMART App Launch 2.2.0, Scopes and Launch Context, Extensibility refuses {scope:?}"
         );
     }
@@ -218,7 +218,7 @@ fn the_listed_scopes_reach_the_discovery_options() {
     let section = one_issuer(
         "capabilities = [\"launch-ehr\"]\nscopes_supported = [\"system/Condition.rs\", \"openid\"]",
     );
-    let options = section.resolve().expect("resolves").smart_options();
+    let options = section.resolve(&[]).expect("resolves").smart_options();
     assert_eq!(
         vec![String::from("system/Condition.rs"), String::from("openid")],
         options.scopes_supported
@@ -232,7 +232,7 @@ fn the_listed_scopes_reach_the_discovery_options() {
         scopes_supported: vec![String::from("two words")],
         ..AuthSection::default()
     };
-    assert!(matches!(bad.resolve(), Err(ConfigError::Scope { .. })));
+    assert!(matches!(bad.resolve(&[]), Err(ConfigError::Scope { .. })));
 }
 
 #[test]
@@ -298,7 +298,7 @@ fn an_enabled_section_with_basic_users_and_no_issuer_is_basic_only() {
         "#
     ))
     .expect("the section parses");
-    let resolved = section.resolve().expect("a Basic-only section resolves");
+    let resolved = section.resolve(&[]).expect("a Basic-only section resolves");
     assert!(resolved.enabled);
     assert!(resolved.issuers.is_empty(), "no issuer");
     assert_eq!(1, resolved.basic.as_ref().map_or(0, PasswordStore::len));
@@ -309,13 +309,13 @@ fn an_enabled_section_that_admits_no_credential_fails_closed() {
     for text in [
         "enabled = true",
         "enabled = true\n[basic]\nusers = []",
-        "enabled = true\nissuer = []",
-        "enabled = true\nissuer = []\n[basic]\nusers = []",
+        "enabled = true\n[issuer]",
+        "enabled = true\n[issuer]\n[basic]\nusers = []",
     ] {
         let section: AuthSection = toml::from_str(text).expect("parses");
         assert!(
             matches!(
-                section.resolve(),
+                section.resolve(&[]),
                 Err(ConfigError::Missing { key: "auth.issuer" })
             ),
             "{text}"
@@ -327,11 +327,11 @@ fn an_enabled_section_that_admits_no_credential_fails_closed() {
 fn a_rendered_section_carries_every_key_and_no_secret() {
     let auth: AuthSection = toml::from_str(&format!(
         r#"
-        scopeless_subjects = [{{ issuer = "https://as.example.org", sub = "svc" }}]
-        [[issuer]]
+        [issuer.i6]
         issuer = "https://as.example.org"
         kind = "persons"
         audience = ["https://fhir.example.org"]
+        scopeless_subjects = ["svc"]
         [[basic.users]]
         user = "etl"
         password_hash = "{PHC}"
@@ -385,8 +385,8 @@ fn a_rendered_section_carries_every_key_and_no_secret() {
             .is_none()
     );
     assert_eq!(
-        serde_json::json!([{ "issuer": "https://as.example.org", "sub": "svc" }]),
-        auth_json["scopeless_subjects"]
+        serde_json::json!(["svc"]),
+        auth_json["issuer"]["i6"]["scopeless_subjects"]
     );
     let oauth_json = serde_json::to_value(&oauth).expect("serializes");
     assert_eq!(
@@ -398,7 +398,11 @@ fn a_rendered_section_carries_every_key_and_no_secret() {
         toml::from_str(&rendered[3]).expect("the rendering reads back as a section");
     assert_eq!(
         Some("https://as.example.org"),
-        read_back.issuer.first().map(|entry| entry.issuer.expose()),
+        read_back
+            .issuer
+            .values()
+            .next()
+            .map(|entry| entry.issuer.expose()),
         "the issuer reads back"
     );
 }
@@ -440,16 +444,16 @@ fn the_grant_masks_the_userinfo_of_its_urls() {
 fn every_endpoint_url_masks_its_userinfo_in_every_rendering() {
     let auth: AuthSection = toml::from_str(
         r#"
-[[issuer]]
+[issuer.i7]
 issuer = "https://idp.example"
 kind = "persons"
 audience = ["a"]
-[issuer.introspection]
+[issuer.i7.introspection]
 endpoint = "https://u:INTROSPECT_PW@idp.example/introspect"
-[issuer.introspection.client]
+[issuer.i7.introspection.client]
 token_endpoint = "https://u:CLIENT_PW@idp.example/client-token"
 client_id = "rs"
-[issuer.introspection.bearer]
+[issuer.i7.introspection.bearer]
 token_endpoint = "https://u:BEARER_PW@idp.example/bearer-token"
 client_id = "rs"
 "#,
@@ -505,7 +509,7 @@ token_endpoint = "https://u:ONWARD_PW@onward.example/onward-token"
 fn every_issuer_identifier_masks_its_userinfo_in_every_rendering() {
     let auth: AuthSection = toml::from_str(
         r#"
-[[issuer]]
+[issuer.i8]
 issuer = "https://u:AUTH_ISSUER_PW@idp.example/realms/r"
 kind = "persons"
 audience = ["a"]
@@ -551,7 +555,7 @@ issuer = "https://u:ONWARD_ISSUER_PW@onward.example/realms/r"
             );
         }
     }
-    let first = auth.issuer.first().expect("the issuer");
+    let first = auth.issuer.values().next().expect("the issuer");
     assert_eq!(
         "https://u:AUTH_ISSUER_PW@idp.example/realms/r",
         first.issuer.expose(),
@@ -559,40 +563,35 @@ issuer = "https://u:ONWARD_ISSUER_PW@onward.example/realms/r"
     );
 }
 
-/// The tables that name an `[[auth.issuer]]`, `[[auth.attributes]]`,
-/// `[[auth.federation]]`, `[[auth.party]]` and `scopeless_subjects`, hold
-/// its identifier as a `SecretUrl` too: a password in its userinfo reaches no
-/// rendering, serialized or `Debug`, nor the refusal of the start (RFC 3986
-/// §3.2.1, #456).
+/// An `[auth.issuer.<name>]` table with its attributes, federation and
+/// party tables nested under it holds its identifier as a `SecretUrl`: a
+/// password in its userinfo reaches no rendering, serialized or `Debug`,
+/// nor the refusal of the start (RFC 3986 §3.2.1, #456).
 #[test]
-fn every_table_naming_an_issuer_masks_its_userinfo() {
+fn every_table_of_an_issuer_masks_its_userinfo() {
     let auth: AuthSection = toml::from_str(
         r#"
-[[issuer]]
+[issuer.i10]
 issuer = "https://u:TABLE_ISSUER_PW@idp.example/realms/r"
 kind = "persons"
 audience = ["a"]
 
-[[attributes]]
-issuer = "https://u:TABLE_ISSUER_PW@idp.example/realms/r"
+[issuer.i10.attributes]
 mapping = "iua"
 
-[[federation]]
-issuer = "https://u:TABLE_ISSUER_PW@idp.example/realms/r"
+[issuer.i10.federation]
 contact_point = false
 
-[[party]]
-issuer = "https://u:TABLE_ISSUER_PW@idp.example/realms/r"
+[issuer.i10.party]
 identifier_issuer = "urn:example:people"
 identifier_type = "guid"
-
-[[scopeless_subjects]]
-issuer = "https://u:TABLE_ISSUER_PW@idp.example/realms/r"
-sub = "service"
 "#,
     )
     .expect("the section parses");
-    let refused = auth.clone().resolve().expect_err("the userinfo is refused");
+    let refused = auth
+        .clone()
+        .resolve(&[])
+        .expect_err("the userinfo is refused");
     let renderings = [
         toml::to_string(&auth).expect("renders"),
         serde_json::to_string(&auth).expect("renders"),
@@ -609,10 +608,12 @@ sub = "service"
             "rendering {index}: the host"
         );
     }
-    for table in ["attributes", "federation", "party", "scopeless_subjects"] {
+    for table in ["attributes", "federation", "party"] {
         assert_eq!(
             1,
-            renderings[0].matches(&format!("[[{table}]]")).count(),
+            renderings[0]
+                .matches(&format!("[issuer.i10.{table}]"))
+                .count(),
             "{table} renders"
         );
     }
@@ -692,7 +693,7 @@ fn the_basic_cache_keeps_a_verified_credential_for_five_minutes_unless_set_to_ze
 fn a_misspelt_key_in_an_issuer_entry_is_refused_by_its_name() {
     let refused = toml::from_str::<AuthSection>(
         r#"
-        [[issuer]]
+        [issuer.i11]
         issuer = "https://one.example.org"
         kind = "persons"
         jwks_fiel = "/etc/ferro/one.jwks"
@@ -706,10 +707,10 @@ fn a_misspelt_key_in_an_issuer_entry_is_refused_by_its_name() {
 }
 
 #[test]
-fn an_issuer_that_is_neither_a_string_nor_a_list_is_refused() {
+fn an_issuer_that_is_no_table_of_tables_is_refused() {
     let refused = toml::from_str::<AuthSection>("issuer = 7\n").expect_err("a number is no issuer");
     assert!(
-        refused.to_string().contains("expected a sequence"),
+        refused.to_string().contains("expected a map"),
         "the refusal says what the key takes: {refused}"
     );
 }
@@ -735,7 +736,7 @@ fn a_basic_grant_with_a_system_scope_fails_to_load_naming_the_user_and_the_scope
     )
     .expect("the grants parse");
     let store = section
-        .resolve()
+        .resolve(&[])
         .expect("the credential resolves")
         .basic
         .expect("a Basic store");
@@ -798,7 +799,7 @@ fn a_credential_only_basic_user_resolves_and_is_granted_by_the_product() {
     )
     .expect("the grants parse");
     let store = section
-        .resolve()
+        .resolve(&[])
         .expect("a credential-only section resolves")
         .basic
         .expect("a Basic store")
@@ -833,7 +834,7 @@ fn issuer_at(issuer: &str, jwks_file: Option<&std::path::Path>) -> AuthSection {
         format!("jwks_file = {:?}\n", path.display().to_string())
     });
     toml::from_str(&format!(
-        "enabled = true\n[[issuer]]\nissuer = \"{issuer}\"\nkind = \"persons\"\naudience = [\"a\"]\n{file}"
+        "enabled = true\n[issuer.i12]\nissuer = \"{issuer}\"\nkind = \"persons\"\naudience = [\"a\"]\n{file}"
     ))
     .expect("the section parses")
 }
@@ -844,7 +845,7 @@ fn an_issuer_with_userinfo_is_refused_masked() {
         "https://user:hunter2@as.example.org",
         "https://user@as.example.org/realms/x",
     ] {
-        let refused = issuer_at(issuer, None).resolve();
+        let refused = issuer_at(issuer, None).resolve(&[]);
         let Err(ConfigError::IssuerUserinfo { issuer: shown }) = &refused else {
             panic!("{issuer} is refused for its userinfo, got {refused:?}");
         };
@@ -863,7 +864,7 @@ fn a_jwks_file_with_a_symmetric_key_is_refused_naming_the_key() {
         "symmetric.jwks",
         br#"{"keys":[{"kty":"RSA","kid":"rsa","n":"AQAB","e":"AQAB"},{"kty":"oct","kid":"shared","k":"c2VjcmV0"}]}"#,
     );
-    let refused = issuer_at("https://as.example.org", Some(&file)).resolve();
+    let refused = issuer_at("https://as.example.org", Some(&file)).resolve(&[]);
     assert!(
         matches!(
             &refused,
@@ -880,7 +881,7 @@ fn a_jwks_file_with_private_key_material_is_refused_naming_the_member() {
         "private.jwks",
         br#"{"keys":[{"kty":"EC","crv":"P-256","x":"AA","y":"AA","d":"cHJpdmF0ZQ"}]}"#,
     );
-    let refused = issuer_at("https://as.example.org", Some(&file)).resolve();
+    let refused = issuer_at("https://as.example.org", Some(&file)).resolve(&[]);
     assert!(
         matches!(
             &refused,
@@ -910,7 +911,7 @@ fn a_basic_hash_below_the_owasp_floor_is_refused_naming_the_user_and_the_floor()
             "enabled = true\n[[basic.users]]\nuser = \"etl\"\npassword_hash = \"{phc}\"\n"
         ))
         .expect("the section parses");
-        let refused = section.resolve();
+        let refused = section.resolve(&[]);
         let Err(ConfigError::Basic {
             source: source @ StoreError::Weak { username, .. },
         }) = &refused
@@ -927,12 +928,12 @@ fn a_basic_hash_below_the_owasp_floor_is_refused_naming_the_user_and_the_floor()
 #[test]
 fn one_issuer_in_two_tables_is_refused_naming_both() {
     let section: AuthSection = toml::from_str(
-        "[[issuer]]\nissuer = \"https://user:secret@as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n\
-         [[issuer]]\nissuer = \"https://as.example.org\"\nkind = \"machines\"\naudience = [\"a\"]\n\
-         [[issuer]]\nissuer = \"https://user:secret@as.example.org\"\nkind = \"machines\"\naudience = [\"a\"]\n",
+        "[issuer.i13]\nissuer = \"https://user:secret@as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n\
+         [issuer.i14]\nissuer = \"https://as.example.org\"\nkind = \"machines\"\naudience = [\"a\"]\n\
+         [issuer.i15]\nissuer = \"https://user:secret@as.example.org\"\nkind = \"machines\"\naudience = [\"a\"]\n",
     )
     .expect("the section parses");
-    let refused = section.resolve();
+    let refused = section.resolve(&[]);
     let Err(ConfigError::DuplicateIssuer {
         key,
         issuer,
@@ -943,7 +944,11 @@ fn one_issuer_in_two_tables_is_refused_naming_both() {
         panic!("a duplicate issuer is refused: {refused:?}");
     };
     assert_eq!("auth.issuer", *key);
-    assert_eq!((0, 2), (*first, *second), "both tables named");
+    assert_eq!(
+        ("i13", "i15"),
+        (first.as_str(), second.as_str()),
+        "both tables named"
+    );
     assert!(
         !issuer.contains("secret"),
         "the userinfo is masked: {issuer}"
@@ -953,4 +958,141 @@ fn one_issuer_in_two_tables_is_refused_naming_both() {
         .map(|error| error.to_string())
         .unwrap_or_default();
     assert!(!shown.contains("secret"), "{shown}");
+}
+
+/// The section of one issuer table under `ferrosmart`, with `extra` keys.
+fn smart_issuer(extra: &str) -> AuthSection {
+    toml::from_str(&format!(
+        "[issuer.smart]\nissuer = \"https://smart.example.org\"\nprofile = \"ferrosmart\"\n\
+         jwks_file = \"/dev/null\"\n{extra}"
+    ))
+    .expect("the section parses")
+}
+
+// NOTE: RFC 9068 §4, the resource server checks `aud` against itself; no
+// specification governs the default: our own design (#730), its own base URLs.
+#[test]
+fn the_audience_defaults_to_the_bases_the_product_resolves_for() {
+    let base = "https://ehr.example.org/openehr/v1";
+    let resolved = smart_issuer("").resolve(&[base]).expect("resolves");
+    let settings = resolved.issuers.first().expect("one issuer");
+    assert_eq!(vec![String::from(base)], settings.audience);
+    let resolved = smart_issuer("audience = [\"https://other.example.org\"]\n")
+        .resolve(&[base])
+        .expect("resolves");
+    let settings = resolved.issuers.first().expect("one issuer");
+    assert_eq!(
+        vec![String::from("https://other.example.org")],
+        settings.audience,
+        "an explicit audience wins"
+    );
+    assert!(
+        smart_issuer("").resolve(&[]).is_err(),
+        "no audience at all is refused"
+    );
+}
+
+// NOTE: no specification governs the kind: our own design (#730), the preset's kind
+// when the table names none.
+#[test]
+fn the_kind_defaults_to_the_presets() {
+    let base = ["https://ehr.example.org"];
+    let resolved = smart_issuer("").resolve(&base).expect("resolves");
+    assert_eq!(
+        Some(&IssuerKind::Persons),
+        resolved.kinds.get("https://smart.example.org"),
+        "ferrosmart signs persons tokens"
+    );
+    let resolved = smart_issuer("kind = \"machines\"\n")
+        .resolve(&base)
+        .expect("resolves");
+    assert_eq!(
+        Some(&IssuerKind::Machines),
+        resolved.kinds.get("https://smart.example.org"),
+        "an explicit kind wins"
+    );
+    let generic: AuthSection = toml::from_str(
+        "[issuer.sso]\nissuer = \"https://as.example.org\"\naudience = [\"a\"]\njwks_file = \"/dev/null\"\n",
+    )
+    .expect("the section parses");
+    assert!(
+        matches!(
+            generic.resolve(&base),
+            Err(ConfigError::Missing {
+                key: "auth.issuer.kind"
+            })
+        ),
+        "rfc9068 names no kind"
+    );
+    assert_eq!(
+        Some(String::from("https://smart.example.org")),
+        resolved.names.get("smart").cloned(),
+        "the issuer reads by its name"
+    );
+}
+
+// NOTE: no specification governs the party binding: our own design (#730), the
+// issuer's identifier and the preset's identifier type when the table names none.
+#[test]
+fn the_party_table_defaults_to_the_issuer_and_the_presets_identifier_type() {
+    let base = ["https://ehr.example.org"];
+    let resolved = smart_issuer("[issuer.smart.party]\n")
+        .resolve(&base)
+        .expect("resolves");
+    let table = resolved.party.first().expect("one party table");
+    assert_eq!("https://smart.example.org", table.issuer.expose());
+    assert_eq!("https://smart.example.org", table.identifier_issuer);
+    assert_eq!("pairwise", table.identifier_type);
+    let resolved = smart_issuer(
+        "[issuer.smart.party]\nidentifier_issuer = \"urn:example:login\"\nidentifier_type = \"login\"\n",
+    )
+    .resolve(&base)
+    .expect("resolves");
+    let table = resolved.party.first().expect("one party table");
+    assert_eq!(
+        "urn:example:login", table.identifier_issuer,
+        "explicit wins"
+    );
+    assert_eq!("login", table.identifier_type, "explicit wins");
+}
+
+// NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `launch/patient`; no
+// specification governs which issuer may set it: our own design (#730), per issuer.
+#[test]
+fn patient_context_is_on_under_ferrosmart_and_off_otherwise() {
+    let base = ["https://ehr.example.org"];
+    let resolved = smart_issuer("").resolve(&base).expect("resolves");
+    assert!(
+        resolved
+            .issuers
+            .first()
+            .expect("one")
+            .profile
+            .patient_context
+    );
+    let resolved = smart_issuer("patient_context = false\n")
+        .resolve(&base)
+        .expect("resolves");
+    assert!(
+        !resolved
+            .issuers
+            .first()
+            .expect("one")
+            .profile
+            .patient_context,
+        "an explicit value wins"
+    );
+    let generic: AuthSection = toml::from_str(
+        "[issuer.sso]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\njwks_file = \"/dev/null\"\n",
+    )
+    .expect("the section parses");
+    let resolved = generic.resolve(&base).expect("resolves");
+    assert!(
+        !resolved
+            .issuers
+            .first()
+            .expect("one")
+            .profile
+            .patient_context
+    );
 }
