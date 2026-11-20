@@ -89,6 +89,33 @@ async fn authorize(state: &AppState, encoded: &[u8], from: IpAddr) -> Response {
     }
 }
 
+/// Returns the resource server the request names for `client`.
+fn audience<'a>(state: &'a AppState, client: &Client, params: &Params) -> Result<&'a str, Stop> {
+    // NOTE: SMART App Launch 2.2.0, `aud` is required of the app and `resource` MAY
+    // be its synonym; with one base configured a missing one defaults to it (#670).
+    let resources = &state.settings().resources;
+    let audience = match (
+        params.get("aud").or_else(|| params.get("resource")),
+        resources.as_slice(),
+    ) {
+        (Some(aud), _) => resources.iter().find(|base| base.as_str() == aud),
+        (None, [only]) => Some(only),
+        (None, _) => None,
+    }
+    .ok_or(Stop::Deny(Denial::request(
+        "the aud is not a server this issuer serves",
+    )))?;
+    // NOTE: RFC 8707 §2, a base the client's `resources` does not list is
+    // invalid_target, so a token's aud says the client was admitted there.
+    if !client.reaches(audience) {
+        return Err(Stop::Deny(Denial {
+            error: "invalid_target",
+            description: "the client may not name this resource server",
+        }));
+    }
+    Ok(audience)
+}
+
 /// Checks the rest of the request and begins the upstream login.
 async fn begin(
     state: &AppState,
@@ -114,20 +141,7 @@ async fn begin(
         .ok_or(Stop::Deny(Denial::request(
             "the request carries no S256 code_challenge",
         )))?;
-    // NOTE: SMART App Launch 2.2.0, `aud` is required of the app and `resource` MAY
-    // be its synonym; with one base configured a missing one defaults to it (#670).
-    let resources = &state.settings().resources;
-    let audience = match (
-        params.get("aud").or_else(|| params.get("resource")),
-        resources.as_slice(),
-    ) {
-        (Some(aud), _) => resources.iter().find(|base| base.as_str() == aud),
-        (None, [only]) => Some(only),
-        (None, _) => None,
-    }
-    .ok_or(Stop::Deny(Denial::request(
-        "the aud is not a server this issuer serves",
-    )))?;
+    let audience = audience(state, client, params)?;
     let scope = params.get("scope").ok_or(Stop::Deny(Denial {
         error: "invalid_scope",
         description: "the request names no scope",

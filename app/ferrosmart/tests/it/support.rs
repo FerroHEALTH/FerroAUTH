@@ -124,6 +124,50 @@ pub(crate) fn config(text: &str, keys: &Keys) -> Config {
     Config::from_sources(Some(text), &environment).expect("the configuration reads")
 }
 
+/// Returns the `resources` key of a client that may name every base the
+/// `[[ferrosmart.resource]]` tables of `text` configure, or [`RESOURCE`]
+/// when `text` configures none, as [`config`] then does.
+pub(crate) fn resources_of(text: &str) -> String {
+    let mut bases = Vec::new();
+    let mut in_resource = false;
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with("[[") || line.starts_with('[') {
+            in_resource = line == "[[ferrosmart.resource]]";
+        } else if in_resource && let Some(base) = line.strip_prefix("base = ") {
+            bases.push(base.trim_matches('"').to_owned());
+        }
+    }
+    if bases.is_empty() {
+        bases.push(RESOURCE.to_owned());
+    }
+    format!("resources = {bases:?}\n")
+}
+
+/// Returns `text` with every `[[ferrosmart.client]]` table that sets no
+/// `resources` given [`resources_of`] `text`: a case's clients reach every
+/// base it configures unless a table says otherwise.
+pub(crate) fn reach_every_base(text: &str) -> String {
+    let listing = resources_of(text);
+    let mut out = String::with_capacity(text.len());
+    let lines: Vec<&str> = text.lines().collect();
+    for (index, line) in lines.iter().enumerate() {
+        out.push_str(line);
+        out.push('\n');
+        if line.trim() == "[[ferrosmart.client]]" {
+            let listed = lines
+                .iter()
+                .skip(index + 1)
+                .take_while(|next| !next.trim().starts_with('['))
+                .any(|next| next.trim().starts_with("resources"));
+            if !listed {
+                out.push_str(&listing);
+            }
+        }
+    }
+    out
+}
+
 /// Returns the audit lane `settings` describe.
 pub(crate) fn audit(settings: &Settings) -> Audit {
     Audit::new(settings.audit.observer.clone())

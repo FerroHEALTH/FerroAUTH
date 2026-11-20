@@ -96,6 +96,7 @@ services:
       FERROSMART__FERROSMART__CLIENT__0__SCOPES__2: user/Patient.rs
       FERROSMART__FERROSMART__CLIENT__0__SCOPES__3: user/Observation.rs
       FERROSMART__FERROSMART__CLIENT__0__GRANT_TYPES__0: authorization_code
+      FERROSMART__FERROSMART__CLIENT__0__RESOURCES__0: ${FERROSMART_RESOURCE:-http://localhost:8090/fhir}
     secrets:
       - database_url
       - signing_key

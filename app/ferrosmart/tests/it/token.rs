@@ -89,7 +89,9 @@ impl Server {
              redirect_uris = [\"https://app.example.org/callback\"]\ngrant_types = [\"authorization_code\"]",
             secrecy::ExposeSecret::expose_secret(&database.url)
         );
-        let settings = config(&text, &keys).resolve().expect("resolves");
+        let settings = config(&crate::support::reach_every_base(&text), &keys)
+            .resolve()
+            .expect("resolves");
         let store = Store::connect(&settings.database_url, 2)
             .await
             .expect("connects");

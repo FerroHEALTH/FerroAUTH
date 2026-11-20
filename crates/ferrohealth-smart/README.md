@@ -64,10 +64,12 @@ ferrohealth-smart = { version = "=0.31.0", features = ["axum", "openehr"] }
   clients a person's token is admitted, which RFC 8693 actors are declared
   delegates, and which system subjects are admitted without a scope. By
   default the issuer's `first_party_clients` and `delegates` and the
-  section's `scopeless_subjects` answer them. A product that keeps them as
+  section's `scopeless_subjects` answer them; under the `ferrosmart`
+  preset, `audience_delegates = true` reads every client of a token for
+  this resource server as a delegate. A product that keeps them as
   its own data implements `Standing`, asked on every request with no
-  cache, and reads `[auth]` as `config::ProductStandingSection`, where the
-  three keys are unknown; `ProductStandingSection::resolve` hands every
+  cache, and reads `[auth]` as `config::ProductStandingSection`, where those
+  keys are unknown; `ProductStandingSection::resolve` hands every
   issuer the product's standing.
 - **`party`**: the party a person's login belongs to. One `[auth.issuer.<name>.party]`
   table per `persons` issuer names the identifiers its logins are matched

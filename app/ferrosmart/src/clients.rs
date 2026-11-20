@@ -98,6 +98,10 @@ pub struct ClientSection {
     /// the client, by name; every provider when empty. With more than one,
     /// the person chooses on a page.
     pub upstreams: Vec<String>,
+    /// The `[[ferrosmart.resource]]` bases the client's tokens may name in
+    /// `aud`; none when empty, which leaves the client FerroSMART's own
+    /// endpoints alone (`docs/architecture.md` §13.6 item 12).
+    pub resources: Vec<String>,
     /// The scopes the client may be granted at most.
     pub scopes: Vec<String>,
     /// The grant types the client may use.
@@ -217,6 +221,8 @@ pub struct Client {
     pub post_logout_redirect_uris: Vec<String>,
     /// The providers a person may log in at for it, every one when empty.
     pub upstreams: Vec<String>,
+    /// The resource servers its tokens may name in `aud`.
+    pub resources: Vec<String>,
     /// Its scope ceiling.
     pub scopes: Vec<String>,
     /// Its grant types, sorted and without repetition.
@@ -242,6 +248,13 @@ impl Client {
     #[must_use]
     pub fn assured_by(&self, redirect_uri: &str) -> bool {
         self.kind != ClientKind::Public || claimed_https(redirect_uri)
+    }
+
+    /// Returns whether the client's tokens may name `base` in `aud`: a base
+    /// its `resources` list (RFC 8707 §2, `invalid_target` for any other).
+    #[must_use]
+    pub fn reaches(&self, base: &str) -> bool {
+        self.resources.iter().any(|listed| listed == base)
     }
 }
 
@@ -650,6 +663,7 @@ pub fn resolve_with(section: &ClientSection, material: Material) -> Result<Clien
         redirect_uris: section.redirect_uris.clone(),
         post_logout_redirect_uris: section.post_logout_redirect_uris.clone(),
         upstreams: section.upstreams.clone(),
+        resources: section.resources.clone(),
         scopes: section.scopes.clone(),
         grant_types,
         launch_uri,

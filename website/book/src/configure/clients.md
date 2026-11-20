@@ -35,6 +35,7 @@ changed is no longer written from its table.
 | `jwks_file` | A file holding the client's JWK Set by value |
 | `secret_hash_file` | A file holding the Argon2id hash of a confidential symmetric client's secret, never the secret |
 | `redirect_uris` | The client's complete redirect URIs, compared by exact string |
+| `resources` | The `[[ferrosmart.resource]]` bases its tokens may name in `aud`; a request for any other base is refused `invalid_target`, and a client that lists none reaches no resource server |
 | `launch_uri` | Optional: the app's launch URL, absolute `https`, by which an EHR's [launch registration](../integrate/ehr-launch.md) may name the app (`app_launch_uri`), as a SMART Task does; compared after RFC 3986 normalization, one client per URL |
 | `client_uri` | Optional: the app's home page, absolute `https`, linked from the consent page (RFC 7591 §2) |
 | `logo_uri` | Optional: the app's logo, absolute `https`, drawn on the consent page; the page's CSP admits that origin for images alone |
@@ -94,6 +95,7 @@ A SMART app a person launches, which may stay signed in:
 client_id = "growth-chart"
 name = "Growth chart"
 kind = "public"
+resources = ["https://ehr.example.org/fhir"]
 redirect_uris = ["https://growth-chart.example.org/callback"]
 scopes = ["openid", "fhirUser", "launch", "launch/patient",
           "patient/Observation.rs", "online_access"]
@@ -107,6 +109,7 @@ A web app with a server that keeps a secret:
 client_id = "portal"
 name = "Patient portal"
 kind = "confidential_symmetric"
+resources = ["https://ehr.example.org/fhir"]
 secret_hash_file = "/run/secrets/portal-secret.phc"
 redirect_uris = ["https://portal.example.org/callback"]
 scopes = ["openid", "fhirUser", "launch/patient", "patient/Observation.rs"]
@@ -120,6 +123,7 @@ A system with no person, SMART Backend Services:
 client_id = "bulk-export"
 name = "Bulk export"
 kind = "confidential_asymmetric"
+resources = ["https://ehr.example.org/fhir"]
 jwks_uri = "https://export.example.org/jwks.json"
 scopes = ["system/Patient.rs", "system/Observation.rs"]
 grant_types = ["client_credentials"]

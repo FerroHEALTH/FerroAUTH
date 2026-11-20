@@ -221,6 +221,7 @@ impl StandingSource {
                 profile.first_party_clients.is_empty(),
             ),
             ("delegates", profile.delegates.is_empty()),
+            ("audience_delegates", !profile.audience_delegates),
             ("scopeless_subjects", scopeless_subjects.is_empty()),
         ]
         .into_iter()
@@ -230,7 +231,8 @@ impl StandingSource {
 
 /// Returns the standing `profile`'s lists give the client `id`: first party
 /// when `first_party_clients` lists it, else a delegate when `delegates`
-/// does.
+/// does or `audience_delegates` admits every client of a token for this
+/// resource server.
 pub(crate) fn listed_client(profile: &Profile, id: &str) -> ClientStanding {
     if profile
         .first_party_clients
@@ -242,6 +244,7 @@ pub(crate) fn listed_client(profile: &Profile, id: &str) -> ClientStanding {
         .delegates
         .iter()
         .any(|delegate| matches!(delegate, Delegate::Client(listed) if listed == id))
+        || profile.audience_delegates
     {
         ClientStanding::Delegate
     } else {

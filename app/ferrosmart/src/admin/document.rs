@@ -78,6 +78,8 @@ pub struct Fields {
     pub post_logout_redirect_uris: Vec<String>,
     /// The providers a person may log in at for the client, by name.
     pub upstreams: Vec<String>,
+    /// The resource servers the client's tokens may name in `aud`.
+    pub resources: Vec<String>,
     /// The scope ceiling.
     pub scopes: Vec<String>,
     /// The grant types.
@@ -170,6 +172,7 @@ impl Fields {
             redirect_uris: self.redirect_uris,
             post_logout_redirect_uris: self.post_logout_redirect_uris,
             upstreams: self.upstreams,
+            resources: self.resources,
             scopes: self.scopes,
             grant_types: self.grant_types,
             launch_uri: self.launch_uri,
@@ -208,6 +211,8 @@ pub struct ClientView<'a> {
     post_logout_redirect_uris: &'a [String],
     /// The providers its people log in at, every one when empty.
     upstreams: &'a [String],
+    /// The resource servers its tokens may name in `aud`.
+    resources: &'a [String],
     /// Its scope ceiling.
     scopes: &'a [String],
     /// Its grant types.
@@ -279,6 +284,7 @@ impl<'a> From<&'a Registered> for ClientView<'a> {
             redirect_uris: &client.redirect_uris,
             post_logout_redirect_uris: &client.post_logout_redirect_uris,
             upstreams: &client.upstreams,
+            resources: &client.resources,
             scopes: &client.scopes,
             grant_types: &client.grant_types,
             launch_uri: client.launch_uri.as_deref(),

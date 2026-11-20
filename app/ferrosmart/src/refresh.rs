@@ -210,6 +210,16 @@ async fn requested(
         }
         _ => None,
     };
+    // NOTE: RFC 8707 §2, the token's aud must be a base the client's `resources`
+    // lists now, so a base taken off its list is refused from the next refresh.
+    if let Some((_, audience)) = &granted
+        && !client.reaches(target.as_deref().unwrap_or(audience))
+    {
+        return Err(Refusal {
+            error: "invalid_target",
+            description: "the client may not name this resource server",
+        });
+    }
     Ok((scope, target))
 }
 

@@ -55,6 +55,7 @@ cat > config/ferrosmart.toml <<'TOML'
 client_id = "bulk-export"
 name = "Bulk export"
 kind = "confidential_asymmetric"
+resources = ["http://localhost:8090/fhir"]
 jwks_uri = "https://export.example.org/jwks.json"
 scopes = ["system/Patient.rs", "system/Observation.rs"]
 grant_types = ["client_credentials"]

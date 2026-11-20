@@ -77,6 +77,7 @@ value in place of the files:
   "name": "Growth chart",
   "kind": "public",
   "redirect_uris": ["https://growth-chart.example.org/callback"],
+  "resources": ["https://ehr.example.org/fhir"],
   "scopes": ["openid", "fhirUser", "launch", "user/Observation.rs"],
   "grant_types": ["authorization_code"],
   "organisation_approval": {

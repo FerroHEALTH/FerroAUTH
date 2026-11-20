@@ -87,6 +87,14 @@ pub enum AdminError {
         /// The name.
         name: String,
     },
+    /// The client names a resource server the configuration does not.
+    #[error("the client `{client_id}` names the resource `{base}`, which is not configured")]
+    UnknownResource {
+        /// The client.
+        client_id: String,
+        /// The base.
+        base: String,
+    },
     /// No client is registered under the id.
     #[error("no client is registered as `{0}`")]
     NotFound(String),
@@ -129,7 +137,7 @@ impl AdminError {
             Self::Metadata(ClientError::RedirectUri { .. }) => {
                 (StatusCode::BAD_REQUEST, "invalid_redirect_uri")
             }
-            Self::Metadata(_) | Self::UnknownUpstream { .. } => {
+            Self::Metadata(_) | Self::UnknownUpstream { .. } | Self::UnknownResource { .. } => {
                 (StatusCode::BAD_REQUEST, "invalid_client_metadata")
             }
             Self::NotFound(_) => (StatusCode::NOT_FOUND, "not_found"),
@@ -333,9 +341,21 @@ fn described(client: &Client) -> Vec<(&'static str, String)> {
     ]
 }
 
-/// Checks that every provider `client` names is configured.
-fn check_upstreams(state: &AppState, client: &Client) -> Result<(), AdminError> {
-    let upstreams = &state.settings().upstreams;
+/// Checks that every provider and every resource server `client` names is
+/// configured.
+fn check_names(state: &AppState, client: &Client) -> Result<(), AdminError> {
+    let settings = state.settings();
+    if let Some(base) = client
+        .resources
+        .iter()
+        .find(|base| !settings.resources.contains(base))
+    {
+        return Err(AdminError::UnknownResource {
+            client_id: client.client_id.clone(),
+            base: base.clone(),
+        });
+    }
+    let upstreams = &settings.upstreams;
     match client
         .upstreams
         .iter()
@@ -399,7 +419,7 @@ async fn create(
     let (section, material) =
         document.registration(&client_id, None, jiff::Timestamp::now().as_second());
     let client = crate::clients::resolve_with(&section, material)?;
-    check_upstreams(&state, &client)?;
+    check_names(&state, &client)?;
     let mut tx = state.store().begin().await?;
     if !tx.create_client(&client).await? {
         return Err(AdminError::Exists(client_id));
@@ -443,7 +463,7 @@ async fn update(
         jiff::Timestamp::now().as_second(),
     );
     let client = crate::clients::resolve_with(&section, material)?;
-    check_upstreams(&on.state, &client)?;
+    check_names(&on.state, &client)?;
     let lapsed = stored
         .client
         .approval

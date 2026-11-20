@@ -397,14 +397,14 @@ pub(crate) async fn write_client(
     sqlx::query(
         "INSERT INTO client (client_id, name, kind, jwks_uri, jwks, redirect_uris, scopes, grant_types, secret_hash, \
          launch_uri, approved_scope, approved_by, approved_at, first_party, client_uri, logo_uri, policy_uri, tos_uri, \
-         post_logout_redirect_uris, upstreams, source) \
+         post_logout_redirect_uris, upstreams, source, resources) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14, $15, $16, $17, $18, $19, \
-         $20, $21) \
+         $20, $21, $22) \
          ON CONFLICT (client_id) DO UPDATE SET name = $2, kind = $3, jwks_uri = $4, jwks = $5, \
          redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, launch_uri = $10, \
          approved_scope = $11, approved_by = $12, approved_at = to_timestamp($13), first_party = $14, \
          client_uri = $15, logo_uri = $16, policy_uri = $17, tos_uri = $18, post_logout_redirect_uris = $19, upstreams = $20, \
-         source = $21, updated_at = now()",
+         source = $21, resources = $22, updated_at = now()",
     )
     .bind(&client.client_id)
     .bind(&client.name)
@@ -427,6 +427,7 @@ pub(crate) async fn write_client(
     .bind(&client.post_logout_redirect_uris)
     .bind(&client.upstreams)
     .bind(source.as_str())
+    .bind(&client.resources)
     .execute(&mut **tx)
     .await?;
     Ok(())
@@ -434,7 +435,7 @@ pub(crate) async fn write_client(
 
 /// The columns [`read_client`] reads.
 pub(crate) const CLIENT_COLUMNS: &str = "client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, \
-     post_logout_redirect_uris, upstreams, scopes, grant_types, launch_uri, approved_scope, approved_by, \
+     post_logout_redirect_uris, upstreams, resources, scopes, grant_types, launch_uri, approved_scope, approved_by, \
      extract(epoch FROM approved_at)::bigint AS approved_at, first_party, client_uri, logo_uri, policy_uri, tos_uri";
 
 /// Reads a `client` row.
@@ -493,6 +494,7 @@ pub(crate) fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreEr
         redirect_uris: row.try_get("redirect_uris")?,
         post_logout_redirect_uris: row.try_get("post_logout_redirect_uris")?,
         upstreams: row.try_get("upstreams")?,
+        resources: row.try_get("resources")?,
         scopes: row.try_get("scopes")?,
         grant_types,
         launch_uri: row.try_get("launch_uri")?,

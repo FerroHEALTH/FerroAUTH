@@ -34,7 +34,7 @@ pub(super) async fn client_credentials(state: &AppState, form: &Params) -> Resul
         });
     }
     let scope = granted_scope(&client, form.get("scope"))?;
-    let audience = audience(state, form.get("resource"))?;
+    let audience = audience(state, &client, form.get("resource"))?;
     mint(
         state,
         &client,
@@ -94,13 +94,7 @@ pub(super) async fn authorization_code(
         .await
         .map_err(|error| server_error("the code cannot be read", &error))?
         .ok_or(invalid("the code is unknown or expired"))?;
-    if grant.client_id != client.client_id {
-        return Err(invalid("the code was issued to another client"));
-    }
-    // NOTE: RFC 6749 §4.1.3, the redirect URI is the one the request carried.
-    if form.get("redirect_uri") != Some(grant.redirect_uri.as_str()) {
-        return Err(invalid("the redirect_uri is not the request's"));
-    }
+    issued_for(&client, &grant, form)?;
     // NOTE: RFC 7636 §4.1 and §4.6, a verifier of 43 to 128 unreserved characters
     // whose S256 is the challenge.
     let well_formed = (43..=128).contains(&verifier.len())
@@ -172,6 +166,32 @@ pub(super) async fn authorization_code(
     Ok(issued)
 }
 
+/// Checks that the code `grant` was issued to `client`, for the redirect URI
+/// `form` carries, at a resource server the client's `resources` still
+/// lists.
+fn issued_for(client: &Client, grant: &crate::store::Code, form: &Params) -> Result<(), Refusal> {
+    let invalid = |description| Refusal {
+        error: "invalid_grant",
+        description,
+    };
+    if grant.client_id != client.client_id {
+        return Err(invalid("the code was issued to another client"));
+    }
+    // NOTE: RFC 8707 §2, the client's `resources` is read again, so a base taken
+    // off its list is refused from the next request on.
+    if !client.reaches(&grant.audience) {
+        return Err(Refusal {
+            error: "invalid_target",
+            description: "the client may no longer name the code's resource server",
+        });
+    }
+    // NOTE: RFC 6749 §4.1.3, the redirect URI is the one the request carried.
+    if form.get("redirect_uri") != Some(grant.redirect_uri.as_str()) {
+        return Err(invalid("the redirect_uri is not the request's"));
+    }
+    Ok(())
+}
+
 /// Returns what the ID Token of the code `grant` carries of the login.
 fn identity(grant: &crate::store::Code) -> Identity<'_> {
     Identity {
@@ -235,24 +255,24 @@ fn granted_scope(client: &Client, requested: Option<&str>) -> Result<String, Ref
 }
 
 /// Returns the token's audience: the resource server the request names in
-/// `resource` (RFC 8707 §2), or the one configured when the deployment
-/// configures one alone (RFC 9068 §3, a default audience). The issuer is
+/// `resource` (RFC 8707 §2), or the one the client's `resources` lists
+/// when it lists one alone (RFC 9068 §3, a default audience). The issuer is
 /// a resource too, the introspection endpoint's (`docs/architecture.md`
-/// §13.6 item 8).
-fn audience(state: &AppState, resource: Option<&str>) -> Result<String, Refusal> {
+/// §13.6 item 8); any other base the client's `resources` does not list is
+/// `invalid_target` (§13.6 item 12).
+fn audience(state: &AppState, client: &Client, resource: Option<&str>) -> Result<String, Refusal> {
     let settings = state.settings();
-    let resources = &settings.resources;
     let target = |description| Refusal {
         error: "invalid_target",
         description,
     };
-    match (resource, resources.as_slice()) {
+    match (resource, client.resources.as_slice()) {
         (Some(named), _) if named == settings.issuer => Ok(settings.issuer.clone()),
-        (Some(named), _) => resources
-            .iter()
-            .find(|base| base.as_str() == named)
-            .cloned()
-            .ok_or(target("the resource is not served by this issuer")),
+        (Some(named), _) if !settings.resources.iter().any(|base| base == named) => {
+            Err(target("the resource is not served by this issuer"))
+        }
+        (Some(named), _) if client.reaches(named) => Ok(named.to_owned()),
+        (Some(_), _) => Err(target("the client may not name this resource server")),
         (None, [only]) => Ok(only.clone()),
         (None, _) => Err(target("the request names no resource")),
     }

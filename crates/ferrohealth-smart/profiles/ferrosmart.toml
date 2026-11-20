@@ -17,8 +17,10 @@
 # `kind = "persons"` table, which reads those app-only tokens as the system
 # too; a second table for the same issuer is refused at load. A SMART app
 # acts for the signed-in person, so that table lists the apps it admits in
-# `delegates` by `client_id` and reads their callers as delegated; the preset lists none, since the
-# apps are each deployment's. FerroSMART grants no token exchange, so a
+# `delegates` by `client_id`, or sets `audience_delegates = true` to admit
+# every app whose token names it in `aud` (FerroSMART issues an app's tokens
+# only for the bases its `resources` lists, #682), and reads their callers
+# as delegated; the preset sets neither, since the apps are each deployment's. FerroSMART grants no token exchange, so a
 # deployment that uses the onward grants sets them for another issuer.
 
 # FerroSMART signs its people's tokens, and its client credentials tokens,

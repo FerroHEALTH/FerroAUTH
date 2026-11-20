@@ -604,12 +604,19 @@ fn profile_of(entry: &IssuerEntry) -> Result<Profile, ConfigError> {
         Some(file) => file.keys,
         None => ProfileKeys::default(),
     };
-    Profile::resolve(entry.preset, &file)
+    let refused = |source: crate::profile::ProfileError| ConfigError::Issuer {
+        issuer: shown(&entry.issuer),
+        source: Box::new(source.into()),
+    };
+    let profile = Profile::resolve(entry.preset, &file)
         .map(|profile| profile.with_keys(entry.profile.clone()))
-        .map_err(|source| ConfigError::Issuer {
-            issuer: shown(&entry.issuer),
-            source: Box::new(source.into()),
-        })
+        .map_err(refused)?;
+    // NOTE: RFC 9068 §4, `aud` names this resource server; only FerroSMART is known
+    // to issue a client's tokens for the bases its registration lists alone (#682).
+    if profile.audience_delegates && entry.preset != crate::profile::Preset::Ferrosmart {
+        return Err(refused(crate::profile::ProfileError::AudienceDelegates));
+    }
+    Ok(profile)
 }
 
 /// Returns the role claims of `entry`: its own, or the RFC 9068 §2.2.3.1

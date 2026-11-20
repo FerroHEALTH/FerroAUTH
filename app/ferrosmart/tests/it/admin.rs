@@ -34,6 +34,7 @@ fn staff_app(approved: bool) -> Value {
         "name": "Staff app",
         "kind": "public",
         "redirect_uris": ["https://staff.example.org/callback"],
+        "resources": [RESOURCE],
         "scopes": ["openid", "fhirUser", "launch", "user/Observation.rs", "offline_access"],
         "grant_types": ["authorization_code", "refresh_token"],
     });
