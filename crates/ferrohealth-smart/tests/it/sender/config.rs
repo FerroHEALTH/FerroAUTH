@@ -22,14 +22,14 @@ fn section(text: &str) -> AuthSection {
 /// One `persons` issuer table, with `extra` keys.
 fn issuer(extra: &str) -> String {
     format!(
-        "[[issuer]]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n{extra}\n"
+        "[issuer.i1]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n{extra}\n"
     )
 }
 
 #[test]
 fn an_issuer_requires_a_sender_constraint_when_it_says_so() {
     let required = section(&issuer("sender_constraint = \"required\""))
-        .resolve()
+        .resolve(&[])
         .expect("the section resolves");
     assert_eq!(
         Some(SenderConstraint::Required),
@@ -39,7 +39,7 @@ fn an_issuer_requires_a_sender_constraint_when_it_says_so() {
             .map(|settings| settings.sender_constraint)
     );
     let default = section(&issuer(""))
-        .resolve()
+        .resolve(&[])
         .expect("the section resolves");
     assert_eq!(
         Some(SenderConstraint::None),
@@ -58,7 +58,7 @@ fn an_issuer_requires_a_sender_constraint_when_it_says_so() {
 #[test]
 fn the_dpop_table_names_the_window_and_the_product_the_external_url() {
     let resolved = section(&format!("[dpop]\nmax_age = \"30s\"\n{}", issuer("")))
-        .resolve()
+        .resolve(&[])
         .expect("the section resolves");
     let dpop = resolved.dpop.expect("the table resolves");
     let settings = dpop.settings(
@@ -74,7 +74,7 @@ fn the_dpop_table_names_the_window_and_the_product_the_external_url() {
     assert_eq!(Duration::from_secs(10), settings.clock_skew);
     assert!(
         section(&issuer(""))
-            .resolve()
+            .resolve(&[])
             .expect("resolves")
             .dpop
             .is_none(),
@@ -111,7 +111,7 @@ fn a_dpop_table_that_breaks_a_rule_refuses_the_start() {
             },
         ),
     ] {
-        let outcome = section(&format!("[dpop]\n{table}\n{}", issuer(""))).resolve();
+        let outcome = section(&format!("[dpop]\n{table}\n{}", issuer(""))).resolve(&[]);
         assert!(
             matches!(&outcome, Err(ConfigError::Dpop { source }) if *source == expected),
             "{table}: {outcome:?}"
@@ -122,7 +122,7 @@ fn a_dpop_table_that_breaks_a_rule_refuses_the_start() {
 #[test]
 fn an_external_url_that_breaks_the_url_rule_is_refused_by_the_check() {
     let dpop = section(&format!("[dpop]\n{}", issuer("")))
-        .resolve()
+        .resolve(&[])
         .expect("the section resolves")
         .dpop
         .expect("the table resolves");

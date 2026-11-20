@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The profile keys of the onward grants on `[[auth.issuer]]`, their
+//! The profile keys of the onward grants on `[auth.issuer.<name>]`, their
 //! preset values, and the issuers an onward client refuses to build for.
 
 use std::collections::BTreeMap;
@@ -28,7 +28,7 @@ use super::endpoint;
 /// Returns the `[auth]` section of one `persons` issuer with `extra` keys.
 fn section(extra: &str) -> AuthSection {
     toml::from_str(&format!(
-        "[[issuer]]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n{extra}\n"
+        "[issuer.i2]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\naudience = [\"a\"]\n{extra}\n"
     ))
     .expect("the section parses")
 }
@@ -40,7 +40,7 @@ fn the_onward_keys_on_an_issuer_table_set_its_profile() {
          onward_parameters = { requested_token_use = \"on_behalf_of\" }\n\
          onward_client_id = true\nonward_subject_audience = true\nonward_preview = [\"actor_token\"]",
     )
-    .resolve()
+    .resolve(&[])
     .expect("the section resolves");
     let profile = &resolved.issuers.first().expect("one issuer").profile;
     assert_eq!(Some(900), profile.max_onward_lifetime);
@@ -66,7 +66,8 @@ fn a_parameter_the_client_writes_itself_fails_to_load() {
         "scope",
         "client_id",
     ] {
-        let refused = section(&format!("onward_parameters = {{ {parameter} = \"x\" }}")).resolve();
+        let refused =
+            section(&format!("onward_parameters = {{ {parameter} = \"x\" }}")).resolve(&[]);
         assert!(
             matches!(&refused, Err(ConfigError::Issuer { source, .. }) if matches!(&**source, ResourceError::Profile(ProfileError::Reserved { parameter: named }) if named == parameter)),
             "{parameter}: {refused:?}"
@@ -79,7 +80,7 @@ fn a_refresh_token_asked_for_fails_to_load() {
     let refused = section(
         "onward_parameters = { requested_token_type = \"urn:ietf:params:oauth:token-type:refresh_token\" }",
     )
-    .resolve();
+    .resolve(&[]);
     assert!(
         matches!(&refused, Err(ConfigError::Issuer { source, .. })
             if matches!(**source, ResourceError::Profile(ProfileError::RefreshToken))),
@@ -89,7 +90,7 @@ fn a_refresh_token_asked_for_fails_to_load() {
 
 #[test]
 fn a_zero_onward_lifetime_fails_to_load() {
-    let refused = section("max_onward_lifetime = \"0s\"").resolve();
+    let refused = section("max_onward_lifetime = \"0s\"").resolve(&[]);
     assert!(
         matches!(&refused, Err(ConfigError::Issuer { source, .. })
             if matches!(**source, ResourceError::Profile(ProfileError::Empty { key: "max_onward_lifetime" }))),

@@ -31,6 +31,18 @@ use crate::config::TlsBuilder;
 use crate::kind::standing::Standing;
 use crate::kind::standing::StandingSource;
 
+/// Forwards every `deserialize_*` method but `deserialize_struct` to
+/// `deserialize_any`.
+macro_rules! forward_but_struct {
+    () => {
+        serde::forward_to_deserialize_any! {
+            bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
+            bytes byte_buf option unit unit_struct newtype_struct seq tuple
+            tuple_struct map enum identifier ignored_any
+        }
+    };
+}
+
 /// One table the reader holds to a narrower field list.
 struct Level {
     /// The keys the table's own reader knows and this reader refuses.
@@ -210,11 +222,7 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Table<D> {
         self.inner.is_human_readable()
     }
 
-    serde::forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        bytes byte_buf option unit unit_struct newtype_struct seq tuple
-        tuple_struct map enum identifier ignored_any
-    }
+    forward_but_struct!();
 }
 
 /// The table reader's visitor, handed the table's entries held to a level.
@@ -326,22 +334,20 @@ impl<'de, D: Deserializer<'de>> Deserializer<'de> for Array<D> {
         })
     }
 
-    fn deserialize_map<V: Visitor<'de>>(self, visitor: V) -> Result<V::Value, D::Error> {
-        self.inner.deserialize_map(Tables {
-            visitor,
-            level: self.level,
-        })
+    fn deserialize_struct<V: Visitor<'de>>(
+        self,
+        _name: &'static str,
+        _fields: &'static [&'static str],
+        visitor: V,
+    ) -> Result<V::Value, D::Error> {
+        self.deserialize_any(visitor)
     }
 
     fn is_human_readable(&self) -> bool {
         self.inner.is_human_readable()
     }
 
-    serde::forward_to_deserialize_any! {
-        bool i8 i16 i32 i64 i128 u8 u16 u32 u64 u128 f32 f64 char str string
-        bytes byte_buf option unit unit_struct newtype_struct seq tuple
-        tuple_struct struct enum identifier ignored_any
-    }
+    forward_but_struct!();
 }
 
 /// The map reader's visitor, handed the tables held to a level.

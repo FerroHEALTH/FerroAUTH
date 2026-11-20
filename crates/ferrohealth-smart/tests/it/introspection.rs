@@ -19,7 +19,6 @@ use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::IntrospectionSection;
 use ferrohealth_smart::config::IssuerEntry;
-use ferrohealth_smart::config::ScopelessSubject;
 use ferrohealth_smart::config::credentials::OauthSection;
 use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::kind::IssuerKind;
@@ -79,6 +78,7 @@ fn persons(issuer: &Issuer, auth: IntrospectionAuth) -> IntrospectionSettings {
     let mut settings =
         IntrospectionSettings::new(issuer.uri(), AUDIENCE, auth, IssuerKind::Persons);
     settings.profile.first_party_clients = vec![String::from(CLIENT)];
+    settings.profile.patient_context = true;
     settings
 }
 
@@ -515,33 +515,40 @@ async fn metadata_without_an_introspection_endpoint_refuses_the_start()
 /// mode, `issuer`.
 fn section(issuer: &str) -> AuthSection {
     AuthSection {
-        issuer: vec![IssuerEntry {
-            issuer: ferrohealth_secret::secret_url::SecretUrl::new(issuer),
-            kind: Some(IssuerKind::Persons),
-            audience: vec![String::from(AUDIENCE)],
-            mode: AuthMode::Introspection,
-            introspection: Some(IntrospectionSection {
-                client: Some(OauthSection {
-                    client_id: String::from("ferro-rs"),
-                    client_secret: Some(SecretString::from("synthetic-secret")),
-                    ..OauthSection::default()
+        issuer: std::collections::BTreeMap::from([(
+            String::from("i1"),
+            IssuerEntry {
+                issuer: ferrohealth_secret::secret_url::SecretUrl::new(issuer),
+                kind: Some(IssuerKind::Persons),
+                audience: vec![String::from(AUDIENCE)],
+                mode: AuthMode::Introspection,
+                introspection: Some(IntrospectionSection {
+                    client: Some(OauthSection {
+                        client_id: String::from("ferro-rs"),
+                        client_secret: Some(SecretString::from("synthetic-secret")),
+                        ..OauthSection::default()
+                    }),
+                    ..IntrospectionSection::default()
                 }),
-                ..IntrospectionSection::default()
-            }),
-            ..IssuerEntry::default()
-        }],
+                ..IssuerEntry::default()
+            },
+        )]),
         ..AuthSection::default()
     }
 }
 
 /// Returns the one issuer table of `section`.
 fn table(section: &mut AuthSection) -> &mut IssuerEntry {
-    section.issuer.first_mut().expect("one issuer table")
+    section
+        .issuer
+        .values_mut()
+        .next()
+        .expect("one issuer table")
 }
 
 #[test]
 fn the_auth_section_resolves_introspection_mode() -> Result<(), Box<dyn StdError>> {
-    let resolved = section("https://as.example.org").resolve()?;
+    let resolved = section("https://as.example.org").resolve(&[])?;
     assert!(resolved.issuers.is_empty(), "no key set issuer is read");
     let settings = resolved
         .introspection
@@ -567,7 +574,7 @@ fn the_auth_section_refuses_an_introspection_mode_that_breaks_a_rule() {
     let mut no_table = section("https://as.example.org");
     table(&mut no_table).introspection = None;
     assert!(matches!(
-        no_table.resolve(),
+        no_table.resolve(&[]),
         Err(ConfigError::Missing {
             key: "auth.issuer.introspection"
         })
@@ -576,20 +583,26 @@ fn the_auth_section_refuses_an_introspection_mode_that_breaks_a_rule() {
     if let Some(introspection) = table(&mut both).introspection.as_mut() {
         introspection.bearer = introspection.client.clone();
     }
-    assert!(matches!(both.resolve(), Err(ConfigError::Exclusive { .. })));
+    assert!(matches!(
+        both.resolve(&[]),
+        Err(ConfigError::Exclusive { .. })
+    ));
     let mut jwt = section("https://as.example.org");
     table(&mut jwt).mode = AuthMode::Jwt;
-    assert!(matches!(jwt.resolve(), Err(ConfigError::Exclusive { .. })));
+    assert!(matches!(
+        jwt.resolve(&[]),
+        Err(ConfigError::Exclusive { .. })
+    ));
     let mut keyed = section("https://as.example.org");
     table(&mut keyed).jwks_file = String::from("/keys.json");
     assert!(matches!(
-        keyed.resolve(),
+        keyed.resolve(&[]),
         Err(ConfigError::Exclusive { .. })
     ));
     let mut no_audience = section("https://as.example.org");
     table(&mut no_audience).audience = Vec::new();
     assert!(matches!(
-        no_audience.resolve(),
+        no_audience.resolve(&[]),
         Err(ConfigError::Introspection { .. })
     ));
     let mut no_secret = section("https://as.example.org");
@@ -601,7 +614,7 @@ fn the_auth_section_refuses_an_introspection_mode_that_breaks_a_rule() {
         client.client_secret = None;
     }
     assert!(matches!(
-        no_secret.resolve(),
+        no_secret.resolve(&[]),
         Err(ConfigError::Secret { .. })
     ));
     assert!(
@@ -614,23 +627,23 @@ fn the_auth_section_refuses_an_introspection_mode_that_breaks_a_rule() {
 fn the_introspection_table_reads_from_toml() -> Result<(), Box<dyn StdError>> {
     let section: AuthSection = toml::from_str(
         r#"
-        [[issuer]]
+        [issuer.i1]
         issuer = "https://as.example.org"
         kind = "persons"
         audience = ["http://ferro.invalid/fhir"]
         mode = "introspection"
 
-        [issuer.introspection]
+        [issuer.i1.introspection]
         endpoint = "https://as.example.org/oauth2/introspect"
         cache_max_age = "30s"
 
-        [issuer.introspection.client]
+        [issuer.i1.introspection.client]
         client_id = "ferro-rs"
         client_secret = "synthetic-secret"
         "#,
     )?;
     let settings = section
-        .resolve()?
+        .resolve(&[])?
         .introspection
         .into_iter()
         .next()
@@ -644,15 +657,12 @@ fn the_introspection_table_reads_from_toml() -> Result<(), Box<dyn StdError>> {
 }
 
 #[test]
-fn introspection_mode_reads_the_entries_naming_its_issuer() -> Result<(), Box<dyn StdError>> {
+fn introspection_mode_reads_the_entries_of_its_issuer() -> Result<(), Box<dyn StdError>> {
     let mut auth = section("https://as.example.org");
-    auth.scopeless_subjects = vec![ScopelessSubject {
-        issuer: ferrohealth_secret::secret_url::SecretUrl::new("https://as.example.org"),
-        sub: String::from("batch"),
-    }];
+    table(&mut auth).scopeless_subjects = vec![String::from("batch")];
     table(&mut auth).role_claims = Some(vec![String::from("realm_access.roles")]);
     let settings = auth
-        .resolve()?
+        .resolve(&[])?
         .introspection
         .into_iter()
         .next()
@@ -665,17 +675,6 @@ fn introspection_mode_reads_the_entries_naming_its_issuer() -> Result<(), Box<dy
         vec![String::from("realm_access.roles")],
         settings.role_claims
     );
-    auth.scopeless_subjects = vec![ScopelessSubject {
-        issuer: ferrohealth_secret::secret_url::SecretUrl::new("https://other.example.org"),
-        sub: String::from("batch"),
-    }];
-    assert!(matches!(
-        auth.resolve(),
-        Err(ConfigError::UnknownIssuer {
-            key: "auth.scopeless_subjects",
-            ..
-        })
-    ));
     Ok(())
 }
 

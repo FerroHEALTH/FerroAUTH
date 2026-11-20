@@ -8,7 +8,7 @@
 //! They are the IHE IUA extension claims (ITI TF-2 §3.71.4.2.2.1.1, under
 //! `extensions.ihe_iua`) and the purposes of use of RFC 9396
 //! `authorization_details`.
-//! One `[[auth.attributes]]` table per `persons` issuer maps each field to
+//! One `[auth.issuer.<name>.attributes]` table per `persons` issuer maps each field to
 //! its sources, the [`Field`] set and the [`Mapping::Iua`] defaults the
 //! `federation` step reads. A source is a claim path or a constant: the
 //! attestation and the presentations of a `federation` issuer have no place
@@ -36,7 +36,7 @@ use crate::kind::IssuerKind;
 use crate::kind::Unclassified;
 use crate::roles::lookup;
 
-/// One `[[auth.attributes]]` table: where the `persons` issuer `issuer`
+/// One `[auth.issuer.<name>.attributes]` table: where the `persons` issuer `issuer`
 /// states its professional's attributes, or where a `patients` or `machines`
 /// issuer states the purpose of use.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -214,7 +214,7 @@ fn detail_purposes(claims: &Map<String, Value>) -> Result<Vec<Code>, Unclassifie
     Ok(purposes)
 }
 
-/// What a token states under its issuer's `[[auth.attributes]]` table: the
+/// What a token states under its issuer's `[auth.issuer.<name>.attributes]` table: the
 /// professional of a `persons` caller other than `System`, and the purposes
 /// of use of every caller.
 ///

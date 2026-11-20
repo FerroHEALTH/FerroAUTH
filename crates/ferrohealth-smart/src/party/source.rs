@@ -22,7 +22,7 @@ use crate::party::Represented;
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Query<'a> {
-    /// The `identifier_issuer` of the `[[auth.party]]` table.
+    /// The `identifier_issuer` of the `[auth.issuer.<name>.party]` table.
     pub identifier_issuer: &'a str,
     /// The `identifier_type` of the table.
     pub identifier_type: &'a str,

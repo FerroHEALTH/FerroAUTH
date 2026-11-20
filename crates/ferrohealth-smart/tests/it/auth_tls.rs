@@ -36,7 +36,7 @@ fn roots(ca_file: Option<std::path::PathBuf>) -> TlsClientSection {
 /// An `[auth]` section trusting `issuer`, with `auth.tls` over `ca_file`.
 fn section(issuer: &str, ca_file: Option<std::path::PathBuf>) -> AuthSection {
     AuthSection {
-        issuer: vec![entry(issuer)],
+        issuer: std::collections::BTreeMap::from([(String::from("i1"), entry(issuer))]),
         tls: roots(ca_file),
         ..AuthSection::default()
     }
@@ -59,7 +59,7 @@ async fn an_issuer_behind_a_private_authority_is_read_over_the_built_tls() {
     let ca = temp_file("ca.pem", issuer.ca_pem.as_bytes());
 
     let trusted = section(&issuer.issuer, Some(ca))
-        .resolve_with_tls(&PemTls)
+        .resolve_with_tls(&PemTls, &[])
         .expect("resolves");
     let settings = trusted.issuers.into_iter().next().expect("one issuer");
     assert!(settings.tls.presented.is_some());
@@ -67,7 +67,9 @@ async fn an_issuer_behind_a_private_authority_is_read_over_the_built_tls() {
         .await
         .expect("the metadata and the key set are read over TLS from the private authority");
 
-    let untrusted = section(&issuer.issuer, None).resolve().expect("resolves");
+    let untrusted = section(&issuer.issuer, None)
+        .resolve(&[])
+        .expect("resolves");
     let settings = untrusted.issuers.into_iter().next().expect("one issuer");
     assert!(
         ResourceServer::discover(settings).await.is_err(),
@@ -79,7 +81,7 @@ async fn an_issuer_behind_a_private_authority_is_read_over_the_built_tls() {
 fn a_tls_table_naming_material_needs_the_product_s_builder() {
     let ca = temp_file("unbuilt-ca.pem", b"roots");
     let err = section("https://idp.example", Some(ca))
-        .resolve()
+        .resolve(&[])
         .expect_err("refused");
     assert!(
         matches!(err, ConfigError::TlsNotBuilt { key: "auth.tls" }),
@@ -118,18 +120,21 @@ fn introspecting(
         Credential::Bearer => (None, Some(grant)),
     };
     AuthSection {
-        issuer: vec![IssuerEntry {
-            mode: AuthMode::Introspection,
-            introspection: Some(IntrospectionSection {
-                endpoint: ferrohealth_secret::secret_url::SecretUrl::new(format!(
-                    "{issuer}/introspect"
-                )),
-                client,
-                bearer,
-                ..IntrospectionSection::default()
-            }),
-            ..entry(issuer)
-        }],
+        issuer: std::collections::BTreeMap::from([(
+            String::from("i2"),
+            IssuerEntry {
+                mode: AuthMode::Introspection,
+                introspection: Some(IntrospectionSection {
+                    endpoint: ferrohealth_secret::secret_url::SecretUrl::new(format!(
+                        "{issuer}/introspect"
+                    )),
+                    client,
+                    bearer,
+                    ..IntrospectionSection::default()
+                }),
+                ..entry(issuer)
+            },
+        )]),
         ..section(issuer, None)
     }
 }
@@ -144,7 +149,7 @@ async fn introspection_reads_an_issuer_behind_a_private_authority_over_the_grant
     for credential in [Credential::Client, Credential::Bearer] {
         let read = |grant_ca_file| {
             let resolved = introspecting(&issuer.issuer, credential, grant_ca_file)
-                .resolve_with_tls(&PemTls)
+                .resolve_with_tls(&PemTls, &[])
                 .expect("resolves");
             Introspector::discover(
                 resolved
@@ -171,7 +176,7 @@ async fn introspection_reads_an_issuer_behind_a_private_authority_over_the_grant
 #[test]
 fn the_retired_ca_file_is_an_unknown_key() {
     let read = toml::from_str::<AuthSection>(
-        "ca_file = \"/run/ca.pem\"\n[[issuer]]\nissuer = \"https://idp.example\"\nkind = \"persons\"\naudience = [\"a\"]\n",
+        "ca_file = \"/run/ca.pem\"\n[issuer.i1]\nissuer = \"https://idp.example\"\nkind = \"persons\"\naudience = [\"a\"]\n",
     );
     assert!(read.is_err(), "ca_file is no key of the section");
 }
@@ -180,7 +185,7 @@ fn the_retired_ca_file_is_an_unknown_key() {
 fn a_table_the_builder_refuses_refuses_the_start_by_its_key() {
     let missing = std::env::temp_dir().join("ferrohealth-smart-no-such-ca.pem");
     let err = section("https://idp.example", Some(missing))
-        .resolve_with_tls(&PemTls)
+        .resolve_with_tls(&PemTls, &[])
         .expect_err("refused");
     assert!(
         matches!(&err, ConfigError::TlsBuild { key, .. } if key == "auth.tls"),

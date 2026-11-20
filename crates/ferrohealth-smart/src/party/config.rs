@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The `[[auth.party]]` table, one per `persons` issuer whose logins are
+//! The `[auth.issuer.<name>.party]` table, one per `persons` issuer whose logins are
 //! bound, and the rules it is loaded under.
 
 use std::collections::BTreeMap;
@@ -175,7 +175,10 @@ pub(crate) fn check_table(
         });
     };
     for (key, value) in [
-        ("auth.issuer.party.identifier_issuer", &table.identifier_issuer),
+        (
+            "auth.issuer.party.identifier_issuer",
+            &table.identifier_issuer,
+        ),
         ("auth.issuer.party.identifier_type", &table.identifier_type),
     ] {
         if value.trim().is_empty() {

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 
 //! The values a `federation` caller carries beside its kind, each read
-//! from the field its issuer's `[[auth.federation]]` table maps.
+//! from the field its issuer's `[auth.issuer.<name>.federation]` table maps.
 
 use crate::federation::ConsentReference;
 use crate::federation::CorrelationId;

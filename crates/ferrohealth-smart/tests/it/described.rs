@@ -208,9 +208,9 @@ fn a_named_machines_issuer_without_metadata_is_refused() {
 fn a_machines_only_section_describes_its_issuer_for_backend_services()
 -> Result<(), Box<dyn StdError>> {
     let text =
-        format!("[[issuer]]\nissuer = \"{MACHINES}\"\nkind = \"machines\"\naudience = [\"a\"]\n");
+        format!("[issuer.i1]\nissuer = \"{MACHINES}\"\nkind = \"machines\"\naudience = [\"a\"]\n");
     let section: AuthSection = toml::from_str(&text)?;
-    let resolved = section.resolve()?;
+    let resolved = section.resolve(&[])?;
     assert_eq!(resolved.described_issuer, None);
     let candidates = resolved.issuers.iter().map(|settings| {
         Candidate::new(
@@ -438,12 +438,12 @@ fn a_several_eligible_refusal_masks_every_userinfo() {
 #[test]
 fn the_section_carries_the_named_issuer_to_the_selector() -> Result<(), Box<dyn StdError>> {
     let text = format!(
-        "described_issuer = \"{PATIENTS}\"\n\
-         [[issuer]]\nissuer = \"{PERSONS}\"\nkind = \"persons\"\naudience = [\"a\"]\n\
-         [[issuer]]\nissuer = \"{PATIENTS}\"\nkind = \"patients\"\naudience = [\"a\"]\n"
+        "described_issuer = \"i3\"\n\
+         [issuer.i2]\nissuer = \"{PERSONS}\"\nkind = \"persons\"\naudience = [\"a\"]\n\
+         [issuer.i3]\nissuer = \"{PATIENTS}\"\nkind = \"patients\"\naudience = [\"a\"]\n"
     );
     let section: AuthSection = toml::from_str(&text)?;
-    let resolved = section.resolve()?;
+    let resolved = section.resolve(&[])?;
     assert_eq!(
         resolved.described_issuer.as_ref().map(SecretUrl::expose),
         Some(PATIENTS)
@@ -465,7 +465,7 @@ fn the_section_carries_the_named_issuer_to_the_selector() -> Result<(), Box<dyn 
 fn a_section_without_the_key_names_no_issuer() -> Result<(), Box<dyn StdError>> {
     let section: AuthSection = toml::from_str("enabled = false\n")?;
     assert_eq!(section.described_issuer, None);
-    assert_eq!(section.resolve()?.described_issuer, None);
+    assert_eq!(section.resolve(&[])?.described_issuer, None);
     Ok(())
 }
 

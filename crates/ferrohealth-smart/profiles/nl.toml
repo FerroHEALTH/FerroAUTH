@@ -10,7 +10,7 @@
 # care provider, whose tokens arrive on a `federation` issuer. Each value
 # cites its section; every profile key can be set on the issuer table, and
 # every key of the `federation` table below on the issuer's own
-# `[[auth.federation]]` table, which wins over this file.
+# `[auth.issuer.<name>.federation]` table, which wins over this file.
 #
 # §B.4a "is a national track distinct from, and not a refinement of, the
 # Nuts Generic-Functions profile of §B.4", and "A Dutch deployment SHOULD

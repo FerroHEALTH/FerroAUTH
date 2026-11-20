@@ -3,7 +3,7 @@
 
 //! What a token of the deployment's own issuers states beside its kind: the
 //! IHE IUA professional attributes and purposes of use a `persons` issuer's
-//! `[[auth.attributes]]` table reads (ITI TF-2 §3.71.4.2.2.1.1, RFC 9396),
+//! `[auth.issuer.<name>.attributes]` table reads (ITI TF-2 §3.71.4.2.2.1.1, RFC 9396),
 //! and the patient's representative a `patients` token's `act` names under
 //! `act_represents_patient` (RFC 8693 §4.1). Every key is generated when the
 //! case runs and published in a key set file, so nothing is fetched.
@@ -542,33 +542,31 @@ fn act_represents_patient_outside_a_patients_issuer_is_refused() {
 #[test]
 fn the_attributes_tables_load_from_toml_and_name_their_issuers() -> Outcome {
     let text = format!(
-        r#"[[issuer]]
+        r#"[issuer.i1]
 issuer = "{ISSUER}"
 kind = "persons"
 audience = ["{AUDIENCE}"]
 first_party_clients = ["{FIRST_PARTY}"]
 
-[[issuer]]
+[issuer.i2]
 issuer = "https://patients.example.org"
 kind = "patients"
 audience = ["{AUDIENCE}"]
 act_represents_patient = true
 
-[[attributes]]
-issuer = "{ISSUER}"
+[issuer.i1.attributes]
 mapping = "iua"
 authorization_details_purposes = true
 
-[attributes.fields]
+[issuer.i1.attributes.fields]
 "professional.country_code" = [{{ constant = "NL" }}]
 
-[[attributes]]
-issuer = "https://patients.example.org"
+[issuer.i2.attributes]
 mapping = "iua"
 "#
     );
     let section: ferrohealth_smart::config::AuthSection = toml::from_str(&text)?;
-    let resolved = section.resolve()?;
+    let resolved = section.resolve(&[])?;
     let persons = resolved
         .issuers
         .iter()
@@ -587,32 +585,30 @@ mapping = "iua"
         Some(Mapping::Iua),
         patients.attributes.as_ref().ok_or("its table")?.mapping
     );
-    for (from, to) in [
-        (
-            String::from("issuer = \"https://patients.example.org\"\nmapping = \"iua\""),
-            String::from(
-                "issuer = \"https://patients.example.org\"\nmapping = \"iua\"\n\n\
-                 [attributes.fields]\n\"professional.name\" = [{ constant = \"x\" }]",
-            ),
+    for (from, to) in [(
+        String::from("[issuer.i2.attributes]\nmapping = \"iua\""),
+        String::from(
+            "[issuer.i2.attributes]\nmapping = \"iua\"\n\n\
+                 [issuer.i2.attributes.fields]\n\"professional.name\" = [{ constant = \"x\" }]",
         ),
-        (
-            String::from("issuer = \"https://patients.example.org\"\nmapping"),
-            format!("issuer = \"{ISSUER}\"\nmapping"),
-        ),
-        (
-            String::from("[attributes.fields]"),
-            format!("[[attributes]]\nissuer = \"{ISSUER}\"\n\n[attributes.fields]"),
-        ),
-    ] {
+    )] {
         let refused: ferrohealth_smart::config::AuthSection =
             toml::from_str(&text.replace(&from, &to))?;
         assert!(
             matches!(
-                refused.resolve(),
+                refused.resolve(&[]),
                 Err(ferrohealth_smart::config::ConfigError::Attributes { .. })
             ),
             "{to}"
         );
     }
+    let twice = text.replace(
+        "[issuer.i2.attributes]",
+        "[issuer.i1.attributes]\nmapping = \"iua\"\n\n[issuer.i2.attributes]",
+    );
+    assert!(
+        toml::from_str::<ferrohealth_smart::config::AuthSection>(&twice).is_err(),
+        "one attributes table per issuer"
+    );
     Ok(())
 }

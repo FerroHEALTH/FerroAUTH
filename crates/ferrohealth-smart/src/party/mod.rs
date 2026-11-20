@@ -6,7 +6,7 @@
 //! stable-claim rule, and one typed [`Outcome`].
 //!
 //! A `Person`, `Delegated` or `Representative` caller of a `persons` issuer
-//! that has an `[[auth.party]]` table ([`PartySection`]) is looked up by the
+//! that has an `[auth.issuer.<name>.party]` table ([`PartySection`]) is looked up by the
 //! value of its issuer profile's `person_key` (OpenID Connect Core 1.0 §5.7:
 //! `email`, `phone_number`, `preferred_username` and `name` are never a
 //! key), put in the canonical form its `identifier_type` declares, against
@@ -171,7 +171,7 @@ pub enum PartyState {
 /// The `Debug` rendering leaves out the value.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Identifier {
-    /// The `identifier_issuer` of the `[[auth.party]]` table.
+    /// The `identifier_issuer` of the `[auth.issuer.<name>.party]` table.
     issuer: String,
     /// The `identifier_type` of the table.
     kind: String,

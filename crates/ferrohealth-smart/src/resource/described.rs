@@ -26,7 +26,7 @@
 //! - **None:** otherwise the document describes no issuer, and is refused.
 //!
 //! The order the issuers are offered in, which is the order of the
-//! `[[auth.issuer]]` tables, never decides: a refusal names the issuers sorted.
+//! `[auth.issuer.<name>]` tables, never decides: a refusal names the issuers sorted.
 //!
 //! ```
 //! use ferrohealth_smart::kind::IssuerKind;

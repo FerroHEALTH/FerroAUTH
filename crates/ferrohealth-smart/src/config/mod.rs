@@ -123,7 +123,7 @@ pub enum ConfigError {
         #[source]
         source: Box<ResourceError>,
     },
-    /// An `[[auth.issuer]]` URL carries userinfo, which an issuer
+    /// An `[auth.issuer.<name>]` URL carries userinfo, which an issuer
     /// identifier never holds (OpenID Connect Core 1.0 §1.2), shown masked.
     #[error("auth.issuer {issuer} carries userinfo, which an issuer identifier never holds")]
     IssuerUserinfo {
@@ -305,7 +305,7 @@ pub enum ConfigError {
         /// Its kind.
         kind: IssuerKind,
     },
-    /// A `federation` issuer without its one `[[auth.federation]]` table,
+    /// A `federation` issuer without its one `[auth.issuer.<name>.federation]` table,
     /// or a table naming no trusted `federation` issuer or naming one twice.
     #[error("the federation table of {issuer:?} is refused: {reason}")]
     Federation {
@@ -314,7 +314,7 @@ pub enum ConfigError {
         /// Which rule.
         reason: &'static str,
     },
-    /// An `[[auth.attributes]]` table naming no trusted `persons`,
+    /// An `[auth.issuer.<name>.attributes]` table naming no trusted `persons`,
     /// `patients` or `machines` issuer, naming one twice, or naming a field
     /// other than the purpose of use on a `patients` or `machines` issuer.
     #[error("the attributes table of {issuer:?} is refused: {reason}")]
@@ -333,8 +333,8 @@ pub enum ConfigError {
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
     },
-    /// An `[[auth.party]]` table breaks a rule.
-    #[error("an [[auth.party]] table is refused")]
+    /// An `[auth.issuer.<name>.party]` table breaks a rule.
+    #[error("an [auth.issuer.<name>.party] table is refused")]
     Party {
         /// The rule.
         #[source]
@@ -360,7 +360,7 @@ pub enum ConfigError {
     },
     // NOTE: cargo-semver-checks enum_no_repr_variant_discriminant_changed, a new
     // variant goes last, so no earlier variant's implicit discriminant moves.
-    /// Two `[[auth.issuer]]` tables name one issuer, JWT or introspected
+    /// Two `[auth.issuer.<name>]` tables name one issuer, JWT or introspected
     /// alike; a token is checked under one table per issuer, so the later
     /// table would replace the earlier.
     #[error(
@@ -443,7 +443,7 @@ pub struct AuthSection {
 /// The `[auth]` section of a product whose standing answers its lists.
 ///
 /// It is [`AuthSection`] without `scopeless_subjects` and without each
-/// `[[auth.issuer]]` table's `first_party_clients` and `delegates`.
+/// `[auth.issuer.<name>]` table's `first_party_clients` and `delegates`.
 /// The three keys are unknown to it, refused as any unknown key is, and
 /// absent from its schema, so a product that answers them through a
 /// [`Standing`](crate::kind::standing::Standing) drops them from its
@@ -453,7 +453,7 @@ pub struct AuthSection {
 /// ```
 /// use ferrohealth_smart::config::ProductStandingSection;
 ///
-/// let issuer = "[[issuer]]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\n";
+/// let issuer = "[issuer.sso]\nissuer = \"https://as.example.org\"\nkind = \"persons\"\n";
 /// assert!(toml::from_str::<ProductStandingSection>(issuer).is_ok());
 /// let listed = format!("{issuer}first_party_clients = [\"portal\"]\n");
 /// let refused = toml::from_str::<ProductStandingSection>(&listed).err();
@@ -477,7 +477,7 @@ pub enum AuthMode {
     Introspection,
 }
 
-/// The `[auth.issuer.introspection]` table.
+/// The `[auth.issuer.<name>.introspection]` table.
 ///
 /// The product authenticates its call with exactly one of `client` (the
 /// client authentication of the token endpoint, RFC 7662 §2.1) and `bearer`

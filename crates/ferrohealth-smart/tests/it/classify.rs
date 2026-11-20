@@ -375,7 +375,8 @@ mod cases {
         assert!(!caller.is_the_person());
         let mut confined = h.person("patient/Observation.rs");
         confined["patient"] = json!("synthetic-patient");
-        let caller = h.admit(IssuerKind::Persons, keep, &confined).await?;
+        let context = |profile: &mut Profile| profile.patient_context = true;
+        let caller = h.admit(IssuerKind::Persons, context, &confined).await?;
         assert_eq!(&CallerKind::Person, caller.kind());
         assert!(!caller.is_the_person());
         assert_eq!(
@@ -963,6 +964,65 @@ mod ferrosmart_profile {
             &CallerKind::Patient,
             caller.kind(),
             "through a delegate client"
+        );
+        Ok(())
+    }
+
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `launch/patient`: the
+    // authorization server's own picker acts for the signed-in person (#730).
+    #[tokio::test]
+    async fn the_pickers_token_is_the_person_with_no_app_granted() -> Outcome {
+        let h = Harness::new(ferrosmart())?;
+        let mut claims = h.person("openid fhirUser user/Patient.rs");
+        claims["client_id"] = json!(ISSUER);
+        let caller = h.admit(IssuerKind::Persons, keep, &claims).await?;
+        assert_eq!(&CallerKind::Person, caller.kind(), "no delegate lists it");
+        assert_eq!(
+            Some(ISSUER),
+            caller.client_id(),
+            "the access record names FerroSMART as the client"
+        );
+        let off = |profile: &mut Profile| profile.issuer_client_is_person = false;
+        assert_eq!(
+            Some(Unclassified::UnlistedClient),
+            refused(h.admit(IssuerKind::Persons, off, &claims).await),
+            "an explicit key turns the reading off"
+        );
+        let generic = Harness::new(generic())?;
+        let mut claims = generic.person("openid user/Patient.rs");
+        claims["client_id"] = json!(ISSUER);
+        assert_eq!(
+            Some(Unclassified::UnlistedClient),
+            refused(generic.admit(IssuerKind::Persons, keep, &claims).await),
+            "only the ferrosmart preset reads the issuer's own client as the person"
+        );
+        Ok(())
+    }
+
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `launch/patient`: the
+    // patient context is the authorization server's to set, read per issuer (#730).
+    #[tokio::test]
+    async fn only_an_issuer_with_patient_context_sets_the_patient() -> Outcome {
+        let h = Harness::new(ferrosmart())?;
+        let mut claims = h.person("launch/patient patient/Observation.rs");
+        claims["patient"] = json!(PATIENT);
+        let caller = h.admit(IssuerKind::Persons, keep, &claims).await?;
+        assert_eq!(
+            Some(PATIENT),
+            caller.patient(),
+            "on under the ferrosmart preset"
+        );
+        let generic = Harness::new(generic())?;
+        let mut claims = generic.person("launch/patient patient/Observation.rs");
+        claims["patient"] = json!(PATIENT);
+        let caller = generic.admit(IssuerKind::Persons, keep, &claims).await?;
+        assert_eq!(None, caller.patient(), "off under every other preset");
+        let on = |profile: &mut Profile| profile.patient_context = true;
+        let caller = generic.admit(IssuerKind::Persons, on, &claims).await?;
+        assert_eq!(
+            Some(PATIENT),
+            caller.patient(),
+            "an explicit key turns it on"
         );
         Ok(())
     }

@@ -12,6 +12,7 @@ use crate::config::AuthMode;
 use crate::config::ConfigError;
 use crate::config::IntrospectionSection;
 use crate::config::IssuerEntry;
+use crate::federation::FederationSection;
 use crate::kind::IssuerKind;
 use crate::profile::Preset;
 use crate::profile::ProfileKeys;
@@ -134,6 +135,25 @@ impl IssuerEntry {
     }
 }
 
+/// Returns the federation table `table` of the issuer `issuer` set over the
+/// federation defaults of `preset`, naming that issuer; the defaults alone
+/// when there is no table, and the table alone when the preset has none.
+pub(super) fn federation_over(
+    preset: Preset,
+    table: Option<FederationSection>,
+    issuer: &ferrohealth_secret::secret_url::SecretUrl,
+) -> Result<Option<FederationSection>, crate::profile::ProfileError> {
+    let merged = match (table, preset.federation()?) {
+        (Some(table), Some(defaults)) => Some(table.over(defaults)),
+        (table, None) => table,
+        (None, Some(defaults)) => Some(defaults),
+    };
+    Ok(merged.map(|table| FederationSection {
+        issuer: issuer.clone(),
+        ..table
+    }))
+}
+
 /// Checks the issuer-level rules of `entry` and returns its kind, its own or
 /// its preset's: an identifier, a kind, and no `federation` issuer in this
 /// build.
@@ -153,13 +173,10 @@ pub(super) fn check_entry(entry: &IssuerEntry) -> Result<IssuerKind, ConfigError
     if !entry.jwks_file.is_empty() {
         check_jwks_file(entry)?;
     }
-    let preset = entry
-        .profile
-        .kind()
-        .map_err(|source| ConfigError::Issuer {
-            issuer: crate::config::shown(&entry.issuer),
-            source: Box::new(source.into()),
-        })?;
+    let preset = entry.profile.kind().map_err(|source| ConfigError::Issuer {
+        issuer: crate::config::shown(&entry.issuer),
+        source: Box::new(source.into()),
+    })?;
     let kind = entry.kind.or(preset).ok_or(ConfigError::Missing {
         key: "auth.issuer.kind",
     })?;

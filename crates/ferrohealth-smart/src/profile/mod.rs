@@ -36,7 +36,7 @@ mod tables;
 pub const UNSTABLE_CLAIMS: [&str; 4] = ["email", "phone_number", "preferred_username", "name"];
 
 /// A shipped set of profile values, selected by `profile` on
-/// `[[auth.issuer]]`.
+/// `[auth.issuer.<name>]`.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -53,7 +53,7 @@ pub enum Preset {
     Okta,
     /// The Dutch harmonised `BgZ` and `eOverdracht` authentication of the
     /// openEHR Federation Tier specification 1.0.1 Annex B §B.4a, with the
-    /// `[[auth.federation]]` defaults of a `federation` issuer.
+    /// `[auth.issuer.<name>.federation]` defaults of a `federation` issuer.
     Nl,
     /// FerroSMART's access tokens: plain RFC 9068, `typ` `at+jwt` and
     /// `scope` in every token.
@@ -102,7 +102,7 @@ impl Preset {
         table.try_into().map_err(|source| self.unreadable(source))
     }
 
-    /// Returns the `[[auth.federation]]` defaults the preset's `federation`
+    /// Returns the `[auth.issuer.<name>.federation]` defaults the preset's `federation`
     /// table declares, which the issuer's own table is set over; none when
     /// the preset declares none.
     ///
@@ -259,7 +259,7 @@ pub struct Representation {
 }
 
 /// The profile keys, each optional: a preset's file, or the keys set on one
-/// `[[auth.issuer]]`, which win over the preset's.
+/// `[auth.issuer.<name>]`, which win over the preset's.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]

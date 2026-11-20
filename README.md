@@ -236,8 +236,10 @@ and the `[oidc]` and `[session]` sections in
 ## Configuration
 
 A product reads its `[auth]` section through `ferrohealth-config`: one
-`[[auth.issuer]]` table per authorization server, each with its `kind`
-(`persons`, `patients`, `machines` or `federation`) and a `profile` preset,
+`[auth.issuer.<name>]` table per authorization server, named so every
+other key and the environment address it by name, each with a `profile`
+preset and a `kind` (`persons`, `patients`, `machines` or `federation`)
+that defaults to the preset's,
 `[[auth.basic.users]]` for HTTP Basic credentials, and `<key>_file` for every
 secret. An unknown key is refused when the configuration loads.
 [`docs/architecture.md`](docs/architecture.md) has the full configuration

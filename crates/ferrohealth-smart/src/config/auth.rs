@@ -26,9 +26,9 @@ use crate::config::shown;
 use crate::federation::FederationSection;
 use crate::federation::Field;
 use crate::federation::person::AttributesSection;
-use crate::party::config::PartySection;
 use crate::kind::IssuerKind;
 use crate::kind::standing::StandingSource;
+use crate::party::config::PartySection;
 use crate::profile::Profile;
 use crate::resource::Settings;
 use crate::resource::configuration::SmartOptions;
@@ -111,7 +111,9 @@ impl AuthSection {
     /// Returns the `[auth.issuer.<name>]` tables the section names, in name
     /// order.
     pub fn issuers(&self) -> impl Iterator<Item = (&str, &IssuerEntry)> {
-        self.issuer.iter().map(|(name, entry)| (name.as_str(), entry))
+        self.issuer
+            .iter()
+            .map(|(name, entry)| (name.as_str(), entry))
     }
 
     /// Resolves the section for a product serving `bases`, the audience of
@@ -163,27 +165,7 @@ impl AuthSection {
         standing: &StandingSource,
         bases: &[&str],
     ) -> Result<Resolved, ConfigError> {
-        if let Some(bad) = self
-            .capabilities
-            .iter()
-            .find(|capability| !is_capability(capability))
-        {
-            return Err(ConfigError::Capability {
-                capability: bad.clone(),
-            });
-        }
-        if let Some(bad) = self
-            .scopes_supported
-            .iter()
-            .find(|scope| !is_scope_token(scope))
-        {
-            return Err(ConfigError::Scope { scope: bad.clone() });
-        }
-        if !self.product_scope.is_empty() && !is_extension_scope(&self.product_scope) {
-            return Err(ConfigError::ProductScope {
-                scope: self.product_scope.clone(),
-            });
-        }
+        self.check_discovery()?;
         let basic_users = self
             .basic
             .as_ref()
@@ -227,7 +209,8 @@ impl AuthSection {
                     }
                     #[cfg(feature = "fetch")]
                     AuthMode::Introspection => {
-                        introspection.push(introspection_of(entry, kind, builder, standing, bases)?);
+                        introspection
+                            .push(introspection_of(entry, kind, builder, standing, bases)?);
                     }
                     #[cfg(not(feature = "fetch"))]
                     AuthMode::Introspection => return Err(ConfigError::IntrospectionUnavailable),
@@ -273,6 +256,33 @@ impl AuthSection {
         Ok(resolved)
     }
 
+    /// Refuses a capability SMART does not define, a listed scope outside
+    /// RFC 6749 §3.3, and a product scope in no extension form.
+    fn check_discovery(&self) -> Result<(), ConfigError> {
+        if let Some(bad) = self
+            .capabilities
+            .iter()
+            .find(|capability| !is_capability(capability))
+        {
+            return Err(ConfigError::Capability {
+                capability: bad.clone(),
+            });
+        }
+        if let Some(bad) = self
+            .scopes_supported
+            .iter()
+            .find(|scope| !is_scope_token(scope))
+        {
+            return Err(ConfigError::Scope { scope: bad.clone() });
+        }
+        if !self.product_scope.is_empty() && !is_extension_scope(&self.product_scope) {
+            return Err(ConfigError::ProductScope {
+                scope: self.product_scope.clone(),
+            });
+        }
+        Ok(())
+    }
+
     /// Refuses an issuer name outside the name form, and two tables naming
     /// one issuer: the resource server holds one table per issuer
     /// identifier, so the later would silently replace the earlier (no
@@ -305,7 +315,13 @@ impl AuthSection {
         let profiles = self
             .issuers()
             .filter(|(_, entry)| entry.party.is_some())
-            .map(|(_, entry)| Ok((entry.issuer.expose(), check_entry(entry)?, profile_of(entry)?)))
+            .map(|(_, entry)| {
+                Ok((
+                    entry.issuer.expose(),
+                    check_entry(entry)?,
+                    profile_of(entry)?,
+                ))
+            })
             .collect::<Result<Vec<_>, ConfigError>>()?;
         crate::party::config::check_tables(party, |issuer| {
             profiles
@@ -348,12 +364,15 @@ impl AuthSection {
             .map(Some)
             .map_err(|source| ConfigError::Basic { source })
     }
-
 }
 
 /// Returns the settings of the JWT issuer `entry`, an issuer of `kind`, for
 /// a product serving `bases`.
-fn settings_of(entry: &IssuerEntry, kind: IssuerKind, bases: &[&str]) -> Result<Settings, ConfigError> {
+fn settings_of(
+    entry: &IssuerEntry,
+    kind: IssuerKind,
+    bases: &[&str],
+) -> Result<Settings, ConfigError> {
     let mut settings = Settings::new(entry.issuer.expose(), String::new(), kind);
     settings.audience = audience_of(entry, bases);
     settings.algorithms.clone_from(&entry.algorithms);
@@ -432,8 +451,7 @@ fn introspection_of(
             IntrospectionAuth::Bearer(source)
         }
     };
-    let mut settings =
-        IntrospectionSettings::new(entry.issuer.expose(), String::new(), auth, kind);
+    let mut settings = IntrospectionSettings::new(entry.issuer.expose(), String::new(), auth, kind);
     settings.audience = audience_of(entry, bases);
     if !section.endpoint.is_empty() {
         settings.endpoint = Some(crate::config::read::parse_url(
@@ -527,23 +545,11 @@ fn attributes_of(entry: &IssuerEntry) -> Option<AttributesSection> {
 /// federation defaults and attributed to its issuer; the defaults alone
 /// when it has no table, which an issuer of another kind then refuses.
 fn federation_of(entry: &IssuerEntry) -> Result<Option<FederationSection>, ConfigError> {
-    let defaults = entry
-        .profile
-        .federation()
+    crate::config::issuer::federation_over(entry.profile, entry.federation.clone(), &entry.issuer)
         .map_err(|source| ConfigError::Issuer {
             issuer: shown(&entry.issuer),
             source: Box::new(source.into()),
-        })?;
-    let table = entry.federation.clone();
-    let merged = match (table, defaults) {
-        (Some(table), Some(defaults)) => Some(table.over(defaults)),
-        (table, None) => table,
-        (None, Some(defaults)) => Some(defaults),
-    };
-    Ok(merged.map(|table| FederationSection {
-        issuer: entry.issuer.clone(),
-        ..table
-    }))
+        })
 }
 
 /// Returns the party table of `entry`, attributed to its issuer, with the
@@ -558,7 +564,10 @@ fn party_of(entry: &IssuerEntry) -> Result<Option<PartySection>, ConfigError> {
         ..table.clone()
     };
     if table.identifier_issuer.is_empty() {
-        entry.issuer.expose().clone_into(&mut table.identifier_issuer);
+        entry
+            .issuer
+            .expose()
+            .clone_into(&mut table.identifier_issuer);
     }
     if table.identifier_type.is_empty()
         && let Some(kind) = profile_of(entry)?.party_identifier_type
@@ -572,7 +581,10 @@ fn party_of(entry: &IssuerEntry) -> Result<Option<PartySection>, ConfigError> {
 /// lower-case letters, digits and `_`, at most 64 bytes.
 fn is_issuer_name(name: &str) -> bool {
     name.len() <= 64
-        && name.bytes().next().is_some_and(|first| first.is_ascii_lowercase())
+        && name
+            .bytes()
+            .next()
+            .is_some_and(|first| first.is_ascii_lowercase())
         && name
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
