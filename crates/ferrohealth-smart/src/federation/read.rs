@@ -36,6 +36,10 @@ pub(crate) fn classify(
         Ok(match source {
             Source::Claim(path) => lookup(claims, path).and_then(attribute),
             Source::Constant(value) => Some(Attribute::Text(value.clone())),
+            Source::Coded { system, code } => Some(Attribute::Codes(vec![Code {
+                system: Some(system.clone()),
+                code: code.clone(),
+            }])),
             Source::AuthorizationDetails(path) => entry
                 .and_then(|entry| lookup(entry, path))
                 .and_then(attribute),

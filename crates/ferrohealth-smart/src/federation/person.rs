@@ -85,7 +85,7 @@ impl AttributesSection {
             }
             for source in sources {
                 match source {
-                    Source::Claim(_) | Source::Constant(_) => {}
+                    Source::Claim(_) | Source::Constant(_) | Source::Coded { .. } => {}
                     Source::AuthorizationDetails(_) => return Err(FederationError::Unattested),
                     Source::Presentation(_) => return Err(FederationError::Presentations),
                 }
@@ -138,6 +138,10 @@ impl AttributesSection {
                     Some(value) => Some(shaped(field, value)?),
                 },
                 Source::Constant(value) => Some(Attribute::Text(value.clone())),
+            Source::Coded { system, code } => Some(Attribute::Codes(vec![Code {
+                system: Some(system.clone()),
+                code: code.clone(),
+            }])),
                 Source::AuthorizationDetails(_) | Source::Presentation(_) => None,
             })
         })?;

@@ -81,18 +81,6 @@ pub enum Field {
     /// The authentication context the deployment maps to a level.
     #[serde(rename = "assurance")]
     Assurance,
-    /// The UZI or Dezi number of a Dutch professional.
-    #[serde(rename = "nl.professional_number")]
-    NlProfessionalNumber,
-    /// The role of a Dutch professional.
-    #[serde(rename = "nl.role")]
-    NlRole,
-    /// The URA of a Dutch care provider.
-    #[serde(rename = "nl.ura")]
-    NlUra,
-    /// The organisation type of a Dutch care provider.
-    #[serde(rename = "nl.organisation_type")]
-    NlOrganisationType,
     /// The role the professional acts on behalf of (eHDSI SAML Profile 10.0.0 §2.3, `on-behalf-of`).
     #[serde(rename = "professional.on_behalf_of")]
     ProfessionalOnBehalfOf,
@@ -189,10 +177,6 @@ impl Field {
             Self::ProviderHealthcareProviderAddress => "provider.healthcare_provider_address",
             Self::PurposeOfUse => "purpose_of_use",
             Self::Assurance => "assurance",
-            Self::NlProfessionalNumber => "nl.professional_number",
-            Self::NlRole => "nl.role",
-            Self::NlUra => "nl.ura",
-            Self::NlOrganisationType => "nl.organisation_type",
             Self::ProfessionalOnBehalfOf => "professional.on_behalf_of",
             Self::ProfessionalAuthenticationMethod => "professional.authentication_method",
             Self::ProfessionalSpeciality => "professional.speciality",
@@ -230,8 +214,6 @@ impl Field {
                 | Self::ProfessionalIssuingAuthorityName
                 | Self::ProfessionalHpProfessionalRole
                 | Self::ProfessionalHealthcareProviderIdentifier
-                | Self::NlProfessionalNumber
-                | Self::NlRole
                 | Self::ProfessionalOnBehalfOf
                 | Self::ProfessionalAuthenticationMethod
                 | Self::ProfessionalSpeciality
@@ -270,6 +252,15 @@ pub enum Source {
     Claim(String),
     /// A value the deployment configures.
     Constant(String),
+    /// A coded value the deployment configures, with its code system:
+    /// `{ constant = "<code>", system = "<system>" }`, so the value carries
+    /// its system and no field name says where it comes from.
+    Coded {
+        /// The code system.
+        system: String,
+        /// The code.
+        code: String,
+    },
     /// A dotted path within the attested `authorization_details` entry.
     AuthorizationDetails(String),
     /// A dotted path within a credential subject of the Verifiable
@@ -288,6 +279,9 @@ struct SourceTable {
     /// The constant.
     #[serde(skip_serializing_if = "Option::is_none")]
     constant: Option<String>,
+    /// The code system of the constant, which makes it a coded value.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
     /// The path within the `authorization_details` entry.
     #[serde(skip_serializing_if = "Option::is_none")]
     authorization_details: Option<String>,
@@ -303,15 +297,19 @@ impl TryFrom<SourceTable> for Source {
         match (
             table.claim,
             table.constant,
+            table.system,
             table.authorization_details,
             table.presentation,
         ) {
-            (Some(path), None, None, None) => Ok(Self::Claim(path)),
-            (None, Some(value), None, None) => Ok(Self::Constant(value)),
-            (None, None, Some(path), None) => Ok(Self::AuthorizationDetails(path)),
-            (None, None, None, Some(path)) => Ok(Self::Presentation(path)),
+            (Some(path), None, None, None, None) => Ok(Self::Claim(path)),
+            (None, Some(value), None, None, None) => Ok(Self::Constant(value)),
+            (None, Some(code), Some(system), None, None) if !system.is_empty() => {
+                Ok(Self::Coded { system, code })
+            }
+            (None, None, None, Some(path), None) => Ok(Self::AuthorizationDetails(path)),
+            (None, None, None, None, Some(path)) => Ok(Self::Presentation(path)),
             _ => Err(String::from(
-                "a source is exactly one of { claim }, { constant }, \
+                "a source is exactly one of { claim }, { constant }, { constant, system }, \
                  { authorization_details } and { presentation }",
             )),
         }
@@ -327,6 +325,11 @@ impl From<Source> for SourceTable {
             },
             Source::Constant(value) => Self {
                 constant: Some(value),
+                ..Self::default()
+            },
+            Source::Coded { system, code } => Self {
+                constant: Some(code),
+                system: Some(system),
                 ..Self::default()
             },
             Source::AuthorizationDetails(path) => Self {
