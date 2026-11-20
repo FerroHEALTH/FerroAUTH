@@ -14,7 +14,16 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.25.0] - Unreleased
+## [0.25.0] - 2026-11-20
+
+Releases beside `ferrohealth-smart` 0.32.0, whose changelog lists every
+change a product meets when it moves to both.
+
+### Changed
+
+- Breaking: requires `ferrohealth-smart` 0.32 in place of 0.31, whose
+  refusals carry a stable reason code and whose `guard::Render` takes a
+  `refusal::Denied` (#729).
 
 ## [0.24.0] - 2026-11-20
 
@@ -418,7 +427,8 @@ point behind `remote`. Products pin `=0.1.0` beside `ferrohealth-smart`
   `200` a permit, a `4xx` a deny and every other answer no decision,
   authorized with the client credentials token of `ferrohealth-smart`.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.24.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.25.0...HEAD
+[0.25.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.24.0...ferrohealth-authz-v0.25.0
 [0.24.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.23.0...ferrohealth-authz-v0.24.0
 [0.23.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.22.0...ferrohealth-authz-v0.23.0
 [0.22.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-authz-v0.21.0...ferrohealth-authz-v0.22.0

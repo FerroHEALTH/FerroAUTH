@@ -11,7 +11,117 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.32.0] - Unreleased
+## [0.32.0] - 2026-11-20
+
+### Added
+
+- The profile key `audience_delegates`: on a `persons` issuer under the
+  `ferrosmart` preset, every client of a token whose `aud` names this
+  resource server is a delegate, beside the clients `delegates` lists, so an
+  app registered at FerroSMART with this product among its `resources`
+  needs no entry here. It is refused under any other preset
+  (`ProfileError::AudienceDelegates`), on another issuer kind, and beside a
+  product's standing (`ProductStandingSection` does not know the key).
+  `Profile` and `ProfileKeys` gain the field (#682).
+- A product starts before its issuers are reachable: `IssuerSet::read_in_background`
+  reads every issuer built with `ResourceServer::lazy` and not read yet, with
+  a bounded back-off of one second doubling to one minute
+  (`LazyResourceServer::read_until_read`), and `IssuerSet::is_ready` answers
+  the product's readiness route, not ready until every issuer is read
+  (`LazyResourceServer::is_read`). A configuration error still refuses the
+  start (#734).
+- The federation field `trc.care_role` (`Field::TrcCareRole`): the care
+  role a treatment relationship attests for the professional, one coded
+  value with its code system, mapped from a claim, a credential subject, an
+  attested `authorization_details` member or a `{ constant, system }`
+  source like the other `trc.*` fields and read through `External::field`.
+  A string, a code without a system or more than one code refuses the token
+  as `Unclassified::Attribute` naming the field, and a contact point's
+  token that carries it carries `trc.id` and both TRC window bounds (#751).
+
+### Changed
+
+- Breaking: no federation field names a country. `federation::Field` loses
+  `NlProfessionalNumber`, `NlRole`, `NlUra` and `NlOrganisationType`
+  (`nl.professional_number`, `nl.role`, `nl.ura`, `nl.organisation_type`);
+  their values arrive through the generic `professional.hp_identifier`,
+  `professional.hp_professional_role`, `provider.healthcare_provider_identifier`
+  and `provider.facility_type`, each with its code system. The new source
+  `{ constant = "…", system = "…" }` (`Source::Coded`) configures a coded
+  value with its system, and a value that arrives without a code system is
+  kept unsystemed (`Code::system` `None`), so a consumer can refuse to match
+  it. A deployment that read the `nl.*` fields reads the generic ones by
+  their code systems; the book's Annex B example profile does (#492).
+- Breaking: every refusal carries a stable reason code (`audience-mismatch`,
+  `issuer-unknown`, `delegate-not-granted`, `refused-unbound` and the rest
+  the book lists). The gate logs each refusal at info with the code, the
+  token's issuer, client id and key id, never the token or a claim that
+  names a person, and `Denied::challenge` sends the code as the
+  `error_description` of the `401` or `403` (RFC 6750 §3); a missing
+  credential and a Basic challenge carry none. `guard::Render::render` and
+  `extract::HeaderOnly::respond` take a `refusal::Denied` in place of a
+  `Refusal`, `Reason::as_str` returns the code, `Reason::Unclassified`
+  carries the step's code (`kind::Unclassified::code`), and `Reason` gains
+  `BasicIncomplete`, `ScopeNotGranted`, `RouteUnclassified`,
+  `PartySourceUnavailable` and `Party`, the code a product refuses a party
+  binding with (`party::Outcome::refusal_reason`). A product renders with
+  `denied.challenge(realm)` and `denied.refusal().status()`, and refuses
+  an unbound login with `Denied::new(Refusal::Forbidden,
+  outcome.refusal_reason())` (#729).
+- Breaking: issuers are a map by name, `[auth.issuer.<name>]`, in place of
+  the `[[auth.issuer]]` array, and every other key names an issuer by its
+  table's name: `described_issuer`, and a product's role lists through
+  `Resolved::role_issuers` (in place of `check_role_issuers`, which took
+  URLs) and `Resolved::issuer_named`. An unknown name is refused at load
+  (`ConfigError::UnknownIssuer` lists the known names), a name outside the
+  form (a lower-case letter, then lower-case letters, digits and `_`, at most
+  64) is `ConfigError::IssuerName`, and the environment form addresses an
+  issuer by name. The party, federation and attribute tables and the
+  scopeless subjects sit under their issuer (`[auth.issuer.<name>.party]`,
+  `.federation`, `.attributes`, `scopeless_subjects = ["sub"]`), and the
+  section-level `[[auth.party]]`, `[[auth.federation]]`,
+  `[[auth.attributes]]`, `scopeless_subjects` and `config::ScopelessSubject`
+  are removed. Defaults derive: `AuthSection::resolve` and
+  `ProductStandingSection::resolve` take the product's base URLs, the
+  audience of an issuer that names none; `kind` is the preset's (`persons`
+  under `ferrosmart`, `keycloak`, `entra` and `okta`, `Preset::kind`); a
+  party table's `identifier_issuer` is the issuer's identifier and its
+  `identifier_type` the new profile key `party_identifier_type` (`pairwise`
+  under `ferrosmart`). The new profile key `patient_context` decides whether
+  an issuer's `patient` claim is the launch context: on under `ferrosmart`,
+  off otherwise. Under `ferrosmart` the new key `issuer_client_is_person`
+  reads a token whose client is the issuer itself, FerroSMART's patient
+  picker, as the person with no app grant, and its `client_id` still names
+  FerroSMART. A product moves its issuer tables to named ones, refers to
+  them by name, drops its own patient-issuer rule (FerroEHR's
+  `patient_issuers`) and the picker's agent or self-delegate, and passes its
+  base URLs to `resolve` (#730).
+- Breaking: a profile loads from a file a deployment supplies, and the
+  compiled presets are the standards-only one and the vendors' (`rfc9068`,
+  `keycloak`, `entra`, `okta`, `ferrosmart`). An issuer table names its preset
+  as `preset` (in place of `profile`), may name a `profile_file` in the form
+  of a preset file (`profile::ProfileFile`: profile keys, `kind`, a
+  `[federation]` table), and sets profile keys in its
+  `[auth.issuer.<name>.profile]` table, which win over the file, which wins
+  over the preset. The 31 profile keys that sat on the issuer table itself
+  are removed from it (`IssuerEntry::profile` is now that table and
+  `IssuerEntry::profile_keys` is removed), and the onward table follows:
+  `[<lane>.credentials.onward]` takes `preset`, `profile_file` and a
+  `profile` table in place of `profile` and `keys`. `Profile::with_keys`
+  sets keys over a resolved profile. A product moves `profile = "…"` to
+  `preset = "…"` and every profile key under the issuer's `profile` table (#732).
+- Breaking: a token of an issuer whose metadata or key set has not been read
+  since the start is refused as the new `Rejection::Unread`, `503` with the
+  reason code `issuer-unread` (`Reason::IssuerUnread`), in place of
+  `Rejection::Unavailable`. A product that matches `Rejection` exhaustively
+  adds the variant (#734).
+
+### Removed
+
+- Breaking: the compiled `nl` preset (`Preset::Nl`, `profiles/nl.toml`) is
+  removed: the products ship no country content. The book ships the same
+  openEHR Federation Tier Annex B §B.4a mapping as an example a deployment
+  loads with `profile_file` (#732).
 
 ## [0.31.0] - 2026-11-20
 
@@ -2443,7 +2553,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.31.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.32.0...HEAD
+[0.32.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.31.0...ferrohealth-smart-v0.32.0
 [0.31.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.2...ferrohealth-smart-v0.31.0
 [0.30.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.1...ferrohealth-smart-v0.30.2
 [0.30.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.0...ferrohealth-smart-v0.30.1
