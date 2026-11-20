@@ -14,7 +14,16 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.27.0] - Unreleased
+## [0.27.0] - 2026-11-20
+
+Releases beside `ferrohealth-smart` 0.32.0, whose changelog lists every
+change a product meets when it moves to both.
+
+### Changed
+
+- Breaking: requires `ferrohealth-smart` 0.32 in place of 0.31, whose
+  refusals carry a stable reason code and whose `guard::Render` takes a
+  `refusal::Denied` (#729).
 
 ## [0.26.0] - 2026-11-20
 
@@ -478,7 +487,8 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.26.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.27.0...HEAD
+[0.27.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.26.0...ferrohealth-session-v0.27.0
 [0.26.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.25.1...ferrohealth-session-v0.26.0
 [0.25.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.25.0...ferrohealth-session-v0.25.1
 [0.25.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.24.0...ferrohealth-session-v0.25.0
