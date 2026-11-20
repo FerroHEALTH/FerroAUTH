@@ -3200,7 +3200,16 @@ specification governs.
    view which applications currently have access to data and can make
    adjustments to these access rights" (`smart conformance`, Metadata), and
    revoking it revokes the grants it covered. Remembering is our own
-   design.
+   design. Neither an approval nor a remembered consent answers for a
+   public client unless the request's redirect URI is a claimed `https`
+   URI, `https` with a host that is not `localhost` or a loopback address
+   (`rfc8252 §8.6`, "SHOULD NOT process authorization requests
+   automatically without user consent or interaction, except when the
+   identity of the client can be assured", and `§7.2`; `rfc6749 §10.2`):
+   a custom-scheme or loopback redirect shows the page, the remember box
+   ticked when a consent was remembered, and `ferrosmart config check`
+   warns of a first-party public client with no claimed `https` redirect
+   (owner, 2026-11-20, #726).
 7. **`online_access`.** "As long as the end-user remains online" has no
    mechanism in SMART. FerroSMART ties an online refresh token to the
    upstream login session: it ends at upstream logout and after the

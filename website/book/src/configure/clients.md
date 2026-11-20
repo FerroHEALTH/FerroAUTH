@@ -251,6 +251,32 @@ the organisation's own, which only the administrator withdraws. Setting or
 clearing `first_party` is a new approval: the old one is withdrawn with
 every token issued on it.
 
+### Native and browser apps without a secret
+
+A public client (`kind = "public"`) has no secret, so a request carrying
+its `client_id` could come from any app on the device. FerroSMART gives a
+public client a code with no consent page, on an approval or a remembered
+consent, only when the request's redirect URI is a claimed `https` URI: an
+`https` URL whose host is not `localhost` or a loopback address. The
+operating system hands such a redirect only to the app that proved it owns
+the domain (RFC 8252 §7.2). A custom-scheme redirect such as
+`com.example.app:/callback`, or a loopback one such as
+`http://127.0.0.1:8400/callback`, any app can register or listen on, so the
+person sees the page on every sign-in, with a remembered choice already
+ticked (RFC 8252 §8.6: the server "SHOULD NOT process authorization
+requests automatically without user consent or interaction, except when the
+identity of the client can be assured"; RFC 6749 §10.2). Confidential
+clients authenticate at the token endpoint and are not affected.
+
+Register the organisation's own mobile app with a claimed `https` redirect,
+an iOS Universal Link or an Android App Link, so its patients see no page.
+`ferrosmart config check` prints a warning for a first-party public client
+whose redirect URIs are all custom-scheme or loopback ones:
+
+```text
+ferrosmart: warning: client "portal-app" is a first-party public app with no claimed https redirect URI, so every sign-in shows the consent page (RFC 8252 §8.6): register an https redirect the app claims, such as a Universal Link or an App Link
+```
+
 ![The management page, titled "Apps you allowed": one app that stays connected after sign-out, the scopes it holds in words, and the Withdraw button](../integrate/img/manage.png)
 
 The management page, with one app that keeps access.

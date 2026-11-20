@@ -54,7 +54,7 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, Failure> {
         Common::Healthcheck => healthcheck(&settings).await,
         Common::Config {
             command: ConfigCommand::Check,
-        } => config_check(&loaded),
+        } => config_check(&loaded, &settings),
         Common::Serve => {
             let telemetry = loaded.settings().telemetry.clone();
             Box::pin(serve(settings, telemetry)).await
@@ -89,13 +89,17 @@ fn hash_secret() -> Result<ExitCode, Failure> {
 }
 
 /// Runs `config check`: every key printed with where it came from and every
-/// secret masked, after the settings resolved, keys read included.
+/// secret masked, after the settings resolved, keys read included, and a
+/// warning for a setting that resolves but works against the person.
 #[expect(
     clippy::print_stdout,
     reason = "the job's one answer goes to standard output"
 )]
-fn config_check(loaded: &Loaded<Config>) -> Result<ExitCode, Failure> {
+fn config_check(loaded: &Loaded<Config>, settings: &Settings) -> Result<ExitCode, Failure> {
     ferrohealth_server::run::config_check(loaded)?;
+    for warning in crate::clients::unassured_first_party(&settings.clients) {
+        println!("ferrosmart: warning: {warning}");
+    }
     println!("ferrosmart: the configuration is valid");
     Ok(ExitCode::SUCCESS)
 }

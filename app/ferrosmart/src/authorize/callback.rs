@@ -330,6 +330,7 @@ async fn proceed(
         subject: &login.subject,
         fhir_user: login.fhir_user.as_deref(),
         requested: &pending.scope,
+        redirect_uri: &pending.redirect_uri,
         client: &client,
         offered: &offered,
         consent: pending.asking.prompt.consent,
@@ -422,6 +423,8 @@ pub(crate) struct Asked<'a> {
     pub(crate) fhir_user: Option<&'a str>,
     /// The scope the app requested.
     pub(crate) requested: &'a str,
+    /// The redirect URI of the request.
+    pub(crate) redirect_uri: &'a str,
     /// The client.
     pub(crate) client: &'a Client,
     /// The scopes policy offers (`docs/architecture.md` §13.6 item 5).
@@ -456,8 +459,9 @@ fn approved<'a>(asked: &Asked<'a>) -> Option<&'a Approval> {
 }
 
 /// Goes on once the person logged in and the context is complete: straight
-/// back to the app with a code when a remembered consent covers `offered`,
-/// to the consent page otherwise.
+/// back to the app with a code when an approval or a remembered consent
+/// covers `offered` and the client's identity is assured, to the consent
+/// page otherwise.
 pub(crate) async fn onward(
     state: &AppState,
     asked: &Asked<'_>,
@@ -467,6 +471,11 @@ pub(crate) async fn onward(
     // NOTE: OpenID Connect Core 1.0 §3.1.2.1: prompt=consent asks the person for
     // consent, so neither an approval nor a remembered consent answers for them.
     if asked.consent {
+        return see_other(&state.settings().endpoint(CONSENT_ROUTE));
+    }
+    // NOTE: RFC 8252 §8.6, no request is processed automatically unless the client's
+    // identity is assured: a confidential client, or a public one's claimed https redirect.
+    if !asked.client.assured_by(asked.redirect_uri) {
         return see_other(&state.settings().endpoint(CONSENT_ROUTE));
     }
     let basis = if let Some(approval) = approved(asked) {

@@ -227,6 +227,65 @@ pub struct Client {
     pub about: About,
 }
 
+impl Client {
+    /// Returns whether a redirect to `redirect_uri` assures this client's
+    /// identity.
+    ///
+    /// Only then may a remembered consent or an organisation approval
+    /// answer for the person with no page: always for a confidential
+    /// client, which authenticates at the token endpoint, and for a public
+    /// client only through a claimed `https` redirect URI (RFC 8252 §8.6,
+    /// §7.2; RFC 6749 §10.2).
+    #[must_use]
+    pub fn assured_by(&self, redirect_uri: &str) -> bool {
+        self.kind != ClientKind::Public || claimed_https(redirect_uri)
+    }
+}
+
+/// Returns whether `uri` is a claimed `https` redirect URI.
+///
+/// That is an `https` URL whose host is a name other than `localhost` or an
+/// address that is not a loopback one (RFC 8252 §7.2). Any app on the
+/// device can listen on a loopback redirect (§7.3).
+#[must_use]
+pub fn claimed_https(uri: &str) -> bool {
+    Url::parse(uri).is_ok_and(|url| {
+        url.scheme() == "https"
+            && match url.host() {
+                Some(url::Host::Domain(name)) => !name.eq_ignore_ascii_case("localhost"),
+                Some(url::Host::Ipv4(address)) => !address.is_loopback(),
+                Some(url::Host::Ipv6(address)) => !address.is_loopback(),
+                None => false,
+            }
+    })
+}
+
+/// Returns a warning for each first-party public client with no claimed
+/// `https` redirect URI.
+///
+/// No sign-in of such an app can assure its identity, so every one shows
+/// the consent page (RFC 8252 §8.6).
+#[must_use]
+pub fn unassured_first_party(clients: &[Client]) -> Vec<String> {
+    clients
+        .iter()
+        .filter(|client| {
+            client.kind == ClientKind::Public
+                && client
+                    .approval
+                    .as_ref()
+                    .is_some_and(|approval| approval.first_party)
+                && !client.redirect_uris.iter().any(|uri| claimed_https(uri))
+        })
+        .map(|client| {
+            format!(
+                "client {:?} is a first-party public app with no claimed https redirect URI, so every sign-in shows the consent page (RFC 8252 §8.6): register an https redirect the app claims, such as a Universal Link or an App Link",
+                client.client_id
+            )
+        })
+        .collect()
+}
+
 /// What a client registers about its app for the person who approves it
 /// (RFC 7591 §2, client metadata), each an absolute `https` URL.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
