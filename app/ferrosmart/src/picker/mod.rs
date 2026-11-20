@@ -429,14 +429,11 @@ async fn go_on(state: &AppState, pending: &Pending, offered: &str, from: IpAddr)
     };
     let back = Back::of(state, pending);
     let asked = Asked {
-        id: &pending.id,
+        pending,
         subject,
         fhir_user: pending.fhir_user.as_deref(),
-        requested: &pending.scope,
-        redirect_uri: &pending.redirect_uri,
         client: &client,
         offered: &offered,
-        consent: pending.asking.prompt.consent,
     };
     onward(state, &asked, &back, from).await
 }

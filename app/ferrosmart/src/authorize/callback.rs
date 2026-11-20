@@ -326,14 +326,11 @@ async fn proceed(
         return see_other(&state.settings().endpoint(crate::picker::PICKER_ROUTE));
     }
     let asked = Asked {
-        id: &pending.id,
+        pending,
         subject: &login.subject,
         fhir_user: login.fhir_user.as_deref(),
-        requested: &pending.scope,
-        redirect_uri: &pending.redirect_uri,
         client: &client,
         offered: &offered,
-        consent: pending.asking.prompt.consent,
     };
     onward(state, &asked, back, from).await
 }
@@ -415,23 +412,18 @@ fn granting_roles<'a>(
 /// What a person, logged in with the launch context complete, was asked
 /// to authorize.
 pub(crate) struct Asked<'a> {
-    /// The pending authorization's id.
-    pub(crate) id: &'a str,
+    /// The pending authorization: its id, the scope the app requested,
+    /// its redirect URI and whether it asked for the consent page with
+    /// `prompt=consent` (OpenID Connect Core 1.0 §3.1.2.1).
+    pub(crate) pending: &'a Pending,
     /// The person's pairwise subject.
     pub(crate) subject: &'a str,
     /// The person's `fhirUser`, when the provider carries one.
     pub(crate) fhir_user: Option<&'a str>,
-    /// The scope the app requested.
-    pub(crate) requested: &'a str,
-    /// The redirect URI of the request.
-    pub(crate) redirect_uri: &'a str,
     /// The client.
     pub(crate) client: &'a Client,
     /// The scopes policy offers (`docs/architecture.md` §13.6 item 5).
     pub(crate) offered: &'a [&'a str],
-    /// Whether the app asked for the consent page with `prompt=consent`
-    /// (OpenID Connect Core 1.0 §3.1.2.1).
-    pub(crate) consent: bool,
 }
 
 /// Returns the organisation approval of the client that `asked` falls
@@ -452,7 +444,8 @@ fn approved<'a>(asked: &Asked<'a>) -> Option<&'a Approval> {
             .any(|kind| reference.starts_with(kind))
     });
     let patient_scope = asked
-        .requested
+        .pending
+        .scope
         .split(' ')
         .any(|scope| scope.starts_with("patient/"));
     (!own_data && !patient_scope && approval.covers(asked.offered)).then_some(approval)
@@ -470,12 +463,12 @@ pub(crate) async fn onward(
 ) -> Response {
     // NOTE: OpenID Connect Core 1.0 §3.1.2.1: prompt=consent asks the person for
     // consent, so neither an approval nor a remembered consent answers for them.
-    if asked.consent {
+    if asked.pending.asking.prompt.consent {
         return see_other(&state.settings().endpoint(CONSENT_ROUTE));
     }
     // NOTE: RFC 8252 §8.6, no request is processed automatically unless the client's
     // identity is assured: a confidential client, or a public one's claimed https redirect.
-    if !asked.client.assured_by(asked.redirect_uri) {
+    if !asked.client.assured_by(&asked.pending.redirect_uri) {
         return see_other(&state.settings().endpoint(CONSENT_ROUTE));
     }
     let basis = if let Some(approval) = approved(asked) {
@@ -502,7 +495,7 @@ pub(crate) async fn onward(
         }
         Basis::Remembered
     };
-    let pending = match found(state, state.store().finish(asked.id).await) {
+    let pending = match found(state, state.store().finish(&asked.pending.id).await) {
         Ok(pending) => pending,
         Err(response) => return *response,
     };
