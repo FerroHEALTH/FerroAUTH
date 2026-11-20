@@ -146,3 +146,22 @@ and token introspection. FerroSMART runs with Keycloak upstream and
 FerroBRIDGE's FHIR R4 facade as the FHIR server, all over TLS, and every
 test of the suite passes. The lane fails when a result changes, and the
 list of tests it may expect anything other than a pass is empty.
+
+## The OpenID Foundation conformance suite in CI
+
+A second CI lane runs four plans of the OpenID Foundation conformance
+suite against FerroSMART. Each module is held to the result recorded in
+[`app/ferrosmart/oidf/expected.tsv`](https://github.com/FerroHEALTH/FerroSMART/blob/main/app/ferrosmart/oidf/expected.tsv),
+and an expected failure names its issue.
+
+| Plan | FerroSMART's role | Its client authentication at the suite |
+|---|---|---|
+| `oidcc-client-test-plan` | Relying party, logging in at the suite | `private_key_jwt`, and `client_secret_basic` for the module `oidcc-client-test-client-secret-basic` |
+| `oidcc-client-basic-certification-test-plan` | Relying party | `client_secret_basic`, with the secret read from a file |
+| `oidcc-config-certification-test-plan` | OpenID Provider | Not applicable: the suite reads the discovery document |
+| `oidcc-basic-certification-test-plan` | OpenID Provider | Not applicable: the suite is a confidential client of FerroSMART |
+
+As the relying party, FerroSMART runs from one configuration that names no
+client authentication, and the lane adds the method each module fixes, as
+an administrator sets it for a provider (see
+[Identity providers](../install/upstream.md)).

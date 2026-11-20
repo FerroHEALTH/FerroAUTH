@@ -9,7 +9,7 @@
 # separated: plan, module, result, login, issue (- for none), reason.
 oidcc-client-test-plan	oidcc-client-test	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
 oidcc-client-test-plan	oidcc-client-test-nonce-invalid	PASSED	refused	-	
-oidcc-client-test-plan	oidcc-client-test-client-secret-basic	FAILED	refused	706	the module takes client_secret_basic alone; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration
+oidcc-client-test-plan	oidcc-client-test-client-secret-basic	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
 oidcc-client-test-plan	oidcc-client-test-scope-userinfo-claims	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
 oidcc-client-test-plan	oidcc-client-test-kid-absent-single-jwks	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
 oidcc-client-test-plan	oidcc-client-test-kid-absent-multiple-jwks	PASSED	refused	-	
@@ -35,20 +35,20 @@ oidcc-client-test-plan	oidcc-client-test-signing-key-rotation	NOT-RUN	none	-	run
 oidcc-client-test-plan	oidcc-client-test-discovery-webfinger-acct	PASSED	no-start	-	
 oidcc-client-test-plan	oidcc-client-test-discovery-webfinger-url	PASSED	no-start	-	
 oidcc-client-test-plan	oidcc-client-test-userinfo-signed	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
-oidcc-client-basic-certification-test-plan	oidcc-client-test	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-invalid-iss	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-missing-sub	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-invalid-aud	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-missing-iat	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-kid-absent-single-jwks	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-kid-absent-multiple-jwks	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-idtoken-sig-rs256	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-idtoken-sig-none	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-invalid-sig-rs256	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-userinfo-invalid-sub	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-nonce-invalid	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-scope-userinfo-claims	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
-oidcc-client-basic-certification-test-plan	oidcc-client-test-client-secret-basic	FAILED	refused	706	the plan fixes client_secret_basic; FerroSMART supports it (docs/architecture.md §13.22), but the lane runs one private_key_jwt configuration, so the provider refuses its token request
+oidcc-client-basic-certification-test-plan	oidcc-client-test	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
+oidcc-client-basic-certification-test-plan	oidcc-client-test-invalid-iss	PASSED	refused	-	
+oidcc-client-basic-certification-test-plan	oidcc-client-test-missing-sub	PASSED	refused	-	
+oidcc-client-basic-certification-test-plan	oidcc-client-test-invalid-aud	PASSED	refused	-	
+oidcc-client-basic-certification-test-plan	oidcc-client-test-missing-iat	PASSED	refused	-	
+oidcc-client-basic-certification-test-plan	oidcc-client-test-kid-absent-single-jwks	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
+oidcc-client-basic-certification-test-plan	oidcc-client-test-kid-absent-multiple-jwks	PASSED	refused	-	
+oidcc-client-basic-certification-test-plan	oidcc-client-test-idtoken-sig-rs256	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
+oidcc-client-basic-certification-test-plan	oidcc-client-test-idtoken-sig-none	SKIPPED	refused	-	the suite skips an unsigned ID Token in the code flow; FerroSMART refused it
+oidcc-client-basic-certification-test-plan	oidcc-client-test-invalid-sig-rs256	PASSED	refused	-	
+oidcc-client-basic-certification-test-plan	oidcc-client-test-userinfo-invalid-sub	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
+oidcc-client-basic-certification-test-plan	oidcc-client-test-nonce-invalid	PASSED	refused	-	
+oidcc-client-basic-certification-test-plan	oidcc-client-test-scope-userinfo-claims	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
+oidcc-client-basic-certification-test-plan	oidcc-client-test-client-secret-basic	INTERRUPTED	accepted	-	FerroSMART makes no UserInfo request (OpenID Connect Core 1.0 §5.3), so the driver stops the module once the login is accepted
 oidcc-config-certification-test-plan	oidcc-discovery-endpoint-verification	WARNING	-	650	the discovery document names no userinfo_endpoint (OpenID Connect Discovery 1.0 §3, RECOMMENDED)
 oidcc-basic-certification-test-plan	oidcc-server	FAILED	-	650	FerroSMART has no UserInfo Endpoint, so the module stops before its authorization request
 oidcc-basic-certification-test-plan	oidcc-response-type-missing	FAILED	-	650	FerroSMART has no UserInfo Endpoint, so the module stops before its authorization request
