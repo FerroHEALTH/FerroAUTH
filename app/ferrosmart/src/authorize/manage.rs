@@ -74,6 +74,7 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
         upstream_session: None,
         roles: Vec::new(),
         asking: Asking::default(),
+        person_claims: crate::store::PersonClaims::default(),
     };
     if let Err(error) = state.store().begin_authorization(&pending).await {
         return pages::server_error(&state, &error);

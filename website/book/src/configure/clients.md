@@ -143,6 +143,12 @@ name = "clinician"
 scopes = ["user/Patient.rs", "user/Observation.rs", "patient/Observation.rs"]
 ```
 
+When none of the scopes an app asks for can be granted to the person,
+FerroSMART shows a page that names the roles that would grant one (or says
+the app asks for access this server does not give it), and its button
+returns to the app with `access_denied`. Give the person one of the named
+roles at the identity provider.
+
 A role grants only `user/` and `patient/` scopes and extension scopes,
 has a name with no space, and is named once. An extension scope is any
 scope that starts with two underscores, such as FerroEHR's

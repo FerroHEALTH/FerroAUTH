@@ -169,9 +169,19 @@ the discovery document, key set and token answer Entra ID publishes.
 | Login | a single-tenant app registration, the authority `https://login.microsoftonline.com/<tenant id>/v2.0` as the `issuer`, platform Web with the redirect URI `{issuer}/callback`, the code flow with PKCE `S256` |
 | Client authentication | a certificate of FerroSMART's current assertion key, uploaded to the registration; each assertion names it by `x5t#S256`, signed `PS256` |
 | `fhirUser` | a directory extension attribute `fhirUser`, set per user, as an ID Token optional claim, which Entra ID emits as `extn.fhirUser` |
-| Roles | the app role `clinician`, assigned to people under Enterprise applications; the ID Token carries it in `roles` |
+| Roles | the app role `clinician`, assigned to people or to groups under Enterprise applications; the ID Token carries it in `roles` |
 | Logout | the front-channel logout URL `{issuer}/frontchannel-logout`, and `{issuer}/logout/return` as a second redirect URI for the end-session endpoint's return. FerroSMART ends a session only from a request with `iss` and `sid`: check that the tenant's discovery document says `frontchannel_logout_session_supported` and that the ID Token carries `sid` |
 | Tested by | a contract test that runs the example against Entra ID's discovery document, key set and token answer |
+
+FerroSMART reads roles from app roles alone, never from the `groups`
+claim: a person in more groups than the token holds gets an overage
+reference to Microsoft Graph in place of `groups`, which FerroSMART does
+not follow, and app roles hold the same values in every tenant
+(`howto-add-app-roles-in-apps.md`, App roles vs. groups). Assigning a group
+to an app role gives every member that role in `roles`. Whether assigning a
+group, rather than each person, needs a paid Microsoft Entra ID licence
+(P1 or higher) is not stated in the Microsoft pages FerroSMART vendors, so
+check your tenant's licence before you plan on group assignment.
 
 ```toml
 [[ferrosmart.upstream]]

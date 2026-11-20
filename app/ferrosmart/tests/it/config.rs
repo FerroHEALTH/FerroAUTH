@@ -307,6 +307,47 @@ fn a_subject_namespace_belongs_to_an_openehr_base_and_is_never_empty() {
     }
 }
 
+// NOTE: docs/architecture.md §13.6 item 9 (#674), a fhirUser lookup searches a FHIR
+// base by an identifier whose claim and absolute system the deployment names.
+#[test]
+fn a_fhir_user_lookup_belongs_to_a_fhir_base_with_a_claim_and_a_system() {
+    let keys = Keys::new();
+    let with = |kind: &str, claim: &str, system: &str| {
+        config(
+            &format!(
+                "[ferrosmart]\nissuer = \"https://smart.example.org\"\n\
+                 [[ferrosmart.resource]]\nbase = \"https://ehr.example.org/api\"\nkind = {kind:?}\n\
+                 [[ferrosmart.resource.fhir_user_lookup]]\nresource_type = \"Patient\"\n\
+                 claim = {claim:?}\nsystem = {system:?}"
+            ),
+            &keys,
+        )
+        .resolve()
+        .map_err(Box::new)
+    };
+    let settings = with("fhir", "staff_id", "urn:example:staff").expect("resolves");
+    assert_eq!(
+        Some(1),
+        settings
+            .fhir_user_lookups
+            .get("https://ehr.example.org/api")
+            .map(Vec::len)
+    );
+    for (kind, claim, system) in [
+        ("openehr", "staff_id", "urn:example:staff"),
+        ("fhir", " ", "urn:example:staff"),
+        ("fhir", "staff_id", "not a uri"),
+    ] {
+        let refused = with(kind, claim, system)
+            .map(|_| ())
+            .map_err(|error| *error);
+        assert!(
+            matches!(refused, Err(Error::Resource { .. })),
+            "{kind} {claim:?} {system:?}"
+        );
+    }
+}
+
 // NOTE: SMART on openEHR draft, Service Discovery, `org.fhir.rest` is the FHIR API
 // of a platform whose openEHR API is `org.openehr.rest`; the pair is configuration.
 #[test]

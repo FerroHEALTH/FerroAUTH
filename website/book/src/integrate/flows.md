@@ -27,7 +27,11 @@ reach: the server's own `.well-known/smart-configuration` names FerroSMART's
 3. **Pick the patient.** When the app asks for `launch/patient` and the
    server can be searched, FerroSMART shows its patient picker. A
    standalone app that asks a `patient/` scope without `launch/patient` is
-   treated as asking it, and the granted `scope` says so. At a FHIR
+   treated as asking it, and the granted `scope` says so. A patient
+   whose `fhirUser` names their own `Patient` at that server (or at the
+   FHIR server paired with the openEHR server asked) sees no picker: their
+   own record, read again as them, is the context, and they get the app's
+   `patient/` scopes without a role at the identity provider. At a FHIR
    server the person searches by name or identifier
    (`GET [base]/Patient`); at an openEHR server whose
    `[[ferrosmart.resource]]` names a `subject_namespace`, the person enters
@@ -108,6 +112,35 @@ and passes the value to `/authorize`; the rest is the standalone flow
 without the picker, and the token response carries the context the EHR
 registered.
 
+## What an app should expect
+
+Three behaviours are fixed. Each one protects the person or the deployment,
+and an app works with it in the way described here.
+
+**"Remember this choice" is off by default, for the exact scopes asked.**
+The consent page asks again unless the person ticks "Remember this
+choice", and a remembered choice answers only a later request for the same
+scopes or fewer; a request for more shows the page again. This keeps the
+patient in control of what each app holds (SMART App Launch 2.2.0, Best
+Practices). Ask for the same scopes on each launch, so a remembered choice
+applies, and the person can withdraw it on the management page
+(`management_endpoint`).
+
+**Access tokens live five minutes.** `access_token_lifetime` defaults to
+five minutes, the same default Keycloak uses. An app that works longer than
+that asks for `online_access`, a refresh token that lives while the person's
+login at the identity provider does, or `offline_access`, one that outlives
+it, and refreshes before the token expires (SMART App Launch 2.2.0, Refresh
+access token). A rotated refresh token presented again within ten seconds
+by the same client gets the same answer, so a retry is safe.
+
+**FerroSMART's pages refuse to be framed.** Every page answers with
+`frame-ancestors 'none'` and its cookie is `SameSite=Lax`, which keeps
+another site from overlaying the consent page (clickjacking, RFC 9700
+§4.16). Microsoft Entra ID's sign-in refuses framing as well. An app that
+runs inside an EHR's iframe opens the authorization request in a new window
+or tab, and that window returns to the app's redirect URI as usual.
+
 ## The tokens
 
 An access token is an RFC 9068 JWT, `typ` `at+jwt`, signed `RS256` with a
@@ -121,7 +154,12 @@ A person's `sub` is pairwise: derived from the identity provider's issuer
 and `sub`, so two providers never collide and the provider's identifier
 never reaches a resource server. The ID Token, signed `RS256`, carries
 `iss`, `sub`, `aud`, `exp`, `iat`, `nonce` when the app sent one,
-`auth_time`, and `fhirUser` when `fhirUser` was granted.
+`auth_time`, and `fhirUser` when `fhirUser` was granted. When the client's
+ceiling lists `profile` or `email` and the app asks for them, the ID Token
+also carries `name` and `preferred_username` (`profile`) and `email` and
+`email_verified` (`email`) as the identity provider sent them, so a
+standard OpenID Connect library can show who is signed in. The `sub`
+stays pairwise.
 
 ## Backend Services
 

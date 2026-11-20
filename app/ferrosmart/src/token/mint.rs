@@ -68,8 +68,9 @@ pub(crate) struct Grant<'a> {
     /// The longest lifetime the grant's profile allows, below
     /// `access_token_lifetime`; none when the setting alone decides.
     pub(crate) longest: Option<std::time::Duration>,
-    /// The ID Token's `nonce` and `auth_time`, when `openid` is granted.
-    pub(crate) identity: Option<(Option<&'a str>, i64)>,
+    /// What the ID Token says beside `sub` and `fhirUser`, when `openid` is
+    /// granted.
+    pub(crate) identity: Option<Identity<'a>>,
     /// The grant the token is issued under, when a person gave one.
     pub(crate) under: Option<&'a str>,
     /// The launch context parameters the response carries.
@@ -77,6 +78,18 @@ pub(crate) struct Grant<'a> {
     /// The person's mapped roles; none for a client credentials token,
     /// which no person holds.
     pub(crate) roles: &'a [String],
+}
+
+/// What an ID Token carries of the login (OpenID Connect Core 1.0 §2,
+/// §5.1).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Identity<'a> {
+    /// The client's `nonce`, when it sent one.
+    pub(crate) nonce: Option<&'a str>,
+    /// When the person logged in.
+    pub(crate) auth_time: i64,
+    /// The standard claims the granted `profile` and `email` pass on.
+    pub(crate) person: &'a crate::store::PersonClaims,
 }
 
 /// Signs, records and answers an access token for `client` under `grant`.
@@ -121,16 +134,17 @@ pub(crate) fn mint(state: &AppState, client: &Client, grant: Grant<'_>) -> Resul
         .sign("at+jwt", &claims)
         .map_err(|error| server_error("the access token could not be signed", &error))?;
     let id_token = match grant.identity {
-        Some((nonce, auth_time)) => {
+        Some(identity) => {
             let claims = IdClaims {
                 iss: &settings.issuer,
                 sub: grant.subject,
                 aud: &client.client_id,
                 exp: expires_at,
                 iat: issued_at,
-                auth_time,
-                nonce,
+                auth_time: identity.auth_time,
+                nonce: identity.nonce,
                 fhir_user: grant.fhir_user,
+                person: identity.person,
             };
             // NOTE: SMART App Launch 2.2.0, Scopes for requesting identity data, "The
             // EHR SHALL support Signing ID Tokens with RSA SHA-256"; typ JWT.
@@ -188,6 +202,10 @@ struct IdClaims<'a> {
     /// requesting identity data).
     #[serde(rename = "fhirUser", skip_serializing_if = "Option::is_none")]
     fhir_user: Option<&'a str>,
+    /// `name`, `preferred_username`, `email` and `email_verified`, as the
+    /// granted scope passes them on (OpenID Connect Core 1.0 §5.4).
+    #[serde(flatten)]
+    person: &'a crate::store::PersonClaims,
 }
 
 /// Returns 128 random bits, base64url without padding.

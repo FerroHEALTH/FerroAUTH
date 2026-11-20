@@ -4,8 +4,8 @@
 # The `ferrosmart` issuer profile: access tokens of FerroSMART, the family's
 # SMART App Launch 2.x authorization server (docs/architecture.md §13). They
 # are plain RFC 9068 tokens with no Ferro-specific claim, so every key stays
-# at its `rfc9068` default but the two FerroSMART fixes. Every key can be set
-# on the issuer table, which wins over this file.
+# at its `rfc9068` default but the three FerroSMART readings. Every key can be
+# set on the issuer table, which wins over this file.
 #
 # The launch context rides beside the RFC 9068 set as `patient`, `encounter`,
 # `fhirUser` and, for an openEHR audience, `ehrId` (RFC 9068 §2.2.2,
@@ -26,3 +26,11 @@ token_types = ["at+jwt"]
 # RFC 9068 §2.2 and SMART App Launch 2.2.0, Obtain access token, Response:
 # FerroSMART writes the granted `scope` into every token.
 required_claims = ["iss", "exp", "aud", "sub", "client_id", "iat", "jti", "scope"]
+# SMART App Launch 2.2.0 names what a `patient/` scope reaches and not who
+# asks (Patient-specific scopes), so who asks is our own design (#681): a
+# token through an admitted client whose `fhirUser` is `Patient/<x>` (relative
+# or absolute), whose `patient` is `x` and whose scopes are `patient/` alone,
+# with no `user/` or `system/` one, is the patient's own (`CallerKind::Patient`).
+# A professional's `fhirUser` is never a `Patient`, so a professional with
+# `patient/` scopes stays a professional confined to the launch context.
+fhir_user_patient = true

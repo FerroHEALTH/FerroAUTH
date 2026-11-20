@@ -190,6 +190,7 @@ async fn begin(
         upstream_session: None,
         roles: Vec::new(),
         asking,
+        person_claims: crate::store::PersonClaims::default(),
     };
     state
         .store()

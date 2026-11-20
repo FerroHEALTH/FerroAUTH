@@ -16,7 +16,7 @@ use crate::form::Params;
 use crate::server::AppState;
 
 use super::assertion::authenticate;
-use super::mint::{Grant, mint};
+use super::mint::{Grant, Identity, mint};
 use super::{Issued, Refusal, server_error};
 
 /// The longest a Backend Services access token lives: five minutes, the
@@ -162,7 +162,7 @@ pub(super) async fn authorization_code(
             code_hash: Some(&hash),
             token_type: "Bearer",
             longest: None,
-            identity: openid.then_some((grant.nonce.as_deref(), grant.auth_time)),
+            identity: openid.then(|| identity(&grant)),
             under: Some(&launch.grant_id),
             context: &launch.context,
             roles: &grant.roles,
@@ -170,6 +170,15 @@ pub(super) async fn authorization_code(
     )?;
     issued.response.refresh_token = launch.refresh_token;
     Ok(issued)
+}
+
+/// Returns what the ID Token of the code `grant` carries of the login.
+fn identity(grant: &crate::store::Code) -> Identity<'_> {
+    Identity {
+        nonce: grant.nonce.as_deref(),
+        auth_time: grant.auth_time,
+        person: &grant.person_claims,
+    }
 }
 
 /// Returns the client of `headers` and `form`: authenticated by its secret
