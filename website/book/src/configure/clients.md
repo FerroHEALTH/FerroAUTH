@@ -190,14 +190,16 @@ With both refresh scopes granted, `offline_access` decides.
 
 ## Consent
 
-Every flow with a person shows the consent page, unless the organisation
-approved the app (below). The person approves the offered scopes, unticks
+A flow with a person shows the consent page unless an organisation
+approval or a remembered choice answers for them; [The consent
+rules](consent.md) lists every case with the text it rests on. The person
+approves the offered scopes, unticks
 any access to their data (`patient/`, `user/` and extension scopes), or
 refuses, which sends the app an `access_denied` error. Sign-in, launch and
 refresh scopes (`openid`, `fhirUser`, `profile`, `email`, `launch`,
 `launch/patient`, `launch/encounter`, `offline_access`, `online_access`)
-are listed as fixed lines with no box: the app needs them to work, and they
-give no access to data on their own. The page shows the app's logo and
+are listed as fixed lines with no box: they give the app no data the
+boxes do not, and the person ends lasting access on the management page. The page shows the app's logo and
 links to its home page, privacy policy and terms when the client registers
 them. FerroSMART draws the page itself, with the
 deployment's name and `consent_text` from `[ferrosmart.branding]`.

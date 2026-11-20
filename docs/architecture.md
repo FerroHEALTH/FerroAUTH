@@ -3155,8 +3155,11 @@ specification governs.
    response, `rfc6749 §4.1.2.1`). Identity, launch and refresh scopes
    (`openid`, `fhirUser`, `profile`, `email`, `launch`, `launch/*`,
    `offline_access`, `online_access`) are fixed lines with no box, granted
-   with the app whatever the form posts, since unticking one breaks the app
-   and keeps no data back; `patient/`, `user/` and extension scopes keep
+   with the app whatever the form posts, since they give the app no data
+   the boxes do not, SMART issues a refresh token only "if granted"
+   (`smart app-launch`, Refresh access token) so an app copes without one,
+   and the person ends lasting access at the `management_endpoint` (#728);
+   `patient/`, `user/` and extension scopes keep
    their boxes (owner, 2026-11-19, #668; `smart app-launch` §7 Best
    Practices, non-normative, asks for plain descriptions; the split is our
    own design). The page also shows what the client registers about the app
@@ -3190,7 +3193,13 @@ specification governs.
    every scope offered. The ground is the controller's: its own app
    processes the patient's data under the controller's legal basis (GDPR
    Art. 9(2)(h)), and the OAuth consent page is no GDPR consent and adds no
-   ground for it. A third-party app is the patient's choice to let another
+   ground for it. A first-party approval that lists `offline_access` covers
+   it for patients as for staff, with no page (owner, 2026-11-20, #724):
+   `oidc-core §11` requires consent to an offline refresh token to be
+   obtained, and `§3.1.2.4` names "previous administrative consent" as one
+   way, with no limit on whose; SMART's Best Practices tie the consent
+   requirement to apps of another organisation. The patient's control is
+   the Disconnect action of the `management_endpoint` (#725). A third-party app is the patient's choice to let another
    party read their data, so a client without the mark keeps the page for
    every patient, and the patient approves it and withdraws it at the
    `management_endpoint` (Regulation (EU) 2025/327 gives the natural person
