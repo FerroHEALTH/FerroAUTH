@@ -192,14 +192,17 @@ pub fn server_error(state: &AppState, error: &dyn std::error::Error) -> Response
     fault(state, Fault::Server)
 }
 
-/// Returns the consent page of `pending` for `client`, in the language the
-/// request's `ui_locales`, then its `Accept-Language`, prefer among the
-/// catalog's.
+/// Returns the consent page of `pending` for `client`.
+///
+/// It is drawn in the language the request's `ui_locales`, then its
+/// `Accept-Language`, prefer among the catalog's, with the remember box
+/// ticked when the person `remembered` a consent for the client.
 pub fn consent(
     state: &AppState,
     headers: &HeaderMap,
     client: &Client,
     pending: &Pending,
+    remembered: bool,
 ) -> Response {
     let locale = negotiated(headers, pending);
     let words = |id: &str| locale.lookup(&*CATALOG, id);
@@ -221,7 +224,7 @@ pub fn consent(
         |name| with("consent-signed-in", &[("name", Arg::from(name))]),
     );
     let client_name = Arg::from(client.name.as_str());
-    let form = consent_form(state, &locale, &client_name, pending, &chosen);
+    let form = consent_form(state, &locale, &client_name, pending, &chosen, remembered);
     let deployment = &state.settings().branding;
     let own_words = if deployment.consent_text.is_empty() {
         Html::empty()
@@ -283,13 +286,15 @@ pub fn consent(
 }
 
 /// Returns the consent page's form for `pending`: a box per resource scope
-/// of `chosen`, the remember box and the two decisions.
+/// of `chosen`, the remember box, ticked when `remembered`, and the two
+/// decisions.
 fn consent_form(
     state: &AppState,
     locale: &Locale,
     client_name: &Arg,
     pending: &Pending,
     chosen: &[&str],
+    remembered: bool,
 ) -> Html {
     let words = |id: &str| locale.lookup(&*CATALOG, id);
     let with = |id: &str, args: &[(&'static str, Arg)]| locale.lookup_with(&*CATALOG, id, args);
@@ -306,8 +311,9 @@ fn consent_form(
         "remember",
         with("consent-remember", &[("client", client_name.clone())]),
         with("consent-remember-help", &[("client", client_name.clone())]),
-        Html::raw(String::from(
-            "<input type=\"checkbox\" id=\"remember\" name=\"remember\" value=\"yes\" aria-describedby=\"remember-help\">",
+        Html::raw(format!(
+            "<input type=\"checkbox\" id=\"remember\" name=\"remember\" value=\"yes\" aria-describedby=\"remember-help\"{}>",
+            if remembered { " checked" } else { "" }
         )),
     );
     Html::raw(format!(
