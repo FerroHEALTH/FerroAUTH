@@ -213,9 +213,10 @@ pinned in `docs/VERSIONS.md` and held to their provenance by
   none governs a decision, say so: "no specification governs this: our own
   design" (`.claude/rules/spec-adherence.md`).
 - **Asymmetric algorithms only** (no HMAC, no `none`); `typ` is `at+jwt`
-  under the default profile; `aud` is required; one `401` with
-  `error="invalid_token"` and no `error_description`; a `403` with
-  `error="insufficient_scope"` and no `scope` attribute; `503` when the key
+  under the default profile; `aud` is required; a `401` with
+  `error="invalid_token"` and the stable reason code as `error_description`,
+  logged at info (#729); a `403` with `error="insufficient_scope"`, its code
+  and no `scope` attribute; `503` when the key
   set cannot be read; the token is read from the `Authorization` header, or
   the one header a product names for its edge proxy, never a query or a
   form body. Every refusal is an asserted negative test.

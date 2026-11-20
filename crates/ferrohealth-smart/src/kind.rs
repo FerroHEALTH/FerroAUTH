@@ -303,6 +303,41 @@ pub enum Unclassified {
     },
 }
 
+impl Unclassified {
+    /// Returns the stable reason code of the step that refused the token
+    /// ([`crate::refusal::Reason::Unclassified`]).
+    #[must_use]
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::Expected { .. } => "claim-unexpected",
+            Self::UserClaim { .. } => "user-claim-missing",
+            Self::Impersonation => "impersonation",
+            Self::MarkersDisagree => "app-only-markers-disagree",
+            Self::ScopeForm { .. } => "scope-form",
+            Self::NotPatientContext => "not-patient-context",
+            Self::PatientActor => "patient-actor-refused",
+            Self::NotAppOnly => "not-app-only",
+            Self::NoClient => "client-missing",
+            Self::UnlistedClient => "delegate-not-granted",
+            Self::UnlistedActor => "actor-not-granted",
+            Self::ActorChain => "actor-chain-refused",
+            Self::RepresentationWithAct => "representation-with-act",
+            Self::RepresentationThroughDelegate => "representation-through-delegate",
+            Self::ExternalIncomplete { .. } => "professional-incomplete",
+            Self::RequiredFields { .. } => "required-fields-missing",
+            Self::OutOfBounds { .. } => "attribute-out-of-bounds",
+            Self::Attribute { .. } => "attribute-refused",
+            Self::SourcesDisagree { .. } => "sources-disagree",
+            Self::AuthorizationDetails => "authorization-details-refused",
+            Self::NoOrganisationStatement => "organisation-statement-missing",
+            Self::AssuranceTooLow => "assurance-too-low",
+            Self::Presentations => "presentations-unreadable",
+            Self::ContactPoint { .. } => "contact-point-refused",
+            Self::NoStep { .. } => "kind-unclassified",
+        }
+    }
+}
+
 /// What a classification read from a token's claims.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Classified {

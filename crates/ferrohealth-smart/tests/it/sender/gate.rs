@@ -101,7 +101,9 @@ async fn a_dpop_request_with_a_valid_proof_is_admitted() -> Result<(), Box<dyn S
     let (status, challenge) = send(router, request(&format!("DPoP {token}"), &[&jwt])).await?;
     assert_eq!(StatusCode::UNAUTHORIZED, status, "the replayed proof");
     assert_eq!(
-        Some("DPoP realm=\"ferro\", error=\"invalid_dpop_proof\""),
+        Some(
+            "DPoP realm=\"ferro\", error=\"invalid_dpop_proof\", error_description=\"dpop-proof-replayed\""
+        ),
         challenge.as_deref(),
         "RFC 9449 §7.1: a proof deemed invalid"
     );
@@ -124,7 +126,9 @@ async fn a_dpop_key_mismatch_is_challenged_as_an_invalid_dpop_token()
     let (status, challenge) = send(router, request(&format!("DPoP {token}"), &[&jwt])).await?;
     assert_eq!(StatusCode::UNAUTHORIZED, status);
     assert_eq!(
-        Some("DPoP realm=\"ferro\", error=\"invalid_token\""),
+        Some(
+            "DPoP realm=\"ferro\", error=\"invalid_token\", error_description=\"dpop-key-mismatch\""
+        ),
         challenge.as_deref()
     );
     Ok(())
@@ -140,7 +144,9 @@ async fn a_dpop_bound_token_under_the_bearer_scheme_is_refused() -> Result<(), B
     let (status, challenge) = send(router, request(&format!("Bearer {token}"), &[])).await?;
     assert_eq!(StatusCode::UNAUTHORIZED, status);
     assert_eq!(
-        Some("Bearer realm=\"ferro\", error=\"invalid_token\""),
+        Some(
+            "Bearer realm=\"ferro\", error=\"invalid_token\", error_description=\"dpop-bound-as-bearer\""
+        ),
         challenge.as_deref()
     );
     Ok(())
@@ -178,7 +184,9 @@ async fn a_certificate_bound_token_reads_the_certificate_of_the_request()
     let (status, challenge) = send(router, request(&format!("Bearer {token}"), &[])).await?;
     assert_eq!(StatusCode::UNAUTHORIZED, status, "without it");
     assert_eq!(
-        Some("Bearer realm=\"ferro\", error=\"invalid_token\""),
+        Some(
+            "Bearer realm=\"ferro\", error=\"invalid_token\", error_description=\"certificate-missing\""
+        ),
         challenge.as_deref(),
         "RFC 8705 §3: `invalid_token`"
     );
