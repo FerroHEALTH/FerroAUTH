@@ -295,16 +295,15 @@ pub enum ConfigError {
         #[source]
         source: Box<crate::client::onward::OnwardError>,
     },
-    /// A product role list names an issuer that is not a `persons` issuer
-    /// the section trusts.
-    #[error("the {key} list names the issuer {issuer:?}, which is not a trusted persons issuer")]
+    /// A product role list names an issuer that is not a `persons` issuer.
+    #[error("the {key} list names the issuer {name:?}, which is not a persons issuer")]
     RoleIssuer {
         /// The key of the product's list.
         key: &'static str,
-        /// The issuer, whose `Display` and `Debug` mask its userinfo.
-        issuer: ferrohealth_secret::secret_url::SecretUrl,
-        /// Its kind, when the section trusts it.
-        kind: Option<IssuerKind>,
+        /// The issuer's name.
+        name: String,
+        /// Its kind.
+        kind: IssuerKind,
     },
     /// A `federation` issuer without its one `[[auth.federation]]` table,
     /// or a table naming no trusted `federation` issuer or naming one twice.
@@ -348,14 +347,16 @@ pub enum ConfigError {
         /// The key.
         key: &'static str,
     },
-    /// An entry of a list read per issuer names an issuer the section does
-    /// not trust.
-    #[error("a {key} entry names the issuer {issuer:?}, which the section does not trust")]
+    /// A key names an issuer by a name no `[auth.issuer.<name>]` table
+    /// carries.
+    #[error("{key} names the issuer {name:?}, and the issuers are {known:?}")]
     UnknownIssuer {
-        /// The key of the list.
+        /// The key.
         key: &'static str,
-        /// The issuer the entry names.
-        issuer: String,
+        /// The name it gives.
+        name: String,
+        /// The names of the `[auth.issuer.<name>]` tables.
+        known: Vec<String>,
     },
     // NOTE: cargo-semver-checks enum_no_repr_variant_discriminant_changed, a new
     // variant goes last, so no earlier variant's implicit discriminant moves.
@@ -363,7 +364,7 @@ pub enum ConfigError {
     /// alike; a token is checked under one table per issuer, so the later
     /// table would replace the earlier.
     #[error(
-        "the {key} tables {first} and {second} both name the issuer {issuer:?}; \
+        "the {key} tables {first:?} and {second:?} both name the issuer {issuer:?}; \
          one issuer takes one table"
     )]
     DuplicateIssuer {
@@ -371,34 +372,41 @@ pub enum ConfigError {
         key: &'static str,
         /// The issuer, with any userinfo masked.
         issuer: String,
-        /// The index of the first table naming it.
-        first: usize,
-        /// The index of the second.
-        second: usize,
+        /// The name of the first table naming it.
+        first: String,
+        /// The name of the second.
+        second: String,
+    },
+    /// An `[auth.issuer.<name>]` name is outside the name form: a lower-case
+    /// ASCII letter, then lower-case letters, digits and `_`, at most 64.
+    #[error(
+        "the issuer name {name:?} is refused: a lower-case letter, then lower-case letters, \
+         digits and _, at most 64"
+    )]
+    IssuerName {
+        /// The name.
+        name: String,
     },
 }
 
-/// The `[auth]` section: the surface's `[[auth.issuer]]` tables, the
-/// issuer-qualified allowlist, the discovery document's options and the
+/// The `[auth]` section: the surface's issuers, each an
+/// `[auth.issuer.<name>]` table, the discovery document's options and the
 /// Basic users.
 ///
-/// Every setting of an issuer lives on its own `[[auth.issuer]]` table: no
-/// section-level value stands in for one an issuer leaves out.
+/// Every setting of an issuer lives on its own table, its party binding,
+/// federation and attribute tables nested under it, and every other key
+/// names an issuer by its table's name: no section-level value stands in
+/// for one an issuer leaves out.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AuthSection {
     /// Whether inbound authentication is on; a product may refuse `false`.
     pub enabled: bool,
-    /// The `[[auth.issuer]]` tables, each issuer with its own settings.
-    pub issuer: Vec<IssuerEntry>,
-    /// The subjects granted system-wide access without a scope, each
-    /// `{ issuer, sub }`; only a [`CallerKind::System`] caller of a
-    /// `persons` or `machines` issuer is ever admitted by an entry.
-    ///
-    /// [`CallerKind::System`]: crate::kind::CallerKind::System
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub scopeless_subjects: Vec<ScopelessSubject>,
+    /// The `[auth.issuer.<name>]` tables by name, each issuer with its own
+    /// settings. The environment and every other key address an issuer by
+    /// its name, never by a position.
+    pub issuer: BTreeMap<String, IssuerEntry>,
     /// The realm the challenges name; empty for none, which a product
     /// replaces with its own default.
     pub realm: String,
@@ -410,11 +418,9 @@ pub struct AuthSection {
     /// scopes the product honours, because "the server SHALL support all
     /// scopes listed here".
     pub scopes_supported: Vec<String>,
-    /// The issuer the discovery document describes; absent for the one
-    /// issuer the rule of [`crate::resource::described`] picks. It renders with any
-    /// userinfo masked.
-    #[cfg_attr(feature = "schema", schemars(with = "Option<String>"))]
-    pub described_issuer: Option<ferrohealth_secret::secret_url::SecretUrl>,
+    /// The name of the issuer the discovery document describes; absent for
+    /// the one issuer the rule of [`crate::resource::described`] picks.
+    pub described_issuer: Option<String>,
     /// The product's own scope, a full URI or a string starting with `__`;
     /// empty for none.
     pub product_scope: String,
@@ -429,14 +435,6 @@ pub struct AuthSection {
     /// the minimum version. The crate reads none of it: the product's
     /// [`TlsBuilder`] builds it once at start.
     pub tls: TlsClientSection,
-    /// The `[[auth.federation]]` tables, one per `federation` issuer.
-    pub federation: Vec<FederationSection>,
-    /// The `[[auth.attributes]]` tables, at most one per `persons` issuer:
-    /// where it states its professionals' attributes.
-    pub attributes: Vec<AttributesSection>,
-    /// The `[[auth.party]]` tables, one per `persons` issuer whose logins
-    /// are bound to a party.
-    pub party: Vec<PartySection>,
     /// The `[auth.idp]` table: the vendor adapters a profile may name, each
     /// read in a build that compiles it in.
     pub idp: crate::idp::section::IdpSection,
@@ -506,22 +504,9 @@ pub struct IntrospectionSection {
     pub bearer: Option<OauthSection>,
 }
 
-/// One `scopeless_subjects` entry: the subject `sub` of the issuer
-/// `issuer`.
-#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ScopelessSubject {
-    /// The issuer. It renders with any userinfo masked, as
-    /// [`SecretUrl`](ferrohealth_secret::secret_url::SecretUrl) renders itself.
-    #[cfg_attr(feature = "schema", schemars(with = "String"))]
-    pub issuer: ferrohealth_secret::secret_url::SecretUrl,
-    /// The `sub`.
-    pub sub: String,
-}
-
-/// One `[[auth.issuer]]` table: the issuer, its kind, how its tokens are
-/// checked, and its profile, a [`Preset`] with any profile key set over it.
+/// One `[auth.issuer.<name>]` table: the issuer, its kind, how its tokens
+/// are checked, its profile, a [`Preset`] with any profile key set over it,
+/// and the tables nested under it.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -531,11 +516,13 @@ pub struct IssuerEntry {
     /// itself.
     #[cfg_attr(feature = "schema", schemars(with = "String"))]
     pub issuer: ferrohealth_secret::secret_url::SecretUrl,
-    /// Whose tokens the issuer signs; required, with no default.
+    /// Whose tokens the issuer signs; the preset's kind when unset
+    /// ([`Preset::kind`]), and required under a preset that names none.
     pub kind: Option<IssuerKind>,
     /// The preset the profile starts from.
     pub profile: Preset,
-    /// The audiences, of which a token's `aud` must contain one.
+    /// The audiences, of which a token's `aud` must contain one; the base
+    /// URLs the product resolves the section for when empty.
     pub audience: Vec<String>,
     /// The signature algorithms admitted.
     #[cfg_attr(feature = "schema", schemars(with = "Vec<String>"))]
@@ -555,6 +542,26 @@ pub struct IssuerEntry {
     pub mode: AuthMode,
     /// The introspection check, under `mode = "introspection"`.
     pub introspection: Option<IntrospectionSection>,
+    /// The subjects of the issuer granted system-wide access without a
+    /// scope; only a [`CallerKind::System`] caller of a `persons` or
+    /// `machines` issuer is ever admitted by one.
+    ///
+    /// [`CallerKind::System`]: crate::kind::CallerKind::System
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scopeless_subjects: Vec<String>,
+    /// The `[auth.issuer.<name>.federation]` table, which a `federation`
+    /// issuer requires and no other kind takes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub federation: Option<FederationSection>,
+    /// The `[auth.issuer.<name>.attributes]` table: where a `persons` issuer
+    /// states its professionals' attributes, or a `patients` or `machines`
+    /// issuer the purpose of use.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attributes: Option<AttributesSection>,
+    /// The `[auth.issuer.<name>.party]` table of a `persons` issuer whose
+    /// logins are bound to a party.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub party: Option<PartySection>,
     /// The assurance level the issuer's tokens carry.
     pub assurance: Option<AssuranceSection>,
     /// Whether the issuer's tokens must be bound to a `DPoP` key or a client
@@ -613,6 +620,15 @@ pub struct IssuerEntry {
     /// [`ProfileKeys::fhir_user_patient`](crate::profile::ProfileKeys::fhir_user_patient).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fhir_user_patient: Option<bool>,
+    /// [`ProfileKeys::patient_context`](crate::profile::ProfileKeys::patient_context).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patient_context: Option<bool>,
+    /// [`ProfileKeys::issuer_client_is_person`](crate::profile::ProfileKeys::issuer_client_is_person).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issuer_client_is_person: Option<bool>,
+    /// [`ProfileKeys::party_identifier_type`](crate::profile::ProfileKeys::party_identifier_type).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub party_identifier_type: Option<String>,
     /// [`ProfileKeys::token_types`](crate::profile::ProfileKeys::token_types).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_types: Option<Vec<String>>,
@@ -740,11 +756,12 @@ pub struct BasicGrant {
 pub struct Resolved {
     /// Whether inbound authentication is on.
     pub enabled: bool,
-    /// The resource-server settings of each JWT issuer, in the order
-    /// written.
+    /// The resource-server settings of each JWT issuer, in name order.
     pub issuers: Vec<Settings>,
     /// The kind of every issuer the section trusts, by identifier.
     pub kinds: BTreeMap<String, IssuerKind>,
+    /// The identifier of every issuer the section trusts, by name.
+    pub names: BTreeMap<String, String>,
     /// The Basic users, when the surface admits Basic.
     pub basic: Option<PasswordStore>,
     /// The realm the challenges name, when one is set.
@@ -753,8 +770,9 @@ pub struct Resolved {
     pub capabilities: Vec<String>,
     /// The scopes the discovery document lists.
     pub scopes_supported: Vec<String>,
-    /// The issuer the discovery document describes, when one is named; the
-    /// `named` argument of [`crate::resource::described::describe`].
+    /// The identifier of the issuer the discovery document describes, when
+    /// one is named; the `named` argument of
+    /// [`crate::resource::described::describe`].
     pub described_issuer: Option<ferrohealth_secret::secret_url::SecretUrl>,
     /// The product's own scope, when one is set.
     pub product_scope: Option<String>,
@@ -764,10 +782,11 @@ pub struct Resolved {
     /// URL and its replay store.
     pub dpop: Option<crate::sender::proof::DpopSection>,
     /// The introspection check of each `mode = "introspection"` issuer, in
-    /// the order written.
+    /// name order.
     #[cfg(feature = "fetch")]
     pub introspection: Vec<crate::resource::introspection::IntrospectionSettings>,
-    /// The `[[auth.party]]` tables, each checked against its issuer.
+    /// The party tables, each checked against its issuer and carrying its
+    /// identifier.
     pub party: Vec<PartySection>,
     /// The vendor adapters the `[auth.idp]` tables build, which the party
     /// binding registers.

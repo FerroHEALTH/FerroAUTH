@@ -12,7 +12,7 @@ use serde::Serialize;
 use crate::kind::IssuerKind;
 use crate::profile::Profile;
 
-/// One `[[auth.party]]` table: where the logins of one `persons` issuer are
+/// One `[auth.issuer.<name>.party]` table: where the logins of one `persons` issuer are
 /// looked up.
 ///
 /// It names no key claim: the issuer profile's `person_key` is the key, so
@@ -21,16 +21,20 @@ use crate::profile::Profile;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PartySection {
-    /// The `persons` issuer whose logins the table binds. It renders with
+    /// The `persons` issuer whose logins the table binds: `[auth]` sets it
+    /// from the `[auth.issuer.<name>]` table it sits under. It renders with
     /// any userinfo masked, as [`SecretUrl`](ferrohealth_secret::secret_url::SecretUrl) renders itself.
-    #[cfg_attr(feature = "schema", schemars(with = "String"))]
+    #[cfg_attr(feature = "schema", schemars(skip))]
+    #[serde(skip)]
     pub issuer: ferrohealth_secret::secret_url::SecretUrl,
     /// The issuer of the identifiers the key is matched against; no two
-    /// tables share one.
+    /// tables share one. Empty for the issuer's own identifier, which
+    /// `[auth]` sets.
     pub identifier_issuer: String,
     /// The type of those identifiers, which declares the key's canonical
     /// form: `guid` or `uuid` is compared in lower case, any other type
-    /// exactly.
+    /// exactly. Empty for the issuer profile's `party_identifier_type`,
+    /// which `[auth]` sets.
     pub identifier_type: String,
     /// The claim naming the groups the token asserts, an array of strings;
     /// empty to read no group.
@@ -48,7 +52,7 @@ pub struct PartySection {
 #[non_exhaustive]
 pub enum PartyError {
     /// A table names no trusted `persons` issuer.
-    #[error("the [[auth.party]] table of {issuer:?} names no trusted persons issuer")]
+    #[error("the party table of {issuer:?} names no trusted persons issuer")]
     NotPersons {
         /// The table's issuer.
         issuer: String,
@@ -56,7 +60,7 @@ pub enum PartyError {
         kind: Option<IssuerKind>,
     },
     /// Two tables name one issuer.
-    #[error("two [[auth.party]] tables name the issuer {issuer:?}")]
+    #[error("two party tables name the issuer {issuer:?}")]
     DuplicateIssuer {
         /// The issuer.
         issuer: String,
@@ -64,7 +68,7 @@ pub enum PartyError {
     /// Two tables share an `identifier_issuer`, which would merge two
     /// subject spaces.
     #[error(
-        "the [[auth.party]] tables of {first:?} and {second:?} share the identifier_issuer \
+        "the party tables of {first:?} and {second:?} share the identifier_issuer \
          {identifier_issuer:?}"
     )]
     SharedIdentifierIssuer {
@@ -76,7 +80,7 @@ pub enum PartyError {
         identifier_issuer: String,
     },
     /// A key the table needs is empty.
-    #[error("{key} of the [[auth.party]] table of {issuer:?} is empty")]
+    #[error("{key} of the party table of {issuer:?} is empty")]
     Missing {
         /// The table's issuer.
         issuer: String,
@@ -85,7 +89,7 @@ pub enum PartyError {
     },
     /// `group_claim` and `group_identifier_issuer` are not set together.
     #[error(
-        "group_claim and group_identifier_issuer of the [[auth.party]] table of {issuer:?} \
+        "group_claim and group_identifier_issuer of the party table of {issuer:?} \
          are set together or not at all"
     )]
     Groups {
@@ -171,8 +175,8 @@ pub(crate) fn check_table(
         });
     };
     for (key, value) in [
-        ("auth.party.identifier_issuer", &table.identifier_issuer),
-        ("auth.party.identifier_type", &table.identifier_type),
+        ("auth.issuer.party.identifier_issuer", &table.identifier_issuer),
+        ("auth.issuer.party.identifier_type", &table.identifier_type),
     ] {
         if value.trim().is_empty() {
             return Err(PartyError::Missing {

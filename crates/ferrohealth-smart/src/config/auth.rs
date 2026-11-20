@@ -5,7 +5,6 @@
 //! secret read, every issuer's settings built from its own table.
 
 use std::collections::BTreeMap;
-use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use ferrohealth_config::tls::TlsClientSection;
@@ -27,6 +26,7 @@ use crate::config::shown;
 use crate::federation::FederationSection;
 use crate::federation::Field;
 use crate::federation::person::AttributesSection;
+use crate::party::config::PartySection;
 use crate::kind::IssuerKind;
 use crate::kind::standing::StandingSource;
 use crate::profile::Profile;
@@ -56,42 +56,67 @@ impl Resolved {
         }
     }
 
-    /// Checks a product role list, the issuers a product honours an
-    /// administrator, emergency or identifier-reader role from: each must
-    /// be a `persons` issuer the section trusts (no specification governs
-    /// this: our own design, since only a person holds such a role).
+    /// Returns the identifier of the issuer the section names `name`, the
+    /// value a product reads a key that names an issuer through.
     ///
     /// # Errors
     ///
-    /// [`ConfigError::RoleIssuer`] naming `key` and the first issuer that is
-    /// not a trusted `persons` issuer, with any userinfo masked.
-    pub fn check_role_issuers(
+    /// [`ConfigError::UnknownIssuer`] naming `key`, `name` and every name
+    /// the section carries.
+    pub fn issuer_named(&self, key: &'static str, name: &str) -> Result<&str, ConfigError> {
+        self.names
+            .get(name)
+            .map(String::as_str)
+            .ok_or_else(|| ConfigError::UnknownIssuer {
+                key,
+                name: name.to_owned(),
+                known: self.names.keys().cloned().collect(),
+            })
+    }
+
+    /// Returns the identifiers of a product role list, the names of the
+    /// issuers a product honours an administrator, emergency or
+    /// identifier-reader role from: each must name a `persons` issuer (no
+    /// specification governs this: our own design, since only a person
+    /// holds such a role).
+    ///
+    /// # Errors
+    ///
+    /// [`ConfigError::UnknownIssuer`] for a name the section does not carry,
+    /// and [`ConfigError::RoleIssuer`] for one of another kind, each naming
+    /// `key`.
+    pub fn role_issuers(
         &self,
         key: &'static str,
-        issuers: &[SecretUrl],
-    ) -> Result<(), ConfigError> {
-        for issuer in issuers {
-            let kind = self.kinds.get(issuer.expose()).copied();
-            if kind != Some(IssuerKind::Persons) {
-                return Err(ConfigError::RoleIssuer {
-                    key,
-                    issuer: issuer.clone(),
-                    kind,
-                });
-            }
-        }
-        Ok(())
+        names: &[String],
+    ) -> Result<Vec<String>, ConfigError> {
+        names
+            .iter()
+            .map(|name| {
+                let issuer = self.issuer_named(key, name)?;
+                match self.kinds.get(issuer) {
+                    Some(&kind) if kind != IssuerKind::Persons => Err(ConfigError::RoleIssuer {
+                        key,
+                        name: name.clone(),
+                        kind,
+                    }),
+                    _ => Ok(issuer.to_owned()),
+                }
+            })
+            .collect()
     }
 }
 
 impl AuthSection {
-    /// Returns the `[[auth.issuer]]` tables the section names.
-    #[must_use]
-    pub fn issuers(&self) -> &[IssuerEntry] {
-        &self.issuer
+    /// Returns the `[auth.issuer.<name>]` tables the section names, in name
+    /// order.
+    pub fn issuers(&self) -> impl Iterator<Item = (&str, &IssuerEntry)> {
+        self.issuer.iter().map(|(name, entry)| (name.as_str(), entry))
     }
 
-    /// Resolves the section: every rule checked, every secret read.
+    /// Resolves the section for a product serving `bases`, the audience of
+    /// every issuer whose table names none: every rule checked, every
+    /// secret read.
     ///
     /// An enabled section with Basic users and no issuer resolves to the
     /// Basic store alone, a Basic-only surface; an enabled section that
@@ -100,17 +125,17 @@ impl AuthSection {
     /// # Errors
     ///
     /// Returns [`ConfigError`] naming the first rule broken: no issuer and
-    /// no Basic user, an issuer
-    /// without `kind`, no audience, an issuer outside the URL rule, a
-    /// symmetric algorithm, a skew over the bound, a profile or a
-    /// kind-bound setting refused, a `scopeless_subjects` entry naming an
-    /// issuer the section does not trust, a Basic user with a bad hash,
-    /// user-id or scope, a secret set twice or not at all, a capability
-    /// SMART does not define, a listed scope outside RFC 6749 §3.3, a
-    /// product scope in no extension form, or a cache key the random
-    /// source cannot draw.
-    pub fn resolve(&self) -> Result<Resolved, ConfigError> {
-        self.resolve_over(None, &StandingSource::Lists)
+    /// no Basic user, an issuer name outside the name form, an issuer
+    /// without `kind` under a preset that names none, no audience, an
+    /// issuer outside the URL rule, a symmetric algorithm, a skew over the
+    /// bound, a profile or a kind-bound setting refused, a nested table on
+    /// an issuer of a kind that takes none, a name no issuer table carries,
+    /// a Basic user with a bad hash, user-id or scope, a secret set twice or
+    /// not at all, a capability SMART does not define, a listed scope
+    /// outside RFC 6749 §3.3, a product scope in no extension form, or a
+    /// cache key the random source cannot draw.
+    pub fn resolve(&self, bases: &[&str]) -> Result<Resolved, ConfigError> {
+        self.resolve_over(None, &StandingSource::Lists, bases)
     }
 
     /// Resolves the section as [`AuthSection::resolve`] does, every `tls`
@@ -121,16 +146,22 @@ impl AuthSection {
     ///
     /// Returns [`ConfigError`] as [`AuthSection::resolve`] does, and
     /// [`ConfigError::TlsBuild`] when `tls` refuses a table.
-    pub fn resolve_with_tls(&self, tls: &dyn TlsBuilder) -> Result<Resolved, ConfigError> {
-        self.resolve_over(Some(tls), &StandingSource::Lists)
+    pub fn resolve_with_tls(
+        &self,
+        tls: &dyn TlsBuilder,
+        bases: &[&str],
+    ) -> Result<Resolved, ConfigError> {
+        self.resolve_over(Some(tls), &StandingSource::Lists, bases)
     }
 
-    /// Resolves the section, over the product's TLS builder when one is
-    /// handed, every issuer's standing questions answered by `standing`.
+    /// Resolves the section for a product serving `bases`, over the
+    /// product's TLS builder when one is handed, every issuer's standing
+    /// questions answered by `standing`.
     pub(super) fn resolve_over(
         &self,
         builder: Option<&dyn TlsBuilder>,
         standing: &StandingSource,
+        bases: &[&str],
     ) -> Result<Resolved, ConfigError> {
         if let Some(bad) = self
             .capabilities
@@ -168,20 +199,24 @@ impl AuthSection {
             min_version: self.tls.min_version,
         };
         let mut kinds = BTreeMap::new();
+        let mut names = BTreeMap::new();
         let mut issuers = Vec::new();
+        let mut party = Vec::new();
         #[cfg(feature = "fetch")]
         let mut introspection = Vec::new();
         if self.enabled {
-            self.check_unique_issuers()?;
-            self.check_scopeless()?;
-            self.check_federation()?;
-            self.check_attributes()?;
-            for entry in self.issuers() {
+            self.check_names()?;
+            for (name, entry) in self.issuers() {
                 let kind = check_entry(entry)?;
+                check_nested(entry, kind)?;
                 kinds.insert(entry.issuer.expose().to_owned(), kind);
+                names.insert(name.to_owned(), entry.issuer.expose().to_owned());
+                if let Some(table) = party_of(entry)? {
+                    party.push(table);
+                }
                 match entry.mode {
                     AuthMode::Jwt => {
-                        let mut settings = self.settings_of(entry, kind)?;
+                        let mut settings = settings_of(entry, kind, bases)?;
                         settings.tls = tls.clone();
                         settings.standing = standing.clone();
                         settings.validate().map_err(|source| ConfigError::Issuer {
@@ -192,7 +227,7 @@ impl AuthSection {
                     }
                     #[cfg(feature = "fetch")]
                     AuthMode::Introspection => {
-                        introspection.push(self.introspection_of(entry, kind, builder, standing)?);
+                        introspection.push(introspection_of(entry, kind, builder, standing, bases)?);
                     }
                     #[cfg(not(feature = "fetch"))]
                     AuthMode::Introspection => return Err(ConfigError::IntrospectionUnavailable),
@@ -205,7 +240,7 @@ impl AuthSection {
             return Err(ConfigError::Missing { key: "auth.issuer" });
         }
         if self.enabled {
-            self.check_party()?;
+            self.check_party(&party)?;
         }
         let adapters = if self.enabled {
             self.idp.adapters()?
@@ -214,201 +249,71 @@ impl AuthSection {
         };
         let basic = self.basic_store()?;
         let dpop = self.dpop_settings()?;
-        Ok(Resolved {
+        let mut resolved = Resolved {
             enabled: self.enabled,
             issuers,
             kinds,
+            names,
             basic,
             realm: (!self.realm.is_empty()).then(|| self.realm.clone()),
             capabilities: self.capabilities.clone(),
             scopes_supported: self.scopes_supported.clone(),
-            described_issuer: self.described_issuer.clone(),
+            described_issuer: None,
             product_scope: (!self.product_scope.is_empty()).then(|| self.product_scope.clone()),
             dpop,
             #[cfg(feature = "fetch")]
             introspection,
-            party: if self.enabled {
-                self.party.clone()
-            } else {
-                Vec::new()
-            },
+            party,
             adapters,
-        })
+        };
+        if let Some(name) = &self.described_issuer {
+            let issuer = resolved.issuer_named("auth.described_issuer", name)?;
+            resolved.described_issuer = Some(SecretUrl::new(issuer));
+        }
+        Ok(resolved)
     }
 
-    /// Refuses two `[[auth.issuer]]` tables naming one issuer: the resource
-    /// server holds one table per issuer identifier, so the later would
-    /// silently replace the earlier (no specification governs the
-    /// configuration model: our own design).
-    fn check_unique_issuers(&self) -> Result<(), ConfigError> {
-        let mut seen: BTreeMap<&str, usize> = BTreeMap::new();
-        for (index, entry) in self.issuers().iter().enumerate() {
-            if let Some(first) = seen.insert(entry.issuer.expose(), index) {
+    /// Refuses an issuer name outside the name form, and two tables naming
+    /// one issuer: the resource server holds one table per issuer
+    /// identifier, so the later would silently replace the earlier (no
+    /// specification governs the configuration model: our own design; the
+    /// name form keeps every name addressable from the environment).
+    fn check_names(&self) -> Result<(), ConfigError> {
+        let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
+        for (name, entry) in self.issuers() {
+            if !is_issuer_name(name) {
+                return Err(ConfigError::IssuerName {
+                    name: name.to_owned(),
+                });
+            }
+            if let Some(first) = seen.insert(entry.issuer.expose(), name) {
                 return Err(ConfigError::DuplicateIssuer {
                     key: "auth.issuer",
                     issuer: shown(&entry.issuer),
-                    first,
-                    second: index,
+                    first: first.to_owned(),
+                    second: name.to_owned(),
                 });
             }
         }
         Ok(())
     }
 
-    /// Refuses a `scopeless_subjects` entry that names an issuer the section
-    /// does not trust (no specification governs the allowlist: our own
-    /// design, since a `sub` is unique only within its issuer, RFC 7519
-    /// §4.1.2).
-    fn check_scopeless(&self) -> Result<(), ConfigError> {
-        let trusted: BTreeSet<&str> = self
-            .issuers()
-            .iter()
-            .map(|entry| entry.issuer.expose())
-            .collect();
-        for entry in &self.scopeless_subjects {
-            if !trusted.contains(entry.issuer.expose()) {
-                return Err(ConfigError::UnknownIssuer {
-                    key: "auth.scopeless_subjects",
-                    issuer: shown(&entry.issuer),
-                });
-            }
-        }
-        Ok(())
-    }
-
-    /// Refuses a `[[auth.federation]]` table that names no trusted
-    /// `federation` issuer or names one twice, and a `federation` issuer with
-    /// no table (no specification governs this: our own design).
-    fn check_federation(&self) -> Result<(), ConfigError> {
-        let mut seen = BTreeSet::new();
-        for section in &self.federation {
-            let kind = self
-                .issuers()
-                .iter()
-                .find(|entry| entry.issuer == section.issuer)
-                .and_then(|entry| entry.kind);
-            if kind != Some(IssuerKind::Federation) {
-                return Err(ConfigError::Federation {
-                    issuer: shown(&section.issuer),
-                    reason: "it names no trusted federation issuer",
-                });
-            }
-            if !seen.insert(section.issuer.expose()) {
-                return Err(ConfigError::Federation {
-                    issuer: shown(&section.issuer),
-                    reason: "two tables name the issuer",
-                });
-            }
-        }
-        for entry in self.issuers() {
-            if entry.kind == Some(IssuerKind::Federation) && !seen.contains(entry.issuer.expose()) {
-                return Err(ConfigError::Federation {
-                    issuer: shown(&entry.issuer),
-                    reason: "a federation issuer needs its [[auth.federation]] table",
-                });
-            }
-        }
-        Ok(())
-    }
-
-    /// Refuses an `[[auth.attributes]]` table that names no trusted
-    /// `persons`, `patients` or `machines` issuer or names one twice (no
+    /// Refuses a party table that shares its `identifier_issuer` with
+    /// another, or whose issuer's profile breaks a binding rule (no
     /// specification governs this: our own design).
-    fn check_attributes(&self) -> Result<(), ConfigError> {
-        let mut seen = BTreeSet::new();
-        for section in &self.attributes {
-            let kind = self
-                .issuers()
-                .iter()
-                .find(|entry| entry.issuer == section.issuer)
-                .and_then(|entry| entry.kind);
-            if kind.is_none_or(|kind| kind == IssuerKind::Federation) {
-                return Err(ConfigError::Attributes {
-                    issuer: shown(&section.issuer),
-                    reason: "it names no trusted persons, patients or machines issuer",
-                });
-            }
-            if kind != Some(IssuerKind::Persons)
-                && section
-                    .fields
-                    .keys()
-                    .any(|field| *field != Field::PurposeOfUse)
-            {
-                return Err(ConfigError::Attributes {
-                    issuer: shown(&section.issuer),
-                    reason: "a patients or machines issuer states only purpose_of_use",
-                });
-            }
-            if !seen.insert(section.issuer.expose()) {
-                return Err(ConfigError::Attributes {
-                    issuer: shown(&section.issuer),
-                    reason: "two tables name the issuer",
-                });
-            }
-        }
-        Ok(())
-    }
-
-    /// Returns the `[[auth.attributes]]` table of `entry`, when it has one.
-    fn attributes_of(&self, entry: &IssuerEntry) -> Option<AttributesSection> {
-        self.attributes
-            .iter()
-            .find(|section| section.issuer == entry.issuer)
-            .cloned()
-    }
-
-    /// Refuses an `[[auth.party]]` table that names no trusted `persons`
-    /// issuer, sets `claim`, or shares its issuer or its `identifier_issuer`
-    /// with another (no specification governs this: our own design).
-    fn check_party(&self) -> Result<(), ConfigError> {
+    fn check_party(&self, party: &[PartySection]) -> Result<(), ConfigError> {
         let profiles = self
             .issuers()
-            .iter()
-            .filter_map(|entry| Some((entry.issuer.expose(), entry.kind?, entry)))
-            .map(|(issuer, kind, entry)| Ok((issuer, kind, profile_of(entry)?)))
+            .filter(|(_, entry)| entry.party.is_some())
+            .map(|(_, entry)| Ok((entry.issuer.expose(), check_entry(entry)?, profile_of(entry)?)))
             .collect::<Result<Vec<_>, ConfigError>>()?;
-        crate::party::config::check_tables(&self.party, |issuer| {
+        crate::party::config::check_tables(party, |issuer| {
             profiles
                 .iter()
                 .find(|(named, _, _)| *named == issuer)
                 .map(|(_, kind, profile)| (*kind, profile))
         })
         .map_err(|source| ConfigError::Party { source })
-    }
-
-    /// Returns the `[[auth.federation]]` table of `entry`, set over its
-    /// preset's federation defaults; the defaults alone when it has no table,
-    /// which an issuer of another kind then refuses.
-    fn federation_of(&self, entry: &IssuerEntry) -> Result<Option<FederationSection>, ConfigError> {
-        let defaults = entry
-            .profile
-            .federation()
-            .map_err(|source| ConfigError::Issuer {
-                issuer: shown(&entry.issuer),
-                source: Box::new(source.into()),
-            })?;
-        let table = self
-            .federation
-            .iter()
-            .find(|section| section.issuer == entry.issuer)
-            .cloned();
-        Ok(match (table, defaults) {
-            (Some(table), Some(defaults)) => Some(table.over(defaults)),
-            (table, None) => table,
-            (None, Some(defaults)) => Some(FederationSection {
-                issuer: entry.issuer.clone(),
-                ..defaults
-            }),
-        })
-    }
-
-    /// Returns the subjects of `scopeless_subjects` that name `issuer`.
-    fn scopeless_of(&self, issuer: &str) -> BTreeSet<String> {
-        self.scopeless_subjects
-            .iter()
-            .filter(|entry| entry.issuer.expose() == issuer)
-            .map(|entry| entry.sub.clone())
-            .collect()
     }
 
     /// Returns the `[auth.dpop]` table checked, when the section has one.
@@ -444,114 +349,233 @@ impl AuthSection {
             .map_err(|source| ConfigError::Basic { source })
     }
 
-    /// Returns the settings of the JWT issuer `entry`, an issuer of `kind`.
-    fn settings_of(&self, entry: &IssuerEntry, kind: IssuerKind) -> Result<Settings, ConfigError> {
-        let mut settings = Settings::new(entry.issuer.expose(), String::new(), kind);
-        settings.audience.clone_from(&entry.audience);
-        settings.algorithms.clone_from(&entry.algorithms);
-        settings.profile = profile_of(entry)?;
-        settings.clock_skew = entry.clock_skew.get();
-        settings.jwks_max_age = entry.jwks_max_age.get();
-        settings.jwks_refresh_interval = entry.jwks_refresh_interval.get();
-        settings.jwks_file = (!entry.jwks_file.is_empty()).then(|| PathBuf::from(&entry.jwks_file));
-        settings.timeout = entry.timeout.get();
-        settings.scopeless_subjects = self.scopeless_of(entry.issuer.expose());
-        settings.role_claims = role_claims_of(entry, kind);
-        settings.assurance.clone_from(&entry.assurance);
-        settings.federation = self.federation_of(entry)?;
-        settings.attributes = self.attributes_of(entry);
-        settings.sender_constraint = entry.sender_constraint;
-        Ok(settings)
-    }
+}
 
-    /// Returns the introspection settings of the `mode = "introspection"`
-    /// issuer `entry`, an issuer of `kind`.
-    #[cfg(feature = "fetch")]
-    fn introspection_of(
-        &self,
-        entry: &IssuerEntry,
-        kind: IssuerKind,
-        builder: Option<&dyn TlsBuilder>,
-        standing: &StandingSource,
-    ) -> Result<crate::resource::introspection::IntrospectionSettings, ConfigError> {
-        use crate::resource::introspection::IntrospectionAuth;
-        use crate::resource::introspection::IntrospectionError;
-        use crate::resource::introspection::IntrospectionSettings;
-        if !entry.jwks_file.is_empty() {
+/// Returns the settings of the JWT issuer `entry`, an issuer of `kind`, for
+/// a product serving `bases`.
+fn settings_of(entry: &IssuerEntry, kind: IssuerKind, bases: &[&str]) -> Result<Settings, ConfigError> {
+    let mut settings = Settings::new(entry.issuer.expose(), String::new(), kind);
+    settings.audience = audience_of(entry, bases);
+    settings.algorithms.clone_from(&entry.algorithms);
+    settings.profile = profile_of(entry)?;
+    settings.clock_skew = entry.clock_skew.get();
+    settings.jwks_max_age = entry.jwks_max_age.get();
+    settings.jwks_refresh_interval = entry.jwks_refresh_interval.get();
+    settings.jwks_file = (!entry.jwks_file.is_empty()).then(|| PathBuf::from(&entry.jwks_file));
+    settings.timeout = entry.timeout.get();
+    settings.scopeless_subjects = entry.scopeless_subjects.iter().cloned().collect();
+    settings.role_claims = role_claims_of(entry, kind);
+    settings.assurance.clone_from(&entry.assurance);
+    settings.federation = federation_of(entry)?;
+    settings.attributes = attributes_of(entry);
+    settings.sender_constraint = entry.sender_constraint;
+    Ok(settings)
+}
+
+/// Returns the introspection settings of the `mode = "introspection"`
+/// issuer `entry`, an issuer of `kind`.
+#[cfg(feature = "fetch")]
+fn introspection_of(
+    entry: &IssuerEntry,
+    kind: IssuerKind,
+    builder: Option<&dyn TlsBuilder>,
+    standing: &StandingSource,
+    bases: &[&str],
+) -> Result<crate::resource::introspection::IntrospectionSettings, ConfigError> {
+    use crate::resource::introspection::IntrospectionAuth;
+    use crate::resource::introspection::IntrospectionError;
+    use crate::resource::introspection::IntrospectionSettings;
+    if !entry.jwks_file.is_empty() {
+        return Err(ConfigError::Exclusive {
+            left: "auth.issuer.mode = \"introspection\"",
+            right: "auth.issuer.jwks_file",
+        });
+    }
+    let section = entry.introspection.as_ref().ok_or(ConfigError::Missing {
+        key: "auth.issuer.introspection",
+    })?;
+    let auth = match (&section.client, &section.bearer) {
+        (Some(_), Some(_)) => {
             return Err(ConfigError::Exclusive {
-                left: "auth.issuer.mode = \"introspection\"",
-                right: "auth.issuer.jwks_file",
+                left: "auth.issuer.introspection.client",
+                right: "auth.issuer.introspection.bearer",
             });
         }
-        let section = entry.introspection.as_ref().ok_or(ConfigError::Missing {
-            key: "auth.issuer.introspection",
-        })?;
-        let auth = match (&section.client, &section.bearer) {
-            (Some(_), Some(_)) => {
-                return Err(ConfigError::Exclusive {
-                    left: "auth.issuer.introspection.client",
-                    right: "auth.issuer.introspection.bearer",
-                });
-            }
-            (None, None) => {
-                return Err(ConfigError::Missing {
-                    key: "auth.issuer.introspection.client or auth.issuer.introspection.bearer",
-                });
-            }
-            (Some(client), None) => {
-                let mut client = client.clone();
-                if client.issuer.is_empty() && client.token_endpoint.is_empty() {
-                    client.issuer.clone_from(&entry.issuer);
-                }
-                let credentials = match builder {
-                    Some(builder) => client.resolve_with_tls(builder)?,
-                    None => client.resolve()?,
-                };
-                IntrospectionAuth::Client(Box::new(credentials))
-            }
-            (None, Some(bearer)) => {
-                let grant = match builder {
-                    Some(builder) => bearer.resolve_with_tls(builder)?,
-                    None => bearer.resolve()?,
-                };
-                let source = crate::client::cache::TokenSource::new(grant).map_err(|source| {
-                    ConfigError::Introspection {
-                        source: Box::new(IntrospectionError::Credential {
-                            source: std::sync::Arc::new(source),
-                        }),
-                    }
-                })?;
-                IntrospectionAuth::Bearer(source)
-            }
-        };
-        let mut settings =
-            IntrospectionSettings::new(entry.issuer.expose(), String::new(), auth, kind);
-        settings.audience.clone_from(&entry.audience);
-        if !section.endpoint.is_empty() {
-            settings.endpoint = Some(crate::config::read::parse_url(
-                section.endpoint.expose(),
-                "auth.issuer.introspection.endpoint",
-            )?);
+        (None, None) => {
+            return Err(ConfigError::Missing {
+                key: "auth.issuer.introspection.client or auth.issuer.introspection.bearer",
+            });
         }
-        settings.clock_skew = entry.clock_skew.get();
-        settings.cache_max_age = section.cache_max_age.get();
-        settings.cache_capacity = section.cache_capacity;
-        settings.timeout = entry.timeout.get();
-        settings.scopeless_subjects = self.scopeless_of(entry.issuer.expose());
-        settings.standing = standing.clone();
-        settings.role_claims = role_claims_of(entry, kind);
-        settings.profile = profile_of(entry)?;
-        settings.assurance.clone_from(&entry.assurance);
-        settings.federation = self.federation_of(entry)?;
-        settings.attributes = self.attributes_of(entry);
-        settings.sender_constraint = entry.sender_constraint;
-        settings
-            .validate()
-            .map_err(|source| ConfigError::Introspection {
-                source: Box::new(source),
+        (Some(client), None) => {
+            let mut client = client.clone();
+            if client.issuer.is_empty() && client.token_endpoint.is_empty() {
+                client.issuer.clone_from(&entry.issuer);
+            }
+            let credentials = match builder {
+                Some(builder) => client.resolve_with_tls(builder)?,
+                None => client.resolve()?,
+            };
+            IntrospectionAuth::Client(Box::new(credentials))
+        }
+        (None, Some(bearer)) => {
+            let grant = match builder {
+                Some(builder) => bearer.resolve_with_tls(builder)?,
+                None => bearer.resolve()?,
+            };
+            let source = crate::client::cache::TokenSource::new(grant).map_err(|source| {
+                ConfigError::Introspection {
+                    source: Box::new(IntrospectionError::Credential {
+                        source: std::sync::Arc::new(source),
+                    }),
+                }
             })?;
-        Ok(settings)
+            IntrospectionAuth::Bearer(source)
+        }
+    };
+    let mut settings =
+        IntrospectionSettings::new(entry.issuer.expose(), String::new(), auth, kind);
+    settings.audience = audience_of(entry, bases);
+    if !section.endpoint.is_empty() {
+        settings.endpoint = Some(crate::config::read::parse_url(
+            section.endpoint.expose(),
+            "auth.issuer.introspection.endpoint",
+        )?);
     }
+    settings.clock_skew = entry.clock_skew.get();
+    settings.cache_max_age = section.cache_max_age.get();
+    settings.cache_capacity = section.cache_capacity;
+    settings.timeout = entry.timeout.get();
+    settings.scopeless_subjects = entry.scopeless_subjects.iter().cloned().collect();
+    settings.standing = standing.clone();
+    settings.role_claims = role_claims_of(entry, kind);
+    settings.profile = profile_of(entry)?;
+    settings.assurance.clone_from(&entry.assurance);
+    settings.federation = federation_of(entry)?;
+    settings.attributes = attributes_of(entry);
+    settings.sender_constraint = entry.sender_constraint;
+    settings
+        .validate()
+        .map_err(|source| ConfigError::Introspection {
+            source: Box::new(source),
+        })?;
+    Ok(settings)
+}
+
+/// Returns the audience of `entry`: its own, or the product's `bases` when
+/// it names none.
+fn audience_of(entry: &IssuerEntry, bases: &[&str]) -> Vec<String> {
+    if entry.audience.is_empty() {
+        bases.iter().map(|base| (*base).to_owned()).collect()
+    } else {
+        entry.audience.clone()
+    }
+}
+
+/// Refuses a nested table on an issuer of a kind that takes none: a
+/// `federation` issuer requires its federation table and takes no
+/// attributes table, and an attributes table of a `patients` or `machines`
+/// issuer states only the purpose of use (no specification governs this:
+/// our own design). The party table's rules are [`AuthSection`]'s.
+fn check_nested(entry: &IssuerEntry, kind: IssuerKind) -> Result<(), ConfigError> {
+    let issuer = || shown(&entry.issuer);
+    match (kind, &entry.federation) {
+        (IssuerKind::Federation, None) => {
+            return Err(ConfigError::Federation {
+                issuer: issuer(),
+                reason: "a federation issuer needs its federation table",
+            });
+        }
+        (IssuerKind::Federation, Some(_)) | (_, None) => {}
+        (_, Some(_)) => {
+            return Err(ConfigError::Federation {
+                issuer: issuer(),
+                reason: "only a federation issuer takes a federation table",
+            });
+        }
+    }
+    if let Some(attributes) = &entry.attributes {
+        if kind == IssuerKind::Federation {
+            return Err(ConfigError::Attributes {
+                issuer: issuer(),
+                reason: "a federation issuer takes no attributes table",
+            });
+        }
+        if kind != IssuerKind::Persons
+            && attributes
+                .fields
+                .keys()
+                .any(|field| *field != Field::PurposeOfUse)
+        {
+            return Err(ConfigError::Attributes {
+                issuer: issuer(),
+                reason: "a patients or machines issuer states only purpose_of_use",
+            });
+        }
+    }
+    Ok(())
+}
+
+/// Returns the attributes table of `entry`, attributed to its issuer.
+fn attributes_of(entry: &IssuerEntry) -> Option<AttributesSection> {
+    entry.attributes.clone().map(|table| AttributesSection {
+        issuer: entry.issuer.clone(),
+        ..table
+    })
+}
+
+/// Returns the federation table of `entry`, set over its preset's
+/// federation defaults and attributed to its issuer; the defaults alone
+/// when it has no table, which an issuer of another kind then refuses.
+fn federation_of(entry: &IssuerEntry) -> Result<Option<FederationSection>, ConfigError> {
+    let defaults = entry
+        .profile
+        .federation()
+        .map_err(|source| ConfigError::Issuer {
+            issuer: shown(&entry.issuer),
+            source: Box::new(source.into()),
+        })?;
+    let table = entry.federation.clone();
+    let merged = match (table, defaults) {
+        (Some(table), Some(defaults)) => Some(table.over(defaults)),
+        (table, None) => table,
+        (None, Some(defaults)) => Some(defaults),
+    };
+    Ok(merged.map(|table| FederationSection {
+        issuer: entry.issuer.clone(),
+        ..table
+    }))
+}
+
+/// Returns the party table of `entry`, attributed to its issuer, with the
+/// issuer's identifier as its `identifier_issuer` and the profile's
+/// `party_identifier_type` as its `identifier_type` where it names none.
+fn party_of(entry: &IssuerEntry) -> Result<Option<PartySection>, ConfigError> {
+    let Some(table) = &entry.party else {
+        return Ok(None);
+    };
+    let mut table = PartySection {
+        issuer: entry.issuer.clone(),
+        ..table.clone()
+    };
+    if table.identifier_issuer.is_empty() {
+        entry.issuer.expose().clone_into(&mut table.identifier_issuer);
+    }
+    if table.identifier_type.is_empty()
+        && let Some(kind) = profile_of(entry)?.party_identifier_type
+    {
+        table.identifier_type = kind;
+    }
+    Ok(Some(table))
+}
+
+/// Returns whether `name` is an issuer name: a lower-case ASCII letter, then
+/// lower-case letters, digits and `_`, at most 64 bytes.
+fn is_issuer_name(name: &str) -> bool {
+    name.len() <= 64
+        && name.bytes().next().is_some_and(|first| first.is_ascii_lowercase())
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
 /// Returns the profile of `entry`: its preset with its own keys over it.
@@ -576,8 +600,7 @@ impl Default for AuthSection {
     fn default() -> Self {
         Self {
             enabled: true,
-            issuer: Vec::new(),
-            scopeless_subjects: Vec::new(),
+            issuer: BTreeMap::new(),
             realm: String::new(),
             capabilities: Vec::new(),
             scopes_supported: Vec::new(),
@@ -586,9 +609,6 @@ impl Default for AuthSection {
             basic: None,
             dpop: None,
             tls: TlsClientSection::default(),
-            federation: Vec::new(),
-            attributes: Vec::new(),
-            party: Vec::new(),
             idp: crate::idp::section::IdpSection::default(),
         }
     }

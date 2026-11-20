@@ -1,7 +1,7 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The defaults of one `[[auth.issuer]]` table and of its
+//! The defaults of one `[auth.issuer.<name>]` table and of its
 //! `[auth.issuer.introspection]` table, the profile keys it sets over its
 //! preset, and the rules one table is checked against when `[auth]`
 //! resolves.
@@ -40,6 +40,10 @@ impl Default for IssuerEntry {
             timeout: Duration::from_secs(10),
             mode: AuthMode::Jwt,
             introspection: None,
+            scopeless_subjects: Vec::new(),
+            federation: None,
+            attributes: None,
+            party: None,
             assurance: None,
             sender_constraint: SenderConstraint::None,
             role_claims: None,
@@ -59,6 +63,9 @@ impl Default for IssuerEntry {
             representation: None,
             act_represents_patient: None,
             fhir_user_patient: None,
+            patient_context: None,
+            issuer_client_is_person: None,
+            party_identifier_type: None,
             token_types: None,
             required_claims: None,
             scope_claim: None,
@@ -108,6 +115,9 @@ impl IssuerEntry {
             representation: self.representation.clone(),
             act_represents_patient: self.act_represents_patient,
             fhir_user_patient: self.fhir_user_patient,
+            patient_context: self.patient_context,
+            issuer_client_is_person: self.issuer_client_is_person,
+            party_identifier_type: self.party_identifier_type.clone(),
             token_types: self.token_types.clone(),
             required_claims: self.required_claims.clone(),
             scope_claim: self.scope_claim.clone(),
@@ -124,8 +134,9 @@ impl IssuerEntry {
     }
 }
 
-/// Checks the issuer-level rules of `entry` and returns its kind: an
-/// identifier, a kind, and no `federation` issuer in this build.
+/// Checks the issuer-level rules of `entry` and returns its kind, its own or
+/// its preset's: an identifier, a kind, and no `federation` issuer in this
+/// build.
 pub(super) fn check_entry(entry: &IssuerEntry) -> Result<IssuerKind, ConfigError> {
     if entry.issuer.is_empty() {
         return Err(ConfigError::Missing { key: "auth.issuer" });
@@ -142,7 +153,14 @@ pub(super) fn check_entry(entry: &IssuerEntry) -> Result<IssuerKind, ConfigError
     if !entry.jwks_file.is_empty() {
         check_jwks_file(entry)?;
     }
-    let kind = entry.kind.ok_or(ConfigError::Missing {
+    let preset = entry
+        .profile
+        .kind()
+        .map_err(|source| ConfigError::Issuer {
+            issuer: crate::config::shown(&entry.issuer),
+            source: Box::new(source.into()),
+        })?;
+    let kind = entry.kind.or(preset).ok_or(ConfigError::Missing {
         key: "auth.issuer.kind",
     })?;
     if entry.mode == AuthMode::Jwt && entry.introspection.is_some() {

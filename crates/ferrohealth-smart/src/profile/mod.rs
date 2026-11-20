@@ -74,6 +74,21 @@ impl Preset {
         }
     }
 
+    /// Returns the kind of the issuers the preset describes, which an issuer
+    /// table that names no `kind` takes; none for a preset that leaves the
+    /// kind to the table.
+    ///
+    /// # Errors
+    ///
+    /// [`ProfileError::Preset`] when the shipped file does not read, which
+    /// the crate's own tests rule out for every preset.
+    pub fn kind(self) -> Result<Option<IssuerKind>, ProfileError> {
+        self.table()?
+            .remove(KIND)
+            .map(|value| value.try_into().map_err(|source| self.unreadable(source)))
+            .transpose()
+    }
+
     /// Returns the preset's values over the defaults.
     ///
     /// # Errors
@@ -83,6 +98,7 @@ impl Preset {
     pub fn keys(self) -> Result<ProfileKeys, ProfileError> {
         let mut table = self.table()?;
         drop(table.remove(FEDERATION));
+        drop(table.remove(KIND));
         table.try_into().map_err(|source| self.unreadable(source))
     }
 
@@ -117,8 +133,11 @@ impl Preset {
     }
 }
 
-/// The table of a preset file that holds its `[[auth.federation]]` defaults.
+/// The table of a preset file that holds its federation table defaults.
 const FEDERATION: &str = "federation";
+
+/// The key of a preset file that names the kind of its issuers.
+const KIND: &str = "kind";
 
 /// How a scope claim carries its scopes.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -293,6 +312,15 @@ pub struct ProfileKeys {
     /// [`Profile::fhir_user_patient`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fhir_user_patient: Option<bool>,
+    /// [`Profile::patient_context`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub patient_context: Option<bool>,
+    /// [`Profile::issuer_client_is_person`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issuer_client_is_person: Option<bool>,
+    /// [`Profile::party_identifier_type`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub party_identifier_type: Option<String>,
     /// [`Profile::token_types`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_types: Option<Vec<String>>,
@@ -382,6 +410,20 @@ pub struct Profile {
     /// `system/` one; `false` by default, and read on a `persons` issuer
     /// only.
     pub fhir_user_patient: bool,
+    /// Whether the issuer may assert a patient context: the `patient` claim
+    /// of its tokens is read as the launch context only when it is (SMART
+    /// App Launch 2.2.0, Scopes and Launch Context, `launch/patient`);
+    /// `false` by default, `true` under the `ferrosmart` preset.
+    pub patient_context: bool,
+    /// Whether a person's token whose client is the issuer itself is read as
+    /// the person acting with no app, with no client list consulted; `false`
+    /// by default, `true` under the `ferrosmart` preset, whose patient
+    /// picker is the authorization server's own (SMART App Launch 2.2.0,
+    /// Scopes and Launch Context, `launch/patient`).
+    pub issuer_client_is_person: bool,
+    /// The identifier type of the party table of the issuer when the table
+    /// names none; none by default.
+    pub party_identifier_type: Option<String>,
     /// The accepted `typ` header values; `at+jwt` and `application/at+jwt`
     /// by default (RFC 9068 §4).
     pub token_types: Vec<String>,
@@ -435,6 +477,9 @@ impl Default for Profile {
             representation: None,
             act_represents_patient: false,
             fhir_user_patient: false,
+            patient_context: false,
+            issuer_client_is_person: false,
+            party_identifier_type: None,
             token_types: vec![String::from("at+jwt"), String::from("application/at+jwt")],
             required_claims: ["iss", "exp", "aud", "sub", "client_id", "iat", "jti"]
                 .iter()
@@ -539,6 +584,9 @@ impl Profile {
             representation,
             act_represents_patient,
             fhir_user_patient,
+            patient_context,
+            issuer_client_is_person,
+            party_identifier_type,
             token_types,
             required_claims,
             scope_claim,
@@ -568,6 +616,9 @@ impl Profile {
         set_some(&mut self.representation, representation);
         set(&mut self.act_represents_patient, act_represents_patient);
         set(&mut self.fhir_user_patient, fhir_user_patient);
+        set(&mut self.patient_context, patient_context);
+        set(&mut self.issuer_client_is_person, issuer_client_is_person);
+        set_some(&mut self.party_identifier_type, party_identifier_type);
         set(&mut self.token_types, token_types);
         set(&mut self.required_claims, required_claims);
         set(&mut self.scope_claim, scope_claim);
@@ -715,6 +766,9 @@ mod tests {
         let keys = Preset::Ferrosmart.keys().expect("the preset reads");
         let expected = ProfileKeys {
             fhir_user_patient: Some(true),
+            patient_context: Some(true),
+            issuer_client_is_person: Some(true),
+            party_identifier_type: Some(String::from("pairwise")),
             token_types: Some(vec![String::from("at+jwt")]),
             required_claims: Some(
                 [
@@ -765,6 +819,9 @@ mod tests {
             }),
             act_represents_patient: Some(true),
             fhir_user_patient: Some(true),
+            patient_context: Some(true),
+            issuer_client_is_person: Some(true),
+            party_identifier_type: Some(String::from("login")),
             token_types: Some(vec![String::from("at+jwt")]),
             required_claims: Some(vec![String::from("iss")]),
             scope_claim: Some(ScopeClaim::default()),
@@ -807,6 +864,9 @@ mod tests {
                 representation: profile.representation,
                 act_represents_patient: Some(profile.act_represents_patient),
                 fhir_user_patient: Some(profile.fhir_user_patient),
+                patient_context: Some(profile.patient_context),
+                issuer_client_is_person: Some(profile.issuer_client_is_person),
+                party_identifier_type: profile.party_identifier_type,
                 token_types: Some(profile.token_types),
                 required_claims: Some(profile.required_claims),
                 scope_claim: Some(profile.scope_claim),
