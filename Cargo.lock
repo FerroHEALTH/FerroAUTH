@@ -1189,9 +1189,9 @@ dependencies = [
 
 [[package]]
 name = "ferrobridge-term"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09680722c98a038c95017ad2d895d468ab6e75af9b47545c98cd459f4887f53c"
+checksum = "39f9fd9fea13cd73d2672c797d8a54f0dc578627dc0747c978a779116a2a4c3e"
 dependencies = [
  "async-trait",
  "backon",
@@ -1207,9 +1207,9 @@ dependencies = [
 
 [[package]]
 name = "ferrobridge-validator"
-version = "0.13.0"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bc72cf990ca9a7fa3c40b44d2faebd5b281dd96c1100c09501f93ccc97c59c4"
+checksum = "1f15fdef7f4e3ed310449769ae0a01ff2978bd7d742285202ad30555b3f915d0"
 dependencies = [
  "ferrobridge-fhirpath",
  "ferrobridge-term",
