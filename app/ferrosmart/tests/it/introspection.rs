@@ -36,11 +36,11 @@ const JWT_BEARER: &str = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer
 /// The answer of one request: the status, the headers and the JSON body.
 pub(crate) type Answer = (StatusCode, http::HeaderMap, Value);
 
-/// A running server over a fresh database with six clients: `export`, a
+/// A running server over a fresh database with seven clients: `export`, a
 /// Backend Services client; `rs`, a resource server that may introspect;
 /// `portal`, a confidential app; `vault`, a confidential symmetric app;
-/// `gateway`, a confidential symmetric client that may introspect; and
-/// `app`, a public one.
+/// `gateway`, a confidential symmetric client that may introspect; `app`,
+/// a public one; and `admin`, the client of the admin API.
 pub(crate) struct Server {
     /// The application.
     app: Router,
@@ -103,7 +103,9 @@ impl Server {
              scopes = [\"system/introspect\"]\ngrant_types = [\"authorization_code\"]\n\
              [[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\
              redirect_uris = [\"https://app.example.org/callback\"]\n\
-             grant_types = [\"authorization_code\", \"refresh_token\"]\n{extra}",
+             grant_types = [\"authorization_code\", \"refresh_token\"]\n\
+             [[ferrosmart.client]]\nclient_id = \"admin\"\nkind = \"confidential_asymmetric\"\njwks_file = {set:?}\n\
+             scopes = [\"system/admin\"]\ngrant_types = [\"client_credentials\"]\n{extra}",
             secrecy::ExposeSecret::expose_secret(&database.url)
         );
         let settings = config(&text, &keys).resolve().expect("resolves");
@@ -204,6 +206,47 @@ impl Server {
             request = request.header(header::AUTHORIZATION, value);
         }
         let request = request.body(Body::from(body)).expect("a request");
+        let response = self
+            .app
+            .clone()
+            .oneshot(from_client(request))
+            .await
+            .expect("an answer");
+        let status = response.status();
+        let headers = response.headers().clone();
+        let bytes = response
+            .into_body()
+            .collect()
+            .await
+            .expect("the body")
+            .to_bytes();
+        (
+            status,
+            headers,
+            serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+        )
+    }
+
+    /// Sends `method` to `path` with the JSON `body`, and `bearer` as the
+    /// access token.
+    pub(crate) async fn call(
+        &self,
+        method: http::Method,
+        path: &str,
+        body: Option<&Value>,
+        bearer: Option<&str>,
+    ) -> Answer {
+        let mut request = Request::builder().method(method).uri(path);
+        if let Some(token) = bearer {
+            request = request.header(header::AUTHORIZATION, format!("Bearer {token}"));
+        }
+        let request = match body {
+            Some(body) => request
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string())),
+            None => request.body(Body::empty()),
+        }
+        .expect("a request");
         let response = self
             .app
             .clone()
@@ -336,6 +379,11 @@ impl Server {
             .await
             .expect("recorded");
         token
+    }
+
+    /// Returns the settings every replica starts on.
+    pub(crate) const fn settings(&self) -> &Settings {
+        &self.settings
     }
 
     /// Returns the URL of the case's database.

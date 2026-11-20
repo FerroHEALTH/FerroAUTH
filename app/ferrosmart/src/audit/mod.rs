@@ -285,6 +285,16 @@ pub enum Event {
     /// The short-lived token the patient picker searches with, issued for
     /// the signed-in person (`docs/architecture.md` §13.6 item 4).
     PickerToken,
+    /// A client registered through the admin API (`docs/architecture.md`
+    /// §13.8).
+    ClientCreated,
+    /// A client changed through the admin API.
+    ClientUpdated,
+    /// A client disabled through the admin API, with every grant and token
+    /// it held.
+    ClientDisabled,
+    /// A disabled client enabled through the admin API.
+    ClientEnabled,
 }
 
 impl Event {
@@ -311,6 +321,10 @@ impl Event {
             Self::LaunchRegistered => "launch-registered",
             Self::LaunchRedeemed => "launch-redeemed",
             Self::LaunchRefused => "launch-refused",
+            Self::ClientCreated => "client-created",
+            Self::ClientUpdated => "client-updated",
+            Self::ClientDisabled => "client-disabled",
+            Self::ClientEnabled => "client-enabled",
         }
     }
 
@@ -344,6 +358,10 @@ impl Event {
             Self::LaunchRedeemed => "EHR launch redeemed",
             Self::LaunchRefused => "EHR launch refused",
             Self::PickerToken => "Patient picker token issued",
+            Self::ClientCreated => "Client registered",
+            Self::ClientUpdated => "Client changed",
+            Self::ClientDisabled => "Client disabled",
+            Self::ClientEnabled => "Client enabled",
         }
     }
 
@@ -364,8 +382,12 @@ impl Event {
             Self::ConsentRemembered | Self::ConsentApproved | Self::ConsentFirstParty => {
                 (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "C")
             }
-            Self::ConsentWithdrawn | Self::ApprovalWithdrawn => {
+            Self::ConsentWithdrawn | Self::ApprovalWithdrawn | Self::ClientDisabled => {
                 (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "D")
+            }
+            Self::ClientCreated => (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "C"),
+            Self::ClientUpdated | Self::ClientEnabled => {
+                (SECURITY_ALERT, vec![SECURITY_ATTRIBUTES_CHANGED, own], "U")
             }
             Self::TokenRevoked | Self::GrantRevoked => (SECURITY_ALERT, vec![own], "D"),
             Self::RefreshReused | Self::CodeReused | Self::LaunchRefused => {

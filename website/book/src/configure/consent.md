@@ -93,5 +93,6 @@ choice for the app before.
   `organisation` or `first-party` ([Audit records](../operate/audit.md)).
 - The person sees every remembered consent and every app with live access
   on the management page, and disconnects any of them there.
-- The administrator removes an approval by removing or changing its table
-  and restarting; every token issued on it is revoked.
+- The administrator withdraws an approval at once through the
+  [admin API](admin-api.md), or by removing or changing its table and
+  restarting; every token issued on it is revoked.

@@ -18,7 +18,7 @@ use std::net::IpAddr;
 use url::Url;
 
 use crate::audit::{self, Audit, RecordFailure};
-use crate::clients::Client;
+use crate::clients::{Approval, Client};
 use crate::store::Store;
 
 /// Where a withdrawal is recorded as made: the host FerroSMART runs on,
@@ -70,13 +70,7 @@ pub async fn withdraw_lapsed(
                 subject: None,
                 from: origin.host,
                 endpoint: origin.endpoint,
-                details: vec![
-                    ("scope", approval.scopes.join(" ")),
-                    ("approved_by", approval.approved_by.clone()),
-                    ("approved_at", approval.approved_at.to_string()),
-                    ("first_party", approval.first_party.to_string()),
-                    ("revoked", revoked.to_string()),
-                ],
+                details: withdrawn_details(&approval, revoked),
             },
         )
         .await?;
@@ -90,4 +84,17 @@ pub async fn withdraw_lapsed(
         withdrawn.push(client_id);
     }
     Ok(withdrawn)
+}
+
+/// What the record of a withdrawn `approval` holds: its scopes, approver,
+/// time and mark, and the `revoked` grants issued on it.
+#[must_use]
+pub fn withdrawn_details(approval: &Approval, revoked: u64) -> Vec<(&'static str, String)> {
+    vec![
+        ("scope", approval.scopes.join(" ")),
+        ("approved_by", approval.approved_by.clone()),
+        ("approved_at", approval.approved_at.to_string()),
+        ("first_party", approval.first_party.to_string()),
+        ("revoked", revoked.to_string()),
+    ]
 }

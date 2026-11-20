@@ -304,7 +304,8 @@ pub struct About {
 }
 
 /// The Argon2id PHC hash of a client secret, never rendered by `Debug`.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Deserialize)]
+#[serde(from = "String")]
 pub struct SecretHash(String);
 
 impl SecretHash {
@@ -497,8 +498,61 @@ pub fn normalized_launch_uri(uri: &str) -> Option<String> {
     })
 }
 
-/// Returns the client `section` registers, checked.
+/// Returns the client `section` registers, checked, its JWK Set and secret
+/// hash read from the files it names.
 fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
+    if section.client_id.is_empty() {
+        return Err(ClientError::NoClientId);
+    }
+    let rule = |rule| ClientError::Rule {
+        client_id: section.client_id.clone(),
+        rule,
+    };
+    if section.kind != ClientKind::ConfidentialSymmetric && section.secret_hash_file.is_some() {
+        return Err(rule(
+            "only a confidential symmetric client registers a `secret_hash_file`",
+        ));
+    }
+    if section.kind != ClientKind::ConfidentialAsymmetric && section.jwks_file.is_some() {
+        return Err(rule(
+            "only a confidential asymmetric client registers a `jwks_file`",
+        ));
+    }
+    let jwks = section
+        .jwks_file
+        .as_ref()
+        .map(|path| read_jwks(&section.client_id, path))
+        .transpose()?;
+    let secret_hash = match (section.kind, &section.secret_hash_file) {
+        (ClientKind::ConfidentialSymmetric, Some(path)) => {
+            let phc = std::fs::read_to_string(path).map_err(|source| ClientError::SecretHash {
+                client_id: section.client_id.clone(),
+                source: Box::new(source),
+            })?;
+            Some(SecretHash(phc.trim().to_owned()))
+        }
+        _ => None,
+    };
+    resolve_with(section, Material { jwks, secret_hash })
+}
+
+/// What a client registers by value: its JWK Set and the Argon2id hash of
+/// its secret, read from the files of its table or carried by the admin
+/// API's document.
+#[derive(Debug, Clone, Default)]
+pub struct Material {
+    /// Its JWK Set by value.
+    pub jwks: Option<Value>,
+    /// The Argon2id PHC hash of its secret.
+    pub secret_hash: Option<SecretHash>,
+}
+
+/// Returns the client `section` and `material` register, checked as a
+/// configured client is; the file keys of `section` are not read.
+///
+/// # Errors
+/// Returns [`ClientError`] for the first rule the registration breaks.
+pub fn resolve_with(section: &ClientSection, material: Material) -> Result<Client, ClientError> {
     if section.client_id.is_empty() {
         return Err(ClientError::NoClientId);
     }
@@ -517,10 +571,10 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
     if grant_types.is_empty() {
         return Err(rule("no `grant_types`"));
     }
-    let jwks = !section.jwks_uri.is_empty() || section.jwks_file.is_some();
-    if section.kind != ClientKind::ConfidentialSymmetric && section.secret_hash_file.is_some() {
+    let jwks = !section.jwks_uri.is_empty() || material.jwks.is_some();
+    if section.kind != ClientKind::ConfidentialSymmetric && material.secret_hash.is_some() {
         return Err(rule(
-            "only a confidential symmetric client registers a `secret_hash_file`",
+            "only a confidential symmetric client registers a secret hash",
         ));
     }
     let (keys, secret_hash) = match section.kind {
@@ -535,7 +589,7 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
             }
             (None, None)
         }
-        ClientKind::ConfidentialAsymmetric => (Some(keys(section)?), None),
+        ClientKind::ConfidentialAsymmetric => (Some(keys(section, material.jwks)?), None),
         ClientKind::ConfidentialSymmetric => {
             if jwks {
                 return Err(rule("a confidential symmetric client registers no JWK Set"));
@@ -547,7 +601,7 @@ fn resolve_one(section: &ClientSection) -> Result<Client, ClientError> {
                     "a confidential symmetric client cannot use `client_credentials`",
                 ));
             }
-            (None, Some(secret_hash(section)?))
+            (None, Some(secret_hash(section, material.secret_hash)?))
         }
     };
     // NOTE: SMART App Launch 2.2.0, Backend Services, refresh tokens SHOULD NOT be
@@ -737,9 +791,9 @@ fn resolve_approval(
 /// registration of client JWKs using both of the following techniques",
 /// SMART App Launch 2.2.0, Client Authentication: Asymmetric, Registering a
 /// client).
-fn keys(section: &ClientSection) -> Result<ClientKeys, ClientError> {
+fn keys(section: &ClientSection, set: Option<Value>) -> Result<ClientKeys, ClientError> {
     let id = || section.client_id.clone();
-    match (section.jwks_uri.is_empty(), &section.jwks_file) {
+    match (section.jwks_uri.is_empty(), set) {
         (false, None) => {
             // NOTE: SMART App Launch 2.2.0, Registering a client, the JWK Set URL
             // is a "TLS-protected endpoint"; a loopback host is the test exception.
@@ -749,49 +803,46 @@ fn keys(section: &ClientSection) -> Result<ClientKeys, ClientError> {
                 .ok_or(ClientError::JwksUri { client_id: id() })?;
             Ok(ClientKeys::Uri(url))
         }
-        (true, Some(path)) => {
-            let set = std::fs::read(path)
-                .map_err(|source| ClientError::JwksFile {
-                    client_id: id(),
-                    source: Box::new(source),
-                })
-                .and_then(|bytes| {
-                    serde_json::from_slice::<Value>(&bytes).map_err(|source| {
-                        ClientError::JwksFile {
-                            client_id: id(),
-                            source: Box::new(source),
-                        }
-                    })
-                })?;
+        (true, Some(set)) => {
             check_set(&section.client_id, &set)?;
             Ok(ClientKeys::Set(set))
         }
         _ => Err(ClientError::Rule {
             client_id: id(),
-            rule: "a confidential asymmetric client registers exactly one of `jwks_uri` and `jwks_file`",
+            rule: "a confidential asymmetric client registers exactly one of `jwks_uri` and a JWK Set by value",
         }),
     }
 }
 
-/// Returns the secret hash a confidential symmetric client registers, read
-/// from its `secret_hash_file` and checked as `ferrohealth-smart` checks a
-/// Basic user's hash: an Argon2id PHC string at the OWASP Password Storage
-/// Cheat Sheet floor (`docs/architecture.md` §13.9).
-fn secret_hash(section: &ClientSection) -> Result<SecretHash, ClientError> {
-    let failed = |source: Box<dyn std::error::Error + Send + Sync>| ClientError::SecretHash {
-        client_id: section.client_id.clone(),
+/// Returns the JWK Set the file `path` holds for `client_id`.
+fn read_jwks(client_id: &str, path: &std::path::Path) -> Result<Value, ClientError> {
+    let failed = |source: Box<dyn std::error::Error + Send + Sync>| ClientError::JwksFile {
+        client_id: client_id.to_owned(),
         source,
     };
-    let path = section.secret_hash_file.as_ref().ok_or(ClientError::Rule {
+    let bytes = std::fs::read(path).map_err(|source| failed(Box::new(source)))?;
+    serde_json::from_slice::<Value>(&bytes).map_err(|source| failed(Box::new(source)))
+}
+
+/// Returns the secret hash a confidential symmetric client registers,
+/// checked as `ferrohealth-smart` checks a Basic user's hash: an Argon2id
+/// PHC string at the OWASP Password Storage Cheat Sheet floor
+/// (`docs/architecture.md` §13.9).
+fn secret_hash(
+    section: &ClientSection,
+    hash: Option<SecretHash>,
+) -> Result<SecretHash, ClientError> {
+    let hash = hash.ok_or(ClientError::Rule {
         client_id: section.client_id.clone(),
-        rule: "a confidential symmetric client registers a `secret_hash_file`",
+        rule: "a confidential symmetric client registers a secret hash",
     })?;
-    let phc = std::fs::read_to_string(path).map_err(|source| failed(Box::new(source)))?;
-    let phc = phc.trim().to_owned();
     ferrohealth_smart::basic::PasswordStore::new()
-        .with_user("client", secrecy::SecretString::from(phc.clone()))
-        .map_err(|source| failed(Box::new(source)))?;
-    Ok(SecretHash(phc))
+        .with_user("client", secrecy::SecretString::from(hash.0.clone()))
+        .map_err(|source| ClientError::SecretHash {
+            client_id: section.client_id.clone(),
+            source: Box::new(source),
+        })?;
+    Ok(hash)
 }
 
 /// The Argon2id memory cost of a hash [`hash_secret`] makes, in KiB: the

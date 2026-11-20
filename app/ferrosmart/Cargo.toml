@@ -40,9 +40,10 @@ ferrohealth-health = { workspace = true, features = ["registry"] }
 ferrohealth-secret.workspace = true
 # The run path, the subcommands, the stack, the health routes and the drain.
 ferrohealth-server.workspace = true
-# The signing key ring with its rotation and JWK Set, and the SMART
-# discovery document builder the resource servers use too (13.7).
-ferrohealth-smart = { workspace = true, features = ["fetch", "oidc", "server-tls", "xml"] }
+# The signing key ring with its rotation and JWK Set, the SMART discovery
+# document builder the resource servers use too (13.7), and the guard of
+# the admin API (13.8).
+ferrohealth-smart = { workspace = true, features = ["axum", "fetch", "oidc", "server-tls", "xml"] }
 # The upstream SAML 2.0 login (docs/architecture.md 13.24): the XML tree the
 # shared reader parses, the certificates of the keys, the redirect DEFLATE.
 roxmltree.workspace = true
