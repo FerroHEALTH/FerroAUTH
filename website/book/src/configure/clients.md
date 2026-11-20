@@ -171,8 +171,18 @@ Token the roles are ([identity providers](../install/upstream.md)).
 
 ## Which scopes the consent page offers
 
-FerroSMART matches each requested scope as written against these rules,
-drops the rest, and shows the person what remains:
+FerroSMART matches each requested scope against these rules, drops the
+rest, and shows the person what remains. "Lists it" and "grants it" read a
+`patient/`, `user/` or `system/` scope by its parts (SMART App Launch 2.2.0,
+SMART v2 scopes): a listed scope covers a request in the same context whose
+permission letters are a subset of its own, on the same resource or under
+`*`, with the same query parameters, or any when the listed scope names
+none. So one ceiling entry `patient/Composition.crs` admits
+`patient/Composition.rs` and `patient/Composition.r`, `user/*.rs` admits
+`user/Observation.r`, and `patient/Observation.rs?category=vital-signs`
+never admits the unrestricted `patient/Observation.r`. A v1 scope
+(`.read`, `.write`, `.*`) reads as its v2 letters. Every other scope matches
+as written.
 
 | Requested scope | Offered when |
 |---|---|
