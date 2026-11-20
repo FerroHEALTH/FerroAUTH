@@ -148,7 +148,11 @@ pub async fn consent_get(State(state): State<Arc<AppState>>, headers: HeaderMap)
     // NOTE: RFC 8252 §8.6, a request shown the page though a remembered consent
     // covers it starts from that decision, the remember box ticked.
     let remembered = match &pending.subject {
-        Some(subject) => match state.store().remembered(subject, &client.client_id).await {
+        Some(subject) => match state
+            .store()
+            .remembered(subject, &client.client_id, &pending.audience)
+            .await
+        {
             Ok(remembered) => remembered.is_some(),
             Err(error) => return pages::server_error(&state, &error),
         },
@@ -215,6 +219,19 @@ pub(super) enum Basis<'a> {
     /// The client's organisation approval covers the request, and the
     /// person saw no page.
     Organisation(&'a Approval),
+}
+
+impl Basis<'_> {
+    /// The basis as the `code-issued` record names it: `page`,
+    /// `remembered`, `organisation` or `first-party`.
+    pub(super) const fn code(self) -> &'static str {
+        match self {
+            Self::Person { .. } => "page",
+            Self::Remembered => "remembered",
+            Self::Organisation(approval) if approval.first_party => "first-party",
+            Self::Organisation(_) => "organisation",
+        }
+    }
 }
 
 /// Issues the code for the offered fixed scopes and the resource scopes the
@@ -348,9 +365,14 @@ async fn issue_code(
         .map_err(audit::RecordFailure::Store)?;
     }
     if matches!(basis, Basis::Person { remember: true }) {
-        tx.remember(&grant.subject, &grant.client_id, &grant.scope)
-            .await
-            .map_err(audit::RecordFailure::Store)?;
+        tx.remember(
+            &grant.subject,
+            &grant.client_id,
+            &grant.audience,
+            &grant.scope,
+        )
+        .await
+        .map_err(audit::RecordFailure::Store)?;
         let remembered = audit::happened(&happening(
             audit::Event::ConsentRemembered,
             vec![("scope", grant.scope.clone())],
@@ -364,11 +386,16 @@ async fn issue_code(
         .await
         .map_err(audit::RecordFailure::Store)?;
     }
+    // NOTE: no specification governs audit content: our own design, the record of a
+    // code names the basis it was issued on.
     lane.commit_happening(
         tx,
         &happening(
             audit::Event::CodeIssued,
-            vec![("scope", grant.scope.clone())],
+            vec![
+                ("scope", grant.scope.clone()),
+                ("basis", String::from(basis.code())),
+            ],
         ),
     )
     .await

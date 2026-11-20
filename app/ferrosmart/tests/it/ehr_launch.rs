@@ -27,7 +27,9 @@ use tower::ServiceExt as _;
 use url::Url;
 use wiremock::{Mock, MockServer, ResponseTemplate, matchers};
 
-use crate::support::{Database, Keys, RESOURCE, audit, config, ec_key, from_client};
+use crate::support::{
+    Database, Keys, RESOURCE, audit, bases, config, ec_key, from_client, records,
+};
 
 /// FerroSMART's issuer.
 const ISSUER: &str = "https://smart.example.org";
@@ -651,4 +653,74 @@ async fn a_first_party_app_s_ehr_launch_by_a_patient_skips_the_consent_page() {
         }
         smart.stop().await;
     }
+}
+
+/// Runs the EHR launch asking for `scope` and the login of the person whose
+/// `fhirUser` is `fhir_user`, and returns where the callback sends the
+/// browser.
+async fn launched_as(smart: &Smart, scope: &str, fhir_user: &str) -> Url {
+    let launch = smart.launch().await;
+    let (status, headers, _) = smart.get(&authorize_path(&launch, scope), None).await;
+    assert_eq!(StatusCode::SEE_OTHER, status, "on to the provider");
+    let upstream = location(&headers);
+    let cookie = headers
+        .get(header::SET_COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|cookie| cookie.split(';').next())
+        .and_then(|pair| pair.split_once('='))
+        .map(|(_, value)| value.to_owned())
+        .expect("a cookie");
+    smart
+        .answer_as(&param(&upstream, "nonce").expect("a nonce"), fhir_user)
+        .await;
+    let callback = format!(
+        "/callback?code=synthetic-upstream-code&state={}",
+        param(&upstream, "state").expect("a state")
+    );
+    let (status, headers, _) = smart.get(&callback, Some(&cookie)).await;
+    assert_eq!(StatusCode::SEE_OTHER, status, "the login returns");
+    location(&headers)
+}
+
+// NOTE: OpenID Connect Core 1.0 §3.1.2.4 (owner, 2026-11-20, #727): the organisation's
+// approval is administrative consent, and in an EHR launch it covers staff patient/ scopes.
+#[tokio::test]
+async fn an_approved_app_s_ehr_launch_covers_a_professional_s_patient_scopes() {
+    let smart = Smart::start_approved(
+        "[ferrosmart.client.organisation_approval]\n\
+         scopes = [\"openid\", \"fhirUser\", \"launch\", \"launch/patient\", \"patient/Observation.rs\"]\n\
+         approved_by = \"Synthetic Administrator\"\napproved_at = \"2026-11-19T09:00:00Z\"",
+    )
+    .await;
+    let scope = "openid fhirUser launch patient/Observation.rs";
+    let back = launched_as(&smart, scope, "Practitioner/synthetic-1").await;
+    assert!(
+        back.as_str().starts_with(REDIRECT),
+        "no consent page for staff: {back}"
+    );
+    let code = param(&back, "code").expect("a code");
+    let exchange = [
+        ("grant_type", "authorization_code"),
+        ("code", code.as_str()),
+        ("redirect_uri", REDIRECT),
+        ("code_verifier", VERIFIER),
+        ("client_id", "app"),
+    ];
+    let (status, _, body) = smart.post("/token", &exchange, None).await;
+    assert_eq!(StatusCode::OK, status, "{body}");
+    let body: Value = serde_json::from_str(&body).expect("JSON");
+    assert_eq!(json!(scope), body["scope"]);
+    // NOTE: docs/architecture.md §13.2, the code's record names its basis.
+    assert_eq!(
+        vec![String::from("organisation")],
+        bases(&records(&smart.store).await)
+    );
+
+    let back = launched_as(&smart, scope, "Patient/synthetic-2").await;
+    assert_eq!(
+        "/consent",
+        back.path(),
+        "a staff approval never answers for a patient"
+    );
+    smart.stop().await;
 }
