@@ -4958,9 +4958,11 @@ changes clients live in the same way.
   time otherwise. Every document is checked by the rules a table is
   checked by at load.
 - **Typed refusals.** A rule broken answers `400` with the RFC 7591
-  §3.2.2 code (`invalid_redirect_uri`, `invalid_client_metadata`); an
-  unreadable document, an unknown member or a `client_id` other than the
-  path's `400 invalid_request`; an unknown client `404 not_found`; a
+  §3.2.2 code (`invalid_redirect_uri`, `invalid_client_metadata`); a body
+  is read only as `application/json` of at most 64 KiB into the closed
+  document object (`415`, `413`, `400` for no JSON, `422` for an array, a
+  wrong type or an unknown member, each `invalid_request`), and a
+  `client_id` other than the path's is `400 invalid_request`; an unknown client `404 not_found`; a
   repeated id `409 client_exists`; a launch URL another client registers
   `409 launch_uri_taken`; a change to the state the client is in already
   `409 unchanged`. A refusal of the guard is `401 invalid_token` or `403

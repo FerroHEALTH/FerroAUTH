@@ -21,7 +21,8 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
-use axum::body::Bytes;
+use axum::extract::DefaultBodyLimit;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{FromRequestParts, Path, State};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, post};
@@ -60,6 +61,7 @@ pub fn router(state: &Arc<AppState>) -> Router<Arc<AppState>> {
         .route(ENABLE_ROUTE, post(enable))
         .route(APPROVAL_ROUTE, delete(withdraw))
         .route(KEYS_ROUTE, get(keys))
+        .layer(DefaultBodyLimit::max(DOCUMENT_LIMIT))
         .route_layer(guard::layer(Arc::clone(state)))
 }
 
@@ -67,9 +69,10 @@ pub fn router(state: &Arc<AppState>) -> Router<Arc<AppState>> {
 /// error code.
 #[derive(Debug, thiserror::Error)]
 pub enum AdminError {
-    /// The body is no client document.
+    /// The body is no client document: not `application/json`, over
+    /// [`DOCUMENT_LIMIT`], not JSON, or a member the document does not have.
     #[error("the body is no client document")]
-    Unreadable(#[source] serde_json::Error),
+    Unreadable(#[source] JsonRejection),
     /// The document names another client than the path.
     #[error("the document's client_id is not the path's")]
     OtherClient,
@@ -119,9 +122,10 @@ impl From<StoreError> for AdminError {
 impl AdminError {
     /// Returns the status and the error code of the refusal: the RFC 7591
     /// §3.2.2 codes for a registration a rule refuses, our own otherwise.
-    const fn code(&self) -> (StatusCode, &'static str) {
+    fn code(&self) -> (StatusCode, &'static str) {
         match self {
-            Self::Unreadable(_) | Self::OtherClient => (StatusCode::BAD_REQUEST, "invalid_request"),
+            Self::Unreadable(rejection) => (rejection.status(), "invalid_request"),
+            Self::OtherClient => (StatusCode::BAD_REQUEST, "invalid_request"),
             Self::Metadata(ClientError::RedirectUri { .. }) => {
                 (StatusCode::BAD_REQUEST, "invalid_redirect_uri")
             }
@@ -345,9 +349,20 @@ fn check_upstreams(state: &AppState, client: &Client) -> Result<(), AdminError> 
     }
 }
 
-/// Reads `body` as a client document.
-fn document(body: &Bytes) -> Result<ClientDocument, AdminError> {
-    serde_json::from_slice(body).map_err(AdminError::Unreadable)
+/// The largest client document the admin API reads, in bytes: room for a
+/// JWK Set by value with a few keys. No specification governs the value:
+/// our own design.
+pub const DOCUMENT_LIMIT: usize = 64 * 1024;
+
+/// Returns the client document the request carried: an `application/json`
+/// body of at most [`DOCUMENT_LIMIT`] bytes into the closed
+/// [`ClientDocument`], whose unknown members refuse it, every value then
+/// checked by the registry's rules before anything is stored.
+fn document(
+    body: Result<Json<ClientDocument>, JsonRejection>,
+) -> Result<ClientDocument, AdminError> {
+    body.map(|Json(document)| document)
+        .map_err(AdminError::Unreadable)
 }
 
 /// `GET /admin/clients`: every registered client, disabled ones included.
@@ -377,10 +392,10 @@ async fn create(
     State(state): State<Arc<AppState>>,
     Connected(from): Connected,
     access: Access,
-    body: Bytes,
+    body: Result<Json<ClientDocument>, JsonRejection>,
 ) -> Result<Response, AdminError> {
-    let document = document(&body)?;
-    let client_id = document.client_id.clone();
+    let document = document(body)?;
+    let client_id = document.client_id().to_owned();
     let (section, material) =
         document.registration(&client_id, None, jiff::Timestamp::now().as_second());
     let client = crate::clients::resolve_with(&section, material)?;
@@ -412,10 +427,13 @@ async fn create(
 /// `PUT /admin/clients/{client_id}`: replaces the client with the body's.
 /// An organisation approval the body no longer gives in the same form is
 /// withdrawn, every grant issued on it revoked with its tokens.
-async fn update(on: OnClient, body: Bytes) -> Result<Response, AdminError> {
+async fn update(
+    on: OnClient,
+    body: Result<Json<ClientDocument>, JsonRejection>,
+) -> Result<Response, AdminError> {
     let (change, client_id) = (on.change(), on.client_id.as_str());
-    let document = document(&body)?;
-    if !document.client_id.is_empty() && document.client_id != client_id {
+    let document = document(body)?;
+    if !document.client_id().is_empty() && document.client_id() != client_id {
         return Err(AdminError::OtherClient);
     }
     let (mut tx, stored) = change.lock(client_id).await?;

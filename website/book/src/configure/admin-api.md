@@ -96,7 +96,10 @@ and `disabled_at` for a disabled client.
 
 | Status | `error` | When |
 |---|---|---|
-| `400` | `invalid_request` | The body is no client document, holds an unknown member, or names another `client_id` than the path |
+| `415` | `invalid_request` | The body is not `application/json` |
+| `413` | `invalid_request` | The body is over 64 KiB |
+| `400` | `invalid_request` | The body is not JSON, or names another `client_id` than the path |
+| `422` | `invalid_request` | The JSON is not a client document object, or holds a member the document does not have |
 | `400` | `invalid_redirect_uri` | A redirect URI is not an absolute URL without a fragment (RFC 7591 §3.2.2) |
 | `400` | `invalid_client_metadata` | Any other rule of the registry is broken, or the client names an identity provider that is not configured (RFC 7591 §3.2.2) |
 | `404` | `not_found` | No client is registered under the id |

@@ -294,7 +294,11 @@ async fn a_registration_breaking_a_rule_is_refused_with_its_error_code() {
     let answer = server
         .call(Method::POST, "/admin/clients", Some(&extra), Some(&token))
         .await;
-    assert_eq!("invalid_request", refused(&answer, StatusCode::BAD_REQUEST));
+    assert_eq!(
+        "invalid_request",
+        refused(&answer, StatusCode::UNPROCESSABLE_ENTITY),
+        "a member the document does not have"
+    );
     let answer = server
         .call(
             Method::PUT,
@@ -326,6 +330,58 @@ async fn a_registration_breaking_a_rule_is_refused_with_its_error_code() {
         .call(Method::POST, "/admin/clients", Some(&twin), Some(&token))
         .await;
     assert_eq!("launch_uri_taken", refused(&answer, StatusCode::CONFLICT));
+    server.stop().await;
+}
+
+// NOTE: our own design, the document is read only as a bounded application/json
+// body into the closed client document, never as any other shape.
+#[tokio::test]
+async fn a_body_that_is_no_bounded_json_client_document_is_refused_unread() {
+    let server = Server::start().await;
+    let token = admin_token(&server).await;
+    let form = vec![(String::from("client_id"), String::from("form-client"))];
+    let (status, _, body) = server
+        .post_authorized("/admin/clients", &form, Some(format!("Bearer {token}")))
+        .await;
+    assert_eq!(StatusCode::UNSUPPORTED_MEDIA_TYPE, status, "{body}");
+    assert_eq!(json!("invalid_request"), body["error"]);
+    let mut huge = staff_app(false);
+    huge["name"] = json!("x".repeat(ferrosmart::admin::DOCUMENT_LIMIT));
+    let (status, _, body) = server
+        .call(Method::POST, "/admin/clients", Some(&huge), Some(&token))
+        .await;
+    assert_eq!(StatusCode::PAYLOAD_TOO_LARGE, status, "{body}");
+    assert_eq!(json!("invalid_request"), body["error"]);
+    let (status, _, body) = server
+        .call(
+            Method::POST,
+            "/admin/clients",
+            Some(&json!(["staff-app"])),
+            Some(&token),
+        )
+        .await;
+    assert_eq!(
+        "invalid_request",
+        refused(
+            &(status, http::HeaderMap::new(), body),
+            StatusCode::UNPROCESSABLE_ENTITY
+        )
+    );
+    assert!(
+        server
+            .store
+            .client("staff-app")
+            .await
+            .expect("reads")
+            .is_none()
+            && server
+                .store
+                .client("form-client")
+                .await
+                .expect("reads")
+                .is_none(),
+        "nothing is stored"
+    );
     server.stop().await;
 }
 
