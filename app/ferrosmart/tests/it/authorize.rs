@@ -2569,6 +2569,48 @@ const SUPPORTED: [(&str, &str); 19] = [
     ),
 ];
 
+// NOTE: RFC 8414 §2, `grant_types_supported` lists the grant types the
+// server supports, and RFC 6749 §5.2 refuses any other as unsupported.
+#[tokio::test]
+async fn with_a_login_every_listed_grant_is_served_and_every_served_one_listed() {
+    let smart = Smart::start().await;
+    let read = |body: String| -> Vec<String> {
+        crate::support::listed_grants(&serde_json::from_str(&body).expect("JSON"))
+    };
+    let (_, _, metadata) = smart
+        .get("/.well-known/oauth-authorization-server", None)
+        .await;
+    let listed = read(metadata);
+    assert_eq!(
+        vec!["authorization_code", "client_credentials", "refresh_token"],
+        listed
+    );
+    let (_, _, openid) = smart.get("/.well-known/openid-configuration", None).await;
+    assert_eq!(
+        listed,
+        read(openid),
+        "both metadata documents list the same"
+    );
+    // NOTE: SMART App Launch 2.2.0, Conformance, Metadata, `grant_types_supported`
+    // names two options, so the SMART document keeps those of the metadata.
+    let (_, _, smart_document) = smart.get("/.well-known/smart-configuration", None).await;
+    assert_eq!(
+        vec!["authorization_code", "client_credentials"],
+        read(smart_document)
+    );
+    for grant in crate::support::GRANT_TYPES {
+        let (_, _, body) = smart.post("/token", &[("grant_type", grant)], None).await;
+        let answer: Value = serde_json::from_str(&body).expect("JSON");
+        let supported = answer["error"] != json!("unsupported_grant_type");
+        assert_eq!(
+            listed.iter().any(|listed| listed == grant),
+            supported,
+            "{grant}"
+        );
+    }
+    smart.stop().await;
+}
+
 // NOTE: SMART App Launch 2.2.0, Conformance, Metadata: `capabilities` lists the
 // SMART capabilities "that the server supports", and nothing else.
 #[tokio::test]

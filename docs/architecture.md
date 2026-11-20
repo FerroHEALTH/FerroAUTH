@@ -4324,7 +4324,11 @@ document carries `issuer` and `jwks_uri` (with `sso-openid-connect`),
 `token_endpoint_auth_signing_alg_values_supported` (`RS384`, `ES384`, as
 `smart client-confidential-asymmetric`, Advertising server support
 requires), `grant_types_supported` (`authorization_code`,
-`client_credentials`), `scopes_supported` (the identity, launch context and
+`client_credentials`, the two options of `smart conformance`, Metadata;
+the RFC 8414 and OpenID Connect metadata list `refresh_token` beside them,
+with or without a login, since RFC 8414 §2 lists every grant the token
+endpoint serves, and the token endpoint refuses any grant its metadata
+leaves out, #735), `scopes_supported` (the identity, launch context and
 refresh scopes FerroSMART honours whatever a client registers; the resource
 scopes depend on each client's ceiling and are left out, since "The server
 SHALL support all scopes listed here"), `response_types_supported`
