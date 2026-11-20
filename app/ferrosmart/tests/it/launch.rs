@@ -78,12 +78,17 @@ impl Server {
              redirect_uris = [\"https://app.example.org/callback\"]\ngrant_types = [\"authorization_code\"]\n\
              launch_uri = \"https://app.example.org/launch\"\n\
              [[ferrosmart.client]]\nclient_id = \"other\"\nkind = \"public\"\n\
-             redirect_uris = [\"https://other.example.org/callback\"]\ngrant_types = [\"authorization_code\"]",
+             redirect_uris = [\"https://other.example.org/callback\"]\ngrant_types = [\"authorization_code\"]\n\
+             [[ferrosmart.client]]\nclient_id = \"fhir-only\"\nkind = \"public\"\n\
+             redirect_uris = [\"https://fhir-only.example.org/callback\"]\ngrant_types = [\"authorization_code\"]\n\
+             resources = [{RESOURCE:?}]",
             secrecy::ExposeSecret::expose_secret(&database.url),
             jwks(&keys, "ehr", &ehr),
             jwks(&keys, "export", &export),
         );
-        let settings = config(&text, &keys).resolve().expect("resolves");
+        let settings = config(&crate::support::reach_every_base(&text), &keys)
+            .resolve()
+            .expect("resolves");
         let store = Store::connect(&settings.database_url, 2)
             .await
             .expect("connects");
@@ -314,6 +319,18 @@ async fn an_ehr_registers_a_launch_the_app_redeems_once() {
         server.resolve(launch, "app", RESOURCE).await.is_err(),
         "a launch is redeemed once"
     );
+    server.stop().await;
+}
+
+// NOTE: RFC 8707 §2, an app whose `resources` does not list the base gets no
+// launch for it, as its authorization request would be refused.
+#[tokio::test]
+async fn a_launch_names_only_a_base_the_app_s_resources_list() {
+    let server = Server::start().await;
+    let (status, _, _) = server.register("fhir-only", RESOURCE, &[]).await;
+    assert_eq!(StatusCode::CREATED, status);
+    let answer = server.register("fhir-only", OPENEHR, &[]).await;
+    assert_eq!("invalid_target", refused(&answer));
     server.stop().await;
 }
 

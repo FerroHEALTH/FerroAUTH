@@ -42,7 +42,9 @@ impl Two {
             staff.server.uri(),
             patients.server.uri(),
         );
-        let settings = config(&text, &keys).resolve().expect("resolves");
+        let settings = config(&crate::support::reach_every_base(&text), &keys)
+            .resolve()
+            .expect("resolves");
         let store = Store::connect(&settings.database_url, 2)
             .await
             .expect("connects");

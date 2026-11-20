@@ -968,6 +968,55 @@ mod ferrosmart_profile {
         Ok(())
     }
 
+    // NOTE: RFC 9068 §4 checks `aud` before any list; under `audience_delegates` a
+    // FerroSMART token for this server admits its client as a delegate (#682).
+    #[tokio::test]
+    async fn every_client_of_a_token_for_this_server_is_a_delegate_under_audience_delegates()
+    -> Outcome {
+        let h = Harness::new(ferrosmart())?;
+        let mut claims = h.person("openid user/Observation.rs");
+        claims["client_id"] = json!(THIRD_PARTY);
+        assert_eq!(
+            Some(Unclassified::UnlistedClient),
+            refused(h.admit(IssuerKind::Persons, keep, &claims).await),
+            "off by default: an unlisted client is refused"
+        );
+        let by_audience = |profile: &mut Profile| profile.audience_delegates = true;
+        let caller = h.admit(IssuerKind::Persons, by_audience, &claims).await?;
+        assert_eq!(&CallerKind::Delegated { actor: None }, caller.kind());
+        assert_eq!(Some(THIRD_PARTY), caller.client_id());
+        let caller = h.admit(IssuerKind::Persons, delegate, &claims).await?;
+        assert_eq!(
+            &CallerKind::Delegated { actor: None },
+            caller.kind(),
+            "the listed delegates read as before"
+        );
+        let caller = h
+            .admit(IssuerKind::Persons, by_audience, &{
+                let mut first = claims.clone();
+                first["client_id"] = json!(FIRST_PARTY);
+                first
+            })
+            .await?;
+        assert_eq!(
+            &CallerKind::Person,
+            caller.kind(),
+            "a first-party client stays first party"
+        );
+        let mut elsewhere = claims.clone();
+        elsewhere["aud"] = json!("https://elsewhere.example.org/fhir");
+        assert!(
+            matches!(
+                h.admit(IssuerKind::Persons, by_audience, &elsewhere).await,
+                Err(Rejection::Invalid {
+                    reason: ferrohealth_smart::refusal::Reason::Audience
+                })
+            ),
+            "a token for another server is refused before any list"
+        );
+        Ok(())
+    }
+
     // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, `launch/patient`: the
     // authorization server's own picker acts for the signed-in person (#730).
     #[tokio::test]

@@ -22,6 +22,7 @@ mod introspection;
 mod launch;
 mod refresh;
 mod replicas;
+mod resources;
 mod revocation;
 mod saml;
 mod screenshots;

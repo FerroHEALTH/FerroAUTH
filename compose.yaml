@@ -52,6 +52,7 @@
 #   name = "Bulk export"
 #   kind = "confidential_asymmetric"
 #   jwks_uri = "https://export.example.org/jwks.json"
+#   resources = ["http://localhost:8090/fhir"]
 #   scopes = ["system/Patient.rs", "system/Observation.rs"]
 #   grant_types = ["client_credentials"]
 #   TOML

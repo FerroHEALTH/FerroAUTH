@@ -149,7 +149,9 @@ impl Stack {
             provider.server.uri(),
             portal.server.uri()
         );
-        let settings = config(&text, &keys).resolve().expect("resolves");
+        let settings = config(&crate::support::reach_every_base(&text), &keys)
+            .resolve()
+            .expect("resolves");
         let store = Store::connect(&settings.database_url, 4)
             .await
             .expect("connects");

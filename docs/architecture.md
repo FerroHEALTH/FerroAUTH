@@ -1150,7 +1150,9 @@ layers, all in `ferrohealth-smart`:
    `expect`, `user_claims` (claims every token that is not app-only must
    carry), `person_equality`, `unstable_claims`, `first_party_clients`,
    `delegates` (actors by `{ sub, issuer }` and clients by `{ client }`),
-   `max_actor_chain`, `representation`, `act_represents_patient`,
+   `audience_delegates` (every client of a token for this resource server
+   is a delegate, on a `persons` issuer under the `ferrosmart` preset
+   alone, #682), `max_actor_chain`, `representation`, `act_represents_patient`,
    `fhir_user_patient` (3.13), `token_types`, `required_claims`,
    `scope_claim` and `app_only_scope_claim`, and `adapter`.
    The `keycloak` preset names no impersonation marker: Keycloak 26.8.2
@@ -3420,6 +3422,24 @@ specification governs.
     carries `Access-Control-Allow-Origin` with it and `Vary: Origin`; any
     other origin, `null` included, gets no CORS header. Our own design
     (#560).
+13. **A client's resource servers.** The owner's decision of 2026-11-19
+    (#682): a client's `resources` lists the `[[ferrosmart.resource]]`
+    bases its tokens may name in `aud`, and an authorization request, a
+    client credentials request, a refresh, a code redemption or a launch
+    registration naming any other base is refused `invalid_target`
+    (`rfc8707 §2`: "The requested resource is invalid, missing, unknown,
+    or malformed"). FerroSMART's own issuer stays a target of its own
+    `system/` scopes for every client (item 8, 13.27). The list is read
+    from the store on every request, so a base the admin API takes off it
+    is refused from the next request. A client that lists none reaches no
+    resource server, and a client credentials request without `resource`
+    takes the one base its client lists alone (`rfc9068 §3`). A token's
+    `aud` therefore says the client was admitted for that server, which
+    lets a product admit every client FerroSMART issued for its audience
+    (`audience_delegates`, 3.14, 13.21) instead of listing each one; RFC
+    9068 §4 has a resource server check `aud`, and SMART 2.2 leaves the
+    rest to the server's own policy. Which clients reach which server is
+    our own design.
 
 ### 13.7 The crate layout
 
@@ -3498,7 +3518,7 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 
 | Table | Key | Holds |
 |---|---|---|
-| `client` | `client_id` | type (public, symmetric, asymmetric), secret hash, `jwks` or `jwks_uri`, redirect URIs, post-logout redirect URIs, the upstream providers it may use, launch URI, registered origins, scope ceiling, grant types, offline access allowed, name and logo, the organisation approval, the source (`config` or `admin`, 13.27), disabled time |
+| `client` | `client_id` | type (public, symmetric, asymmetric), secret hash, `jwks` or `jwks_uri`, redirect URIs, post-logout redirect URIs, the upstream providers it may use, the resource servers its tokens may name (13.6 item 13), launch URI, registered origins, scope ceiling, grant types, offline access allowed, name and logo, the organisation approval, the source (`config` or `admin`, 13.27), disabled time |
 | `signing_key` | `kid` | algorithm, public JWK, signer reference (file path or KMS key id), state (`next`, `active`, `retiring`), the times of each state |
 | `pending_authorization` | random id | the validated request (client, redirect URI, scope, `state`, `nonce`, PKCE challenge, `aud`, launch, and the OpenID Connect `prompt`, `max_age` and `ui_locales` of 13.25), the upstream provider chosen, its `state`, `nonce` and PKCE verifier, expiry |
 | `authorization_code` | code hash | the grant it opens, the PKCE challenge, the redirect URI, expiry, redemption time |
@@ -3614,7 +3634,8 @@ scopes = ["user/Observation.rs", "user/Patient.rs"]    # user/ and patient/ scop
 [[ferrosmart.client]]                         # one table per client, seeding the store at start (13.27)
 client_id = "bulk-export"
 name = "Bulk export"
-kind = "confidential_asymmetric"              # or "public", or "confidential_symmetric"
+kind = "confidential_asymmetric"
+resources = ["https://ehr.example.org/fhir"]  # the bases its tokens may name in aud; none reaches no server (13.6 item 13)              # or "public", or "confidential_symmetric"
 jwks_uri = "https://export.example.org/jwks.json"   # or jwks_file, a JWK Set by value
 scopes = ["system/Patient.rs", "system/Observation.rs"]   # the client's ceiling
 grant_types = ["client_credentials"]
@@ -3623,6 +3644,7 @@ grant_types = ["client_credentials"]
 client_id = "portal"
 kind = "confidential_symmetric"
 secret_hash_file = "/run/secrets/portal-secret.phc"   # the Argon2id PHC hash, at least m=19456,t=2,p=1
+resources = ["https://ehr.example.org/fhir"]
 redirect_uris = ["https://portal.example.org/callback"]
 post_logout_redirect_uris = ["https://portal.example.org/logged-out"]   # optional: where the end-session endpoint may send the browser back (RP-Initiated Logout 1.0 §3.1)
 launch_uri = "https://portal.example.org/launch"   # optional: the app's launch URL, which POST /launch may name (13.17)
@@ -4259,6 +4281,21 @@ adoption issue tracks its own side (#521).
 
    [auth.issuer.smart.profile]
    delegates = [{ client = "growth-chart" }]
+   ```
+
+   The administrator chooses per issuer table (owner, 2026-11-19, #682):
+   `delegates` keeps the product's own list, and `audience_delegates =
+   true` admits every client whose FerroSMART token names this product in
+   `aud`, since FerroSMART issues a client's tokens only for the bases its
+   `resources` lists (13.6 item 13). An app is then registered once, at
+   FerroSMART. The key is read on a `persons` table under the `ferrosmart`
+   preset alone, and a product whose standing answers its client lists
+   (FerroEHR's CDR grant) takes neither; its own access policy still
+   decides each request.
+
+   ```toml
+   [auth.issuer.smart.profile]
+   audience_delegates = true
    ```
 
 3. **The product's discovery document describes FerroSMART.** The

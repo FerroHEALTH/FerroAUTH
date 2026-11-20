@@ -371,6 +371,7 @@ scopes = ["user/Patient.rs", "user/Observation.rs"]
 client_id = "growth-chart"
 name = "Growth chart"
 kind = "public"
+resources = ["https://ehr.example.org/fhir"]
 redirect_uris = ["https://growth-chart.example.org/callback"]
 scopes = ["openid", "fhirUser", "launch", "launch/patient", "patient/Observation.rs"]
 grant_types = ["authorization_code"]

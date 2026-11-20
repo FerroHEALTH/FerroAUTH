@@ -108,7 +108,9 @@ impl Server {
              scopes = [\"system/admin\"]\ngrant_types = [\"client_credentials\"]\n{extra}",
             secrecy::ExposeSecret::expose_secret(&database.url)
         );
-        let settings = config(&text, &keys).resolve().expect("resolves");
+        let settings = config(&crate::support::reach_every_base(&text), &keys)
+            .resolve()
+            .expect("resolves");
         let store = Store::connect(&settings.database_url, 2)
             .await
             .expect("connects");

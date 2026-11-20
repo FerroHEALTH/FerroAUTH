@@ -53,6 +53,14 @@ pub enum Error {
         /// The name.
         name: String,
     },
+    /// A client names a base no `[[ferrosmart.resource]]` table is.
+    #[error("the client `{client_id}` names the resource `{base}`, which is not configured")]
+    UnknownResource {
+        /// The client.
+        client_id: String,
+        /// The base.
+        base: String,
+    },
     /// An upstream provider's table breaks a rule.
     #[error("`ferrosmart.upstream`: {rule}")]
     Upstream {

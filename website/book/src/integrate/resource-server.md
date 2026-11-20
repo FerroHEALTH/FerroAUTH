@@ -102,6 +102,26 @@ preset = "ferrosmart"
 delegates = [{ client = "growth-chart" }]
 ```
 
+An app can instead be registered once, at FerroSMART. Give each
+`[[ferrosmart.client]]` the bases its tokens may name in `resources`
+([clients](../configure/clients.md#the-client-registry)); FerroSMART then
+refuses a token for any other base with `invalid_target`. A product's table
+can admit every app whose token names the product in `aud`, in place of
+listing each one:
+
+```toml
+[auth.issuer.smart.profile]
+audience_delegates = true
+```
+
+Each table makes its own choice: `delegates` keeps the product's own list,
+`audience_delegates` reads every app of a FerroSMART token for the product
+as a delegate, the listed ones included. The key is refused on an issuer
+under any other preset, because only FerroSMART is known to issue an app's
+tokens just for the bases it lists. A product whose own data decides which
+apps it admits, such as FerroEHR with its CDR grant, takes neither key, and
+its own access policy still decides every request.
+
 The same table reads a Backend Services token as a system caller, because
 its `sub` is its `client_id`. A token through a listed app is the patient's
 own access when its `fhirUser` is `Patient/<x>`, its `patient` is `x`, and

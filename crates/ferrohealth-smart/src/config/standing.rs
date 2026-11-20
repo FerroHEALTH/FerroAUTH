@@ -79,7 +79,7 @@ impl Level {
 
 /// Each `[auth.issuer.<name>.profile]` table, without the client lists.
 static PROFILE: Level = Level {
-    refused: &["first_party_clients", "delegates"],
+    refused: &["first_party_clients", "delegates", "audience_delegates"],
     accepted: OnceLock::new(),
     nested: None,
 };
@@ -162,6 +162,9 @@ impl ProductStandingSection {
                 }
                 if keys.delegates.is_some() {
                     return Err(listed("auth.issuer.profile.delegates"));
+                }
+                if keys.audience_delegates.is_some() {
+                    return Err(listed("auth.issuer.profile.audience_delegates"));
                 }
             }
         }

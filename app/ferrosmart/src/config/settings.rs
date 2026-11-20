@@ -186,7 +186,7 @@ impl Config {
             keys: Arc::clone(&keys),
             database_url,
             max_connections: section.database.max_connections,
-            clients: clients_of(&section.client, &section.upstream)?,
+            clients: clients_of(&section.client, &section.upstream, &section.resource)?,
             resources: resources(&section.resource)?,
             openehr_resources: section
                 .resource
@@ -568,13 +568,24 @@ fn purposes(
 }
 
 /// Returns the clients `sections` register, each naming only providers
-/// `upstreams` configures.
+/// `upstreams` configures and bases `resources` configures.
 fn clients_of(
     sections: &[crate::clients::ClientSection],
     upstreams: &[UpstreamSection],
+    resources: &[crate::config::ResourceSection],
 ) -> Result<Vec<Client>, Error> {
     let clients = crate::clients::resolve(sections)?;
     for client in &clients {
+        if let Some(unknown) = client
+            .resources
+            .iter()
+            .find(|base| !resources.iter().any(|resource| &resource.base == *base))
+        {
+            return Err(Error::UnknownResource {
+                client_id: client.client_id.clone(),
+                base: unknown.clone(),
+            });
+        }
         if let Some(unknown) = client
             .upstreams
             .iter()

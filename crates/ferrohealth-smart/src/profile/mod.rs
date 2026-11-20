@@ -344,6 +344,9 @@ pub struct ProfileKeys {
     /// [`Profile::delegates`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub delegates: Option<Vec<Delegate>>,
+    /// [`Profile::audience_delegates`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audience_delegates: Option<bool>,
     /// [`Profile::max_actor_chain`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_actor_chain: Option<usize>,
@@ -439,6 +442,12 @@ pub struct Profile {
     pub first_party_clients: Vec<String>,
     /// The actors and the third-party clients that may act for a person.
     pub delegates: Vec<Delegate>,
+    /// Whether every client a person's token names is a delegate beside
+    /// those `delegates` lists, since the token's `aud` already names this
+    /// resource server: `false` by default, and set on a `persons` issuer
+    /// under the `ferrosmart` preset alone, whose authorization server
+    /// issues a client's tokens only for the bases its registration lists.
+    pub audience_delegates: bool,
     /// The deepest `act` chain admitted, 1 by default: prior actors are
     /// "informational only" (RFC 8693 §4.1).
     pub max_actor_chain: usize,
@@ -517,6 +526,7 @@ impl Default for Profile {
             unstable_claims: Vec::new(),
             first_party_clients: Vec::new(),
             delegates: Vec::new(),
+            audience_delegates: false,
             max_actor_chain: 1,
             representation: None,
             act_represents_patient: false,
@@ -589,6 +599,11 @@ pub enum ProfileError {
         /// The claim.
         claim: String,
     },
+    /// `audience_delegates` is set under a preset other than `ferrosmart`,
+    /// whose authorization server is the one known to issue a client's
+    /// tokens only for the bases its registration lists.
+    #[error("the profile key audience_delegates is read under the ferrosmart preset alone")]
+    AudienceDelegates,
     /// A key is set on an issuer kind it has no meaning for.
     #[error("the profile key {key} is refused on a {kind} issuer")]
     Kind {
@@ -649,6 +664,7 @@ impl Profile {
             unstable_claims,
             first_party_clients,
             delegates,
+            audience_delegates,
             max_actor_chain,
             representation,
             act_represents_patient,
@@ -681,6 +697,7 @@ impl Profile {
         set(&mut self.unstable_claims, unstable_claims);
         set(&mut self.first_party_clients, first_party_clients);
         set(&mut self.delegates, delegates);
+        set(&mut self.audience_delegates, audience_delegates);
         set(&mut self.max_actor_chain, max_actor_chain);
         set_some(&mut self.representation, representation);
         set(&mut self.act_represents_patient, act_represents_patient);
@@ -758,6 +775,12 @@ impl Profile {
         if self.representation.is_some() && kind != IssuerKind::Persons {
             return Err(ProfileError::Kind {
                 key: "representation",
+                kind: kind.as_str(),
+            });
+        }
+        if self.audience_delegates && kind != IssuerKind::Persons {
+            return Err(ProfileError::Kind {
+                key: "audience_delegates",
                 kind: kind.as_str(),
             });
         }
@@ -880,6 +903,7 @@ mod tests {
             unstable_claims: Some(vec![String::from("x")]),
             first_party_clients: Some(vec![String::from("f")]),
             delegates: Some(vec![Delegate::Client(String::from("d"))]),
+            audience_delegates: Some(true),
             max_actor_chain: Some(3),
             representation: Some(Representation {
                 claim: String::from("r"),
@@ -927,6 +951,7 @@ mod tests {
                 unstable_claims: Some(profile.unstable_claims),
                 first_party_clients: Some(profile.first_party_clients),
                 delegates: Some(profile.delegates),
+                audience_delegates: Some(profile.audience_delegates),
                 max_actor_chain: Some(profile.max_actor_chain),
                 representation: profile.representation,
                 act_represents_patient: Some(profile.act_represents_patient),

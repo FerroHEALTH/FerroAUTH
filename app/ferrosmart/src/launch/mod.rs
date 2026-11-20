@@ -409,6 +409,14 @@ async fn register(
                 "the resource is not served by this issuer",
             ))
         })?;
+    // NOTE: RFC 8707 §2, the app's own `resources` must list the base, or its
+    // authorization request for it would be refused.
+    if !app.reaches(audience) {
+        return Err(refused(refusal(
+            "invalid_target",
+            "the app may not name this resource server",
+        )));
+    }
     let context = form_context(&form).map_err(refused)?;
     context
         .check(

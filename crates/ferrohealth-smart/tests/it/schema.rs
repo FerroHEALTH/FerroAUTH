@@ -366,3 +366,38 @@ client_secret = "synthetic-secret"
     );
     Ok(())
 }
+
+// NOTE: RFC 9068 §4 checks `aud`; only FerroSMART issues a client's tokens for
+// the bases its registration lists alone, so the key reads under its preset (#682).
+#[test]
+fn audience_delegates_loads_under_the_ferrosmart_preset_alone() {
+    let ferrosmart = section(&format!(
+        "{}[issuer.i2.profile]\naudience_delegates = true\n",
+        issuer("persons", "preset = \"ferrosmart\"")
+    ));
+    assert!(ferrosmart.resolve(&[]).is_ok());
+    let keycloak = section(&profiled(
+        "persons",
+        "preset = \"keycloak\"",
+        "audience_delegates = true",
+    ));
+    assert!(matches!(
+        keycloak.resolve(&[]),
+        Err(ConfigError::Issuer { .. })
+    ));
+    let machines = section(&format!(
+        "{}[issuer.i2.profile]\naudience_delegates = true\n",
+        issuer("machines", "preset = \"ferrosmart\"")
+    ));
+    assert!(machines.resolve(&[]).is_err(), "a persons issuer alone");
+    let standing = format!(
+        "{}[issuer.i2.profile]\naudience_delegates = true\n",
+        issuer("persons", "preset = \"ferrosmart\"")
+    );
+    let refused =
+        toml::from_str::<ferrohealth_smart::config::ProductStandingSection>(&standing).err();
+    assert!(
+        refused.is_some_and(|error| error.to_string().contains("unknown field")),
+        "a product whose standing answers its lists takes no audience_delegates"
+    );
+}

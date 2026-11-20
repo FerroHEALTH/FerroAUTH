@@ -241,9 +241,10 @@ impl Smart {
              client_uri = \"https://app.example.org/\"\nlogo_uri = \"https://cdn.example.org/app.png\"\n\
              policy_uri = \"https://app.example.org/privacy\"\ntos_uri = \"https://app.example.org/terms\"\n\
              redirect_uris = {redirects:?}\npost_logout_redirect_uris = [{POST_LOGOUT:?}]\n\
-             grant_types = {grants}\nscopes = {ceiling}",
+             {listing}grant_types = {grants}\nscopes = {ceiling}",
             secrecy::ExposeSecret::expose_secret(&database.url),
-            provider.server.uri()
+            provider.server.uri(),
+            listing = crate::support::resources_of(resource),
         );
         let settings = config(&text, &keys).resolve().expect("resolves");
         let store = Store::connect(&settings.database_url, 2)
