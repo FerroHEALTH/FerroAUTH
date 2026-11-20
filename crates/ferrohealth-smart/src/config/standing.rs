@@ -49,8 +49,17 @@ struct Level {
     refused: &'static [&'static str],
     /// The keys it accepts: the reader's own, without the refused ones.
     accepted: OnceLock<Vec<&'static str>>,
-    /// The key whose array of tables is held to a level of its own.
-    nested: Option<(&'static str, &'static Level)>,
+    /// The key whose value is held to a level of its own, and its shape.
+    nested: Option<(&'static str, &'static Level, Shape)>,
+}
+
+/// The shape of a nested value a level holds.
+#[derive(Clone, Copy)]
+enum Shape {
+    /// One table.
+    Table,
+    /// A table of tables by name.
+    Named,
 }
 
 impl Level {
@@ -68,19 +77,26 @@ impl Level {
     }
 }
 
-/// Each `[auth.issuer.<name>]` table, without the client lists and the
-/// scopeless subjects.
-static ISSUER: Level = Level {
-    refused: &["first_party_clients", "delegates", "scopeless_subjects"],
+/// Each `[auth.issuer.<name>.profile]` table, without the client lists.
+static PROFILE: Level = Level {
+    refused: &["first_party_clients", "delegates"],
     accepted: OnceLock::new(),
     nested: None,
+};
+
+/// Each `[auth.issuer.<name>]` table, without the scopeless subjects, its
+/// profile table held to [`PROFILE`].
+static ISSUER: Level = Level {
+    refused: &["scopeless_subjects"],
+    accepted: OnceLock::new(),
+    nested: Some(("profile", &PROFILE, Shape::Table)),
 };
 
 /// The `[auth]` table, whose issuer tables are held to [`ISSUER`].
 static SECTION: Level = Level {
     refused: &[],
     accepted: OnceLock::new(),
-    nested: Some(("issuer", &ISSUER)),
+    nested: Some(("issuer", &ISSUER, Shape::Named)),
 };
 
 impl<'de> Deserialize<'de> for ProductStandingSection {
@@ -139,11 +155,14 @@ impl ProductStandingSection {
             if !entry.scopeless_subjects.is_empty() {
                 return Err(listed("auth.issuer.scopeless_subjects"));
             }
-            if entry.first_party_clients.is_some() {
-                return Err(listed("auth.issuer.first_party_clients"));
-            }
-            if entry.delegates.is_some() {
-                return Err(listed("auth.issuer.delegates"));
+            let file = entry.profile_file()?.map(|file| file.keys);
+            for keys in [Some(&entry.profile), file.as_ref()].into_iter().flatten() {
+                if keys.first_party_clients.is_some() {
+                    return Err(listed("auth.issuer.profile.first_party_clients"));
+                }
+                if keys.delegates.is_some() {
+                    return Err(listed("auth.issuer.profile.delegates"));
+                }
             }
         }
         Ok(())
@@ -157,8 +176,16 @@ impl schemars::JsonSchema for ProductStandingSection {
     }
 
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        let mut profile = crate::profile::ProfileKeys::json_schema(generator);
+        without(&mut profile, PROFILE.refused);
         let mut issuer = crate::config::IssuerEntry::json_schema(generator);
         without(&mut issuer, ISSUER.refused);
+        if let Some(property) = issuer
+            .get_mut("properties")
+            .and_then(|properties| properties.get_mut("profile"))
+        {
+            *property = profile.to_value();
+        }
         let mut section = AuthSection::json_schema(generator);
         without(&mut section, SECTION.refused);
         if let Some(items) = section
@@ -260,8 +287,9 @@ struct Entries<A> {
     level: &'static Level,
     /// The keys it accepts.
     accepted: &'static [&'static str],
-    /// The level the next value's tables are held to, after its key.
-    nested: Option<&'static Level>,
+    /// The level the next value's tables are held to, after its key, and
+    /// the value's shape.
+    nested: Option<(&'static Level, Shape)>,
 }
 
 impl<'de, A: MapAccess<'de>> MapAccess<'de> for Entries<A> {
@@ -281,13 +309,14 @@ impl<'de, A: MapAccess<'de>> MapAccess<'de> for Entries<A> {
         self.nested = self
             .level
             .nested
-            .and_then(|(nested, level)| (nested == key).then_some(level));
+            .and_then(|(nested, level, shape)| (nested == key).then_some((level, shape)));
         Ok(Some(value))
     }
 
     fn next_value_seed<S: DeserializeSeed<'de>>(&mut self, seed: S) -> Result<S::Value, A::Error> {
         match self.nested.take() {
-            Some(level) => self.map.next_value_seed(Nested { seed, level }),
+            Some((level, Shape::Named)) => self.map.next_value_seed(Nested { seed, level }),
+            Some((level, Shape::Table)) => self.map.next_value_seed(Element { seed, level }),
             None => self.map.next_value_seed(seed),
         }
     }

@@ -14,6 +14,7 @@ use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::config::IssuerEntry;
 use ferrohealth_smart::kind::CallerKind;
 use ferrohealth_smart::kind::IssuerKind;
+use ferrohealth_smart::profile::ProfileKeys;
 use ferrohealth_smart::resource::Compartment;
 use ferrohealth_smart::resource::IssuerSet;
 use ferrohealth_smart::resource::Verifier;
@@ -38,7 +39,10 @@ fn entry(issuer: &str, roles: &[&str]) -> IssuerEntry {
         kind: Some(IssuerKind::Persons),
         audience: vec![String::from(AUDIENCE)],
         role_claims: Some(roles.iter().map(|&role| role.to_owned()).collect()),
-        first_party_clients: Some(vec![String::from(CLIENT)]),
+        profile: ProfileKeys {
+            first_party_clients: Some(vec![String::from(CLIENT)]),
+            ..ProfileKeys::default()
+        },
         ..IssuerEntry::default()
     }
 }

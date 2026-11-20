@@ -546,12 +546,16 @@ fn the_attributes_tables_load_from_toml_and_name_their_issuers() -> Outcome {
 issuer = "{ISSUER}"
 kind = "persons"
 audience = ["{AUDIENCE}"]
+
+[issuer.i1.profile]
 first_party_clients = ["{FIRST_PARTY}"]
 
 [issuer.i2]
 issuer = "https://patients.example.org"
 kind = "patients"
 audience = ["{AUDIENCE}"]
+
+[issuer.i2.profile]
 act_represents_patient = true
 
 [issuer.i1.attributes]

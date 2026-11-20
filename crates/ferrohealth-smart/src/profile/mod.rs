@@ -51,10 +51,6 @@ pub enum Preset {
     Keycloak,
     /// Okta access tokens.
     Okta,
-    /// The Dutch harmonised `BgZ` and `eOverdracht` authentication of the
-    /// openEHR Federation Tier specification 1.0.1 Annex B §B.4a, with the
-    /// `[auth.issuer.<name>.federation]` defaults of a `federation` issuer.
-    Nl,
     /// FerroSMART's access tokens: plain RFC 9068, `typ` `at+jwt` and
     /// `scope` in every token.
     Ferrosmart,
@@ -69,9 +65,19 @@ impl Preset {
             Self::Entra => include_str!("../../profiles/entra.toml"),
             Self::Keycloak => include_str!("../../profiles/keycloak.toml"),
             Self::Okta => include_str!("../../profiles/okta.toml"),
-            Self::Nl => include_str!("../../profiles/nl.toml"),
             Self::Ferrosmart => include_str!("../../profiles/ferrosmart.toml"),
         }
+    }
+
+    /// Returns the preset's file read: its keys, its kind and its
+    /// federation defaults.
+    ///
+    /// # Errors
+    ///
+    /// [`ProfileError::Preset`] when the shipped file does not read, which
+    /// the crate's own tests rule out for every preset.
+    pub fn file(self) -> Result<ProfileFile, ProfileError> {
+        ProfileFile::parse(self.source()).map_err(|source| self.unreadable(source))
     }
 
     /// Returns the kind of the issuers the preset describes, which an issuer
@@ -80,48 +86,29 @@ impl Preset {
     ///
     /// # Errors
     ///
-    /// [`ProfileError::Preset`] when the shipped file does not read, which
-    /// the crate's own tests rule out for every preset.
+    /// [`ProfileError::Preset`] when the shipped file does not read.
     pub fn kind(self) -> Result<Option<IssuerKind>, ProfileError> {
-        self.table()?
-            .remove(KIND)
-            .map(|value| value.try_into().map_err(|source| self.unreadable(source)))
-            .transpose()
+        Ok(self.file()?.kind)
     }
 
     /// Returns the preset's values over the defaults.
     ///
     /// # Errors
     ///
-    /// [`ProfileError::Preset`] when the shipped file does not read, which
-    /// the crate's own tests rule out for every preset.
+    /// [`ProfileError::Preset`] when the shipped file does not read.
     pub fn keys(self) -> Result<ProfileKeys, ProfileError> {
-        let mut table = self.table()?;
-        drop(table.remove(FEDERATION));
-        drop(table.remove(KIND));
-        table.try_into().map_err(|source| self.unreadable(source))
+        Ok(self.file()?.keys)
     }
 
-    /// Returns the `[auth.issuer.<name>.federation]` defaults the preset's `federation`
+    /// Returns the federation table defaults the preset's `federation`
     /// table declares, which the issuer's own table is set over; none when
     /// the preset declares none.
     ///
     /// # Errors
     ///
-    /// [`ProfileError::Preset`] when the shipped file does not read, which
-    /// the crate's own tests rule out for every preset.
+    /// [`ProfileError::Preset`] when the shipped file does not read.
     pub fn federation(self) -> Result<Option<FederationSection>, ProfileError> {
-        self.table()?
-            .remove(FEDERATION)
-            .map(|table| table.try_into().map_err(|source| self.unreadable(source)))
-            .transpose()
-    }
-
-    /// Returns the preset's file as a table.
-    fn table(self) -> Result<toml::Table, ProfileError> {
-        self.source()
-            .parse()
-            .map_err(|source| self.unreadable(source))
+        Ok(self.file()?.federation)
     }
 
     /// Returns the error of a shipped file that does not read.
@@ -130,6 +117,63 @@ impl Preset {
             preset: self,
             source: Box::new(source),
         }
+    }
+}
+
+/// A profile in the form of a preset file: its profile keys, the `kind` of
+/// its issuers and the `[federation]` table defaults, each optional.
+///
+/// A deployment supplies one as an issuer's `profile_file`, for a profile no
+/// shipped preset carries (a national binding, an identity provider of its
+/// own); its values are set over the preset's (no specification governs the
+/// profile model: our own design).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProfileFile {
+    /// The profile keys.
+    pub keys: ProfileKeys,
+    /// The kind of its issuers, when it names one.
+    pub kind: Option<IssuerKind>,
+    /// The federation table defaults, when it declares them.
+    pub federation: Option<FederationSection>,
+}
+
+impl ProfileFile {
+    /// Returns the profile the file at `path` holds.
+    ///
+    /// # Errors
+    ///
+    /// [`ProfileError::File`] when the file cannot be read, and
+    /// [`ProfileError::FileSyntax`] when it is no profile, an unknown key
+    /// included.
+    pub fn read(path: &std::path::Path) -> Result<Self, ProfileError> {
+        let text = std::fs::read_to_string(path).map_err(|source| ProfileError::File {
+            path: path.to_owned(),
+            source,
+        })?;
+        Self::parse(&text).map_err(|source| ProfileError::FileSyntax {
+            path: path.to_owned(),
+            source: Box::new(source),
+        })
+    }
+
+    /// Returns the profile `text` holds.
+    ///
+    /// # Errors
+    ///
+    /// The reader's error when `text` is no profile, an unknown key
+    /// included.
+    pub fn parse(text: &str) -> Result<Self, toml::de::Error> {
+        let mut table: toml::Table = text.parse()?;
+        let federation = table
+            .remove(FEDERATION)
+            .map(toml::Value::try_into)
+            .transpose()?;
+        let kind = table.remove(KIND).map(toml::Value::try_into).transpose()?;
+        Ok(Self {
+            keys: table.try_into()?,
+            kind,
+            federation,
+        })
     }
 }
 
@@ -512,6 +556,24 @@ pub enum ProfileError {
         #[source]
         source: Box<toml::de::Error>,
     },
+    /// A deployment's profile file cannot be read.
+    #[error("the profile file {} cannot be read", path.display())]
+    File {
+        /// The file.
+        path: std::path::PathBuf,
+        /// What the file system reported.
+        #[source]
+        source: std::io::Error,
+    },
+    /// A deployment's profile file is no profile.
+    #[error("the profile file {} is no profile", path.display())]
+    FileSyntax {
+        /// The file.
+        path: std::path::PathBuf,
+        /// What the reader reported.
+        #[source]
+        source: Box<toml::de::Error>,
+    },
     /// A key the issuer needs is empty.
     #[error("the profile key {key} is empty")]
     Empty {
@@ -563,6 +625,13 @@ impl Profile {
         profile.overlay(preset.keys()?);
         profile.overlay(keys.clone());
         Ok(profile)
+    }
+
+    /// Returns this profile with every key `keys` names set over it.
+    #[must_use]
+    pub fn with_keys(mut self, keys: ProfileKeys) -> Self {
+        self.overlay(keys);
+        self
     }
 
     /// Sets every key `keys` names over this profile.
@@ -751,7 +820,6 @@ mod tests {
             Preset::Entra,
             Preset::Keycloak,
             Preset::Okta,
-            Preset::Nl,
             Preset::Ferrosmart,
         ] {
             assert!(preset.keys().is_ok(), "{preset:?} reads");
@@ -843,7 +911,6 @@ mod tests {
             Preset::Entra,
             Preset::Keycloak,
             Preset::Okta,
-            Preset::Nl,
             Preset::Ferrosmart,
         ] {
             let profile = Profile::resolve(preset, &keys).expect("the preset reads");

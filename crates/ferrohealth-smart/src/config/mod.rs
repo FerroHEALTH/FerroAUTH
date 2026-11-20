@@ -34,14 +34,8 @@ use crate::kind::IssuerKind;
 use crate::metadata::DiscoveryError;
 use crate::party::config::PartyError;
 use crate::party::config::PartySection;
-use crate::profile::Delegate;
-use crate::profile::Marker;
 use crate::profile::Preset;
-use crate::profile::Representation;
-use crate::profile::ScopeClaim;
-use crate::profile::onward::OnwardGrant;
-use crate::profile::onward::OnwardIndicator;
-use crate::profile::onward::PreviewVariant;
+use crate::profile::ProfileKeys;
 use crate::resource::ResourceError;
 use crate::resource::Settings;
 use crate::sender::SenderConstraint;
@@ -505,8 +499,10 @@ pub struct IntrospectionSection {
 }
 
 /// One `[auth.issuer.<name>]` table: the issuer, its kind, how its tokens
-/// are checked, its profile, a [`Preset`] with any profile key set over it,
-/// and the tables nested under it.
+/// are checked, its profile, and the tables nested under it.
+///
+/// The profile is a [`Preset`], a deployment's `profile_file` over it, and
+/// the `[auth.issuer.<name>.profile]` keys over both.
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
@@ -519,8 +515,9 @@ pub struct IssuerEntry {
     /// Whose tokens the issuer signs; the preset's kind when unset
     /// ([`Preset::kind`]), and required under a preset that names none.
     pub kind: Option<IssuerKind>,
-    /// The preset the profile starts from.
-    pub profile: Preset,
+    /// The shipped preset the profile starts from ([`Preset`]); the
+    /// standards-only `rfc9068` by default.
+    pub preset: Preset,
     /// The audiences, of which a token's `aud` must contain one; the base
     /// URLs the product resolves the section for when empty.
     pub audience: Vec<String>,
@@ -572,99 +569,15 @@ pub struct IssuerEntry {
     /// default `roles`, `groups` and `entitlements` (RFC 9068 §2.2.3.1), and
     /// none, never settable, on a `federation` issuer.
     pub role_claims: Option<Vec<String>>,
-    /// [`ProfileKeys::person_key`](crate::profile::ProfileKeys::person_key).
+    /// A profile file a deployment supplies, in the form of the shipped
+    /// presets: its keys, `kind` and `[federation]` table set over the
+    /// preset's; absent for none.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub person_key: Option<String>,
-    /// [`ProfileKeys::tenant_claim`](crate::profile::ProfileKeys::tenant_claim).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tenant_claim: Option<String>,
-    /// [`ProfileKeys::client_claims`](crate::profile::ProfileKeys::client_claims).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub client_claims: Option<Vec<String>>,
-    /// [`ProfileKeys::app_only`](crate::profile::ProfileKeys::app_only).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub app_only: Option<Vec<Marker>>,
-    /// [`ProfileKeys::guest`](crate::profile::ProfileKeys::guest).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub guest: Option<Vec<Marker>>,
-    /// [`ProfileKeys::impersonation_marker`](crate::profile::ProfileKeys::impersonation_marker).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub impersonation_marker: Option<String>,
-    /// [`ProfileKeys::expect`](crate::profile::ProfileKeys::expect).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub expect: Option<BTreeMap<String, String>>,
-    /// [`ProfileKeys::user_claims`](crate::profile::ProfileKeys::user_claims).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub user_claims: Option<Vec<String>>,
-    /// [`ProfileKeys::person_equality`](crate::profile::ProfileKeys::person_equality).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub person_equality: Option<Vec<String>>,
-    /// [`ProfileKeys::unstable_claims`](crate::profile::ProfileKeys::unstable_claims).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub unstable_claims: Option<Vec<String>>,
-    /// [`ProfileKeys::first_party_clients`](crate::profile::ProfileKeys::first_party_clients).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub first_party_clients: Option<Vec<String>>,
-    /// [`ProfileKeys::delegates`](crate::profile::ProfileKeys::delegates).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub delegates: Option<Vec<Delegate>>,
-    /// [`ProfileKeys::max_actor_chain`](crate::profile::ProfileKeys::max_actor_chain).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_actor_chain: Option<usize>,
-    /// [`ProfileKeys::representation`](crate::profile::ProfileKeys::representation).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub representation: Option<Representation>,
-    /// [`ProfileKeys::act_represents_patient`](crate::profile::ProfileKeys::act_represents_patient).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub act_represents_patient: Option<bool>,
-    /// [`ProfileKeys::fhir_user_patient`](crate::profile::ProfileKeys::fhir_user_patient).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fhir_user_patient: Option<bool>,
-    /// [`ProfileKeys::patient_context`](crate::profile::ProfileKeys::patient_context).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub patient_context: Option<bool>,
-    /// [`ProfileKeys::issuer_client_is_person`](crate::profile::ProfileKeys::issuer_client_is_person).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub issuer_client_is_person: Option<bool>,
-    /// [`ProfileKeys::party_identifier_type`](crate::profile::ProfileKeys::party_identifier_type).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub party_identifier_type: Option<String>,
-    /// [`ProfileKeys::token_types`](crate::profile::ProfileKeys::token_types).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub token_types: Option<Vec<String>>,
-    /// [`ProfileKeys::required_claims`](crate::profile::ProfileKeys::required_claims).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub required_claims: Option<Vec<String>>,
-    /// [`ProfileKeys::scope_claim`](crate::profile::ProfileKeys::scope_claim).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub scope_claim: Option<ScopeClaim>,
-    /// [`ProfileKeys::app_only_scope_claim`](crate::profile::ProfileKeys::app_only_scope_claim).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub app_only_scope_claim: Option<ScopeClaim>,
-    /// [`ProfileKeys::adapter`](crate::profile::ProfileKeys::adapter).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub adapter: Option<String>,
-    /// [`ProfileKeys::max_onward_lifetime`](crate::profile::ProfileKeys::max_onward_lifetime).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_onward_lifetime: Option<Duration>,
-    /// [`ProfileKeys::onward_grant`](crate::profile::ProfileKeys::onward_grant).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub onward_grant: Option<OnwardGrant>,
-    /// [`ProfileKeys::onward_indicator`](crate::profile::ProfileKeys::onward_indicator).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub onward_indicator: Option<OnwardIndicator>,
-    /// [`ProfileKeys::onward_parameters`](crate::profile::ProfileKeys::onward_parameters).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub onward_parameters: Option<BTreeMap<String, String>>,
-    /// [`ProfileKeys::onward_client_id`](crate::profile::ProfileKeys::onward_client_id).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub onward_client_id: Option<bool>,
-    /// [`ProfileKeys::onward_subject_audience`](crate::profile::ProfileKeys::onward_subject_audience).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub onward_subject_audience: Option<bool>,
-    /// [`ProfileKeys::onward_preview`](crate::profile::ProfileKeys::onward_preview).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub onward_preview: Option<Vec<PreviewVariant>>,
+    pub profile_file: Option<PathBuf>,
+    /// The `[auth.issuer.<name>.profile]` table: the profile keys set over
+    /// the preset and the profile file, which win over both.
+    #[serde(skip_serializing_if = "crate::config::is_default")]
+    pub profile: ProfileKeys,
 }
 
 /// The `[auth.basic]` table.
@@ -856,6 +769,12 @@ impl TlsBuilder for ServerTls {
 /// rendered as: the family mask of `ferrohealth-secret`, so every product
 /// renders every secret of its configuration one way.
 pub const REDACTED: &str = ferrohealth_secret::REDACTED;
+
+/// Returns whether `value` is its type's default, so a default table is
+/// left out of a rendering.
+pub(crate) fn is_default<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
 
 /// Returns `text` with the userinfo and the query of the URL it holds
 /// replaced by [`REDACTED`], or `text` itself when it holds no URL.

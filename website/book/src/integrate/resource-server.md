@@ -96,7 +96,9 @@ apps the product admits for a person, a patient's apps among them:
 ```toml
 [auth.issuer.smart]
 issuer = "https://smart.example.org"
-profile = "ferrosmart"
+preset = "ferrosmart"
+
+[auth.issuer.smart.profile]
 delegates = [{ client = "growth-chart" }]
 ```
 
@@ -108,9 +110,40 @@ person's token, a professional's with `patient/` scopes included, is read as
 the professional's. The product's own SMART document describes
 FerroSMART, and its own rules still apply on top of the token's scopes.
 Every other key names the issuer by its table's name (`smart` here), and
-the environment form does too: `FERROEHR__AUTH__ISSUER__SMART__DELEGATES`.
+the environment form does too: `FERROEHR__AUTH__ISSUER__SMART__PROFILE__DELEGATES`.
 An unknown name is refused at start, with the known names listed.
 Each product's book has the details of its `[auth]` section.
+
+### Issuer profiles
+
+An issuer table names a `preset`: `rfc9068` (the standards alone, the
+default), `keycloak`, `entra`, `okta` or `ferrosmart`. A deployment whose
+issuer needs more than a preset carries, such as a national binding or an
+IdP of its own, writes the profile in a file of the same form and names it
+with `profile_file`. Keys in the issuer's `[auth.issuer.<name>.profile]`
+table win over both:
+
+```toml
+[auth.issuer.provider_a]
+issuer = "https://care-provider-a.example.org"
+profile_file = "/etc/ferro/profiles/nl-annex-b.toml"
+audience = ["https://fhir.example.org/fhir"]
+sender_constraint = "required"
+
+[auth.issuer.provider_a.profile]
+token_types = ["at+jwt"]
+
+[auth.issuer.provider_a.federation.fields]
+"nl.ura" = [{ constant = "87654321" }]
+```
+
+The products ship no country content. This example file maps the Dutch
+harmonised authentication of the openEHR Federation Tier specification
+1.0.1 Annex B §B.4a, each value with its source:
+
+```toml
+{{#include profiles/nl-annex-b.toml}}
+```
 
 ### Why a token was refused
 

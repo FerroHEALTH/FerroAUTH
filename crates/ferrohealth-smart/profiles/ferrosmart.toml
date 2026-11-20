@@ -4,8 +4,8 @@
 # The `ferrosmart` issuer profile: access tokens of FerroSMART, the family's
 # SMART App Launch 2.x authorization server (docs/architecture.md §13). They
 # are plain RFC 9068 tokens with no Ferro-specific claim, so every key stays
-# at its `rfc9068` default but the three FerroSMART readings. Every key can be
-# set on the issuer table, which wins over this file.
+# at its `rfc9068` default but the three FerroSMART readings. Every key can be set in the issuer's
+# `[auth.issuer.<name>.profile]` table, which wins over this file.
 #
 # The launch context rides beside the RFC 9068 set as `patient`, `encounter`,
 # `fhirUser` and, for an openEHR audience, `ehrId` (RFC 9068 §2.2.2,
