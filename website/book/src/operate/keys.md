@@ -54,6 +54,9 @@ cannot find:
 
 Every replica must run the same three files. Restart the replicas one at a
 time; each one drains before it stops ([operations](operations.md)).
+`GET {issuer}/admin/keys` shows each replica's ring as it runs: every public
+key with its state, `active`, `next` or `retiring`
+([the admin API](../configure/admin-api.md)).
 
 ## The assertion keys
 

@@ -214,10 +214,16 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
         .map_err(|error| {
             Failure::not_up(error).with_context("cannot withdraw a lapsed organisation approval")
         })?;
-    store
+    let managed = store
         .register(&settings.clients)
         .await
         .map_err(|error| Failure::not_up(error).with_context("cannot register the clients"))?;
+    for client_id in managed {
+        tracing::warn!(
+            %client_id,
+            "the client's [[ferrosmart.client]] table is not written: the admin API changed the client, so the store is its source"
+        );
+    }
     let forwarder = settings.audit.feed.clone().map(|feed| {
         let forwarder = Forwarder::fhir_feed_from(audit.outbox(store.clone(), FEED_IDLE), feed);
         let running = tokio::spawn(Arc::clone(&forwarder).run());

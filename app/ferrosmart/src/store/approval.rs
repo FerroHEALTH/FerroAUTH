@@ -10,7 +10,9 @@ use crate::clients::Approval;
 use crate::store::{Store, StoreError, Transaction};
 
 impl Store {
-    /// Returns every client's stored organisation approval, by client id.
+    /// Returns the stored organisation approval of every client the
+    /// configuration writes, by client id; the admin API's clients are its
+    /// own to withdraw.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when the query fails.
@@ -18,7 +20,7 @@ impl Store {
         let rows = sqlx::query(
             "SELECT client_id, approved_scope, approved_by, \
              extract(epoch FROM approved_at)::bigint AS approved_at, first_party \
-             FROM client WHERE approved_at IS NOT NULL ORDER BY client_id",
+             FROM client WHERE approved_at IS NOT NULL AND source = 'config' ORDER BY client_id",
         )
         .fetch_all(&self.pool)
         .await?;

@@ -8,6 +8,7 @@
 //! PostgreSQL advisory lock around them, so replicas starting together
 //! migrate once. No specification governs the storage: our own design.
 
+pub mod admin;
 pub mod approval;
 pub mod audit;
 pub mod authorization;
@@ -101,14 +102,18 @@ impl Store {
         Ok(())
     }
 
-    /// Replaces the clients the configuration registered with `clients`,
-    /// in one transaction: each is written, and a configured client no
-    /// longer listed is removed.
+    /// Seeds the registry with the clients the configuration registers, in
+    /// one transaction, and returns the ids of those it left alone.
+    ///
+    /// A configured client is written unless the admin API created or
+    /// changed it, which makes the store its source (`docs/architecture.md`
+    /// §13.8); a client the configuration wrote and no longer lists is
+    /// removed.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when a statement fails; nothing is
     /// changed then.
-    pub async fn register(&self, clients: &[Client]) -> Result<(), StoreError> {
+    pub async fn register(&self, clients: &[Client]) -> Result<Vec<String>, StoreError> {
         let mut tx = self.pool.begin().await?;
         let ids: Vec<&str> = clients
             .iter()
@@ -123,11 +128,19 @@ impl Store {
         sqlx::query("UPDATE client SET launch_uri = NULL WHERE source = 'config'")
             .execute(&mut *tx)
             .await?;
+        let managed: Vec<String> = sqlx::query_scalar(
+            "SELECT client_id FROM client WHERE source = 'admin' AND client_id = ANY($1) ORDER BY client_id",
+        )
+        .bind(&ids)
+        .fetch_all(&mut *tx)
+        .await?;
         for client in clients {
-            upsert(&mut tx, client).await?;
+            if !managed.contains(&client.client_id) {
+                upsert(&mut tx, client).await?;
+            }
         }
         tx.commit().await?;
-        Ok(())
+        Ok(managed)
     }
 
     /// Returns the client registered as `client_id`.
@@ -155,14 +168,11 @@ impl Store {
             ClientKey::LaunchUri => "launch_uri",
         };
         let row = sqlx::query(sqlx::AssertSqlSafe(format!(
-            "SELECT client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, post_logout_redirect_uris, upstreams, scopes, grant_types, \
-             launch_uri, approved_scope, approved_by, extract(epoch FROM approved_at)::bigint AS approved_at, \
-             first_party, client_uri, logo_uri, policy_uri, tos_uri \
-             FROM client WHERE {column} = $1"
+            "SELECT {CLIENT_COLUMNS} FROM client WHERE {column} = $1 AND disabled_at IS NULL"
         )))
-            .bind(value)
-            .fetch_optional(&self.pool)
-            .await?;
+        .bind(value)
+        .fetch_optional(&self.pool)
+        .await?;
         row.map(|row| read_client(&row)).transpose()
     }
 
@@ -339,10 +349,40 @@ enum ClientKey {
     LaunchUri,
 }
 
+/// Where a client's row came from: the configuration, which writes it at
+/// every start, or the admin API, which makes the store its source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Source {
+    /// A `[[ferrosmart.client]]` table.
+    Config,
+    /// The admin API.
+    Admin,
+}
+
+impl Source {
+    /// Returns the source as the store writes it.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Config => "config",
+            Self::Admin => "admin",
+        }
+    }
+}
+
 /// Writes `client` as a configured client.
 async fn upsert(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     client: &Client,
+) -> Result<(), StoreError> {
+    write_client(tx, client, Source::Config).await
+}
+
+/// Writes `client`, from `source`, over any row of its id.
+pub(crate) async fn write_client(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    client: &Client,
+    source: Source,
 ) -> Result<(), StoreError> {
     let (jwks_uri, jwks) = match &client.keys {
         Some(ClientKeys::Uri(url)) => (Some(url.as_str().to_owned()), None),
@@ -359,12 +399,12 @@ async fn upsert(
          launch_uri, approved_scope, approved_by, approved_at, first_party, client_uri, logo_uri, policy_uri, tos_uri, \
          post_logout_redirect_uris, upstreams, source) \
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, to_timestamp($13), $14, $15, $16, $17, $18, $19, \
-         $20, 'config') \
+         $20, $21) \
          ON CONFLICT (client_id) DO UPDATE SET name = $2, kind = $3, jwks_uri = $4, jwks = $5, \
          redirect_uris = $6, scopes = $7, grant_types = $8, secret_hash = $9, launch_uri = $10, \
          approved_scope = $11, approved_by = $12, approved_at = to_timestamp($13), first_party = $14, \
          client_uri = $15, logo_uri = $16, policy_uri = $17, tos_uri = $18, post_logout_redirect_uris = $19, upstreams = $20, \
-         source = 'config', updated_at = now()",
+         source = $21, updated_at = now()",
     )
     .bind(&client.client_id)
     .bind(&client.name)
@@ -386,13 +426,19 @@ async fn upsert(
     .bind(client.about.terms.as_ref().map(Url::as_str))
     .bind(&client.post_logout_redirect_uris)
     .bind(&client.upstreams)
+    .bind(source.as_str())
     .execute(&mut **tx)
     .await?;
     Ok(())
 }
 
+/// The columns [`read_client`] reads.
+pub(crate) const CLIENT_COLUMNS: &str = "client_id, name, kind, jwks_uri, jwks, secret_hash, redirect_uris, \
+     post_logout_redirect_uris, upstreams, scopes, grant_types, launch_uri, approved_scope, approved_by, \
+     extract(epoch FROM approved_at)::bigint AS approved_at, first_party, client_uri, logo_uri, policy_uri, tos_uri";
+
 /// Reads a `client` row.
-fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
+pub(crate) fn read_client(row: &sqlx::postgres::PgRow) -> Result<Client, StoreError> {
     let client_id: String = row.try_get("client_id")?;
     let corrupt = || StoreError::Corrupt {
         client_id: client_id.clone(),

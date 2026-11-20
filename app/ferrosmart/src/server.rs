@@ -251,6 +251,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             MANAGE_ROUTE,
             get(authorize::manage::manage_get).post(authorize::manage::manage_post),
         )
+        .merge(crate::admin::router(&state))
         .with_state(Arc::clone(&state));
     if state.brands.is_some() {
         issuer = issuer.route(

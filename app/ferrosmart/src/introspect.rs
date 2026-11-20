@@ -268,7 +268,7 @@ pub(crate) async fn find(state: &AppState, token: &str) -> Result<Option<Found>,
 /// Returns the `jti` of `token` when it is an RFC 9068 access token signed
 /// by a key FerroSMART publishes and issued by it, whatever its `exp`,
 /// which the record decides.
-fn own_access_token(state: &AppState, token: &str) -> Option<String> {
+pub(crate) fn own_access_token(state: &AppState, token: &str) -> Option<String> {
     // NOTE: RFC 7662 §2.2, a value that does not verify is a token this server did
     // not issue, which is legitimately absent here and answers inactive.
     // NOTE: RFC 9068 §2.1 and §4, an access token is typed at+jwt and signed RS256 here.

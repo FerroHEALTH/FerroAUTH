@@ -2688,6 +2688,10 @@ discovery and token shapes for the two SaaS providers.
   | an upstream session ended, by a back-channel or front-channel logout | `110114` | `110123` Logout, `session-ended` | `E` |
   | a person logged out at the end-session endpoint, with the online grants it ended | `110114` | `110123` Logout, `logged-out` | `E` |
   | the patient picker's own token issued (13.6 item 4) | `110114` | `picker-token` | `C` |
+  | a client registered through the admin API (13.27) | `110113` | `110137`, `client-created` | `C` |
+  | a client changed through the admin API | `110113` | `110137`, `client-updated` | `U` |
+  | a client disabled, with every grant and token it held | `110113` | `110137`, `client-disabled` | `D` |
+  | a disabled client enabled | `110113` | `110137`, `client-enabled` | `U` |
 
   None of these events is an access to personal electronic health data,
   so none is an access record of Annex II 3.2; the patient
@@ -3246,7 +3250,8 @@ specification governs.
    record, or `consent-first-party-approved` for a first-party approval,
    naming the approver and the time; the management page lists the app as
    approved by the organisation, or as the organisation's own app. Clearing or changing the
-   approval in the configuration withdraws it at the next start: every
+   approval through the admin API (13.27) withdraws it at once, and in the
+   configuration at the next start: every
    grant issued on it is revoked with its tokens, with an
    `organisation-approval-withdrawn` record. Backend Services has no user and
    no consent step (`smart backend-services`, Scopes: "The client is
@@ -3429,7 +3434,8 @@ always builds against the libraries of the same commit. Its modules:
 | `config` | the `[ferrosmart]` tree, read by `ferrohealth-config` with `deny_unknown_fields` |
 | `discovery` | the RFC 8414, OpenID Connect and SMART documents, and the JWKS |
 | `keys` | the signing key ring, the `Signer` trait with the file and KMS signers, rotation |
-| `clients` | the registry, client authentication (secret, `private_key_jwt`, the client JWK Set fetch and cache), the admin API |
+| `clients` | the registry, client authentication (secret, `private_key_jwt`, the client JWK Set fetch and cache) |
+| `admin` | the admin API over the registry and the key ring, with its guard (13.27) |
 | `authorize` | the authorization endpoint, the pending request, the scope narrowing |
 | `upstream` | the login at an upstream provider: OpenID Connect through `ferrohealth_smart::oidc`, SAML 2.0 through `saml` (13.26), and the claim mapping; `preset`, the vendor defaults read from `presets/`, and `registration`, the subject and registration the operator commands print (#733) |
 | `consent` | the consent page and the consent records |
@@ -3473,7 +3479,8 @@ differently.
 | `POST /launch` | the EHR launch API | our own design (13.6) |
 | `GET /manage` | the apps holding the user's consent or live access, each with Disconnect (`management_endpoint`) | `smart conformance`, Metadata |
 | `GET /brands` | the deployment's User Access Brands Bundle, when `[ferrosmart.brand]` is set | `smart brands`, Conformance Overview |
-| `/admin/clients`, `/admin/keys` | the registry and the key ring, behind a `ferrohealth-smart` guard | our own design |
+| `GET`, `POST /admin/clients`; `GET`, `PUT /admin/clients/{client_id}`; `POST .../disable`, `.../enable`; `DELETE .../organisation_approval` | the registry over the store, behind a `ferrohealth-smart` guard with the `system/admin` scope, every change audited (13.27) | our own design |
+| `GET /admin/keys` | the signing key ring's public keys with their states, behind the same guard | our own design |
 | `/healthz`, `/readyz` | `ferrohealth-health` | the family |
 
 `POST /register` (RFC 7591) and `POST /par` (RFC 9126) join after step 9;
@@ -3491,7 +3498,7 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 
 | Table | Key | Holds |
 |---|---|---|
-| `client` | `client_id` | type (public, symmetric, asymmetric), secret hash, `jwks` or `jwks_uri`, redirect URIs, post-logout redirect URIs, the upstream providers it may use, launch URI, registered origins, scope ceiling, grant types, offline access allowed, name and logo, disabled time |
+| `client` | `client_id` | type (public, symmetric, asymmetric), secret hash, `jwks` or `jwks_uri`, redirect URIs, post-logout redirect URIs, the upstream providers it may use, launch URI, registered origins, scope ceiling, grant types, offline access allowed, name and logo, the organisation approval, the source (`config` or `admin`, 13.27), disabled time |
 | `signing_key` | `kid` | algorithm, public JWK, signer reference (file path or KMS key id), state (`next`, `active`, `retiring`), the times of each state |
 | `pending_authorization` | random id | the validated request (client, redirect URI, scope, `state`, `nonce`, PKCE challenge, `aud`, launch, and the OpenID Connect `prompt`, `max_age` and `ui_locales` of 13.25), the upstream provider chosen, its `state`, `nonce` and PKCE verifier, expiry |
 | `authorization_code` | code hash | the grant it opens, the PKCE challenge, the redirect URI, expiry, redemption time |
@@ -3604,7 +3611,7 @@ private_key_file = "/run/secrets/upstream-assertion.pem"
 name = "clinician"
 scopes = ["user/Observation.rs", "user/Patient.rs"]    # user/ and patient/ scopes only
 
-[[ferrosmart.client]]                         # one table per client, written to the store at start
+[[ferrosmart.client]]                         # one table per client, seeding the store at start (13.27)
 client_id = "bulk-export"
 name = "Bulk export"
 kind = "confidential_asymmetric"              # or "public", or "confidential_symmetric"
@@ -4496,7 +4503,7 @@ keyword of its own, so its rows are the profile's statements.
 | The client generates a key pair and registers its public key set, by URL or by value, as a JWK Set (Registering a client) | SHALL | the client's; FerroSMART refuses a confidential asymmetric client without exactly one set | `clients::a_confidential_asymmetric_client_registers_exactly_one_jwk_set` |
 | The server supports both registrations, a JWK Set URL and a JWK Set by value | SHALL | met: `jwks_uri` and `jwks_file` | `clients::a_backend_services_client_registers_its_jwk_set_by_url`, `clients::a_jwk_set_by_value_holds_bare_public_keys_with_kty_and_kid` |
 | The JWK Set URL is reachable over TLS without authentication; the client returns `Cache-Control` | SHALL, SHOULD | the client's; FerroSMART requires `https` outside loopback and honours the header | `token::a_jwk_set_url_is_read_and_cached_as_the_client_allows` |
-| The server protects a JWK Set given by value from corruption, and reminds the client to update it | SHALL, SHOULD | the deployment's: the set is a configuration file the operator owns, read at start; no registration API exists to send a reminder from (13.10) | none |
+| The server protects a JWK Set given by value from corruption, and reminds the client to update it | SHALL, SHOULD | the deployment's: the set is a configuration file the operator owns, read at start, or a value the admin API stores (13.27), which an administrator replaces; FerroSMART has no channel to the client to send a reminder over | none |
 | The client signs with RS384 and ES384; the server validates at least one | SHALL | met: both, and nothing else | `token::a_backend_services_client_gets_an_rfc_9068_token`, `token::an_rs384_assertion_typed_by_rfc_10070_naming_the_issuer_is_admitted` |
 | Each JWK is an asymmetric key with `kty` and `kid`, bare `n` and `e` or `crv`, `x` and `y` | SHALL | met: a set breaking it is refused at load, a private member too | `clients::a_jwk_set_by_value_holds_bare_public_keys_with_kty_and_kid` |
 | The client uses its `client_id`, and TLS 1.2 or later (Requesting an access token) | SHALL | met for TLS by `ferrohealth-server`'s listener, which offers TLS 1.2 and 1.3 alone; the lane's kit checks it | Inferno lane `standalone_auth_tls`, `backend_services_authorization` TLS |
@@ -4916,3 +4923,78 @@ for SAML's one signature form, so the check is our own, over primitives
 that are each established, and the case
 `app/ferrosmart/tests/it/saml/interop.rs` holds it against a response
 canonicalized by libxml2 and signed by OpenSSL.
+
+### 13.27 The admin API
+
+The owner's decision of 2026-11-19 (#683): the registry is changed live
+through `/admin/clients`, behind a `ferrohealth-smart` guard, audited, over
+the store every replica reads, and the configuration seeds it. SMART App
+Launch 2.2.0 specifies no registration process (Register App with EHR) and
+RFC 7591 is a MAY, so the API is our own design; Keycloak's admin REST API
+changes clients live in the same way.
+
+- **The guard.** Every admin route sits behind the `ferrohealth-smart`
+  layer with `Requirement::Scope("system/admin")`, and the layer writes its
+  audit line for each request. The bearer token is an access token
+  FerroSMART issued for its own issuer (`resource` the issuer, as for
+  introspection, 13.6 item 8), to a Backend Services client whose ceiling
+  lists `system/admin`; no role grants a `system/` scope, so no person
+  holds it. The verifier confirms each token against the store on every
+  request: its `access_token` row active, its `aud` the issuer, its client
+  registered and enabled. Nothing is cached between requests, so a revoked
+  token or a disabled admin client is refused on the next request at every
+  replica.
+- **The routes.** `GET /admin/clients` lists every client, disabled ones
+  included; `GET /admin/clients/{client_id}` reads one; `POST
+  /admin/clients` registers one (`201` with `Location`); `PUT
+  /admin/clients/{client_id}` replaces one; `POST .../disable` and `POST
+  .../enable` disable and enable one; `DELETE .../organisation_approval`
+  withdraws its approval. The document carries the keys of a
+  `[[ferrosmart.client]]` table with the JWK Set (`jwks`) and the Argon2id
+  hash (`secret_hash`) by value, never a secret; an answer never carries
+  the hash, and an update of a symmetric client that names none keeps the
+  stored one. An approval without `approved_at` keeps the stored time when
+  its scopes, approver and mark are unchanged, and takes the request's
+  time otherwise. Every document is checked by the rules a table is
+  checked by at load.
+- **Typed refusals.** A rule broken answers `400` with the RFC 7591
+  §3.2.2 code (`invalid_redirect_uri`, `invalid_client_metadata`); an
+  unreadable document, an unknown member or a `client_id` other than the
+  path's `400 invalid_request`; an unknown client `404 not_found`; a
+  repeated id `409 client_exists`; a launch URL another client registers
+  `409 launch_uri_taken`; a change to the state the client is in already
+  `409 unchanged`. A refusal of the guard is `401 invalid_token` or `403
+  insufficient_scope` (RFC 6750 §3.1) with its challenge.
+- **The record.** Every change commits in one transaction with its
+  `AuditEvent` (`client-created`, `client-updated`, `client-disabled`,
+  `client-enabled`, and `organisation-approval-withdrawn` before the
+  change that withdrew it), naming the admin client as the requester and
+  the client changed, never a key or a hash.
+- **Withdrawal at once.** A `PUT` that no longer gives the stored approval
+  in the same form, or a `DELETE` of it, withdraws it in the change's own
+  transaction: every grant issued on it is revoked with its refresh and
+  access tokens, and its unredeemed codes are dropped. Disabling a client
+  revokes every grant and access token it holds with their refresh tokens,
+  drops its codes, launches, pending requests and remembered consents, and
+  every lookup of a client reads `disabled_at IS NULL`, so its next
+  request at any replica is refused. Introspection answers each revoked
+  token inactive at once; a resource server that checks the JWT alone
+  honours the revocation when the token expires, at most
+  `access_token_lifetime` later (3.2).
+- **The configuration as the seed.** A client's row carries its source. At
+  start a `[[ferrosmart.client]]` table writes its client, and a client
+  the configuration wrote and no longer lists is removed, as before. Once
+  the API creates or changes a client (an update, a disable, an enable, a
+  withdrawal), its source is `admin`: the store is its source from then
+  on, its table is no longer written, start logs a warning naming it, and
+  the start-time withdrawal of lapsed approvals leaves its approval to the
+  API. So a client disabled or withdrawn through the API stays so across a
+  restart, and no route hands a client back to the configuration. No
+  specification governs the seed rule: our own design.
+- **The key ring.** `GET /admin/keys` lists the public JWK of each key of
+  the ring with its state: `active`, `next`, and `retiring` with whether
+  it is still published. The private keys stay in the files of
+  `[ferrosmart.keys]`, and a rotation is a change of those files (13.11);
+  the API never carries private material. The `signing_key` table of 13.9,
+  which would let replicas agree on a rotation without a restart, is not
+  built.

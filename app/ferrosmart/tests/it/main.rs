@@ -9,6 +9,7 @@
     reason = "a test support function fails the case the way a test body does"
 )]
 
+mod admin;
 mod audit;
 mod authorize;
 mod brands;

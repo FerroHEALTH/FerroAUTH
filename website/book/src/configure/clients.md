@@ -22,7 +22,9 @@ applies its own rules on top.
 
 Each `[[ferrosmart.client]]` table registers one client. FerroSMART writes
 the tables to its database at start, so every replica sees the same
-registry; the configuration is the place to change a client.
+registry. The configuration seeds the registry; the
+[admin API](admin-api.md) changes it while FerroSMART runs, and a client it
+changed is no longer written from its table.
 
 | Key | What it is |
 |---|---|
@@ -123,7 +125,7 @@ scopes = ["system/Patient.rs", "system/Observation.rs"]
 grant_types = ["client_credentials"]
 ```
 
-Three scopes are FerroSMART's own `system/` scopes, which a client's ceiling
+Four scopes are FerroSMART's own `system/` scopes, which a client's ceiling
 lists to reach an endpoint of FerroSMART itself:
 
 | Scope | What it opens |
@@ -131,6 +133,7 @@ lists to reach an endpoint of FerroSMART itself:
 | `system/introspect` | `POST /introspect`, for a resource server that introspects ([the flows](../integrate/flows.md#refresh-introspection-and-revocation)) |
 | `system/launch.c` | `POST /launch` and the signed launch JWT, for an EHR ([the EHR launch API](../integrate/ehr-launch.md)) |
 | `system/AuditEvent.rs` | `GET /audit`, for an operator's client ([audit records](../operate/audit.md#reading-the-records)) |
+| `system/admin` | `/admin/clients` and `/admin/keys`, for an administrator's client ([the admin API](admin-api.md)) |
 
 ## Roles
 
@@ -258,9 +261,10 @@ standalone request for `patient/` scopes shows the page. Anything else shows the
 writes an audit record naming the approver and the time, and the
 management page lists the app as approved by the organisation. A person
 who disconnects it there ends their own access; the approval stays, and
-their next sign-in follows it again. Remove or change the table and
-restart: the approval is withdrawn, and every token issued on it is
-revoked.
+their next sign-in follows it again. Withdraw it through the
+[admin API](admin-api.md) and it is withdrawn at once; remove or change the
+table and restart, and it is withdrawn at start. Either way every token
+issued on it is revoked.
 
 For the organisation's own app, such as its patient portal, add
 `first_party = true` to the approval. A first-party approval may also list
