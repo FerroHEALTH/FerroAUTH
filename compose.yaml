@@ -77,7 +77,7 @@ name: ferrosmart
 
 services:
   ferrosmart:
-    image: ghcr.io/ferrohealth/ferrosmart:${FERROSMART_VERSION:-0.1.0}
+    image: ghcr.io/ferrohealth/ferrosmart:${FERROSMART_VERSION:-0.2.0}
     container_name: ferrosmart
     restart: unless-stopped
     depends_on:

@@ -12,6 +12,223 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-20
+
+### Added
+
+- An openEHR `[[ferrosmart.resource]]` can name the platform's FHIR server
+  as its `fhir_base`, with the `subject_system` of the `Patient.identifier`
+  that names the EHR's subject. At such a base the patient picker searches
+  the FHIR server and looks the chosen patient's EHR up at the openEHR
+  server, each as the signed-in person, so a standalone launch with
+  `launch/patient` gets both `patient` and `ehrId` (SMART on openEHR draft,
+  Context Selection and Service Discovery). A patient without an EHR the
+  person may see is told so and enters no context (#574).
+- The introspection endpoint takes a confidential symmetric client's
+  secret, by HTTP Basic or in the form, as the token endpoint does (RFC
+  7662 §2.1, RFC 6749 §2.3.1), so a gateway that introspects with
+  `client_secret_basic`, such as Apache APISIX, can sit in front of a
+  resource server. The client's ceiling lists `system/introspect`; a wrong
+  secret answers `401` `invalid_client` and a client without the scope
+  `401` `unauthorized_client`, each challenged `Basic`. The metadata's
+  `introspection_endpoint_auth_methods_supported` lists
+  `client_secret_basic` and `client_secret_post` beside `private_key_jwt`
+  (#639).
+- An administrator can approve one of the organisation's own apps for its
+  staff with `[ferrosmart.client.organisation_approval]` (scopes, who,
+  when), so a professional who opens it sees no consent page (SMART App
+  Launch 2.2.0, Obtain authorization code, Response). Only `user/` scopes
+  with their launch, OpenID, refresh and extension scopes can be approved;
+  a request with a `patient/` scope, a patient's own login and a request
+  beyond the approval show the page. The granted scope never exceeds the
+  person's roles. Each skipped page is audited with the approval as its
+  basis, the management page lists the app as approved by the
+  organisation, and clearing the approval revokes every token issued on it
+  at the next start (#643).
+- A `[[ferrosmart.role]]` may grant extension scopes, those that start with
+  two underscores (SMART App Launch 2.2.0, Scopes and Launch Context,
+  Extensibility), such as FerroEHR's `__ferroehr.platform`. A person is
+  granted one when the request asks for it, the client's ceiling lists it
+  and one of their roles grants it; the consent page names it in plain
+  words, and `scopes_supported` lists every extension scope a role grants.
+  Any other scope outside the SMART set is still never granted to a person
+  (#647).
+- The access token of a user flow carries the person's roles in a `roles`
+  claim (RFC 9068 §2.2.3.1): the roles the identity provider's
+  `role_claims` carry that a `[[ferrosmart.role]]` names, fixed at login
+  and kept through every refresh. The introspection response carries them
+  too. A Backend Services token carries none (#649).
+- `.well-known/smart-configuration` and the RFC 8414 metadata name the EHR
+  launch API as `launch_registration_endpoint` (`{issuer}/launch`) whenever
+  the app launch is configured, so an EHR reads it from the documents
+  instead of building the path (#657).
+- A `[[ferrosmart.client]]` may register its app's `launch_uri`, and the
+  EHR launch API takes `app_launch_uri` in place of `app_client_id`, so an
+  EHR acting on a SMART `task-ehr-launch` Task, which names the app only by
+  its launch URL, can register the launch. The URLs are compared after RFC
+  3986 §6.2.2 normalization, and two clients may not register one (#659).
+- The EHR launch API takes a Task's `appContext` (at most 8192 bytes), and
+  the token response of that launch carries it unchanged as `appContext`
+  (SMART App Launch 2.2.0, Task profile for requesting a SMART launch)
+  (#660).
+- The authorization endpoint meets what OpenID Connect Core 1.0 §15.1
+  has every OpenID Provider implement, beside SMART App Launch 2.2.0's
+  PKCE and `aud`, which stay required. `prompt=none` answers
+  `login_required` with no page, and `none` beside another value is
+  `invalid_request`. `prompt=login` and `select_account` reach the upstream
+  login, and `prompt=consent` shows the consent page where a remembered
+  consent or an organisation approval would answer. `max_age` reaches the
+  upstream login: a login older than it, or one that names no
+  `auth_time`, is begun again once with `prompt=login`, and one still
+  older answers `login_required`. The ID Token's `auth_time` is the
+  upstream login's. `ui_locales` reaches the upstream login and chooses
+  the pages' language before `Accept-Language`. `display`,
+  `claims_locales` and `acr_values` are taken. The OpenID Connect
+  discovery document names `display_values_supported` and
+  `ui_locales_supported` (#662).
+- A refresh request may name a `resource` (RFC 8707 §2.2): the grant's
+  own resource server or the FHIR base paired with its openEHR base, so an
+  app signed in at the openEHR base gets a token for the platform's FHIR
+  server on the same grant. The token's `aud` is that resource alone and
+  its scope is the grant's, less the clinical scopes of the other kind;
+  the scope never widens, and any other resource is `invalid_target`
+  (#663).
+- An administrator can mark an approved app as the organisation's own with
+  `first_party = true` on its `[ferrosmart.client.organisation_approval]`.
+  Its approval may then list `patient/` scopes, and a patient, related
+  person or person who logs in to it sees no consent page while the
+  approval covers every scope offered. An app without the mark keeps the
+  page for every patient. Each skipped page is audited as
+  `consent-first-party-approved`, the management page lists the app as the
+  organisation's own, and setting or clearing the mark withdraws the old
+  approval with every token issued on it (#666).
+- The consent page draws identity, launch and refresh scopes (`openid`,
+  `fhirUser`, `profile`, `email`, `launch`, `launch/*`, `offline_access`,
+  `online_access`) as fixed lines with no box, granted with the app whatever
+  the form posts, so a person can no longer untick a scope the app cannot
+  work without; resource and extension scopes keep their boxes. A
+  `[[ferrosmart.client]]` may register `client_uri`, `logo_uri`,
+  `policy_uri` and `tos_uri` (RFC 7591 §2, absolute `https` URLs), which the
+  consent page links and draws, with the logo's origin admitted by the
+  page's `img-src` alone. The store gains a migration (#668).
+- A standalone authorization request that asks a `patient/` scope without
+  `launch/patient` is read as asking `launch/patient`, so the patient picker
+  supplies the patient instead of the `patient/` scopes being dropped, and
+  the granted `scope` names the inferred `launch/patient` (SMART App Launch
+  2.2.0, Scopes and Launch Context, Standalone apps) (#669).
+- An authorization request without `aud` (or `resource`) defaults to the
+  resource server when the deployment configures exactly one, as the token
+  endpoint already defaults `resource`; with two or more it is still refused,
+  and a wrong `aud` is refused either way. Apps should still send `aud`, as
+  SMART App Launch 2.2.0 requires (#670).
+- When no requested scope can be granted to the person, FerroSMART shows a
+  page that names the configured roles that would grant one (or says the
+  app asks for access the server does not give it), and its button returns
+  to the app with `access_denied`, the `state` and the `iss`, in place of
+  sending `invalid_scope` back at once. The refusal is written as an
+  `authorization.refused` audit line (#672).
+- A patient whose `fhirUser` names their own `Patient` at the requested
+  FHIR server, absolute or relative to its base, or at the FHIR server
+  paired with the requested openEHR server, sees no patient picker: their
+  record, read again as them, is the launch context, with their EHR at a
+  paired base, and a record that cannot be read is a page that says so.
+  They are offered the client's `patient/` scopes without a role. A
+  professional still picks. `consent::offer` takes a `FhirUser` in place of
+  the `has_fhir_user` flag (#673).
+- When the identity provider sends no `fhirUser` claim, FerroSMART can
+  find the person by an identifier: each
+  `[[ferrosmart.resource.fhir_user_lookup]]` of a FHIR base names a
+  `resource_type`, the upstream `claim` holding the identifier's value and
+  the identifier's `system`, and FerroSMART searches
+  `[base]/[type]?identifier=[system]|[value]` as the person. One match is
+  the `fhirUser`; none, several or a refused search leave it out, the
+  consent page says so, and a `fhir_user.lookup` audit line records the
+  outcome without a value. A lookup on the FHIR base paired with an openEHR
+  base serves that base too (#674).
+- The `profile` and `email` scopes are offered within a client's ceiling,
+  listed in `scopes_supported`, and, when granted, pass the upstream ID
+  Token's `name` and `preferred_username` (`profile`) and `email` and
+  `email_verified` (`email`) into FerroSMART's ID Token, never into an
+  access token (OpenID Connect Core 1.0 §5.4). `claims_supported` lists the
+  four. The store gains a migration (#676).
+- FerroSMART takes OpenID Connect Front-Channel Logout 1.0 at
+  `{issuer}/frontchannel-logout`: a provider that offers only front-channel
+  logout, such as Microsoft Entra ID, renders it in an iframe with its
+  `iss` and the login's `sid`, and the sessions of that `sid` end with their
+  `online_access` grants. The page is never cached and only the provider's
+  origins may frame it (#677).
+- FerroSMART has an end-session endpoint (OpenID Connect RP-Initiated
+  Logout 1.0), named as `end_session_endpoint` in discovery: it checks the
+  `id_token_hint` it issued, the `client_id` and a `post_logout_redirect_uri`
+  the client registers under the new `post_logout_redirect_uris` key, asks
+  the person to confirm, ends their `online_access` grants, forwards to the
+  provider's own end-session endpoint and returns the browser to the app
+  with its `state`. Register `{issuer}/logout/return` at the provider as a
+  post-logout redirect URI. Each logout is audited as `logged-out`, and the
+  store gains a migration (#677).
+- An upstream provider entry may authenticate with a client secret as HTTP
+  Basic: `[ferrosmart.upstream.oidc.client_secret_basic]` with `secret_file`
+  (or `secret`), in place of the default
+  `[ferrosmart.upstream.oidc.private_key_jwt]`. Each entry names exactly one
+  of the two, the secret never shows in a log or a debug rendering, and
+  FerroSMART refuses to start when the provider's
+  `token_endpoint_auth_methods_supported` does not list the method chosen (#679).
+- A person can log in at a SAML 2.0 identity provider: a `protocol =
+  "saml"` entry in `[[ferrosmart.upstream]]` with its
+  `[ferrosmart.upstream.saml]` table, and FerroSMART as one service
+  provider in `[ferrosmart.saml]`, its metadata at
+  `{issuer}/saml/metadata`. The assertion consumer service
+  `{issuer}/saml/acs` takes a response by HTTP-POST or an artifact,
+  resolved over mutual TLS; the provider's metadata is read again on a
+  timer; each assertion is admitted once, on every replica; the classes
+  at or above the provider's minimum assurance are asked for and any
+  other is refused; the `claims` table maps attributes to the claims of
+  `fhirUser`, the roles and the `fhirUser` lookup; and every outcome is a
+  `110122` Login record naming the check that failed. The chooser lists a
+  SAML provider beside an OpenID Connect one. An entry without
+  `[ferrosmart.saml]` or with an incomplete table is refused at load (#688).
+- The patient picker's token carries the person's `roles`, and an openEHR
+  `[[ferrosmart.resource]]` may list the purposes of use its server accepts
+  (`[[ferrosmart.resource.purpose]]`, with `purpose_header`, default
+  `x-purpose-of-use`). A professional chooses one on the picker page, the
+  EHR lookup and the look-up-again of the choice declare it in that header,
+  the request keeps it so the two cannot differ, and each lookup's access
+  record names it (`purposeOfEvent`). A patient's own lookup declares none (#716).
+
+### Changed
+
+- A client presenting a rotated refresh token again within 10 seconds of
+  its rotation, while the new refresh token is neither used nor revoked,
+  gets that same new refresh token and a fresh access token instead of
+  having the grant revoked, so a retry after a lost response or two
+  requests racing (two tabs, two backend instances, two replicas) keep the
+  grant. A repeat after the window, by another client, or once the new
+  token was used still revokes the grant (RFC 9700 §2.2.2, §4.14.2; the
+  window is FerroSMART's own design). Each repeat is recorded as
+  `refresh-repeated`. The store gains a migration (#667).
+- FerroSMART logs people in at several identity providers. `[ferrosmart.upstream]`
+  becomes `[[ferrosmart.upstream]]`, one entry per provider with a `name`,
+  an optional `label` and `protocol = "oidc"`, whose OpenID Connect keys
+  (`issuer`, `client_id`, `scopes`, `fhir_user_claim`, `role_claims`,
+  `trusted_audiences` and the `private_key_jwt` table) move into
+  `[ferrosmart.upstream.oidc]`; an environment override is now
+  `FERROSMART__FERROSMART__UPSTREAM__0__OIDC__ISSUER` and a `--set` is
+  `ferrosmart.upstream.0.oidc.issuer`. A `[[ferrosmart.client]]` names its
+  providers in `upstreams` (every provider when it names none): one sends
+  the browser straight there, several show a chooser at `{issuer}/login`.
+  Several Microsoft Entra ID tenants are several entries. Back-channel and
+  front-channel logouts are matched to their provider by `iss`, and
+  `{issuer}/upstream-jwks` publishes every provider's assertion keys. The
+  store gains a migration (#678).
+
+### Fixed
+
+- The upstream login refuses an ID Token without `iat` (OpenID Connect
+  Core 1.0 §2), and takes one without `kid` when a single key of the
+  provider's set fits its algorithm. The OpenID Foundation conformance
+  suite's relying party modules `oidcc-client-test-missing-iat` and
+  `oidcc-client-test-kid-absent-single-jwks` found both (#646, #648).
+
 ## [0.1.0] - 2026-11-19
 
 ### Added
@@ -343,5 +560,6 @@ and this project adheres to
   read its token response (SMART App Launch 2.2.0, Considerations for CORS
   support). Every other origin gets no CORS header (#560).
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrosmart-v0.1.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrosmart-v0.2.0...HEAD
+[0.2.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrosmart-v0.1.0...ferrosmart-v0.2.0
 [0.1.0]: https://github.com/FerroHEALTH/FerroSMART/releases/tag/ferrosmart-v0.1.0
