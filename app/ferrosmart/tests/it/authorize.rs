@@ -34,6 +34,7 @@ use crate::support::{
 const ISSUER: &str = "https://smart.example.org";
 /// The app's redirect URI.
 const REDIRECT: &str = "https://app.example.org/callback";
+const POST_LOGOUT: &str = "https://app.example.org/logged-out";
 /// FerroSMART's client id at the provider.
 pub(crate) const UPSTREAM_CLIENT: &str = "ferrosmart";
 /// The deployment's SMART style document.
@@ -75,6 +76,7 @@ impl Provider {
                 "authorization_endpoint": format!("{uri}/authorize"),
                 "token_endpoint": format!("{uri}/token"),
                 "jwks_uri": format!("{uri}/jwks"),
+                "end_session_endpoint": format!("{uri}/logout"),
                 "code_challenge_methods_supported": ["S256"]
             })))
             .mount(&server)
@@ -214,7 +216,8 @@ impl Smart {
              [[ferrosmart.client]]\nclient_id = \"app\"\nname = \"Synthetic App\"\nkind = \"public\"\n\
              client_uri = \"https://app.example.org/\"\nlogo_uri = \"https://cdn.example.org/app.png\"\n\
              policy_uri = \"https://app.example.org/privacy\"\ntos_uri = \"https://app.example.org/terms\"\n\
-             redirect_uris = [{REDIRECT:?}]\ngrant_types = {grants}\nscopes = {ceiling}",
+             redirect_uris = [{REDIRECT:?}]\npost_logout_redirect_uris = [{POST_LOGOUT:?}]\n\
+             grant_types = {grants}\nscopes = {ceiling}",
             secrecy::ExposeSecret::expose_secret(&database.url),
             provider.server.uri()
         );
@@ -232,7 +235,10 @@ impl Smart {
             .expect("an upstream")
             .relying_party(callback)
             .await
-            .expect("the provider is discovered");
+            .expect("the provider is discovered")
+            .with_post_logout_redirect_uri(
+                settings.endpoint_url(ferrosmart::logout::end_session::END_SESSION_RETURN_ROUTE),
+            );
         let audit = audit(&settings);
         let state = AppState::new(settings.clone(), store.clone(), audit).with_login(party);
         Self {
@@ -2483,6 +2489,7 @@ mod core_op;
 mod ehr_picker;
 mod encounter_picker;
 mod fhir_user_lookup;
+mod logout;
 mod paired_picker;
 mod preset;
 

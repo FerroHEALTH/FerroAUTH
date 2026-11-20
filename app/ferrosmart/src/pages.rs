@@ -26,6 +26,8 @@ use ferrohealth_ui::view::surface::{card, page_card};
 use http::{HeaderMap, HeaderValue, StatusCode, header};
 use url::Url;
 
+pub mod logout;
+
 use crate::authorize::{CONSENT_ROUTE, MANAGE_ROUTE};
 use crate::clients::Client;
 use crate::server::AppState;
@@ -873,7 +875,15 @@ fn respond(
          font-src 'self'; form-action {form_action}; frame-ancestors 'none'; base-uri 'none'"
     );
     let headers = response.headers_mut();
-    if let Ok(policy) = HeaderValue::from_str(&policy) {
+    page_headers(headers, &policy);
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    response
+}
+
+/// Sets the headers every page FerroSMART draws carries: the content
+/// security `policy`, never cached, no referrer, no sniffing.
+pub(crate) fn page_headers(headers: &mut HeaderMap, policy: &str) {
+    if let Ok(policy) = HeaderValue::from_str(policy) {
         headers.insert(header::CONTENT_SECURITY_POLICY, policy);
     }
     headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
@@ -881,10 +891,8 @@ fn respond(
         header::REFERRER_POLICY,
         HeaderValue::from_static("no-referrer"),
     );
-    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
     );
-    response
 }

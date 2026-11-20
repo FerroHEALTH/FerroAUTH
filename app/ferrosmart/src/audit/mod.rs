@@ -272,6 +272,9 @@ pub enum Event {
     /// An upstream session ended by a back-channel logout, with the grants
     /// under it (OpenID Connect Back-Channel Logout 1.0 §2.7).
     SessionEnded,
+    /// A person's logout at the end-session endpoint, with the online
+    /// grants it ended (OpenID Connect RP-Initiated Logout 1.0 §2).
+    LoggedOut,
     /// A launch an EHR registered at `POST /launch` (`docs/architecture.md`
     /// §13.6 item 3).
     LaunchRegistered,
@@ -303,6 +306,7 @@ impl Event {
             Self::RefreshReused => "refresh-reused",
             Self::CodeReused => "code-reused",
             Self::SessionEnded => "session-ended",
+            Self::LoggedOut => "logged-out",
             Self::PickerToken => "picker-token",
             Self::LaunchRegistered => "launch-registered",
             Self::LaunchRedeemed => "launch-redeemed",
@@ -335,6 +339,7 @@ impl Event {
             Self::RefreshReused => "Refresh token reused",
             Self::CodeReused => "Authorization code reused",
             Self::SessionEnded => "Upstream session ended",
+            Self::LoggedOut => "Person logged out",
             Self::LaunchRegistered => "EHR launch registered",
             Self::LaunchRedeemed => "EHR launch redeemed",
             Self::LaunchRefused => "EHR launch refused",
@@ -349,7 +354,7 @@ impl Event {
     fn kind(self) -> (Coded, Vec<Coded>, &'static str) {
         let own = Coded::fixed(OWN_EVENTS, self.code(), self.display());
         match self {
-            Self::SessionEnded => (USER_AUTHENTICATION, vec![LOGOUT, own], "E"),
+            Self::SessionEnded | Self::LoggedOut => (USER_AUTHENTICATION, vec![LOGOUT, own], "E"),
             Self::CodeIssued | Self::LaunchRegistered | Self::PickerToken => {
                 (USER_AUTHENTICATION, vec![own], "C")
             }

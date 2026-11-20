@@ -195,8 +195,26 @@ token, so a retry after a lost response, or two tabs or two backend
 instances refreshing at once, keeps the grant. A repeat after the window,
 by another client, or once the new refresh token was used, is a replay. An `offline_access` token lapses after
 `refresh_idle` unused; an `online_access` token after `online_idle`, or when
-the person's login at the identity provider ends through back-channel
-logout.
+the person's login at the identity provider ends through back-channel or
+front-channel logout, or at FerroSMART's end-session endpoint.
+
+**Logout.** An app sends the person to `end_session_endpoint`
+(`{issuer}/logout`, OpenID Connect RP-Initiated Logout 1.0) with the ID
+Token FerroSMART gave it as `id_token_hint`, and optionally a
+`post_logout_redirect_uri` the client registered under
+`post_logout_redirect_uris` and a `state`. FerroSMART asks the person to
+confirm, ends their `online_access` grants (an `offline_access` grant
+lives on), and sends the browser to the identity provider's own logout
+when it has one. The browser then comes back to the app's
+`post_logout_redirect_uri` with the `state`, or, when the app sent no
+`id_token_hint`, to FerroSMART's own logged-out page. A hint FerroSMART did
+not issue, a `client_id` that is not the hint's audience, or a redirect URI
+the client did not register is a page and no redirect.
+
+![The page titled "Log out?": it asks whether to log out of the deployment, says every app signed in with this login stops working until the person signs in again, and offers Log out and Stay signed in](img/logout-confirm.png)
+
+The end-session endpoint's confirmation.
+[Dark theme](img/logout-confirm-dark.png).
 
 **Introspection.** `POST {issuer}/introspect` (RFC 7662) answers for any
 token FerroSMART issued. The caller is a confidential client that

@@ -183,9 +183,14 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
             let callback = url::Url::parse(&callback).map_err(|error| {
                 Failure::from(error).with_context("the issuer gives no callback URL")
             })?;
-            Some(upstream.relying_party(callback).await.map_err(|error| {
+            let party = upstream.relying_party(callback).await.map_err(|error| {
                 Failure::not_up(error).with_context("cannot reach the upstream provider")
-            })?)
+            })?;
+            // NOTE: RP-Initiated Logout 1.0 §3, the provider's logout sends the browser
+            // back to FerroSMART, which sends it on to the app.
+            Some(party.with_post_logout_redirect_uri(
+                settings.endpoint_url(crate::logout::end_session::END_SESSION_RETURN_ROUTE),
+            ))
         }
         None => None,
     };

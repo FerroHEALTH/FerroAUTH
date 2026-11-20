@@ -1,8 +1,12 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The back-channel logout URI FerroSMART registers at its upstream
-//! provider (OpenID Connect Back-Channel Logout 1.0 §2.5).
+//! How a person's login ends.
+//!
+//! Here, the back-channel logout URI FerroSMART registers at its upstream
+//! provider (OpenID Connect Back-Channel Logout 1.0 §2.5); beside it the
+//! front-channel one ([`front`]) and FerroSMART's own end-session endpoint
+//! ([`end_session`]).
 //!
 //! The provider posts a Logout Token when a person's login there ends. Once
 //! the token checks (§2.6, through `ferrohealth_smart::oidc`), the sessions
@@ -13,6 +17,9 @@
 //! be revoked"). Logging out twice ends nothing more, so a token posted
 //! again is answered as the first was: the optional `jti` check of §2.6 is
 //! not made.
+
+pub mod end_session;
+pub mod front;
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -72,6 +79,45 @@ async fn logged_out(
         tracing::info!(error = %ferrohealth_server::run::chain(&error), "a Logout Token was refused");
         "the logout_token does not verify"
     })?;
+    end_sessions(
+        state,
+        Ended {
+            issuer: &claims.issuer,
+            subject: claims.subject.as_deref(),
+            sid: claims.session.as_deref(),
+            route: BACKCHANNEL_LOGOUT_ROUTE,
+            channel: "back",
+        },
+        from,
+    )
+    .await
+}
+
+/// What an upstream logout ends: the sessions of `issuer` with the `sid`,
+/// or of the `subject` without one, notified at `route` by `channel`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Ended<'a> {
+    /// The upstream provider's issuer.
+    pub(crate) issuer: &'a str,
+    /// The provider's subject, when the notice names one.
+    pub(crate) subject: Option<&'a str>,
+    /// The provider's session id, when the notice names one.
+    pub(crate) sid: Option<&'a str>,
+    /// The route the notice came to.
+    pub(crate) route: &'static str,
+    /// The channel, `back` or `front`, the record names.
+    pub(crate) channel: &'static str,
+}
+
+/// Ends the upstream sessions `ended` names with their `online_access`
+/// grants, and records it; a notice that ends nothing writes nothing
+/// (Back-Channel Logout 1.0 §2.7; Front-Channel Logout 1.0 §2, a person
+/// already logged out is a logout that succeeded).
+pub(crate) async fn end_sessions(
+    state: &AppState,
+    ended: Ended<'_>,
+    from: IpAddr,
+) -> Result<(), &'static str> {
     let unrecorded = |error: &dyn std::error::Error| {
         tracing::error!(error = %ferrohealth_server::run::chain(error), "the logout could not be recorded");
         "the logout could not be recorded"
@@ -81,24 +127,17 @@ async fn logged_out(
         .begin()
         .await
         .map_err(|error| unrecorded(&error))?;
-    let ended = tx
-        .log_out(
-            &claims.issuer,
-            claims.subject.as_deref(),
-            claims.session.as_deref(),
-        )
+    let sessions = tx
+        .log_out(ended.issuer, ended.subject, ended.sid)
         .await
         .map_err(|error| unrecorded(&error))?;
-    // NOTE: Back-Channel Logout 1.0 §2.7, a token that ends nothing changes
-    // nothing, so its transaction is dropped unwritten.
-    if ended.is_empty() {
+    if sessions.is_empty() {
         return Ok(());
     }
-    let subject = claims
+    let subject = ended
         .subject
-        .as_deref()
-        .map(|subject| crate::upstream::pairwise(&claims.issuer, subject));
-    let endpoint = state.settings().endpoint_url(BACKCHANNEL_LOGOUT_ROUTE);
+        .map(|subject| crate::upstream::pairwise(ended.issuer, subject));
+    let endpoint = state.settings().endpoint_url(ended.route);
     let happening = Happening {
         event: Event::SessionEnded,
         issuer: &state.settings().issuer,
@@ -106,7 +145,10 @@ async fn logged_out(
         subject: subject.as_deref(),
         from,
         endpoint: &endpoint,
-        details: vec![("sessions", ended.len().to_string())],
+        details: vec![
+            ("sessions", sessions.len().to_string()),
+            ("channel", String::from(ended.channel)),
+        ],
     };
     state
         .audit()

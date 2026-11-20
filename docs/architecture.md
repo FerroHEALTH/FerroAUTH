@@ -100,6 +100,7 @@ with the matrix.
 | OpenID Connect Discovery 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; RFC 9068 §4 names it as the alternative to RFC 8414 for publishing keys and the issuer. |
 | OpenID Connect Core 1.0 | incorporating errata set 2 (2023-12-15) | The edition the unversioned URL serves; the authorization code flow (§3.1) and the ID Token check (§3.1.3.7) of the `oidc` relying party. |
 | OpenID Connect RP-Initiated Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the end-session request (§2) and the `end_session_endpoint` metadata (§2.1) of the `oidc` relying party. |
+| OpenID Connect Front-Channel Logout 1.0 | final (2022-09-12) | The edition the unversioned URL serves; the logout URI an upstream renders in an iframe (§2), which ends FerroSMART's `online_access` grants for providers that offer no back-channel logout, such as Microsoft Entra ID (#677). |
 | OpenID Connect Back-Channel Logout 1.0 | incorporating errata set 1 (2023-12-15) | The edition the unversioned URL serves; the Logout Token check (§2.6) of the `oidc` relying party, which ends FerroSMART's `online_access` grants at upstream logout (13.6 item 7). |
 | OAuth 2.1 Authorization Framework | draft-ietf-oauth-v2-1-17 (2026-10-31) | The current revision of the Working Group draft that consolidates RFC 6749, 6750 and the security best current practice. FerroSMART cites it beside those RFCs (13.5) and never in their place, because an Internet-Draft is a work in progress. |
 | Inferno SMART App Launch test kit | 1.0.3 (`inferno-framework/smart-app-launch-test-kit` tag `v1.0.3`) | The latest release on 2026-11-16 and the conformance lane FerroSMART runs (13.13). Its requirement extraction for SMART App Launch 2.2.0 is a cross-check of the checklist, never a citation. |
@@ -2638,7 +2639,8 @@ discovery and token shapes for the two SaaS providers.
   | a rotated refresh token repeated by its client within the window, answered with the same successor | `110114` | `refresh-repeated` | `E` |
   | a rotated refresh token reused, its grant revoked | `110113` | `refresh-reused` | `E` |
   | a code redeemed again, its tokens revoked | `110113` | `code-reused` | `E` |
-  | an upstream session ended | `110114` | `110123` Logout, `session-ended` | `E` |
+  | an upstream session ended, by a back-channel or front-channel logout | `110114` | `110123` Logout, `session-ended` | `E` |
+  | a person logged out at the end-session endpoint, with the online grants it ended | `110114` | `110123` Logout, `logged-out` | `E` |
   | the patient picker's own token issued (13.6 item 4) | `110114` | `picker-token` | `C` |
 
   None of these events is an access to personal electronic health data,
@@ -3183,7 +3185,16 @@ specification governs.
    `offline_access` one ("SHOULD NOT"). Logging out is idempotent, so the
    optional `jti` check of §2.6 is not made. The upstream ID Token's `exp`
    is the token's lifetime, not the session's (`oidc core §2`), so it ends
-   nothing. Front-channel logout needs the browser and is not taken. Our
+   nothing. A provider that offers only Front-Channel Logout 1.0, such as
+   Microsoft Entra ID, renders `/frontchannel-logout` in an iframe with its
+   `iss` and the login's `sid` (§2; registered with
+   `frontchannel_logout_session_required`, since FerroSMART keeps no browser
+   session of its own to clear), which ends the sessions of that `sid` as
+   the back-channel path does; a request without both, or from another
+   issuer, ends nothing. The end-session endpoint (`rpinitiated §2`) ends
+   the `online_access` grants of the person its `id_token_hint` names, and
+   forwards to the upstream's end-session endpoint; FerroSMART notifies no
+   app of the logout, whose revoked refresh token fails at its next use. Our
    own design.
 8. **Introspection access.** `smart token-introspection` lets the endpoint
    take a SMART bearer token and leaves any other access rule "out of scope
@@ -3345,6 +3356,8 @@ differently.
 | `GET`, `POST /authorize` | the authorization endpoint | `smart app-launch`; `rfc6749 §3.1` |
 | `GET /callback` | the upstream provider's redirect back | `oidc core §3.1.2.5` |
 | `POST /backchannel-logout` | the back-channel logout URI registered at the upstream provider, which ends the `online_access` grants of a login | `backchannel §2.5` to `§2.8` |
+| `GET /frontchannel-logout` | the front-channel logout URI registered at the upstream provider: with its `iss` and `sid`, it ends the sessions of that `sid` and their `online_access` grants; never cached, framed only by the provider's origins | `frontchannel §2` |
+| `GET`, `POST /logout` | the end-session endpoint: checks the `id_token_hint` FerroSMART issued (accepted past its `exp`), the `client_id` against its `aud` and the `post_logout_redirect_uri` against the client's registration, then asks the person to confirm (`POST /logout/confirm`), ends their `online_access` grants and forwards to the upstream's end-session endpoint, whose redirect back (`GET /logout/return`) sends the browser to the app with its `state`; a refusal is a page | `rpinitiated §2`, `§3` |
 | `GET`, `POST /consent`, `/picker` | the consent and picker pages | our own design |
 | `POST /token` | the token endpoint | `rfc6749 §3.2` |
 | `POST /introspect` | RFC 7662 | `rfc7662 §2` |
@@ -3370,7 +3383,7 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 
 | Table | Key | Holds |
 |---|---|---|
-| `client` | `client_id` | type (public, symmetric, asymmetric), secret hash, `jwks` or `jwks_uri`, redirect URIs, launch URI, registered origins, scope ceiling, grant types, offline access allowed, name and logo, disabled time |
+| `client` | `client_id` | type (public, symmetric, asymmetric), secret hash, `jwks` or `jwks_uri`, redirect URIs, post-logout redirect URIs, launch URI, registered origins, scope ceiling, grant types, offline access allowed, name and logo, disabled time |
 | `signing_key` | `kid` | algorithm, public JWK, signer reference (file path or KMS key id), state (`next`, `active`, `retiring`), the times of each state |
 | `pending_authorization` | random id | the validated request (client, redirect URI, scope, `state`, `nonce`, PKCE challenge, `aud`, launch, and the OpenID Connect `prompt`, `max_age` and `ui_locales` of 13.25), the upstream `state`, `nonce` and PKCE verifier, expiry |
 | `authorization_code` | code hash | the grant it opens, the PKCE challenge, the redirect URI, expiry, redemption time |
@@ -3381,6 +3394,7 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 | `consent` | subject, client | the scope set the user chose to remember, times, revocation |
 | `upstream_session` | id | upstream issuer, upstream `sid` and `sub`, last seen, end |
 | `seen_jti` | issuer, `jti` | client assertions and launch JWTs, until their `exp` |
+| `pending_logout` | random id (the logout cookie) | a logout waiting for the person's answer: the client, the hint's `sub`, the registered post-logout redirect and its `state`, the form token, the `state` sent upstream, expiry |
 | `brand_bundle` | one row for the contents and one per resource, by `Type/id` | the digest a replica last started with, and when it became so: the Bundle's `timestamp` and each resource's `meta.lastUpdated` |
 
 Expired rows are deleted by a sweep on each replica under a PostgreSQL
@@ -3450,6 +3464,7 @@ client_id = "portal"
 kind = "confidential_symmetric"
 secret_hash_file = "/run/secrets/portal-secret.phc"   # the Argon2id PHC hash, at least m=19456,t=2,p=1
 redirect_uris = ["https://portal.example.org/callback"]
+post_logout_redirect_uris = ["https://portal.example.org/logged-out"]   # optional: where the end-session endpoint may send the browser back (RP-Initiated Logout 1.0 §3.1)
 launch_uri = "https://portal.example.org/launch"   # optional: the app's launch URL, which POST /launch may name (13.17)
 client_uri = "https://portal.example.org/"    # optional, with logo_uri, policy_uri and tos_uri: shown on the consent page (RFC 7591 §2)
 grant_types = ["authorization_code", "refresh_token"]   # never client_credentials
@@ -3858,6 +3873,19 @@ vendored text are decisions:
    the URL it was read under, which `oidc discovery §4.3` has a relying party
    refuse. FerroSMART fails discovery with `IssuerMismatch` and serves no
    login; one FerroSMART logs in the people of one tenant.
+4. **Logout is front-channel.** Entra ID sends its single sign-out as an
+   HTTP GET to each app's front-channel logout URL
+   (`v2-protocols-oidc.md`, Single sign-out) and documents no back-channel
+   logout, so the registration names `{issuer}/frontchannel-logout`. That
+   URI acts only on a request that carries `iss` and `sid`
+   (`frontchannel §2`), and the login's `sid` comes from the ID Token; the
+   vendored page states neither, so a deployment checks that Entra ID's
+   discovery document says `frontchannel_logout_session_supported` and that
+   the ID Token carries `sid` before relying on it. FerroSMART's
+   end-session endpoint forwards to Entra ID's `end_session_endpoint`,
+   whose `post_logout_redirect_uri` "must match one of the redirect URIs
+   registered" (Send a sign-out request), so `{issuer}/logout/return` is
+   registered beside `{issuer}/callback`.
 
 Entra ID advises a certificate over a client secret in production
 (`how-to-add-credentials.md`, Add a client secret), and FerroSMART takes no

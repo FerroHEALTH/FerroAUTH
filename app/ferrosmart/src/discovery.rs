@@ -212,7 +212,21 @@ pub fn metadata_document(metadata: &ServerMetadata) -> Value {
         );
     }
     add_launch_registration(&mut document, metadata);
+    add_end_session(&mut document, metadata);
     document
+}
+
+/// Adds `end_session_endpoint` (`{issuer}/logout`) to `document` when
+/// `metadata` describes the login, which alone gives a person a session to
+/// end (OpenID Connect RP-Initiated Logout 1.0 §2.1; the member is
+/// registered for RFC 8414 metadata too, §7.1).
+fn add_end_session(document: &mut Value, metadata: &ServerMetadata) {
+    add_issuer_route(
+        document,
+        metadata,
+        "end_session_endpoint",
+        crate::logout::end_session::END_SESSION_ROUTE,
+    );
 }
 
 /// Returns the SMART configuration of `metadata` for the server `settings`
@@ -252,19 +266,23 @@ pub fn smart_configuration(settings: &Settings, metadata: &ServerMetadata, login
 /// authorization server metadata parameters MAY also be used". The name is
 /// our own design.
 fn add_launch_registration(document: &mut Value, metadata: &ServerMetadata) {
+    add_issuer_route(
+        document,
+        metadata,
+        "launch_registration_endpoint",
+        crate::launch::LAUNCH_ROUTE,
+    );
+}
+
+/// Adds the member `name`, the issuer's `route`, to `document` when
+/// `metadata` describes the app launch.
+fn add_issuer_route(document: &mut Value, metadata: &ServerMetadata, name: &str, route: &str) {
     if metadata.authorization_endpoint.is_none() {
         return;
     }
     if let Some(members) = document.as_object_mut() {
-        let endpoint = format!(
-            "{}{}",
-            metadata.issuer.trim_end_matches('/'),
-            crate::launch::LAUNCH_ROUTE
-        );
-        members.insert(
-            String::from("launch_registration_endpoint"),
-            Value::String(endpoint),
-        );
+        let endpoint = format!("{}{route}", metadata.issuer.trim_end_matches('/'));
+        members.insert(String::from(name), Value::String(endpoint));
     }
 }
 
@@ -355,5 +373,6 @@ pub fn openid_configuration(metadata: &ServerMetadata) -> Value {
             ]),
         );
     }
+    add_end_session(&mut document, metadata);
     document
 }

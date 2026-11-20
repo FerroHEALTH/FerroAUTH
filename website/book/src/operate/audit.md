@@ -15,7 +15,8 @@ answers `503` and issues no token.
 |---|---|
 | A token request, granted or refused | The ITI-71 audit event of IHE Basic Audit Log Patterns 1.1.4, profile `IHE.IUA.71`: type `110114`, subtype `ITI-71`, the client and the authorization server as agents, the person as `agent:user` when one logged in, and the HTTP request as the `token-request` entity, with the values of `code_verifier`, `code`, `refresh_token`, `client_secret` and `client_assertion` left out |
 | A login at the identity provider | DICOM User Authentication, type `110122` Login |
-| A session ended by back-channel logout | DICOM User Authentication, `110123` Logout |
+| A session ended by back-channel or front-channel logout | DICOM User Authentication, `110123` Logout |
+| A logout at the end-session endpoint | DICOM User Authentication, `110123` Logout, subtype `logged-out` |
 
 Every other write FerroSMART makes for a person or a client commits with a
 record of its own, in a form of FerroSMART's design, since no IHE or BALP
