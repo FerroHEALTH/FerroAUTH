@@ -59,41 +59,91 @@ impl Store {
             .collect()
     }
 
-    /// Returns each client that holds a live refresh grant of `subject`,
-    /// with the grant's scope and its access: a grant not revoked whose
-    /// refresh token is neither used, revoked nor lapsed, the newest per
-    /// client.
+    /// Returns each client that holds live access to `subject`'s data: a
+    /// grant not revoked with a refresh token neither used, revoked nor
+    /// lapsed, or with an access token neither revoked nor expired.
+    ///
+    /// Each app carries the scope of its newest such grant, the refresh
+    /// access of its newest grant that can still refresh, and whether any
+    /// of its grants stands on the client's current organisation approval.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when the query fails, or
     /// [`StoreError::Corrupt`] for an access the server never writes.
-    pub async fn refresh_access(
-        &self,
-        subject: &str,
-    ) -> Result<Vec<(String, String, Access)>, StoreError> {
+    pub async fn connected_apps(&self, subject: &str) -> Result<Vec<ConnectedApp>, StoreError> {
         let rows = sqlx::query(
-            "SELECT DISTINCT ON (g.client_id) g.client_id, g.scope, g.access \
-             FROM authorization_grant g JOIN refresh_token r ON r.grant_id = g.id \
-             WHERE g.subject = $1 AND g.revoked_at IS NULL AND g.access IS NOT NULL \
-             AND r.used_at IS NULL AND r.revoked_at IS NULL AND r.expires_at > now() \
+            "SELECT g.client_id, g.scope, g.access, \
+             (c.approved_at IS NOT NULL AND g.approved_at = c.approved_at) AS organisation, \
+             EXISTS (SELECT 1 FROM refresh_token r WHERE r.grant_id = g.id \
+               AND r.used_at IS NULL AND r.revoked_at IS NULL AND r.expires_at > now()) \
+               AS refreshable, \
+             EXISTS (SELECT 1 FROM access_token a WHERE a.grant_id = g.id \
+               AND a.revoked_at IS NULL AND a.expires_at > now()) AS bearer \
+             FROM authorization_grant g LEFT JOIN client c ON c.client_id = g.client_id \
+             WHERE g.subject = $1 AND g.revoked_at IS NULL \
              ORDER BY g.client_id, g.created_at DESC",
         )
         .bind(subject)
         .fetch_all(&self.pool)
         .await?;
-        rows.iter()
-            .map(|row| {
-                let client_id: String = row.try_get("client_id")?;
-                let access: String = row.try_get("access")?;
-                let access = match access.as_str() {
-                    "offline" => Access::Offline,
-                    "online" => Access::Online,
-                    _ => return Err(StoreError::Corrupt { client_id }),
-                };
-                Ok((client_id, row.try_get("scope")?, access))
-            })
-            .collect()
+        let mut apps: Vec<ConnectedApp> = Vec::new();
+        for row in &rows {
+            let refreshable: bool = row.try_get("refreshable")?;
+            if !refreshable && !row.try_get::<bool, _>("bearer")? {
+                continue;
+            }
+            let client_id: String = row.try_get("client_id")?;
+            let access = if refreshable {
+                match row.try_get::<Option<String>, _>("access")?.as_deref() {
+                    Some("offline") => Some(Access::Offline),
+                    Some("online") => Some(Access::Online),
+                    None => None,
+                    Some(_) => return Err(StoreError::Corrupt { client_id }),
+                }
+            } else {
+                None
+            };
+            let organisation: bool = row.try_get("organisation")?;
+            match apps.last_mut() {
+                Some(app) if app.client_id == client_id => {
+                    app.access = app.access.or(access);
+                    app.organisation |= organisation;
+                }
+                _ => apps.push(ConnectedApp {
+                    client_id,
+                    scope: row.try_get("scope")?,
+                    access,
+                    organisation,
+                }),
+            }
+        }
+        Ok(apps)
     }
+}
+
+/// An app that holds live access to a person's data, as
+/// [`Store::connected_apps`] reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectedApp {
+    /// The client.
+    pub client_id: String,
+    /// The scope of its newest live grant.
+    pub scope: String,
+    /// The refresh access it holds, if any.
+    pub access: Option<Access>,
+    /// Whether it holds access on the client's current organisation
+    /// approval.
+    pub organisation: bool,
+}
+
+/// What disconnecting an app from a person ended
+/// ([`Transaction::revoke_consent`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Disconnected {
+    /// Whether a remembered consent was forgotten.
+    pub remembered: bool,
+    /// How many grants were revoked, with their tokens.
+    pub grants: u64,
 }
 
 impl Transaction {
@@ -118,11 +168,13 @@ impl Transaction {
         .await?;
         Ok(())
     }
-    /// Forgets the consent `subject` gave `client_id` and revokes the
-    /// grants, refresh tokens and access tokens issued to the client about
-    /// them ("revoking it revokes the grants it covered",
-    /// `docs/architecture.md` §13.6 item 6), and returns whether there was
-    /// one.
+
+    /// Disconnects `client_id` from `subject`: forgets the consent they
+    /// remembered for it, if any, and revokes every grant, refresh token
+    /// and access token issued to the client about them, whatever basis
+    /// issued it (SMART App Launch 2.2.0, Conformance,
+    /// `management_endpoint`). An organisation approval of the client is
+    /// left as it stands.
     ///
     /// # Errors
     /// Returns [`StoreError::Database`] when a statement fails; nothing is
@@ -131,7 +183,7 @@ impl Transaction {
         &mut self,
         subject: &str,
         client_id: &str,
-    ) -> Result<bool, StoreError> {
+    ) -> Result<Disconnected, StoreError> {
         let forgotten = sqlx::query("DELETE FROM consent WHERE subject = $1 AND client_id = $2")
             .bind(subject)
             .bind(client_id)
@@ -153,7 +205,7 @@ impl Transaction {
         .bind(client_id)
         .execute(&mut *self.tx)
         .await?;
-        sqlx::query(
+        let grants = sqlx::query(
             "UPDATE authorization_grant SET revoked_at = now() \
              WHERE subject = $1 AND client_id = $2 AND revoked_at IS NULL",
         )
@@ -161,6 +213,9 @@ impl Transaction {
         .bind(client_id)
         .execute(&mut *self.tx)
         .await?;
-        Ok(forgotten.rows_affected() == 1)
+        Ok(Disconnected {
+            remembered: forgotten.rows_affected() == 1,
+            grants: grants.rows_affected(),
+        })
     }
 }

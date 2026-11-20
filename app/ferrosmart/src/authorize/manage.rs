@@ -1,8 +1,8 @@
 // SPDX-FileCopyrightText: Cadasto B.V.
 // SPDX-License-Identifier: BUSL-1.1
 
-//! The management page of remembered consents, the `management_endpoint`
-//! (SMART App Launch 2.2.0, Conformance, Metadata).
+//! The management page of the apps a person allowed, the
+//! `management_endpoint` (SMART App Launch 2.2.0, Conformance, Metadata).
 
 use std::net::IpAddr;
 use std::sync::Arc;
@@ -24,8 +24,9 @@ use super::{
     set_cookie,
 };
 
-/// `GET {issuer}/manage`: the person's remembered consents, once they
-/// logged in at the provider for it; the visit begins that login.
+/// `GET {issuer}/manage`: the person's remembered consents and the apps
+/// holding live access to their data, once they logged in at the provider
+/// for it; the visit begins that login.
 pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     if let Some(id) = cookie(&headers, COOKIE) {
         match state.store().pending(&id).await {
@@ -85,8 +86,9 @@ pub async fn manage_get(State(state): State<Arc<AppState>>, headers: HeaderMap) 
     response
 }
 
-/// `POST {issuer}/manage`: forgets the consent the form names and revokes
-/// the client's tokens about the person.
+/// `POST {issuer}/manage`: disconnects the app the form names from the
+/// person, forgetting their remembered consent and revoking the app's
+/// grants and tokens about them.
 pub async fn manage_post(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
@@ -111,15 +113,15 @@ pub async fn manage_post(
     if !constant_eq(sent.as_bytes(), pending.form_token.as_bytes()) {
         return pages::fault(&state, Fault::BadRequest);
     }
-    match withdraw(&state, subject, client_id, from).await {
+    match disconnect(&state, subject, client_id, from).await {
         Ok(()) => see_other(&state.settings().endpoint(MANAGE_ROUTE)),
         Err(error) => pages::server_error(&state, &error),
     }
 }
 
-/// Forgets the consent `subject` gave `client_id`, revoking what it
-/// covered, with its record in one transaction.
-async fn withdraw(
+/// Disconnects `client_id` from `subject` with its record in one
+/// transaction, leaving any organisation approval of the client in place.
+async fn disconnect(
     state: &AppState,
     subject: &str,
     client_id: &str,
@@ -130,7 +132,7 @@ async fn withdraw(
         .begin()
         .await
         .map_err(audit::RecordFailure::Store)?;
-    let forgotten = tx
+    let ended = tx
         .revoke_consent(subject, client_id)
         .await
         .map_err(audit::RecordFailure::Store)?;
@@ -146,7 +148,10 @@ async fn withdraw(
                 subject: Some(subject),
                 from,
                 endpoint: &endpoint,
-                details: vec![("remembered", forgotten.to_string())],
+                details: vec![
+                    ("remembered", ended.remembered.to_string()),
+                    ("grants", ended.grants.to_string()),
+                ],
             },
         )
         .await
@@ -162,30 +167,22 @@ async fn manage_page(state: &AppState, headers: &HeaderMap, pending: &Pending) -
         Err(error) => return pages::server_error(state, &error),
     };
     // NOTE: SMART App Launch 2.2.0, Best Practices, remind users which apps have
-    // offline access: every app with a live refresh grant is listed, remembered or not.
-    let held = match state.store().refresh_access(subject).await {
-        Ok(held) => held,
-        Err(error) => return pages::server_error(state, &error),
-    };
-    // NOTE: docs/architecture.md §13.6 item 6, an app the organisation approved is
-    // listed as such, and only an administrator withdraws it.
-    let approved = match state.store().approved_apps(subject).await {
-        Ok(approved) => approved,
+    // offline access: every app with live access is listed, remembered or not.
+    let connected = match state.store().connected_apps(subject).await {
+        Ok(connected) => connected,
         Err(error) => return pages::server_error(state, &error),
     };
     let mut apps: std::collections::BTreeMap<String, (String, Option<Access>, bool)> = consents
         .into_iter()
         .map(|(client_id, scope)| (client_id, (scope, None, false)))
         .collect();
-    for (client_id, scope) in approved {
-        apps.entry(client_id)
-            .and_modify(|(_, _, organisation)| *organisation = true)
-            .or_insert((scope, None, true));
-    }
-    for (client_id, scope, access) in held {
-        apps.entry(client_id)
-            .and_modify(|(_, held, _)| *held = Some(access))
-            .or_insert((scope, Some(access), false));
+    for app in connected {
+        apps.entry(app.client_id)
+            .and_modify(|(_, access, organisation)| {
+                *access = app.access;
+                *organisation = app.organisation;
+            })
+            .or_insert((app.scope, app.access, app.organisation));
     }
     let mut named = Vec::with_capacity(apps.len());
     for (client_id, (scope, access, organisation)) in apps {

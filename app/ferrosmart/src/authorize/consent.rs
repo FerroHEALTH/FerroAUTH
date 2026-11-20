@@ -145,7 +145,16 @@ pub async fn consent_get(State(state): State<Arc<AppState>>, headers: HeaderMap)
         Ok(client) => client,
         Err(response) => return *response,
     };
-    pages::consent(&state, &headers, &client, &pending)
+    // NOTE: RFC 8252 §8.6, a request shown the page though a remembered consent
+    // covers it starts from that decision, the remember box ticked.
+    let remembered = match &pending.subject {
+        Some(subject) => match state.store().remembered(subject, &client.client_id).await {
+            Ok(remembered) => remembered.is_some(),
+            Err(error) => return pages::server_error(&state, &error),
+        },
+        None => false,
+    };
+    pages::consent(&state, &headers, &client, &pending, remembered)
 }
 
 /// `POST {issuer}/consent`: the person's decision.
