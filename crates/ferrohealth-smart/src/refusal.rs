@@ -10,10 +10,11 @@
 //! malformed `Authorization` value is `400` with `invalid_request`
 //! (RFC 6750 §3.1); a token whose authentication event falls short of what
 //! the resource requires is `401` with `insufficient_user_authentication`
-//! (RFC 9470 §3). The body a product sends with the status is the
-//! product's own (a FHIR `OperationOutcome`, an openEHR error body); it
-//! names no claim and no scope, so a refusal teaches a caller nothing about
-//! what it lacks (no specification requires the omission: our own design).
+//! (RFC 9470 §3). Each refusal of a credential carries a stable reason code
+//! ([`Reason`]) as the challenge's `error_description` (RFC 6750 §3), so an
+//! operator sees why a token was refused; the code names a check, never a
+//! claim value or a scope. The body a product sends with the status is the
+//! product's own (a FHIR `OperationOutcome`, an openEHR error body).
 
 use http::StatusCode;
 
@@ -92,6 +93,16 @@ impl Refusal {
     /// (RFC 7617 §2, §2.1), the realm given or an empty one.
     #[must_use]
     pub fn challenge(&self, realm: Option<&str>) -> Option<String> {
+        self.challenge_described(realm, None)
+    }
+
+    /// Returns [`Refusal::challenge`] with `description` as the
+    /// `error_description` of the challenge that carries an error code.
+    fn challenge_described(
+        &self,
+        realm: Option<&str>,
+        description: Option<&str>,
+    ) -> Option<String> {
         let quoted = realm.map(quote);
         // NOTE: RFC 9110 §11.3, auth-params follow the scheme after one
         // space and are comma-separated; RFC 6750 §3 puts realm before error.
@@ -102,6 +113,9 @@ impl Refusal {
             }
             if let Some(error) = error {
                 params.push(format!("error=\"{error}\""));
+                if let Some(description) = description {
+                    params.push(format!("error_description=\"{description}\""));
+                }
             }
             params.extend(extra);
             if params.is_empty() {
@@ -159,7 +173,8 @@ impl Refusal {
         }
     }
 
-    /// Returns the reason the debug log names, never a claim value.
+    /// Returns the RFC 6750 §3.1 error code (or this crate's name for a
+    /// refusal that has none), never a claim value.
     #[must_use]
     pub const fn reason(&self) -> &'static str {
         match self {
@@ -286,13 +301,13 @@ impl StepUp {
     }
 }
 
-/// Which check refused a credential, for the product's own log.
+/// Which check refused a credential, by a stable reason code.
 ///
-/// A reason never reaches the wire: every invalid credential is the one
-/// `401` of RFC 6750 §3 with no `error_description`, because a refusal
-/// that names the failed check teaches a forger which claim to fix next (no
-/// specification requires the omission: our own design). A reason names a
-/// check and never carries a claim value.
+/// The gate logs the code at info with the token's issuer, client id and
+/// key id, and [`Denied::challenge`] sends it as the `error_description`
+/// of the `401` or `403` (RFC 6750 §3), so an operator reads why a token was
+/// refused without debug logging. A code names a check and never carries a
+/// claim value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum Reason {
@@ -343,46 +358,66 @@ pub enum Reason {
     BasicMalformed,
     /// The Basic user is unknown or the password does not match.
     BasicRejected,
+    /// The Basic credential's verification did not complete.
+    BasicIncomplete,
+    /// The credential holds, and it grants no permission for the request.
+    ScopeNotGranted,
+    /// The route is one the gate cannot classify.
+    RouteUnclassified,
+    /// The party source could not answer for the caller's login.
+    PartySourceUnavailable,
     /// The token matches no step of the caller classification for its
-    /// issuer's kind; the rejection names the step.
-    Unclassified,
+    /// issuer's kind, with the step's code ([`crate::kind::Unclassified::code`]).
+    Unclassified(&'static str),
+    /// The product refuses the caller's party binding, with the outcome's
+    /// code ([`crate::party::Outcome::refusal_reason`]).
+    Party(&'static str),
     /// A sender-constrained token or its `DPoP` proof failed a check
     /// ([`crate::sender`]).
     Sender(crate::sender::Check),
-    /// A reason a product's own [`crate::resource::Verifier`] names.
+    /// A reason a product's own [`crate::resource::Verifier`] names: a
+    /// code in the same form (lower-case ASCII words joined by `-`), which
+    /// the challenge carries only in that form.
     Other(&'static str),
 }
 
 impl Reason {
-    /// Returns the reason as the log names it.
+    /// Returns the stable reason code: the info log names it, and the
+    /// `WWW-Authenticate` `error_description` carries it.
+    ///
+    /// A code is lower-case ASCII words joined by `-`, and never changes
+    /// meaning once published; the book lists every code.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::TwoCredentials => "two credentials",
-            Self::MalformedHeader => "malformed authorization header",
-            Self::NotB64Token => "not a b64token",
-            Self::Malformed => "malformed",
-            Self::Algorithm => "algorithm not accepted",
-            Self::Type => "typ names another kind",
-            Self::UnknownKey => "no key of the set",
-            Self::Signature => "signature",
+            Self::TwoCredentials => "two-credentials",
+            Self::MalformedHeader => "malformed-header",
+            Self::NotB64Token => "not-b64token",
+            Self::Malformed => "malformed-token",
+            Self::Algorithm => "algorithm-refused",
+            Self::Type => "type-mismatch",
+            Self::UnknownKey => "key-unknown",
+            Self::Signature => "signature-invalid",
             Self::Expired => "expired",
-            Self::NotYetValid => "not yet valid",
-            Self::IssuedInFuture => "iat is in the future",
-            Self::Issuer => "issuer",
-            Self::UntrustedIssuer => "issuer not trusted",
-            Self::Audience => "audience",
-            Self::MissingClaim => "a required claim is missing",
-            Self::Subject => "sub is not a string",
-            Self::BlankSubject => "sub is blank",
-            Self::Inactive => "token not active",
-            Self::KeySetUnavailable => "key set unavailable",
-            Self::UpstreamUnavailable => "upstream unavailable",
-            Self::BasicMalformed => "malformed basic credential",
-            Self::BasicRejected => "basic credential rejected",
-            Self::Unclassified => "no caller kind",
+            Self::NotYetValid => "not-yet-valid",
+            Self::IssuedInFuture => "issued-in-future",
+            Self::Issuer => "issuer-mismatch",
+            Self::UntrustedIssuer => "issuer-unknown",
+            Self::Audience => "audience-mismatch",
+            Self::MissingClaim => "claim-missing",
+            Self::Subject => "subject-not-string",
+            Self::BlankSubject => "subject-blank",
+            Self::Inactive => "token-inactive",
+            Self::KeySetUnavailable => "key-set-unavailable",
+            Self::UpstreamUnavailable => "upstream-unavailable",
+            Self::BasicMalformed => "basic-malformed",
+            Self::BasicRejected => "basic-rejected",
+            Self::BasicIncomplete => "basic-incomplete",
+            Self::ScopeNotGranted => "scope-not-granted",
+            Self::RouteUnclassified => "route-unclassified",
+            Self::PartySourceUnavailable => "party-source-unavailable",
             Self::Sender(check) => check.as_str(),
-            Self::Other(reason) => reason,
+            Self::Unclassified(code) | Self::Party(code) | Self::Other(code) => code,
         }
     }
 }
@@ -395,9 +430,8 @@ impl std::fmt::Display for Reason {
 
 /// A refusal at the gate with the reason behind it.
 ///
-/// The product answers [`Denied::refusal`], whose status and challenge are
-/// the library's, and logs [`Denied::reason`]; the reason never reaches
-/// the wire. A contact point also answers [`Denied::ehdsi`], the
+/// The product answers with [`Refusal::status`] and [`Denied::challenge`],
+/// which carries the reason code as `error_description`. A contact point also answers [`Denied::ehdsi`], the
 /// MyHealth@EU Requirements Catalogue 10.0.0 §1.25 code of the refusal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Denied {
@@ -431,6 +465,52 @@ impl Denied {
     #[must_use]
     pub const fn reason(&self) -> Option<Reason> {
         self.reason
+    }
+
+    /// Returns the stable code the info log names: the reason's
+    /// ([`Reason::as_str`]), or for a denial no check refused, the
+    /// refusal's (`credential-missing`, `credential-unchecked`).
+    #[must_use]
+    pub const fn code(&self) -> &'static str {
+        match (self.reason, &self.refusal) {
+            (Some(reason), _) => reason.as_str(),
+            (None, Refusal::Missing(_)) => "credential-missing",
+            (None, Refusal::Forbidden) => "scope-not-granted",
+            (None, Refusal::Unclassified) => "route-unclassified",
+            (None, Refusal::StepUp(_)) => "authentication-insufficient",
+            (None, _) => "credential-unchecked",
+        }
+    }
+
+    /// Returns the `WWW-Authenticate` value of the denial, `realm` named on
+    /// each challenge when given, or `None` for a status that carries no
+    /// challenge.
+    ///
+    /// The challenge is [`Refusal::challenge`]'s with the reason code as
+    /// `error_description` (RFC 6750 §3) on every `Bearer` or `DPoP`
+    /// challenge that carries an error code. A missing credential carries
+    /// none (RFC 6750 §3.1), and neither does Basic, whose scheme defines
+    /// no such parameter (RFC 7617 §2).
+    #[must_use]
+    pub fn challenge(&self, realm: Option<&str>) -> Option<String> {
+        let described = matches!(
+            self.refusal,
+            Refusal::InvalidRequest
+                | Refusal::InvalidToken
+                | Refusal::InvalidDpopToken
+                | Refusal::InvalidDpopProof
+                | Refusal::Forbidden
+                | Refusal::StepUp(_)
+        );
+        let code = self.code();
+        // NOTE: RFC 6750 §3, `error-description` is visible ASCII without
+        // `"` or `\`; a product code outside the code form is left out.
+        let travels = !code.is_empty()
+            && code
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+        self.refusal
+            .challenge_described(realm, (described && travels).then_some(code))
     }
 
     /// Returns the MyHealth@EU Requirements Catalogue 10.0.0 §1.25 code
@@ -477,7 +557,7 @@ impl From<&Rejection> for Denied {
         let reason = match rejection {
             Rejection::Missing => None,
             Rejection::Invalid { reason } => Some(*reason),
-            Rejection::Unclassified { .. } => Some(Reason::Unclassified),
+            Rejection::Unclassified { reason } => Some(Reason::Unclassified(reason.code())),
             Rejection::Unavailable { .. } => Some(Reason::KeySetUnavailable),
             Rejection::Upstream { .. } => Some(Reason::UpstreamUnavailable),
         };
@@ -553,6 +633,278 @@ mod tests {
         );
     }
 
+    /// Every code the crate names, each with what names it.
+    fn every_code() -> Vec<(String, &'static str)> {
+        let reasons = [
+            (Reason::TwoCredentials, "two-credentials"),
+            (Reason::MalformedHeader, "malformed-header"),
+            (Reason::NotB64Token, "not-b64token"),
+            (Reason::Malformed, "malformed-token"),
+            (Reason::Algorithm, "algorithm-refused"),
+            (Reason::Type, "type-mismatch"),
+            (Reason::UnknownKey, "key-unknown"),
+            (Reason::Signature, "signature-invalid"),
+            (Reason::Expired, "expired"),
+            (Reason::NotYetValid, "not-yet-valid"),
+            (Reason::IssuedInFuture, "issued-in-future"),
+            (Reason::Issuer, "issuer-mismatch"),
+            (Reason::UntrustedIssuer, "issuer-unknown"),
+            (Reason::Audience, "audience-mismatch"),
+            (Reason::MissingClaim, "claim-missing"),
+            (Reason::Subject, "subject-not-string"),
+            (Reason::BlankSubject, "subject-blank"),
+            (Reason::Inactive, "token-inactive"),
+            (Reason::KeySetUnavailable, "key-set-unavailable"),
+            (Reason::UpstreamUnavailable, "upstream-unavailable"),
+            (Reason::BasicMalformed, "basic-malformed"),
+            (Reason::BasicRejected, "basic-rejected"),
+            (Reason::BasicIncomplete, "basic-incomplete"),
+            (Reason::ScopeNotGranted, "scope-not-granted"),
+            (Reason::RouteUnclassified, "route-unclassified"),
+            (Reason::PartySourceUnavailable, "party-source-unavailable"),
+        ];
+        let mut codes: Vec<(String, &'static str)> = reasons
+            .iter()
+            .map(|(reason, code)| {
+                assert_eq!(*code, reason.as_str(), "{reason:?}");
+                (format!("{reason:?}"), *code)
+            })
+            .collect();
+        codes.extend(unclassified_codes());
+        codes.extend(sender_and_party_codes());
+        codes
+    }
+
+    /// The code of every classification step.
+    fn unclassified_codes() -> Vec<(String, &'static str)> {
+        let mut codes = Vec::new();
+        let unclassified = [
+            (
+                Unclassified::Expected {
+                    claim: String::from("c"),
+                },
+                "claim-unexpected",
+            ),
+            (
+                Unclassified::UserClaim {
+                    claim: String::from("c"),
+                },
+                "user-claim-missing",
+            ),
+            (Unclassified::Impersonation, "impersonation"),
+            (Unclassified::MarkersDisagree, "app-only-markers-disagree"),
+            (
+                Unclassified::ScopeForm {
+                    claim: String::from("c"),
+                },
+                "scope-form",
+            ),
+            (Unclassified::NotPatientContext, "not-patient-context"),
+            (Unclassified::PatientActor, "patient-actor-refused"),
+            (Unclassified::NotAppOnly, "not-app-only"),
+            (Unclassified::NoClient, "client-missing"),
+            (Unclassified::UnlistedClient, "delegate-not-granted"),
+            (Unclassified::UnlistedActor, "actor-not-granted"),
+            (Unclassified::ActorChain, "actor-chain-refused"),
+            (
+                Unclassified::RepresentationWithAct,
+                "representation-with-act",
+            ),
+            (
+                Unclassified::RepresentationThroughDelegate,
+                "representation-through-delegate",
+            ),
+            (
+                Unclassified::ExternalIncomplete { missing: vec![] },
+                "professional-incomplete",
+            ),
+            (
+                Unclassified::RequiredFields { missing: vec![] },
+                "required-fields-missing",
+            ),
+            (
+                Unclassified::OutOfBounds { field: "f" },
+                "attribute-out-of-bounds",
+            ),
+            (Unclassified::Attribute { field: "f" }, "attribute-refused"),
+            (
+                Unclassified::SourcesDisagree { field: "f" },
+                "sources-disagree",
+            ),
+            (
+                Unclassified::AuthorizationDetails,
+                "authorization-details-refused",
+            ),
+            (
+                Unclassified::NoOrganisationStatement,
+                "organisation-statement-missing",
+            ),
+            (Unclassified::AssuranceTooLow, "assurance-too-low"),
+            (Unclassified::Presentations, "presentations-unreadable"),
+            (
+                Unclassified::ContactPoint {
+                    code: EhdsiCode::SecDataIntegrityNotEnsured,
+                    missing: vec![],
+                },
+                "contact-point-refused",
+            ),
+            (
+                Unclassified::NoStep {
+                    kind: crate::kind::IssuerKind::Machines,
+                },
+                "kind-unclassified",
+            ),
+        ];
+        for (step, code) in unclassified {
+            let denied = Denied::from(&Rejection::Unclassified {
+                reason: step.clone(),
+            });
+            assert_eq!(
+                Some(Reason::Unclassified(code)),
+                denied.reason(),
+                "{step:?}"
+            );
+            codes.push((format!("{step:?}"), code));
+        }
+        codes
+    }
+
+    /// The code of every sender check and every refused party outcome.
+    fn sender_and_party_codes() -> Vec<(String, &'static str)> {
+        use crate::sender::Check;
+        let mut codes = Vec::new();
+        let checks = [
+            (Check::ProofMissing, "dpop-proof-missing"),
+            (Check::ProofRepeated, "dpop-proof-repeated"),
+            (Check::ProofMalformed, "dpop-proof-malformed"),
+            (Check::ProofClaim, "dpop-proof-claim-missing"),
+            (Check::ProofJti, "dpop-proof-jti-too-long"),
+            (Check::ProofType, "dpop-proof-type"),
+            (Check::ProofAlgorithm, "dpop-proof-algorithm"),
+            (Check::ProofKey, "dpop-proof-key"),
+            (Check::ProofSignature, "dpop-proof-signature"),
+            (Check::ProofMethod, "dpop-proof-method"),
+            (Check::ProofUri, "dpop-proof-uri"),
+            (Check::ProofStale, "dpop-proof-stale"),
+            (Check::ProofFuture, "dpop-proof-issued-in-future"),
+            (Check::ProofTokenHash, "dpop-proof-token-hash"),
+            (Check::ProofReplayed, "dpop-proof-replayed"),
+            (Check::ProofRequestUnknown, "dpop-request-unknown"),
+            (Check::KeyMismatch, "dpop-key-mismatch"),
+            (Check::NotKeyBound, "dpop-key-unbound"),
+            (Check::KeyBoundAsBearer, "dpop-bound-as-bearer"),
+            (Check::CertificateMissing, "certificate-missing"),
+            (Check::CertificateMismatch, "certificate-mismatch"),
+            (Check::ConfirmationUnknown, "confirmation-unknown"),
+            (Check::ConstraintRequired, "sender-constraint-required"),
+            (Check::Unsupported, "dpop-unsupported"),
+        ];
+        for (check, code) in checks {
+            assert_eq!(code, Reason::Sender(check).as_str(), "{check:?}");
+            codes.push((format!("{check:?}"), code));
+        }
+        let outcomes = [
+            (crate::party::Outcome::Unbound, "refused-unbound"),
+            (
+                crate::party::Outcome::Ambiguous { count: 2 },
+                "refused-ambiguous",
+            ),
+            (
+                crate::party::Outcome::Deprovisioned,
+                "refused-deprovisioned",
+            ),
+            (
+                crate::party::Outcome::KeyClaimMissing,
+                "refused-key-claim-missing",
+            ),
+            (
+                crate::party::Outcome::GroupsUnavailable(crate::party::GroupsCause::Malformed),
+                "refused-groups-unavailable",
+            ),
+        ];
+        for (outcome, code) in outcomes {
+            assert_eq!(
+                Some(Reason::Party(code)),
+                outcome.refusal_reason(),
+                "{outcome:?}"
+            );
+            codes.push((format!("{outcome:?}"), code));
+        }
+        codes
+    }
+
+    #[test]
+    fn every_reason_code_is_pinned_unique_and_in_the_code_form() {
+        let codes = every_code();
+        let mut seen = std::collections::BTreeMap::new();
+        for (named, code) in &codes {
+            assert!(
+                code.bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-'),
+                "{named}: {code}"
+            );
+            if let Some(other) = seen.insert(*code, named) {
+                panic!("{code} names both {other} and {named}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_challenge_carries_the_code_where_rfc_6750_has_an_error() {
+        let expired = Denied::new(Refusal::InvalidToken, Some(Reason::Expired));
+        assert_eq!(
+            Some(String::from(
+                "Bearer realm=\"ferro\", error=\"invalid_token\", error_description=\"expired\""
+            )),
+            expired.challenge(Some("ferro"))
+        );
+        let delegate = Denied::from(&Rejection::Unclassified {
+            reason: Unclassified::UnlistedClient,
+        });
+        assert_eq!(
+            Some(String::from(
+                "Bearer error=\"invalid_token\", error_description=\"delegate-not-granted\""
+            )),
+            delegate.challenge(None)
+        );
+        let unbound = Denied::new(
+            Refusal::Forbidden,
+            crate::party::Outcome::Unbound.refusal_reason(),
+        );
+        assert_eq!(
+            Some(String::from(
+                "Bearer error=\"insufficient_scope\", error_description=\"refused-unbound\""
+            )),
+            unbound.challenge(None)
+        );
+        let missing = Denied::from(Refusal::Missing(Schemes {
+            bearer: true,
+            basic: false,
+            dpop: false,
+        }));
+        assert_eq!("credential-missing", missing.code());
+        assert_eq!(
+            Some(String::from("Bearer")),
+            missing.challenge(None),
+            "RFC 6750 §3.1: no error information without a credential"
+        );
+        let basic = Denied::new(Refusal::InvalidBasic, Some(Reason::BasicRejected));
+        assert_eq!(
+            Some(String::from("Basic realm=\"\", charset=\"UTF-8\"")),
+            basic.challenge(None),
+            "RFC 7617 §2 defines no error_description"
+        );
+        let product = Denied::new(Refusal::InvalidToken, Some(Reason::Other("Not A Code")));
+        assert_eq!(
+            Some(String::from("Bearer error=\"invalid_token\"")),
+            product.challenge(None),
+            "a product reason outside the code form stays off the wire"
+        );
+        let unavailable = Denied::new(Refusal::Unavailable, Some(Reason::KeySetUnavailable));
+        assert_eq!(None, unavailable.challenge(None));
+        assert_eq!("key-set-unavailable", unavailable.code());
+    }
+
     #[test]
     fn a_contact_point_denial_carries_its_code_and_others_none() {
         let rejection = Rejection::Unclassified {
@@ -563,7 +915,10 @@ mod tests {
         };
         let denied = Denied::from(&rejection);
         assert_eq!(Some(EhdsiCode::SecDataIntegrityNotEnsured), denied.ehdsi());
-        assert_eq!(Some(Reason::Unclassified), denied.reason());
+        assert_eq!(
+            Some(Reason::Unclassified("contact-point-refused")),
+            denied.reason()
+        );
         #[cfg(feature = "axum")]
         {
             let dpop = denied.answered_with(Refusal::InvalidDpopToken);

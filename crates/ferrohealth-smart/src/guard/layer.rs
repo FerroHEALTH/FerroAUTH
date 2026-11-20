@@ -31,6 +31,9 @@ use crate::guard::Gate;
 use crate::guard::Render;
 use crate::guard::Requirement;
 use crate::guard::Target;
+use crate::jws::Named;
+use crate::refusal::Denied;
+use crate::refusal::Reason;
 use crate::refusal::Refusal;
 use crate::resource::Access;
 use crate::resource::Caller;
@@ -165,11 +168,11 @@ where
             let (mut parts, body) = request.into_parts();
             let mut binding = None;
             let (access, response) = match admit(&gate, &target, &parts).await {
-                Err((access, refusal)) => {
-                    if refusal == Refusal::Unavailable && access.is_some() {
+                Err((access, denied)) => {
+                    if *denied.refusal() == Refusal::Unavailable && access.is_some() {
                         binding = Some(crate::audit::SOURCE_UNAVAILABLE);
                     }
-                    (access, render.render(&refusal, &parts))
+                    (access, render.render(&denied, &parts))
                 }
                 Ok(access) => {
                     parts.extensions.insert(access.clone());
@@ -206,19 +209,25 @@ async fn admit(
     gate: &Gate,
     target: &Target,
     parts: &Parts,
-) -> Result<Access, (Option<Access>, Refusal)> {
+) -> Result<Access, (Option<Access>, Denied)> {
     match target.requirement() {
-        Requirement::Refused => return Err((None, Refusal::Unclassified)),
+        Requirement::Refused => {
+            let denied = Denied::new(Refusal::Unclassified, Some(Reason::RouteUnclassified));
+            super::gate::log_refusal(&denied, &Named::default());
+            return Err((None, denied));
+        }
         Requirement::Public => return Ok(Access::Open),
         _ => {}
     }
     let access = gate
         .authenticate_request(parts)
         .await
-        .map_err(|denied| (None, denied.into_refusal()))?;
+        .map_err(|denied| (None, denied))?;
     let honoured = gate.honoured(&access);
     if !gate.is_open() && !target.requirement().met_by(&access, honoured) {
-        return Err((Some(access), Refusal::Forbidden));
+        let denied = Denied::new(Refusal::Forbidden, Some(Reason::ScopeNotGranted));
+        super::gate::log_refusal(&denied, &named(gate, &access, parts));
+        return Err((Some(access), denied));
     }
     let (Some(binding), Access::Caller(caller)) = (&gate.party, &access) else {
         return Ok(access);
@@ -230,7 +239,20 @@ async fn admit(
         ))),
         Err(error) => {
             tracing::warn!(error = %error, "the party source could not answer");
-            Err((Some(access), Refusal::Unavailable))
+            let denied = Denied::new(Refusal::Unavailable, Some(Reason::PartySourceUnavailable));
+            super::gate::log_refusal(&denied, &named(gate, &access, parts));
+            Err((Some(access), denied))
         }
     }
+}
+
+/// Returns what a refusal of an admitted `access` names: the caller's
+/// issuer and client, and the key id of the credential in `parts`.
+fn named(gate: &Gate, access: &Access, parts: &Parts) -> Named {
+    let mut named = gate.named(&parts.headers);
+    if let Access::Caller(caller) = access {
+        named.issuer = caller.issuer().map(str::to_owned).or(named.issuer);
+        named.client_id = caller.client_id().map(str::to_owned).or(named.client_id);
+    }
+    named
 }
