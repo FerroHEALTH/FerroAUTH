@@ -88,7 +88,7 @@ secrecy.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["sync", "rt", "fs"] }
+tokio = { workspace = true, features = ["sync", "rt", "fs", "time"] }
 toml.workspace = true
 tracing.workspace = true
 url.workspace = true

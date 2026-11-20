@@ -19,6 +19,7 @@ use ferrohealth_smart::profile::Profile;
 use ferrohealth_smart::profile::ProfileKeys;
 use ferrohealth_smart::profile::ScopeClaim;
 use ferrohealth_smart::profile::ScopeForm;
+use ferrohealth_smart::refusal::Denied;
 use ferrohealth_smart::refusal::Reason;
 use ferrohealth_smart::refusal::Refusal;
 use ferrohealth_smart::resource::Caller;
@@ -36,6 +37,7 @@ use ferrohealth_smart::scope::Permission;
 use jsonwebtoken::Algorithm;
 use jsonwebtoken::EncodingKey;
 use jsonwebtoken::Header;
+use http::StatusCode;
 
 use crate::support::AUDIENCE;
 use crate::support::CLIENT;
@@ -981,14 +983,14 @@ async fn an_unreachable_issuer_answers_503_and_is_not_asked_again_inside_the_int
     let token = mint(&key, &issuer.claims("system/Condition.rs"));
     for attempt in ["first", "second"] {
         match lazy.authenticate(&token).await {
-            Err(rejection @ Rejection::Unavailable { .. }) => {
+            Err(rejection @ Rejection::Unread { .. }) => {
                 assert_eq!(
                     Refusal::Unavailable,
                     Refusal::from(&rejection),
                     "{attempt}: 503, never 401"
                 );
             }
-            other => panic!("{attempt}: expected the unavailable rejection, got {other:?}"),
+            other => panic!("{attempt}: expected the unread rejection, got {other:?}"),
         }
     }
     assert_eq!(
@@ -1009,7 +1011,7 @@ async fn a_lazy_server_recovers_once_the_issuer_answers() -> Result<(), Box<dyn 
     let token = mint(&key, &issuer.claims("system/Condition.rs"));
     assert!(matches!(
         lazy.authenticate(&token).await,
-        Err(Rejection::Unavailable { .. })
+        Err(Rejection::Unread { .. })
     ));
     issuer
         .mount_metadata("/.well-known/oauth-authorization-server")
@@ -1017,6 +1019,59 @@ async fn a_lazy_server_recovers_once_the_issuer_answers() -> Result<(), Box<dyn 
     issuer.mount_keys(&[&key], None).await;
     let caller = lazy.authenticate(&token).await?;
     assert_eq!("synthetic-client-sub", caller.subject());
+    Ok(())
+}
+
+// NOTE: no specification governs when an issuer is read: our own design (#734),
+// the product starts before its issuer and is not ready until it is read.
+#[tokio::test]
+async fn a_late_issuer_is_read_in_the_background_and_the_set_turns_ready()
+-> Result<(), Box<dyn StdError>> {
+    let key = ec_key("k1", Algorithm::ES256);
+    let issuer = Issuer::bare().await;
+    let lazy = Arc::new(ResourceServer::lazy(issuer.settings())?);
+    let set = IssuerSet::new().with_lazy(Arc::clone(&lazy));
+    assert!(!set.is_ready(), "not ready before the issuer is read");
+    let token = mint(&key, &issuer.claims("system/Condition.rs"));
+    let refused = set.verify(&token).await.expect_err("the issuer is unread");
+    let denied = Denied::from(&refused);
+    assert_eq!(Some(Reason::IssuerUnread), denied.reason());
+    assert_eq!("issuer-unread", denied.code());
+    assert_eq!(StatusCode::SERVICE_UNAVAILABLE, denied.refusal().status());
+    issuer
+        .mount_metadata("/.well-known/oauth-authorization-server")
+        .await;
+    issuer.mount_keys(&[&key], None).await;
+    for task in set.read_in_background() {
+        tokio::time::timeout(Duration::from_secs(10), task).await??;
+    }
+    assert!(set.is_ready(), "ready once every issuer is read");
+    assert!(set.read_in_background().is_empty(), "nothing left to read");
+    let caller = set.verify(&token).await?;
+    assert_eq!("synthetic-client-sub", caller.subject());
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_unreachable_issuer_is_read_again_with_back_off_and_the_set_stays_not_ready()
+-> Result<(), Box<dyn StdError>> {
+    let issuer = Issuer::bare().await;
+    let lazy = Arc::new(ResourceServer::lazy(issuer.settings())?);
+    let set = IssuerSet::new().with_lazy(Arc::clone(&lazy));
+    let tasks = set.read_in_background();
+    assert_eq!(1, tasks.len());
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(!set.is_ready(), "still not ready");
+    let reads = issuer
+        .reads("/.well-known/oauth-authorization-server")
+        .await;
+    assert!(
+        (2..=3).contains(&reads),
+        "a read, a one-second wait, a second read: {reads}"
+    );
+    for task in tasks {
+        task.abort();
+    }
     Ok(())
 }
 

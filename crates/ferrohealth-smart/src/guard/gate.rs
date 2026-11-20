@@ -288,6 +288,12 @@ fn held(outcome: Result<Caller, Rejection>) -> Result<Caller, Denied> {
                         "the authorization server's key set could not be read"
                     );
                 }
+                Rejection::Unread { source } => {
+                    tracing::warn!(
+                        error = %source,
+                        "the issuer's metadata or key set has not been read yet"
+                    );
+                }
                 Rejection::Upstream { upstream, source } => {
                     tracing::error!(
                         upstream = *upstream,

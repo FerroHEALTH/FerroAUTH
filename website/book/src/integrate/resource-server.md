@@ -161,6 +161,12 @@ Basic challenge carries none either. The codes:
 A code names a check, never a claim value, and keeps its meaning once
 published.
 
+A product starts whether or not FerroSMART is up: it reads FerroSMART's
+metadata in the background, retrying with a back-off of one second doubling
+to one minute, and reports not ready on its readiness route until the read
+succeeds. Until then it refuses FerroSMART's tokens with `503` and the code
+`issuer-unread`, so the two can start in any order.
+
 For a server of your own in Rust, add the crate with its axum layer:
 
 ```sh

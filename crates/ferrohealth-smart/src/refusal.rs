@@ -351,6 +351,8 @@ pub enum Reason {
     Inactive,
     /// The key set could not be read to check the token.
     KeySetUnavailable,
+    /// The issuer's metadata or key set has not been read since the start.
+    IssuerUnread,
     /// An upstream a product's verifier calls could not be read to check
     /// the token.
     UpstreamUnavailable,
@@ -409,6 +411,7 @@ impl Reason {
             Self::BlankSubject => "subject-blank",
             Self::Inactive => "token-inactive",
             Self::KeySetUnavailable => "key-set-unavailable",
+            Self::IssuerUnread => "issuer-unread",
             Self::UpstreamUnavailable => "upstream-unavailable",
             Self::BasicMalformed => "basic-malformed",
             Self::BasicRejected => "basic-rejected",
@@ -559,6 +562,7 @@ impl From<&Rejection> for Denied {
             Rejection::Invalid { reason } => Some(*reason),
             Rejection::Unclassified { reason } => Some(Reason::Unclassified(reason.code())),
             Rejection::Unavailable { .. } => Some(Reason::KeySetUnavailable),
+            Rejection::Unread { .. } => Some(Reason::IssuerUnread),
             Rejection::Upstream { .. } => Some(Reason::UpstreamUnavailable),
         };
         let ehdsi = match rejection {
@@ -586,7 +590,9 @@ impl From<&Rejection> for Refusal {
                 reason: Reason::Sender(check),
             } if check.is_proof() => Self::InvalidDpopProof,
             Rejection::Invalid { .. } | Rejection::Unclassified { .. } => Self::InvalidToken,
-            Rejection::Unavailable { .. } | Rejection::Upstream { .. } => Self::Unavailable,
+            Rejection::Unavailable { .. }
+            | Rejection::Unread { .. }
+            | Rejection::Upstream { .. } => Self::Unavailable,
         }
     }
 }
@@ -655,6 +661,7 @@ mod tests {
             (Reason::BlankSubject, "subject-blank"),
             (Reason::Inactive, "token-inactive"),
             (Reason::KeySetUnavailable, "key-set-unavailable"),
+            (Reason::IssuerUnread, "issuer-unread"),
             (Reason::UpstreamUnavailable, "upstream-unavailable"),
             (Reason::BasicMalformed, "basic-malformed"),
             (Reason::BasicRejected, "basic-rejected"),
