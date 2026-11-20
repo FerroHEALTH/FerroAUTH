@@ -126,7 +126,7 @@ choice", and a remembered choice answers only a later request for the same
 scopes or fewer; a request for more shows the page again. This keeps the
 patient in control of what each app holds (SMART App Launch 2.2.0, Best
 Practices). Ask for the same scopes on each launch, so a remembered choice
-applies, and the person can withdraw it on the management page
+applies, and the person can disconnect the app on the management page
 (`management_endpoint`).
 
 **Access tokens live five minutes.** `access_token_lifetime` defaults to

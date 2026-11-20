@@ -206,10 +206,16 @@ When the person ticks "Remember this choice", FerroSMART keeps the consent
 for that client and that scope set. A later request whose offered scopes it
 covers goes back to the app with a code at once; a request for more shows
 the page again. The person sees each remembered consent at
-`{issuer}/manage`, the SMART `management_endpoint`, and withdraws it there,
-which revokes the grants it covered with every token under them. The page
-also lists every app that still holds `offline_access` or `online_access`,
-remembered or not, and says how long it stays connected.
+`{issuer}/manage`, the SMART `management_endpoint`, with every app that
+holds live access to their data: a refresh token or an access token not
+yet expired, remembered or not, organisation-approved or not. The page says
+how long each app stays connected, and each app has a Disconnect button.
+Disconnect forgets the remembered consent and revokes every grant the app
+holds for the person, with every token under them, at once: its next
+refresh fails. SMART App Launch 2.2.0 lets `offline_access` last "as long
+as the authorization server and end-user will allow", so the person can
+end any app's access. The audit record of a disconnect is
+`consent-withdrawn`.
 
 ### An app the organisation approved
 
@@ -233,9 +239,11 @@ page is skipped when the request names no `patient/` scope, the person's
 approval covers every scope offered; the person still gets no more than
 their roles allow. Anything else shows the page as usual. Each skipped page
 writes an audit record naming the approver and the time, and the
-management page lists the app as approved by the organisation, which the
-person cannot withdraw there. Remove or change the table and restart: the
-approval is withdrawn, and every token issued on it is revoked.
+management page lists the app as approved by the organisation. A person
+who disconnects it there ends their own access; the approval stays, and
+their next sign-in follows it again. Remove or change the table and
+restart: the approval is withdrawn, and every token issued on it is
+revoked.
 
 For the organisation's own app, such as its patient portal, add
 `first_party = true` to the approval. A first-party approval may also list
@@ -244,14 +252,15 @@ the app sees no consent page either, as long as the approval covers every
 scope offered. The organisation processes its patients' data in its own
 app on its own legal basis (GDPR Art. 9(2)(h)), so the consent page adds
 nothing there. An app of another party keeps the page for every patient:
-the patient decides whether to share their data with it, and withdraws it
-on the management page. The audit record of a skipped page says
+the patient decides whether to share their data with it, and disconnects
+it on the management page. The audit record of a skipped page says
 `consent-first-party-approved`, and the management page lists the app as
-the organisation's own, which only the administrator withdraws. Setting or
+the organisation's own, with a Disconnect button that ends the patient's
+access and leaves the approval to the administrator. Setting or
 clearing `first_party` is a new approval: the old one is withdrawn with
 every token issued on it.
 
-![The management page, titled "Apps you allowed": one app that stays connected after sign-out, the scopes it holds in words, and the Withdraw button](../integrate/img/manage.png)
+![The management page, titled "Apps you allowed": one app that stays connected after sign-out, the scopes it holds in words, and the Disconnect button](../integrate/img/manage.png)
 
 The management page, with one app that keeps access.
 [Dark theme](../integrate/img/manage-dark.png).
