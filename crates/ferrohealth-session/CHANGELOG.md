@@ -14,7 +14,14 @@ and this project adheres to
 
 ## [Unreleased]
 
-## [0.26.0] - Unreleased
+## [0.26.0] - 2026-11-20
+
+### Changed
+
+- Breaking: requires `ferrohealth-smart` 0.31 in place of 0.30. Its
+  `ferrosmart` preset reads a patient's own token as `CallerKind::Patient`,
+  and `Profile`, `ProfileKeys` and `IssuerEntry` gain
+  `fhir_user_patient` (#681).
 
 ## [0.25.1] - 2026-11-19
 
@@ -469,7 +476,8 @@ FerroHEALTH operator consoles, over the relying party of `ferrohealth-smart`
   its request's `record::Held` and the `routes::Pages` trait a console draws
   a stopped sign-in through.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.25.1...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.26.0...HEAD
+[0.26.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.25.1...ferrohealth-session-v0.26.0
 [0.25.1]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.25.0...ferrohealth-session-v0.25.1
 [0.25.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.24.0...ferrohealth-session-v0.25.0
 [0.24.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-session-v0.23.0...ferrohealth-session-v0.24.0
