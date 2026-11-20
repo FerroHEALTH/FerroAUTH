@@ -77,14 +77,11 @@ services:
     environment:
       # The upstream login and its claims (ferrosmart.toml of the example).
       FERROSMART__FERROSMART__UPSTREAM__0__NAME: keycloak
-      FERROSMART__FERROSMART__UPSTREAM__0__PROTOCOL: oidc
+      # The keycloak preset brings the scope, the two claims and RS256.
+      FERROSMART__FERROSMART__UPSTREAM__0__PRESET: keycloak
       FERROSMART__FERROSMART__UPSTREAM__0__OIDC__ISSUER: http://localhost:8180/realms/ferrosmart
       FERROSMART__FERROSMART__UPSTREAM__0__OIDC__CLIENT_ID: ferrosmart
-      FERROSMART__FERROSMART__UPSTREAM__0__OIDC__PRIVATE_KEY_JWT__ALGORITHM: RS256
       FERROSMART__FERROSMART__UPSTREAM__0__OIDC__PRIVATE_KEY_JWT__KEYS__PRIVATE_KEY_FILE: /run/secrets/upstream_assertion_key
-      FERROSMART__FERROSMART__UPSTREAM__0__OIDC__SCOPES__0: openid
-      FERROSMART__FERROSMART__UPSTREAM__0__OIDC__FHIR_USER_CLAIM: fhir_user
-      FERROSMART__FERROSMART__UPSTREAM__0__OIDC__ROLE_CLAIMS__0: roles
       # The realm role `clinician` may be granted these user/ scopes.
       FERROSMART__FERROSMART__ROLE__0__NAME: clinician
       FERROSMART__FERROSMART__ROLE__0__SCOPES__0: user/Patient.rs

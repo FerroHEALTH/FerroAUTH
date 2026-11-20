@@ -768,7 +768,7 @@ pub struct Remembered {
 
 /// Returns the management page of `pending`'s person, listing `remembered`
 /// with a Disconnect form each, an app the organisation approved marked as
-/// such.
+/// such, and the person's own FerroSMART subject.
 ///
 /// It is the `management_endpoint`, a "URL where an end-user can view which
 /// applications currently have access to data and can make adjustments to
@@ -834,9 +834,22 @@ pub fn manage(
             )
         }))
     };
+    // NOTE: docs/architecture.md §13.6 item 9, the person's own pairwise sub, which
+    // an administrator binds them by at a resource server (#733).
+    let subject = pending
+        .subject
+        .as_deref()
+        .map_or_else(Html::empty, |subject| {
+            Html::raw(format!(
+                "<p>{}</p><p><code>{}</code></p>",
+                Html::text(words("manage-subject")),
+                Html::text(subject)
+            ))
+        });
     let body = Html::join([
         Html::raw(format!("<p>{}</p>", Html::text(words("manage-intro")))),
         rows,
+        subject,
     ]);
     let title = words("manage-title");
     let lockup = brand_lockup(state, &locale);

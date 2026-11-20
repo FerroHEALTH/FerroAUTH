@@ -3,17 +3,21 @@
 
 //! The upstream identity providers a person logs in at, for login only.
 //!
-//! Each is a named `[[ferrosmart.upstream]]` entry with its protocol and
-//! that protocol's settings (`docs/architecture.md` §13.2). OpenID Connect is
-//! reached through `ferrohealth-smart`'s relying party, and SAML 2.0 through
-//! [`saml`]; each protocol is a [`Protocol`] variant and a table of its own,
-//! with no change to the entry or to the login flow.
+//! Each is a named `[[ferrosmart.upstream]]` entry with the table of its
+//! protocol, `oidc` or `saml`, whichever is present (`docs/architecture.md`
+//! §13.10). OpenID Connect is reached through `ferrohealth-smart`'s relying
+//! party, and SAML 2.0 through [`saml`]; each protocol is a [`Protocol`]
+//! variant and a table of its own, with no change to the entry or to the
+//! login flow. An OpenID Connect entry may name a [`preset::Preset`], whose
+//! data file fills the keys its table leaves out.
 //!
 //! What FerroSMART takes from a provider's login is configured per entry
 //! too: the claim that holds the user's `fhirUser` and the claims that hold
 //! the user's roles. The user's FerroSMART `sub` is pairwise per upstream
 //! issuer (13.6 item 9).
 
+pub mod preset;
+pub mod registration;
 pub mod saml;
 
 use std::path::PathBuf;
@@ -32,8 +36,8 @@ use url::Url;
 /// governs the value: our own design.
 pub const UPSTREAM_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// One `[[ferrosmart.upstream]]` entry: a provider by name, with its
-/// protocol and that protocol's table.
+/// One `[[ferrosmart.upstream]]` entry: a provider by name, with the table
+/// of its protocol.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct UpstreamSection {
@@ -43,30 +47,49 @@ pub struct UpstreamSection {
     /// The words the chooser page shows for the provider; its name when
     /// empty.
     pub label: String,
-    /// The protocol the person logs in by.
-    pub protocol: Option<ProtocolName>,
-    /// `[ferrosmart.upstream.oidc]`: the OpenID Connect settings, with
-    /// `protocol = "oidc"`.
+    /// The vendor whose tested setup fills the keys the `oidc` table leaves
+    /// out.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preset: Option<preset::Preset>,
+    /// `[ferrosmart.upstream.oidc]`: the OpenID Connect settings; the
+    /// provider speaks OpenID Connect when it is present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oidc: Option<OidcSection>,
-    /// `[ferrosmart.upstream.saml]`: the SAML 2.0 settings, with
-    /// `protocol = "saml"`.
+    /// `[ferrosmart.upstream.saml]`: the SAML 2.0 settings; the provider
+    /// speaks SAML 2.0 when it is present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saml: Option<saml::SamlSection>,
 }
 
-/// The protocol of an upstream provider.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ProtocolName {
-    /// OpenID Connect Core 1.0.
-    Oidc,
-    /// The SAML 2.0 Web Browser SSO profile (saml-profiles-2.0-os §4.1).
-    Saml,
+impl UpstreamSection {
+    /// Returns the defaults of the entry's preset, none when it names
+    /// none.
+    ///
+    /// # Errors
+    /// Returns [`preset::PresetError`] when the preset's file does not
+    /// read, which the tests rule out.
+    pub fn defaults(&self) -> Result<preset::Defaults, preset::PresetError> {
+        self.preset
+            .map_or_else(|| Ok(preset::Defaults::default()), preset::Preset::defaults)
+    }
+
+    /// Returns the issuer a person's pairwise `sub` is derived under, exactly
+    /// as configured: the OpenID Provider's issuer identifier, or the SAML
+    /// identity provider's entity ID; none when the entry has both tables
+    /// or neither.
+    #[must_use]
+    pub fn issuer(&self) -> Option<&str> {
+        match (&self.oidc, &self.saml) {
+            (Some(oidc), None) => Some(&oidc.issuer),
+            (None, Some(saml)) => Some(&saml.entity_id),
+            _ => None,
+        }
+    }
 }
 
-/// `[ferrosmart.upstream.oidc]`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+/// `[ferrosmart.upstream.oidc]`. A key left unset takes the entry's preset,
+/// then the built-in default ([`OidcSection::effective`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct OidcSection {
     /// The provider's issuer identifier, whose discovery document names its
@@ -74,22 +97,29 @@ pub struct OidcSection {
     pub issuer: String,
     /// The client FerroSMART is registered as at the provider.
     pub client_id: String,
-    /// The scopes FerroSMART asks the provider for, `openid` among them.
-    pub scopes: Vec<String>,
+    /// The scopes FerroSMART asks the provider for, `openid` among them;
+    /// `["openid"]` by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<String>>,
     /// The dotted claim of the ID Token that holds the user's `fhirUser`
     /// URL; empty when the provider carries none, and FerroSMART then
-    /// offers no `fhirUser` scope.
-    pub fhir_user_claim: String,
-    /// The dotted claims of the ID Token that hold the user's roles.
-    pub role_claims: Vec<String>,
+    /// offers no `fhirUser` scope. Empty by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fhir_user_claim: Option<String>,
+    /// The dotted claims of the ID Token that hold the user's roles; the
+    /// claims RFC 9068 §2.2.3.1 names by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub role_claims: Option<Vec<String>>,
     /// The audiences an ID Token may name beside FerroSMART's client id, which
     /// FerroSMART trusts (OpenID Connect Core 1.0 §3.1.3.7 item 3), such as
-    /// the project a provider adds; empty trusts none.
-    pub trusted_audiences: Vec<String>,
+    /// the project a provider adds; none by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trusted_audiences: Option<Vec<String>>,
     /// `[ferrosmart.upstream.oidc.private_key_jwt]`: FerroSMART authenticates
     /// with a JWT the current key of its own assertion ring signs (OpenID
-    /// Connect Core 1.0 §9), the default; exclusive with
-    /// `client_secret_basic`.
+    /// Connect Core 1.0 §9), the method taken when no table names one;
+    /// exclusive with `client_secret_basic`.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub private_key_jwt: Option<PrivateKeyJwtSection>,
     /// `[ferrosmart.upstream.oidc.client_secret_basic]`: FerroSMART
     /// authenticates with a client secret as HTTP Basic (RFC 6749 §2.3.1,
@@ -97,6 +127,58 @@ pub struct OidcSection {
     /// `private_key_jwt`; exclusive with `private_key_jwt`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub client_secret_basic: Option<ClientSecretBasicSection>,
+}
+
+/// The algorithm of `private_key_jwt` when neither the entry nor its preset
+/// names one (RFC 7518 §3.1).
+pub const DEFAULT_ALGORITHM: &str = "RS256";
+
+/// The values an OpenID Connect entry runs on, once its preset and the
+/// built-in defaults filled what its table leaves out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Effective {
+    /// The scopes asked for.
+    pub scopes: Vec<String>,
+    /// The claim of `fhirUser`; empty for none.
+    pub fhir_user_claim: String,
+    /// The claims of the roles.
+    pub role_claims: Vec<String>,
+    /// The audiences trusted beside the client id.
+    pub trusted_audiences: Vec<String>,
+    /// The algorithm of `private_key_jwt`.
+    pub algorithm: String,
+}
+
+impl OidcSection {
+    /// Returns the values the entry runs on: each key the table sets, else
+    /// the one `defaults` sets, else the built-in default.
+    #[must_use]
+    pub fn effective(&self, defaults: &preset::Defaults) -> Effective {
+        let pick = |own: &Option<Vec<String>>, preset: &Option<Vec<String>>| {
+            own.as_ref().or(preset.as_ref()).cloned()
+        };
+        Effective {
+            scopes: pick(&self.scopes, &defaults.scopes)
+                .unwrap_or_else(|| vec![String::from(ferrohealth_smart::oidc::OPENID)]),
+            fhir_user_claim: self
+                .fhir_user_claim
+                .as_ref()
+                .or(defaults.fhir_user_claim.as_ref())
+                .cloned()
+                .unwrap_or_default(),
+            role_claims: pick(&self.role_claims, &defaults.role_claims)
+                .unwrap_or_else(ferrohealth_smart::roles::default_claims),
+            trusted_audiences: pick(&self.trusted_audiences, &defaults.trusted_audiences)
+                .unwrap_or_default(),
+            algorithm: self
+                .private_key_jwt
+                .as_ref()
+                .and_then(|jwt| jwt.algorithm.as_ref())
+                .or(defaults.private_key_jwt.algorithm.as_ref())
+                .cloned()
+                .unwrap_or_else(|| String::from(DEFAULT_ALGORITHM)),
+        }
+    }
 }
 
 /// `[ferrosmart.upstream.oidc.client_secret_basic]`.
@@ -111,12 +193,13 @@ pub struct ClientSecretBasicSection {
 }
 
 /// `[ferrosmart.upstream.oidc.private_key_jwt]`.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct PrivateKeyJwtSection {
-    /// The algorithm the provider's registration of FerroSMART names, one
-    /// the assertion keys sign with (RFC 7518 §3.1).
-    pub algorithm: String,
+    /// The algorithm the provider's registration names, one the assertion
+    /// keys sign with (RFC 7518 §3.1); the preset's, else `RS256`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub algorithm: Option<String>,
     /// `[ferrosmart.upstream.oidc.private_key_jwt.keys]`: the ring of assertion
     /// keys, read as `[ferrosmart.keys]` is and never one of its keys, so a
     /// key that signs assertions never signs a token (RFC 8725 §3.12).
@@ -125,31 +208,6 @@ pub struct PrivateKeyJwtSection {
     /// knows the key by its certificate; each assertion then names it by
     /// `x5t#S256` (RFC 7515 §4.1.8).
     pub certificate_file: Option<PathBuf>,
-}
-
-impl Default for PrivateKeyJwtSection {
-    fn default() -> Self {
-        Self {
-            algorithm: String::from("RS256"),
-            keys: crate::config::KeysSection::default(),
-            certificate_file: None,
-        }
-    }
-}
-
-impl Default for OidcSection {
-    fn default() -> Self {
-        Self {
-            issuer: String::new(),
-            client_id: String::new(),
-            scopes: vec![String::from(ferrohealth_smart::oidc::OPENID)],
-            fhir_user_claim: String::new(),
-            role_claims: ferrohealth_smart::roles::default_claims(),
-            trusted_audiences: Vec::new(),
-            private_key_jwt: None,
-            client_secret_basic: None,
-        }
-    }
 }
 
 /// How FerroSMART authenticates at the provider's token and revocation

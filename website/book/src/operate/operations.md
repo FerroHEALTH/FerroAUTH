@@ -3,7 +3,7 @@
 
 # Operations and health
 
-FerroSMART is one binary with three commands, health routes for an
+FerroSMART is one binary with a few commands, health routes for an
 orchestrator, and all of its state in PostgreSQL, so running it is mostly
 running a database well.
 
@@ -14,9 +14,21 @@ running a database well.
 | `ferrosmart serve` | Runs the server; the image's default command |
 | `ferrosmart config check` | Reads the configuration, prints it with every secret masked, and exits non-zero naming the first key FerroSMART cannot run with |
 | `ferrosmart healthcheck` | Asks the server on loopback for `GET /health/readiness` and exits 0 only on `200`; the image's `HEALTHCHECK` |
+| `ferrosmart client hash-secret` | Reads a client secret from standard input and prints the Argon2id hash a confidential symmetric client's `secret_hash_file` holds |
+| `ferrosmart subject --upstream <name> --sub <sub>` | Prints the FerroSMART `sub` of the person whose subject at the provider `<name>` is `<sub>`: the identifier a resource server binds the person by |
+| `ferrosmart upstream registration <name>` | Prints what the provider `<name>` must be configured with: the redirect and logout URIs, the client authentication with its JWK Set URL, the scopes, the claims and the roles |
 
 Each takes `--config <file>` and `--set key=value`
-([configuration](../configure/configuration.md)).
+([configuration](../configure/configuration.md)). `subject` and `upstream
+registration` read the configuration alone, with no key file, secret or
+database, so they run on any host that has it.
+
+FerroSMART derives a person's `sub` from the provider's issuer exactly as
+configured and the person's `sub` there (a SHA-256, base64url), so the
+same person at two providers, or at an issuer written with and without a
+trailing slash, has two subjects. Take the value `ferrosmart subject`
+prints; a person sees their own on the management page at
+`{issuer}/manage`.
 
 ## Health
 

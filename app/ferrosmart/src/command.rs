@@ -9,13 +9,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use ferrohealth_config::loader::Loaded;
-use ferrohealth_server::cli::{Common, ConfigCommand};
+use ferrohealth_server::cli::{Common, ConfigArgs, ConfigCommand};
 use ferrohealth_server::run::{Failure, Run, chain};
 use ferrohealth_telemetry::section::TelemetrySection;
 use ferrohealth_telemetry::telemetry::{Console, InitError, Service, Telemetry};
 use ihe_atna::atna::forwarder::Forwarder;
 
-use crate::cli::{Cli, ClientCommand, Command};
+use crate::cli::{Cli, ClientCommand, Command, UpstreamCommand};
 use crate::config::Config;
 use crate::config::settings::Settings;
 use crate::server::AppState;
@@ -42,6 +42,10 @@ pub async fn dispatch(cli: Cli) -> Result<ExitCode, Failure> {
         Command::Client {
             command: ClientCommand::HashSecret,
         } => return hash_secret(),
+        Command::Subject { upstream, sub } => return subject(&cli.config, &upstream, &sub),
+        Command::Upstream {
+            command: UpstreamCommand::Registration { name },
+        } => return registration(&cli.config, &name),
     };
     let loaded = Config::load(&cli.config).and_then(|loaded| {
         loaded
@@ -85,6 +89,44 @@ fn hash_secret() -> Result<ExitCode, Failure> {
         "{}",
         crate::clients::hash_secret(secret).map_err(Failure::from)?
     );
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Reads the configuration tree `args` names, unresolved: the jobs that
+/// read one upstream entry need no key, secret or database.
+fn tree(args: &ConfigArgs) -> Result<crate::config::FerroSmartSection, Failure> {
+    let loaded = Config::load(args).map_err(Failure::refused_configuration)?;
+    Ok(loaded.settings().ferrosmart.clone())
+}
+
+/// Runs `subject`: the pairwise `sub` of the person `sub` at the provider
+/// `upstream`, on one line (`docs/architecture.md` §13.6 item 9).
+#[expect(
+    clippy::print_stdout,
+    reason = "the job's one answer goes to standard output"
+)]
+fn subject(args: &ConfigArgs, upstream: &str, sub: &str) -> Result<ExitCode, Failure> {
+    if sub.is_empty() {
+        return Err(Failure::boxed("the subject is empty"));
+    }
+    let section = tree(args)?;
+    let subject = crate::upstream::registration::subject(&section, upstream, sub)
+        .map_err(Failure::refused_configuration)?;
+    println!("{subject}");
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Runs `upstream registration`: what the provider `name` must be
+/// configured with.
+#[expect(
+    clippy::print_stdout,
+    reason = "the job's one answer goes to standard output"
+)]
+fn registration(args: &ConfigArgs, name: &str) -> Result<ExitCode, Failure> {
+    let section = tree(args)?;
+    let registration = crate::upstream::registration::Registration::of(&section, name)
+        .map_err(Failure::refused_configuration)?;
+    print!("{registration}");
     Ok(ExitCode::SUCCESS)
 }
 

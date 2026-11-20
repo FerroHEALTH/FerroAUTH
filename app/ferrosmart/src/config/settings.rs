@@ -22,8 +22,8 @@ use url::Url;
 
 use crate::clients::Client;
 use crate::upstream::{
-    AssertionKeys, Authentication, OidcSection, OidcUpstream, PrivateKeyJwtSection, Protocol,
-    ProtocolName, Upstream, UpstreamSection,
+    AssertionKeys, Authentication, Effective, OidcSection, OidcUpstream, PrivateKeyJwtSection,
+    Protocol, Upstream, UpstreamSection,
 };
 
 use crate::config::error::Error;
@@ -626,33 +626,30 @@ fn upstream(section: &UpstreamSection, keys: &KeyRing) -> Result<Upstream, Error
             rule: "`name` is set, of letters, digits and `-`",
         });
     }
-    let (protocol, fhir_user_claim, role_claims) = match (
-        section.protocol,
-        &section.oidc,
-        &section.saml,
-    ) {
-        (Some(ProtocolName::Oidc), Some(oidc), None) => (
-            Protocol::Oidc(oidc_upstream(oidc, keys)?),
-            oidc.fhir_user_claim.clone(),
-            oidc.role_claims.clone(),
-        ),
-        (Some(ProtocolName::Saml), None, Some(saml)) => {
+    // NOTE: no specification governs the entry: our own design, the table present
+    // names the protocol and a preset fills only an OpenID Connect table (#733).
+    let (protocol, fhir_user_claim, role_claims) = match (&section.oidc, &section.saml) {
+        (Some(oidc), None) => {
+            let effective = oidc.effective(&section.defaults()?);
+            let resolved = oidc_upstream(oidc, &effective, keys)?;
+            (
+                Protocol::Oidc(resolved),
+                effective.fhir_user_claim,
+                effective.role_claims,
+            )
+        }
+        (None, Some(_)) if section.preset.is_some() => {
+            return Err(Error::Upstream {
+                rule: "a `preset` fills an `[ferrosmart.upstream.oidc]` table, never a SAML one",
+            });
+        }
+        (None, Some(saml)) => {
             let (resolved, fhir_user_claim, role_claims) = crate::upstream::saml::upstream(saml)?;
             (Protocol::Saml(resolved), fhir_user_claim, role_claims)
         }
-        (None, _, _) => {
+        _ => {
             return Err(Error::Upstream {
-                rule: "`protocol` is set",
-            });
-        }
-        (Some(ProtocolName::Oidc), _, _) => {
-            return Err(Error::Upstream {
-                rule: "`protocol = \"oidc\"` has its `[ferrosmart.upstream.oidc]` table and no other",
-            });
-        }
-        (Some(ProtocolName::Saml), _, _) => {
-            return Err(Error::Upstream {
-                rule: "`protocol = \"saml\"` has its `[ferrosmart.upstream.saml]` table and no other",
+                rule: "one of `[ferrosmart.upstream.oidc]` and `[ferrosmart.upstream.saml]` is set, never both",
             });
         }
     };
@@ -671,7 +668,7 @@ fn upstream(section: &UpstreamSection, keys: &KeyRing) -> Result<Upstream, Error
 }
 
 /// Returns FerroSMART's SAML 2.0 service provider `[ferrosmart.saml]`
-/// describes, which every `protocol = "saml"` provider needs; a provider
+/// describes, which every SAML 2.0 provider needs; a provider
 /// answering by artifact needs its TLS client identity too
 /// (saml-profiles-2.0-os §4.1.4.4).
 fn service_provider(
@@ -702,9 +699,14 @@ fn service_provider(
     Ok(Some(Arc::new(resolved)))
 }
 
-/// Returns the OpenID Connect provider `section` names, authenticating
-/// with `keys`' current key under `private_key_jwt`.
-fn oidc_upstream(section: &OidcSection, keys: &KeyRing) -> Result<OidcUpstream, Error> {
+/// Returns the OpenID Connect provider `section` names with the values
+/// `effective` fills, authenticating with `keys`' current key under
+/// `private_key_jwt`.
+fn oidc_upstream(
+    section: &OidcSection,
+    effective: &Effective,
+    keys: &KeyRing,
+) -> Result<OidcUpstream, Error> {
     if section.issuer.is_empty() || section.client_id.is_empty() {
         return Err(Error::Upstream {
             rule: "`issuer` and `client_id` are set",
@@ -713,7 +715,11 @@ fn oidc_upstream(section: &OidcSection, keys: &KeyRing) -> Result<OidcUpstream, 
     // NOTE: OpenID Connect Core 1.0 §9, private_key_jwt by default, or a secret as
     // HTTP Basic per provider (owner, 2026-11-19, #679, reversing #619); one of the two.
     let authentication = match (&section.private_key_jwt, &section.client_secret_basic) {
-        (Some(jwt), None) => Authentication::PrivateKeyJwt(assertion_keys(jwt, keys)?),
+        (jwt, None) => Authentication::PrivateKeyJwt(assertion_keys(
+            jwt.as_ref().unwrap_or(&PrivateKeyJwtSection::default()),
+            &effective.algorithm,
+            keys,
+        )?),
         (None, Some(basic)) => Authentication::ClientSecretBasic(require_secret(
             "ferrosmart.upstream.oidc.client_secret_basic.secret",
             basic
@@ -727,31 +733,26 @@ fn oidc_upstream(section: &OidcSection, keys: &KeyRing) -> Result<OidcUpstream, 
                 rule: "one of `private_key_jwt` and `client_secret_basic` is set, never both",
             });
         }
-        (None, None) => {
-            return Err(Error::Upstream {
-                rule: "`[ferrosmart.upstream.oidc.private_key_jwt]` or `[ferrosmart.upstream.oidc.client_secret_basic]` is set",
-            });
-        }
     };
     Ok(OidcUpstream {
         issuer: section.issuer.clone(),
         client_id: section.client_id.clone(),
         authentication,
-        scopes: section.scopes.clone(),
-        trusted_audiences: section.trusted_audiences.clone(),
+        scopes: effective.scopes.clone(),
+        trusted_audiences: effective.trusted_audiences.clone(),
     })
 }
 
-/// Returns the assertion ring `section` names, signing at the algorithm of
-/// the provider's registration and naming the certificate it knows the
+/// Returns the assertion ring `section` names, signing at `algorithm`, the
+/// provider's registration's, and naming the certificate it knows the
 /// current key by, once it holds none of `tokens`' keys.
 fn assertion_keys(
     section: &PrivateKeyJwtSection,
+    algorithm: &str,
     tokens: &KeyRing,
 ) -> Result<AssertionKeys, Error> {
     const KEY: &str = "ferrosmart.upstream.oidc.private_key_jwt";
-    let algorithm = section
-        .algorithm
+    let algorithm = algorithm
         .parse::<Algorithm>()
         .map_err(|_unknown| Error::Upstream {
             rule: "`private_key_jwt.algorithm` names a JWS algorithm (RFC 7518 §3.1)",

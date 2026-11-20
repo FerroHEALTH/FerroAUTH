@@ -137,24 +137,22 @@ issuer = "$FERROSMART_ISSUER"
 base = "http://localhost:8090/fhir"
 kind = "fhir"
 
+# The \`zitadel\` preset brings the scopes, the \`fhirUser\` claim the Actions
+# v2 target writes from the user's \`fhir_user\` metadata, and RS256; the
+# keys below win over it.
 [[ferrosmart.upstream]]
 name = "zitadel"
-protocol = "oidc"
+preset = "zitadel"
 
 [ferrosmart.upstream.oidc]
 issuer = "$ZITADEL_API"
 client_id = "$client_id"
-scopes = ["openid", "profile"]
-# The Actions v2 target writes the user's \`fhir_user\` metadata as \`fhirUser\`.
-fhir_user_claim = "fhirUser"
+# The roles of the project \`ferrosmart\`, which ZITADEL names beside the
+# client in every ID Token's aud.
 role_claims = ["urn:zitadel:iam:org:project:ferrosmart:roles"]
-# ZITADEL names the project beside the client in every ID Token's aud.
 trusted_audiences = ["ferrosmart"]
 
 # The application's key, which ZITADEL knows by its key id.
-[ferrosmart.upstream.oidc.private_key_jwt]
-algorithm = "RS256"
-
 [ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "$OUT/upstream-assertion.pem"
 kid = "$key_id"

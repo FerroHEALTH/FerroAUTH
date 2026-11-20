@@ -24,10 +24,10 @@ impl Two {
         let assertion = crate::support::upstream_assertion(keys.dir.path());
         let text = format!(
             "[ferrosmart]\nissuer = {ISSUER:?}\n[ferrosmart.database]\nurl = {:?}\n\
-             [[ferrosmart.upstream]]\nname = \"staff\"\nlabel = \"Hospital staff\"\nprotocol = \"oidc\"\n\
+             [[ferrosmart.upstream]]\nname = \"staff\"\nlabel = \"Hospital staff\"\n\
              [ferrosmart.upstream.oidc]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\n\
              fhir_user_claim = \"fhir_user\"\n{assertion}\
-             [[ferrosmart.upstream]]\nname = \"patients\"\nlabel = \"Patients\"\nprotocol = \"oidc\"\n\
+             [[ferrosmart.upstream]]\nname = \"patients\"\nlabel = \"Patients\"\n\
              [ferrosmart.upstream.oidc]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\n\
              fhir_user_claim = \"fhir_user\"\n{assertion}\
              [[ferrosmart.role]]\nname = \"clinician\"\nscopes = [\"user/Observation.rs\"]\n\
@@ -232,7 +232,7 @@ fn a_provider_table_is_checked_at_load() {
     let assertion = crate::support::upstream_assertion(keys.dir.path());
     let entry = |name: &str, issuer: &str| {
         format!(
-            "[[ferrosmart.upstream]]\nname = {name:?}\nprotocol = \"oidc\"\n\
+            "[[ferrosmart.upstream]]\nname = {name:?}\n\
              [ferrosmart.upstream.oidc]\nissuer = {issuer:?}\nclient_id = \"ferrosmart\"\n{assertion}"
         )
     };
@@ -249,10 +249,11 @@ fn a_provider_table_is_checked_at_load() {
             entry("two", "https://idp.example.org")
         ),
         format!("{base}{}", entry("not a name", "https://idp.example.org")),
-        format!("{base}[[ferrosmart.upstream]]\nname = \"idp\"\nprotocol = \"oidc\"\n"),
+        format!("{base}[[ferrosmart.upstream]]\nname = \"idp\"\n"),
         format!(
             "{base}[[ferrosmart.upstream]]\nname = \"idp\"\n[ferrosmart.upstream.oidc]\n\
-             issuer = \"https://idp.example.org\"\nclient_id = \"ferrosmart\"\n{assertion}"
+             issuer = \"https://idp.example.org\"\nclient_id = \"ferrosmart\"\n{assertion}\
+             [ferrosmart.upstream.saml]\nentity_id = \"https://idp.example.org/saml\"\n"
         ),
         format!(
             "{base}{}[[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\

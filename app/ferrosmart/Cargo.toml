@@ -72,6 +72,8 @@ sqlx.workspace = true
 argon2.workspace = true
 secrecy.workspace = true
 thiserror.workspace = true
+# The upstream presets, data files compiled in (presets/).
+toml.workspace = true
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
 tracing.workspace = true
 url.workspace = true

@@ -123,10 +123,10 @@ impl Stack {
         let assertion = crate::support::upstream_assertion(keys.dir.path());
         let text = format!(
             "[ferrosmart]\nissuer = {issuer:?}\n[ferrosmart.database]\nurl = {:?}\n\
-             [[ferrosmart.upstream]]\nname = \"idp\"\nlabel = \"Hospital staff\"\nprotocol = \"oidc\"\n\
+             [[ferrosmart.upstream]]\nname = \"idp\"\nlabel = \"Hospital staff\"\n\
              [ferrosmart.upstream.oidc]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\n\
              fhir_user_claim = \"fhir_user\"\n{assertion}\
-             [[ferrosmart.upstream]]\nname = \"portal\"\nlabel = \"Patient portal\"\nprotocol = \"oidc\"\n\
+             [[ferrosmart.upstream]]\nname = \"portal\"\nlabel = \"Patient portal\"\n\
              [ferrosmart.upstream.oidc]\nissuer = {:?}\nclient_id = {UPSTREAM_CLIENT:?}\n\
              fhir_user_claim = \"fhir_user\"\n{assertion}\
              [ferrosmart.branding]\nname = \"Example Hospital\"\n\

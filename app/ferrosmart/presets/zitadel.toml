@@ -1,0 +1,25 @@
+# SPDX-FileCopyrightText: Cadasto B.V.
+# SPDX-License-Identifier: BUSL-1.1
+#
+# The `zitadel` upstream preset: FerroSMART's tested setup with ZITADEL
+# v4.20.3 (docs/architecture.md §13.20; app/ferrosmart/examples/zitadel).
+# Every key may be set in the entry's `[ferrosmart.upstream.oidc]` table,
+# which wins over this file. Citations are to docs/specs/zitadel/,
+# ZITADEL's apps/docs/content/.
+
+scopes = ["openid", "profile"]
+# An Actions v2 execution on `preuserinfo` appends `fhirUser` from the
+# user's metadata (guides/integrate/actions/usage.mdx, PreUserinfo).
+fhir_user_claim = "fhirUser"
+# The roles of the project the application belongs to, an object whose
+# member names are the roles (apis/openidoauth/claims.mdx;
+# guides/integrate/retrieve-user-roles.mdx). A deployment that reads the
+# claim of one project names `urn:zitadel:iam:org:project:{projectId}:roles`
+# and trusts that project as an audience.
+role_claims = ["urn:zitadel:iam:org:project:roles"]
+
+[private_key_jwt]
+# Private Key JWT with an application key ZITADEL generates, an RSA key
+# (proto/zitadel/application/v2/application_service.proto,
+# CreateApplicationKey).
+algorithm = "RS256"

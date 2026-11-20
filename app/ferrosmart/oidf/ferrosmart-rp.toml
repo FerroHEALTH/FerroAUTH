@@ -24,7 +24,6 @@ kind = "fhir"
 
 [[ferrosmart.upstream]]
 name = "suite"
-protocol = "oidc"
 
 [ferrosmart.upstream.oidc]
 issuer = "https://localhost.emobix.co.uk:8443/test/a/ferrosmart/"

@@ -3431,7 +3431,7 @@ always builds against the libraries of the same commit. Its modules:
 | `keys` | the signing key ring, the `Signer` trait with the file and KMS signers, rotation |
 | `clients` | the registry, client authentication (secret, `private_key_jwt`, the client JWK Set fetch and cache), the admin API |
 | `authorize` | the authorization endpoint, the pending request, the scope narrowing |
-| `upstream` | the login at an upstream provider: OpenID Connect through `ferrohealth_smart::oidc`, SAML 2.0 through `saml` (13.26), and the claim mapping |
+| `upstream` | the login at an upstream provider: OpenID Connect through `ferrohealth_smart::oidc`, SAML 2.0 through `saml` (13.26), and the claim mapping; `preset`, the vendor defaults read from `presets/`, and `registration`, the subject and registration the operator commands print (#733) |
 | `consent` | the consent page and the consent records |
 | `picker` | the patient picker over FHIR and ITS-REST |
 | `launch` | the EHR launch API and the signed launch JWT |
@@ -3548,20 +3548,21 @@ kind = "fhir"                                 # or "openehr"
 
 [[ferrosmart.upstream]]                       # one entry per provider people log in at, each discovered at start
 name = "idp"                                   # the provider's name, which a client's `upstreams` names
-protocol = "oidc"                             # OpenID Connect, or "saml" with [ferrosmart.upstream.saml] (13.26)
+preset = "keycloak"                           # optional: "keycloak", "entra", "okta" or "zitadel", the defaults below
 
-[ferrosmart.upstream.oidc]
+[ferrosmart.upstream.oidc]                    # OpenID Connect; [ferrosmart.upstream.saml] instead for SAML 2.0 (13.26)
 issuer = "https://idp.example.org/realms/hospital"
 client_id = "ferrosmart"
-scopes = ["openid", "profile"]
-fhir_user_claim = "fhir_user"                 # the ID Token claim holding fhirUser; empty for none
-role_claims = ["roles"]                       # the dotted claims holding the person's roles
+# scopes = ["openid"]                         # the preset's, else ["openid"]
+# fhir_user_claim = "fhir_user"               # the ID Token claim holding fhirUser; the preset's, else none
+# role_claims = ["roles"]                     # the dotted claims holding the roles; the preset's, else RFC 9068's three
+# trusted_audiences = []                      # the preset's, else none
 
 # [ferrosmart.upstream.oidc.client_secret_basic]   # instead of private_key_jwt, for a provider without it (13.22)
 # secret_file = "/run/secrets/upstream-secret"
 
-[ferrosmart.upstream.oidc.private_key_jwt]         # the default client authentication upstream (13.22)
-algorithm = "RS256"                           # the one the provider's registration names
+# [ferrosmart.upstream.oidc.private_key_jwt]       # private_key_jwt, taken when no table names another (13.22)
+# algorithm = "RS256"                         # the one the provider's registration names; the preset's, else RS256
 # certificate_file = "/run/secrets/upstream-assertion.crt"   # for a provider that knows the key by its certificate
 
 [ferrosmart.upstream.oidc.private_key_jwt.keys]    # the assertion ring, apart from the token keys
@@ -3580,7 +3581,6 @@ private_key_file = "/run/secrets/upstream-assertion.pem"
 
 # [[ferrosmart.upstream]]
 # name = "saml-idp"
-# protocol = "saml"
 # [ferrosmart.upstream.saml]
 # entity_id = "https://idp.example.org/saml"  # the identity provider's entity ID
 # metadata_url = "https://idp.example.org/saml/metadata"   # or metadata_file
@@ -3667,8 +3667,10 @@ Every secret is a `_file` key read through `ferrohealth-secret`; the
 `FERROSMART__` environment and `--set` override as in every product.
 
 **Several upstream providers** (owner, 2026-11-19, #678). Each
-`[[ferrosmart.upstream]]` entry is a provider by `name`, with a `protocol`
-and that protocol's table, `oidc` or `saml` (13.26); the claim names
+`[[ferrosmart.upstream]]` entry is a provider by `name`, with one
+protocol's table, `oidc` or `saml` (13.26), whose presence names the
+protocol (#733: a separate `protocol` key restated the table and is
+removed); the claim names
 (`fhir_user_claim`, `role_claims`) sit in that table, since each protocol
 names what its login carries in its own terms. Nothing in
 SMART App Launch 2.2.0 limits a server to one provider. Each entry has an
@@ -3690,6 +3692,27 @@ and the routes of 13.26. What the login says reaches the steps after it
 as one protocol-neutral identity: the issuer, the person's identifier,
 the claims, the session and the time of the authentication. No
 specification governs the chooser: our own design.
+
+**Upstream presets and the operator commands** (#733). An OpenID Connect
+entry may name `preset = "keycloak" | "entra" | "okta" | "zitadel"`: a
+data file under `app/ferrosmart/presets/`, compiled in, holding the
+scopes, the `fhirUser` and role claims and the assertion algorithm of the
+tested setup of 13.16 and 13.18 to 13.20, each value with its vendor
+citation. A key the entry's table sets wins over the preset, which wins
+over the built-in default; a preset never holds an issuer, a client or a
+key, and never country content. `private_key_jwt` is taken when the entry
+names no client authentication table, so its keys table alone is enough.
+Two commands read the configuration tree alone, with no key, secret or
+database: `ferrosmart subject --upstream <name> --sub <sub>` prints the
+pairwise `sub` of item 9 under the issuer exactly as configured (an
+operator otherwise hashed it by hand, and a trailing slash gave another
+subject), and `ferrosmart upstream registration <name>` prints what the
+provider is configured with: the redirect and logout URIs, the client
+authentication with its JWK Set URL or certificate, PKCE `S256`, the
+scopes, the claims and the roles, or, for SAML 2.0, the entity IDs, the
+assertion consumer service and the attributes. The management page shows
+the person their own pairwise `sub`. No specification governs the
+presets or the commands: our own design.
 
 ### 13.11 Key handling
 
@@ -3913,8 +3936,8 @@ the browser and for each other, and the configuration below arrives as
 `FERROSMART__` environment.
 
 On FerroSMART's side, `[[ferrosmart.upstream]]` names the realm's issuer and
-the client, `[ferrosmart.upstream.oidc.private_key_jwt]` its client authentication
-(#569), `fhir_user_claim = "fhir_user"` and `role_claims = ["roles"]`
+the client, `[ferrosmart.upstream.oidc.private_key_jwt.keys]` its client authentication
+(#569), and `preset = "keycloak"` brings `fhir_user_claim = "fhir_user"` and `role_claims = ["roles"]`
 (the generic dotted claim reader of `ferrohealth_smart::roles`). No code
 knows Keycloak. The example serves every party on the loopback interface
 over plain `http`, which `ferrohealth_smart::metadata::issuer_url` admits
@@ -4022,8 +4045,8 @@ carries the mapped `fhirUser`. Citations are to `docs/specs/entra-docs/`,
 
 On FerroSMART's side, `[[ferrosmart.upstream]]` names the tenant authority and
 the Application (client) ID, `[ferrosmart.upstream.oidc.private_key_jwt]` its
-client authentication, `fhir_user_claim = "extn.fhirUser"` and
-`role_claims = ["roles"]`. A claim name holding a dot is read whole before a
+client authentication, and `preset = "entra"` brings `fhir_user_claim = "extn.fhirUser"`,
+`role_claims = ["roles"]` and `PS256`. A claim name holding a dot is read whole before a
 dotted path steps into an object (`ferrohealth_smart::roles`, #562), which is
 what reads `extn.fhirUser`; no code knows Entra ID. Three readings of the
 vendored text are decisions:
@@ -4097,8 +4120,8 @@ page and section; none of their text is in the tree
 | Group | `clinician`, assigned to the app integration, which `[[ferrosmart.role]]` maps to `user/` scopes | Overview, Subtle behavior (a user is assigned to the client); 13.6 item 5 |
 
 On FerroSMART's side, `[[ferrosmart.upstream]]` names the authorization server
-and the client, `[ferrosmart.upstream.oidc.private_key_jwt]` its client
-authentication, `fhir_user_claim = "fhir_user"` and `role_claims =
+and the client, `[ferrosmart.upstream.oidc.private_key_jwt.keys]` its client
+authentication, and `preset = "okta"` brings `fhir_user_claim = "fhir_user"` and `role_claims =
 ["groups"]`. No code knows Okta. Three readings are decisions:
 
 1. **The custom authorization server, never the org one.** Okta's pages
@@ -4149,9 +4172,10 @@ with the FerroSMART configuration that names them.
 | Audience | ZITADEL names the project beside the client in every ID Token's `aud`, so `trusted_audiences = ["ferrosmart"]` | `oidc core §3.1.3.7` items 3 and 4 |
 
 On FerroSMART's side `[[ferrosmart.upstream]]` names ZITADEL's issuer and
-the generated client, `[ferrosmart.upstream.oidc.private_key_jwt]` the
-application key, `fhir_user_claim = "fhirUser"`, the role claim and the
-trusted audience. No code knows ZITADEL: `trusted_audiences` is
+the generated client, `[ferrosmart.upstream.oidc.private_key_jwt.keys]` the
+application key, `preset = "zitadel"` brings `fhir_user_claim = "fhirUser"`, and the
+entry names the project's role claim and the trusted audience over the
+preset's project-neutral `urn:zitadel:iam:org:project:roles`. No code knows ZITADEL: `trusted_audiences` is
 `ferrohealth_smart::oidc::RelyingParty::with_trusted_audiences`, the item 3
 rule ("additional audiences not trusted by the Client") for any provider,
 and an ID Token with several audiences must then carry an `azp` naming the
@@ -4288,11 +4312,11 @@ with `private_key_jwt` by default, or with `client_secret_basic` (`rfc6749
 §9` defines both and makes neither mandatory for a relying party; owner
 decision of 2026-11-19, #679, which reverses the `private_key_jwt`-alone
 rule of 2026-11-17, #619). Each `[ferrosmart.upstream.oidc]` table names
-exactly one: `[ferrosmart.upstream.oidc.private_key_jwt]` or
-`[ferrosmart.upstream.oidc.client_secret_basic]` with `secret` or
-`secret_file`, read through `ferrohealth-secret` and redacted in every
-rendering. A table naming both, or neither, is refused at load, and a
-secret anywhere else is an unknown key. At start FerroSMART reads the
+at most one: `[ferrosmart.upstream.oidc.private_key_jwt]`, taken when it
+names neither (#733), or `[ferrosmart.upstream.oidc.client_secret_basic]`
+with `secret` or `secret_file`, read through `ferrohealth-secret` and
+redacted in every rendering. A table naming both is refused at load, and
+a secret anywhere else is an unknown key. At start FerroSMART reads the
 provider's `token_endpoint_auth_methods_supported` (`rfc8414 §2`,
 `client_secret_basic` when absent) and refuses a provider that does not
 list the method. Choose the secret only for a provider that offers no
@@ -4331,7 +4355,7 @@ providers stand on it differently:
   plan, and a refusal becomes an upstream report for the owner to decide.
 
 `algorithm` is the one the provider's registration names (`rfc7518 §3.1`;
-RS256 by default), and the ring's keys are read to sign with it. `kid`
+the preset's, else RS256), and the ring's keys are read to sign with it. `kid`
 under the keys table is the id a provider knows the key by (ZITADEL's key
 id), the RFC 7638 thumbprint when empty. `certificate_file` is the X.509
 certificate of the current assertion key, for a provider that knows the key
@@ -4722,7 +4746,7 @@ metadata URL, `{issuer}/saml/metadata`), the key that signs every request,
 the keys an identity provider encrypts for, and under `tls` the client
 identity artifact resolution presents. One entity for every partner is our
 own design: the metadata and the assertion consumer service then have one
-address each. Each `protocol = "saml"` entry's `[ferrosmart.upstream.saml]`
+address each. Each SAML entry's `[ferrosmart.upstream.saml]`
 names the identity provider's entity ID, its metadata by `https` URL or
 file with the certificates that must sign it, the two bindings, `ForceAuthn`,
 the name identifier format, and `authn_contexts`, the classes at or above

@@ -5,10 +5,12 @@
 //!
 //! `serve` runs the server, `config check` reads and resolves the
 //! configuration the way `serve` would and exits, `healthcheck` asks the
-//! server on this host for its readiness, and `client hash-secret` turns a
+//! server on this host for its readiness, `client hash-secret` turns a
 //! confidential symmetric client's secret into the hash its
-//! `secret_hash_file` holds. No specification governs the command line: our
-//! own design, the family's.
+//! `secret_hash_file` holds, `subject` prints a person's pairwise subject,
+//! and `upstream registration` prints what a provider must be configured
+//! with. No specification governs the command line: our own design, the
+//! family's.
 
 use clap::{Parser, Subcommand};
 use ferrohealth_server::cli::{Common, ConfigArgs};
@@ -42,6 +44,32 @@ pub enum Command {
         #[command(subcommand)]
         command: ClientCommand,
     },
+    /// Prints the FerroSMART `sub` of the person `--sub` names at the
+    /// provider `--upstream` names, which a resource server binds them by.
+    Subject {
+        /// The `[[ferrosmart.upstream]]` entry's name.
+        #[arg(long)]
+        upstream: String,
+        /// The person's subject at that provider.
+        #[arg(long)]
+        sub: String,
+    },
+    /// Works on the upstream providers.
+    Upstream {
+        /// The job to run.
+        #[command(subcommand)]
+        command: UpstreamCommand,
+    },
+}
+
+/// The `upstream` jobs.
+#[derive(Debug, Subcommand, PartialEq, Eq)]
+pub enum UpstreamCommand {
+    /// Prints what the provider `name` must be configured with.
+    Registration {
+        /// The `[[ferrosmart.upstream]]` entry's name.
+        name: String,
+    },
 }
 
 /// The `client` jobs.
@@ -54,7 +82,7 @@ pub enum ClientCommand {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, ClientCommand, Command};
+    use super::{Cli, ClientCommand, Command, UpstreamCommand};
     use clap::{CommandFactory, Parser};
     use ferrohealth_server::cli::{Common, ConfigCommand};
 
@@ -81,6 +109,28 @@ mod tests {
                 vec!["ferrosmart", "client", "hash-secret"],
                 Command::Client {
                     command: ClientCommand::HashSecret,
+                },
+            ),
+            (
+                vec![
+                    "ferrosmart",
+                    "subject",
+                    "--upstream",
+                    "idp",
+                    "--sub",
+                    "248289761001",
+                ],
+                Command::Subject {
+                    upstream: String::from("idp"),
+                    sub: String::from("248289761001"),
+                },
+            ),
+            (
+                vec!["ferrosmart", "upstream", "registration", "idp"],
+                Command::Upstream {
+                    command: UpstreamCommand::Registration {
+                        name: String::from("idp"),
+                    },
                 },
             ),
         ] {

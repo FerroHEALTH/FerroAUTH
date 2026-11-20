@@ -18,7 +18,7 @@ fn with_secret(issuer: &str, keys: &Keys) -> String {
     std::fs::write(&file, SECRET).expect("the secret is written");
     format!(
         "[ferrosmart]\nissuer = {ISSUER:?}\n\
-         [[ferrosmart.upstream]]\nname = \"idp\"\nprotocol = \"oidc\"\n\
+         [[ferrosmart.upstream]]\nname = \"idp\"\n\
          [ferrosmart.upstream.oidc]\nissuer = {issuer:?}\nclient_id = {UPSTREAM_CLIENT:?}\n\
          [ferrosmart.upstream.oidc.client_secret_basic]\nsecret_file = {:?}\n\
          [[ferrosmart.client]]\nclient_id = \"app\"\nkind = \"public\"\n\
@@ -163,9 +163,21 @@ fn both_methods_none_or_a_secret_without_its_value_is_refused_at_load() {
     for text in [&both, &neither, &empty] {
         assert!(config(text, &keys).resolve().is_err(), "{text}");
     }
+    // NOTE: OpenID Connect Core 1.0 §9, with neither table private_key_jwt is taken,
+    // and its assertion key is what is missing (#733).
+    assert!(
+        matches!(
+            config(&neither, &keys).resolve(),
+            Err(ferrosmart::config::error::Error::Missing {
+                key: "ferrosmart.upstream.oidc.private_key_jwt.keys.private_key_file"
+            })
+        ),
+        "{neither}"
+    );
     let misplaced = crate::support::upstream_assertion(keys.dir.path()).replace(
-        "[ferrosmart.upstream.oidc.private_key_jwt]\n",
-        "[ferrosmart.upstream.oidc.private_key_jwt]\nsecret = \"synthetic\"\n",
+        "[ferrosmart.upstream.oidc.private_key_jwt.keys]\n",
+        "[ferrosmart.upstream.oidc.private_key_jwt]\nsecret = \"synthetic\"\n\
+         [ferrosmart.upstream.oidc.private_key_jwt.keys]\n",
     );
     let misplaced = neither.replace(
         "[[ferrosmart.client]]",

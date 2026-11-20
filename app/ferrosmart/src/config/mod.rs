@@ -145,7 +145,7 @@ pub struct FerroSmartSection {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub upstream: Vec<crate::upstream::UpstreamSection>,
     /// `[ferrosmart.saml]`: FerroSMART as a SAML 2.0 service provider,
-    /// which every `protocol = "saml"` provider needs.
+    /// which every provider with a `[ferrosmart.upstream.saml]` table needs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub saml: Option<crate::upstream::saml::ServiceProviderSection>,
     /// `[[ferrosmart.role]]`: the scopes each upstream role may be granted,

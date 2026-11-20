@@ -23,24 +23,21 @@ kind = "fhir"
 # authenticates with a JWT its assertion ring signs, read by Keycloak from
 # FerroSMART's {issuer}/upstream-jwks (OpenID Connect Core 1.0 §9,
 # private_key_jwt; the realm's client-jwt authenticator with a JWKS URL).
+# The `keycloak` preset (app/ferrosmart/presets/keycloak.toml) brings what
+# ferrosmart-realm.json sets up: the scope `openid`, the user attribute
+# mapper's `fhir_user` claim, the realm role mapper's `roles` claim and
+# RS256, the algorithm the realm's client enforces. `ferrosmart upstream
+# registration keycloak` prints what the realm's client needs.
 [[ferrosmart.upstream]]
 name = "keycloak"
-protocol = "oidc"
+preset = "keycloak"
 
 [ferrosmart.upstream.oidc]
 issuer = "http://localhost:8180/realms/ferrosmart"
 client_id = "ferrosmart"
-scopes = ["openid"]
-# The realm's user attribute mapper writes the user's `fhir_user` attribute
-# into the ID Token under this name, and its realm role mapper writes the
-# realm roles as the `roles` array (ferrosmart-realm.json).
-fhir_user_claim = "fhir_user"
-role_claims = ["roles"]
 
-# RS256, the algorithm the realm's client enforces.
-[ferrosmart.upstream.oidc.private_key_jwt]
-
-# The assertion ring, apart from the token keys (RFC 8725 §3.12).
+# The assertion ring of private_key_jwt, the client authentication taken
+# when no table names another, apart from the token keys (RFC 8725 §3.12).
 [ferrosmart.upstream.oidc.private_key_jwt.keys]
 private_key_file = "/run/secrets/upstream_assertion_key"
 
