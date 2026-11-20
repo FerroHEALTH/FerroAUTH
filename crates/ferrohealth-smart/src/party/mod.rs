@@ -413,6 +413,28 @@ impl Outcome {
         }
     }
 
+    /// Returns the reason a product refuses the caller with when it
+    /// refuses this outcome, or `None` for a bound party.
+    ///
+    /// The code is `refused-` and the outcome (`refused-unbound`,
+    /// `refused-wrong-marker`), so the log and the challenge name the
+    /// outcome the refusal rests on.
+    #[must_use]
+    pub const fn refusal_reason(&self) -> Option<crate::refusal::Reason> {
+        let code = match self {
+            Self::Party(_) => return None,
+            Self::WrongMarker { .. } => "refused-wrong-marker",
+            Self::Unbound => "refused-unbound",
+            Self::Ambiguous { .. } => "refused-ambiguous",
+            Self::Inactive { .. } => "refused-inactive",
+            Self::Abandoned { .. } => "refused-abandoned",
+            Self::Deprovisioned => "refused-deprovisioned",
+            Self::KeyClaimMissing => "refused-key-claim-missing",
+            Self::GroupsUnavailable(_) => "refused-groups-unavailable",
+        };
+        Some(crate::refusal::Reason::Party(code))
+    }
+
     /// Returns the party the outcome names: the bound party, or the one
     /// refused for its marker or its state.
     #[must_use]

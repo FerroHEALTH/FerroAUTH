@@ -20,9 +20,103 @@ pub(crate) fn object(segment: &str) -> Option<Map<String, Value>> {
     serde_json::from_slice(&bytes).ok()
 }
 
+#[cfg(feature = "axum")]
+/// The longest token whose header and payload a refusal log line reads.
+const NAMED_TOKEN_LIMIT: usize = 16 * 1024;
+
+#[cfg(feature = "axum")]
+/// The longest value a refusal log line names.
+const NAMED_VALUE_LIMIT: usize = 256;
+
+#[cfg(feature = "axum")]
+/// What a refusal log line names of a token, read without checking
+/// anything: its `iss`, its client (`client_id`, else `azp`) and its
+/// header's `kid`, each only when it is visible ASCII of a bounded length.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct Named {
+    /// The `iss` claim.
+    pub(crate) issuer: Option<String>,
+    /// The `client_id` claim, else the `azp` claim.
+    pub(crate) client_id: Option<String>,
+    /// The header's `kid`.
+    pub(crate) kid: Option<String>,
+}
+
+#[cfg(feature = "axum")]
+impl Named {
+    /// Returns what `token` names, empty for anything that is not a compact
+    /// JWS within the bound.
+    pub(crate) fn of(token: &str) -> Self {
+        let mut segments = token.split('.');
+        let (Some(header), Some(payload), Some(_), None) = (
+            segments.next(),
+            segments.next(),
+            segments.next(),
+            segments.next(),
+        ) else {
+            return Self::default();
+        };
+        if token.len() > NAMED_TOKEN_LIMIT {
+            return Self::default();
+        }
+        let header = object(header).unwrap_or_default();
+        let payload = object(payload).unwrap_or_default();
+        let text = |map: &Map<String, Value>, key: &str| {
+            map.get(key)
+                .and_then(Value::as_str)
+                .filter(|value| {
+                    !value.is_empty()
+                        && value.len() <= NAMED_VALUE_LIMIT
+                        && value.bytes().all(|byte| byte.is_ascii_graphic())
+                })
+                .map(str::to_owned)
+        };
+        Self {
+            issuer: text(&payload, "iss"),
+            client_id: text(&payload, "client_id").or_else(|| text(&payload, "azp")),
+            kid: text(&header, "kid"),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "axum")]
+    use super::Named;
     use super::object;
+
+    #[cfg(feature = "axum")]
+    #[test]
+    fn a_refused_token_names_its_issuer_client_and_key_only() {
+        use base64::Engine as _;
+        let encode = |value: serde_json::Value| {
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(value.to_string())
+        };
+        let token = format!(
+            "{}.{}.c2ln",
+            encode(serde_json::json!({"alg": "ES256", "kid": "k1"})),
+            encode(serde_json::json!({
+                "iss": "https://as.example.org",
+                "azp": "app",
+                "sub": "someone",
+                "name": "A Person"
+            }))
+        );
+        let named = Named::of(&token);
+        assert_eq!(Some("https://as.example.org"), named.issuer.as_deref());
+        assert_eq!(Some("app"), named.client_id.as_deref());
+        assert_eq!(Some("k1"), named.kid.as_deref());
+        let forged = format!(
+            "{}.{}.c2ln",
+            encode(serde_json::json!({"kid": "a\nb"})),
+            encode(serde_json::json!({"iss": "x y", "client_id": "c"}))
+        );
+        let named = Named::of(&forged);
+        assert_eq!(None, named.kid, "a control character is left out");
+        assert_eq!(None, named.issuer, "a space is left out");
+        assert_eq!(Some("c"), named.client_id.as_deref());
+        assert_eq!(Named::default(), Named::of("opaque"));
+    }
 
     #[test]
     fn a_segment_reads_as_the_object_it_encodes() {
