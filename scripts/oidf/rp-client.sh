@@ -51,15 +51,34 @@ get() { curl -sS --cacert "$LANE_DIR/ca.crt" "$@"; }
 # the answer is no redirect.
 redirect() { get -c "$jar" -b "$jar" -o /dev/null -w '%{redirect_url}' "$1"; }
 
+# The client authentication at the provider's token endpoint the module
+# fixes (OpenID Connect Core 1.0 §9): `client_secret_basic` for the plan
+# that fixes it and for the module of that name, `private_key_jwt` for every
+# other.
+authentication() {
+  case "$OIDF_PLAN:$MODULE_NAME" in
+    oidcc-client-basic-certification-test-plan:* | *:oidcc-client-test-client-secret-basic)
+      printf '%s\n' "ferrosmart.upstream.0.oidc.client_secret_basic.secret_file=$LANE_DIR/rp-secret"
+      ;;
+    *)
+      printf '%s\n' "ferrosmart.upstream.0.oidc.private_key_jwt.keys.private_key_file=$LANE_DIR/assertion.pem" \
+        "ferrosmart.upstream.0.oidc.private_key_jwt.keys.kid=oidf-lane"
+      ;;
+  esac
+}
+
 # Starts FerroSMART, which reads the provider's metadata as it starts
 # (OpenID Connect Discovery 1.0 §4); fails when it refuses them.
 start() {
+  local setting
+  local -a sets=()
+  while IFS= read -r setting; do sets+=(--set "$setting"); done < <(authentication)
   SSL_CERT_FILE="$LANE_DIR/trust.pem" \
     "$root/target/debug/ferrosmart" --config "$root/app/ferrosmart/oidf/ferrosmart-rp.toml" \
     --set "server.tls.certificate_file=$LANE_DIR/host.crt" \
     --set "server.tls.key_file=$LANE_DIR/host.key" \
     --set "ferrosmart.keys.private_key_file=$LANE_DIR/signing.pem" \
-    --set "ferrosmart.upstream.0.oidc.private_key_jwt.keys.private_key_file=$LANE_DIR/assertion.pem" \
+    "${sets[@]}" \
     --set "ferrosmart.database.url=$LANE_PG/ferrosmart_oidf_rp" \
     serve > "$log" 2>&1 &
   smart=$!

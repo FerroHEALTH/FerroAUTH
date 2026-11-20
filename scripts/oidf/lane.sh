@@ -167,8 +167,8 @@ stop() {
 }
 
 # The development CA and the one server certificate, FerroSMART's signing
-# and assertion keys, and the hashes of the suite's two client secrets, made
-# for this run and never kept.
+# and assertion keys, the relying party's client secret, and the hashes of
+# the suite's two client secrets, made for this run and never kept.
 make_keys() {
   local dir=$1 modulus name
   openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 1 \
@@ -189,6 +189,7 @@ make_keys() {
   jq --arg n "$modulus" \
     '.client.jwks.keys = [{kty: "RSA", kid: "oidf-lane", use: "sig", alg: "RS256", n: $n, e: "AQAB"}]' \
     "$lane/rp.json" > "$dir/rp.json"
+  jq -j '.client.client_secret' "$lane/rp.json" > "$dir/rp-secret"
   cp "$lane/op.json" "$dir/op.json"
   for name in client client2; do
     jq -j --arg name "$name" '.[$name].client_secret' "$lane/op.json" |

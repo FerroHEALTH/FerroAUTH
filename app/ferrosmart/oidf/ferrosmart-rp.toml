@@ -33,12 +33,10 @@ client_id = "ferrosmart"
 # refuses an authorization request without.
 scopes = ["openid", "profile", "email", "address", "phone"]
 
-[ferrosmart.upstream.oidc.private_key_jwt]
-
-# The `kid` app/ferrosmart/oidf/rp.json registers the assertion key under.
-[ferrosmart.upstream.oidc.private_key_jwt.keys]
-private_key_file = "/run/secrets/upstream_assertion_key"
-kid = "oidf-lane"
+# No client authentication here: scripts/oidf/rp-client.sh adds the one
+# each module fixes, `private_key_jwt` with the key app/ferrosmart/oidf/rp.json
+# registers under the `kid` oidf-lane, or `client_secret_basic` with the
+# secret it registers (OpenID Connect Core 1.0 §9).
 
 # The app whose authorization request begins each login.
 [[ferrosmart.client]]

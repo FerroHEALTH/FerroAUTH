@@ -4474,8 +4474,8 @@ our own design.
 
 | Plan | Role | Variants | Modules |
 |---|---|---|---|
-| `oidcc-client-test-plan` | relying party, FerroSMART's upstream login | `private_key_jwt`, `code`, static client | 28 |
-| `oidcc-client-basic-certification-test-plan` | relying party | the plan fixes `client_secret_basic` | 14 |
+| `oidcc-client-test-plan` | relying party, FerroSMART's upstream login with `private_key_jwt`; its client-secret module with `client_secret_basic` | `private_key_jwt`, `code`, static client | 28 |
+| `oidcc-client-basic-certification-test-plan` | relying party, FerroSMART's upstream login with `client_secret_basic` | the plan fixes `client_secret_basic` | 14 |
 | `oidcc-config-certification-test-plan` | OpenID Provider, FerroSMART's own ID Tokens | discovery | 1 |
 | `oidcc-basic-certification-test-plan` | OpenID Provider | discovery, static client; the plan fixes `client_secret_basic` | 35 |
 
@@ -4494,7 +4494,12 @@ for names its issue. A happy-path module finishes at the suite only after
 a UserInfo request (`oidc core §5.3`), which FerroSMART never makes: it
 reads the person from the ID Token. The driver therefore stops such a
 module once the login is accepted, and the suite records it
-`INTERRUPTED`. The suite's runner never runs the two key-rotation
+`INTERRUPTED`. One configuration, `app/ferrosmart/oidf/ferrosmart-rp.toml`,
+names no client authentication, and the driver adds the one the module
+fixes (13.22): `client_secret_basic` with the secret
+`app/ferrosmart/oidf/rp.json` registers, from a file, for the Basic
+relying party plan and the client-secret module, and `private_key_jwt`
+for every other module. The suite's runner never runs the two key-rotation
 modules (its own `ignored_modules`), and the lane records them as not run.
 
 **As the OpenID Provider**, the suite is the static client `oidf-suite`, a
@@ -4516,8 +4521,7 @@ matching key (#648), both fixed and now held as passes. The
 client-secret module and the Basic relying party plan failed while
 FerroSMART authenticated upstream with `private_key_jwt` alone (#619); a
 provider entry may now choose `client_secret_basic` (13.22, #679), and
-the lane holds them as failures until it runs them with a
-`client_secret_basic` upstream (#706). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
+the lane runs them with a `client_secret_basic` upstream (#706). The FAPI 2.0 plans, the only OpenID Foundation plans that enforce
 RFC 10070's audience rule, need PAR and DPoP and are the lane's next
 target.
 

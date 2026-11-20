@@ -4,7 +4,7 @@
   "waitTimeoutSeconds": 5,
   "client": {
     "client_id": "ferrosmart",
-    "client_secret": "the-basic-profile-fixes-a-secret-ferrosmart-never-sends",
+    "client_secret": "the-oidf-lane-client-secret-basic-secret",
     "redirect_uri": "https://localhost.emobix.co.uk:9443/callback",
     "jwks": {
       "keys": []
