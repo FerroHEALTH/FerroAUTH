@@ -33,6 +33,7 @@ use ferrohealth_smart::guard::CredentialHeader;
 use ferrohealth_smart::guard::Gate;
 use ferrohealth_smart::guard::Requirement;
 use ferrohealth_smart::guard::Target;
+use ferrohealth_smart::refusal::Denied;
 use ferrohealth_smart::refusal::Reason;
 use ferrohealth_smart::refusal::Refusal;
 use ferrohealth_smart::resource::Access;
@@ -55,6 +56,7 @@ use jsonwebtoken::Algorithm;
 use secrecy::SecretString;
 use tower::ServiceExt as _;
 
+use crate::support::CLIENT;
 use crate::support::Issuer;
 use crate::support::SigningKey;
 use crate::support::ec_key;
@@ -108,17 +110,17 @@ fn fhir(permission: Permission, resource_type: Option<String>) -> Requirement {
 
 /// Renders a refusal over a text body naming its reason, as a product's own
 /// body would, with the status and challenge of [`HeaderOnly`].
-fn refused(refusal: &Refusal) -> Response {
+fn refused(denied: &Denied) -> Response {
     HeaderOnly::with_realm("ferro").respond(
-        refusal,
-        Body::from(format!("refused: {}", refusal.reason())),
+        denied,
+        Body::from(format!("refused: {}", denied.refusal().reason())),
     )
 }
 
 /// Renders a refusal in the format the request negotiates, as a FHIR server
 /// does: XML when `_format` or `Accept` asks for it, the text body
 /// otherwise.
-fn render(refusal: &Refusal, parts: &Parts) -> Response {
+fn render(denied: &Denied, parts: &Parts) -> Response {
     let format_xml = parts
         .uri
         .query()
@@ -130,8 +132,11 @@ fn render(refusal: &Refusal, parts: &Parts) -> Response {
         .is_some_and(|accept| accept.contains("application/fhir+xml"));
     if format_xml || accept_xml {
         let mut response = HeaderOnly::with_realm("ferro").respond(
-            refusal,
-            Body::from(format!("<refused reason=\"{}\"/>", refusal.reason())),
+            denied,
+            Body::from(format!(
+                "<refused reason=\"{}\"/>",
+                denied.refusal().reason()
+            )),
         );
         response.headers_mut().insert(
             header::CONTENT_TYPE,
@@ -139,7 +144,7 @@ fn render(refusal: &Refusal, parts: &Parts) -> Response {
         );
         return response;
     }
-    refused(refusal)
+    refused(denied)
 }
 
 /// The handler every guarded route runs: it answers the subject the guard
@@ -155,7 +160,7 @@ async fn handler(access: Access, request: Request<Body>) -> Response {
             .reach(Permission::Read, "Condition")
             .is_some_and(|compartment| compartment.admits(Some("p-2")));
         if !admitted {
-            return refused(&Refusal::Forbidden);
+            return refused(&Denied::from(Refusal::Forbidden));
         }
     }
     let mut response = Response::new(Body::from(format!("hello {subject}")));
@@ -223,24 +228,35 @@ impl tracing::field::Visit for Line {
     }
 }
 
-/// A subscriber that keeps every audit line, so a case reads what was
-/// recorded.
+/// The target the gate logs a refusal under.
+const REFUSAL_TARGET: &str = "ferrohealth_smart::guard::gate";
+
+/// A subscriber that keeps every audit line and every refusal log line, so
+/// a case reads what was recorded.
 #[derive(Debug, Default)]
 pub(crate) struct Capture {
-    /// The lines, in order.
+    /// The audit lines, in order.
     lines: Mutex<Vec<Line>>,
+    /// The refusal log lines, in order.
+    refusals: Mutex<Vec<Line>>,
 }
 
 impl Capture {
-    /// Returns the lines kept, in order.
+    /// Returns the audit lines kept, in order.
     pub(crate) fn lines(&self) -> Vec<Line> {
         self.lines.lock().expect("not poisoned").clone()
+    }
+
+    /// Returns the refusal log lines kept, in order.
+    pub(crate) fn refusals(&self) -> Vec<Line> {
+        self.refusals.lock().expect("not poisoned").clone()
     }
 }
 
 impl tracing::Subscriber for Capture {
     fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
         metadata.target() == AUDIT_TARGET
+            || (metadata.target() == REFUSAL_TARGET && *metadata.level() == tracing::Level::INFO)
     }
 
     fn new_span(&self, _span: &tracing::span::Attributes<'_>) -> tracing::span::Id {
@@ -254,7 +270,12 @@ impl tracing::Subscriber for Capture {
     fn event(&self, event: &tracing::Event<'_>) {
         let mut line = Line::default();
         event.record(&mut line);
-        self.lines.lock().expect("not poisoned").push(line);
+        let kept = if event.metadata().target() == AUDIT_TARGET {
+            &self.lines
+        } else {
+            &self.refusals
+        };
+        kept.lock().expect("not poisoned").push(line);
     }
 
     fn enter(&self, _span: &tracing::span::Id) {}
@@ -330,6 +351,54 @@ impl Case {
     fn last_line(&self) -> Line {
         self.audit.lines().last().cloned().expect("an audit line")
     }
+}
+
+#[tokio::test]
+async fn each_refusal_is_logged_at_info_with_its_code_and_the_tokens_names()
+-> Result<(), Box<dyn StdError>> {
+    let case = Case::bearer().await;
+    let mut foreign = case.issuer.claims("system/Condition.r");
+    foreign["aud"] = serde_json::json!("https://another-server.invalid/fhir");
+    let refused = mint(&case.key, &foreign);
+    let narrow = case.token("system/Observation.r");
+    for (authorization, status, code) in [
+        (
+            Some(format!("Bearer {refused}")),
+            "401",
+            "audience-mismatch",
+        ),
+        (Some(format!("Bearer {narrow}")), "403", "scope-not-granted"),
+        (None, "401", "credential-missing"),
+    ] {
+        case.call(Method::GET, "/fhir/Condition/c-1", authorization.as_deref())
+            .await?;
+        let line = case
+            .audit
+            .refusals()
+            .last()
+            .cloned()
+            .expect("a refusal line");
+        assert_eq!(code, line.field("reason"), "{code}");
+        assert_eq!(status, line.field("status"), "{code}");
+        let named = authorization.is_some();
+        let expected = |value: String| if named { value } else { String::from("-") };
+        assert_eq!(expected(case.issuer.uri()), line.field("issuer"), "{code}");
+        assert_eq!(
+            expected(String::from(CLIENT)),
+            line.field("client_id"),
+            "{code}"
+        );
+        assert_eq!(expected(String::from("k1")), line.field("kid"), "{code}");
+        for (name, value) in &line.0 {
+            for forbidden in ["synthetic-client-sub", refused.as_str(), narrow.as_str()] {
+                assert!(
+                    !value.contains(forbidden),
+                    "{code}: {name} carries {forbidden}"
+                );
+            }
+        }
+    }
+    Ok(())
 }
 
 #[tokio::test]
@@ -450,7 +519,9 @@ async fn two_credentials_or_a_malformed_value_are_invalid_request() -> Result<()
     let response = case.send(request).await?;
     assert_eq!(StatusCode::BAD_REQUEST, response.status());
     assert_eq!(
-        Some("Bearer realm=\"ferro\", error=\"invalid_request\""),
+        Some(
+            "Bearer realm=\"ferro\", error=\"invalid_request\", error_description=\"two-credentials\""
+        ),
         response
             .headers()
             .get(header::WWW_AUTHENTICATE)
@@ -466,18 +537,25 @@ async fn two_credentials_or_a_malformed_value_are_invalid_request() -> Result<()
 }
 
 #[tokio::test]
-async fn an_invalid_token_is_the_one_generic_401() -> Result<(), Box<dyn StdError>> {
+async fn an_invalid_token_is_401_with_its_reason_code() -> Result<(), Box<dyn StdError>> {
+    // NOTE: RFC 6750 §3, the challenge's `error_description` carries the
+    // stable reason code; the body stays the one generic refusal.
     let case = Case::bearer().await;
     let forger = ec_key("k1", Algorithm::ES256);
     let mut foreign = case.issuer.claims("system/Condition.r");
     foreign["aud"] = serde_json::json!("https://another-server.invalid/fhir");
-    for (name, token) in [
+    for (name, token, code) in [
         (
             "forged",
             mint(&forger, &case.issuer.claims("system/Condition.r")),
+            "signature-invalid",
         ),
-        ("another audience", mint(&case.key, &foreign)),
-        ("opaque", String::from("an-opaque-token")),
+        (
+            "another audience",
+            mint(&case.key, &foreign),
+            "audience-mismatch",
+        ),
+        ("opaque", String::from("an-opaque-token"), "malformed-token"),
     ] {
         let (status, challenge, body) = case
             .call(
@@ -488,9 +566,11 @@ async fn an_invalid_token_is_the_one_generic_401() -> Result<(), Box<dyn StdErro
             .await?;
         assert_eq!(StatusCode::UNAUTHORIZED, status, "{name}");
         assert_eq!(
-            Some("Bearer realm=\"ferro\", error=\"invalid_token\""),
-            challenge.as_deref(),
-            "{name}: no error_description"
+            Some(format!(
+                "Bearer realm=\"ferro\", error=\"invalid_token\", error_description=\"{code}\""
+            )),
+            challenge,
+            "{name}: the reason code"
         );
         assert_eq!("refused: invalid_token", body, "{name}: one body");
     }
@@ -511,9 +591,11 @@ async fn a_token_without_the_permission_is_403_naming_no_scope() -> Result<(), B
             .await?;
         assert_eq!(StatusCode::FORBIDDEN, status, "{scope}");
         assert_eq!(
-            Some("Bearer realm=\"ferro\", error=\"insufficient_scope\""),
+            Some(
+                "Bearer realm=\"ferro\", error=\"insufficient_scope\", error_description=\"scope-not-granted\""
+            ),
             challenge.as_deref(),
-            "{scope}: RFC 6750 §3.1 insufficient_scope, naming no scope"
+            "{scope}: RFC 6750 §3.1 insufficient_scope with its code, naming no scope"
         );
         for named in ["Condition.", "system/", ".c"] {
             assert!(!body.contains(named), "the body names {named}");
@@ -841,7 +923,9 @@ async fn the_renderer_negotiates_the_body_from_the_refused_request() -> Result<(
         .await?;
     assert_eq!(StatusCode::FORBIDDEN, by_format.status());
     assert_eq!(
-        Some("Bearer realm=\"ferro\", error=\"insufficient_scope\""),
+        Some(
+            "Bearer realm=\"ferro\", error=\"insufficient_scope\", error_description=\"scope-not-granted\""
+        ),
         by_format
             .headers()
             .get(header::WWW_AUTHENTICATE)
@@ -871,9 +955,9 @@ fn alice(scope: &str) -> Result<PasswordStore, Box<dyn StdError>> {
 }
 
 // NOTE: RFC 6750 §2.1 fixes the `b64token` syntax, and §3.1 answers a token
-// that is "malformed" with `invalid_token`, naming nothing more.
+// that is "malformed" with `invalid_token`, with the code as §3 describes.
 #[tokio::test]
-async fn a_bearer_value_outside_b64token_is_the_one_generic_401() -> Result<(), Box<dyn StdError>> {
+async fn a_bearer_value_outside_b64token_is_401_not_b64token() -> Result<(), Box<dyn StdError>> {
     let case = Case::bearer().await;
     for value in ["a,b", "a=b", "a\"b", "=abc", "a;b"] {
         let (status, challenge, body) = case
@@ -885,9 +969,11 @@ async fn a_bearer_value_outside_b64token_is_the_one_generic_401() -> Result<(), 
             .await?;
         assert_eq!(StatusCode::UNAUTHORIZED, status, "{value}");
         assert_eq!(
-            Some("Bearer realm=\"ferro\", error=\"invalid_token\""),
+            Some(
+                "Bearer realm=\"ferro\", error=\"invalid_token\", error_description=\"not-b64token\""
+            ),
             challenge.as_deref(),
-            "{value}: no error_description"
+            "{value}: the reason code"
         );
         assert_eq!("refused: invalid_token", body, "{value}");
         let denied = case
@@ -901,8 +987,8 @@ async fn a_bearer_value_outside_b64token_is_the_one_generic_401() -> Result<(), 
 }
 
 #[tokio::test]
-async fn the_gate_hands_the_product_the_reason_and_the_wire_none() -> Result<(), Box<dyn StdError>>
-{
+async fn the_gate_hands_the_product_the_reason_and_the_wire_its_code()
+-> Result<(), Box<dyn StdError>> {
     let case = Case::bearer().await;
     let mut expired = case.issuer.claims("system/Condition.r");
     expired["exp"] = serde_json::json!(crate::support::now() - 3600);
@@ -916,11 +1002,12 @@ async fn the_gate_hands_the_product_the_reason_and_the_wire_none() -> Result<(),
     assert_eq!(Some(Reason::Expired), denied.reason());
     assert_eq!(
         Some(String::from(
-            "Bearer realm=\"ferro\", error=\"invalid_token\""
+            "Bearer realm=\"ferro\", error=\"invalid_token\", error_description=\"expired\""
         )),
-        denied.refusal().challenge(Some("ferro")),
-        "RFC 6750 §3: the reason stays off the wire"
+        denied.challenge(Some("ferro")),
+        "RFC 6750 §3: the reason code as error_description"
     );
+    assert_eq!("expired", denied.code());
     let missing = case
         .gate
         .authenticate(&HeaderMap::new())

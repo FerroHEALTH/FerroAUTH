@@ -292,3 +292,94 @@ fn the_app_s_urls_are_absolute_https_urls() {
     );
     assert_eq!(None, about.home);
 }
+
+/// Returns a client of `kind` that registers `redirect`, first party when
+/// `first_party`, its JWK Set at a URL when it is confidential.
+fn redirecting(kind: ClientKind, redirect: &str, first_party: bool) -> ClientSection {
+    ClientSection {
+        client_id: String::from("app"),
+        kind,
+        jwks_uri: if kind == ClientKind::ConfidentialAsymmetric {
+            String::from("https://app.example.org/jwks.json")
+        } else {
+            String::new()
+        },
+        redirect_uris: vec![redirect.to_owned()],
+        grant_types: vec![GrantType::AuthorizationCode],
+        scopes: vec![String::from("openid")],
+        organisation_approval: first_party.then(|| ferrosmart::clients::ApprovalSection {
+            scopes: vec![String::from("openid")],
+            approved_by: String::from("Synthetic Administrator"),
+            approved_at: String::from("2026-11-19T09:00:00Z"),
+            first_party: true,
+        }),
+        ..ClientSection::default()
+    }
+}
+
+// NOTE: RFC 8252 §8.6 and §7.2, a claimed https redirect assures a public client's
+// identity; a custom scheme or a loopback redirect does not.
+#[test]
+fn a_public_client_is_assured_only_by_a_claimed_https_redirect() {
+    for (redirect, assured) in [
+        ("https://app.example.org/callback", true),
+        ("com.example.app:/callback", false),
+        ("http://127.0.0.1:8400/callback", false),
+        ("http://[::1]:8400/callback", false),
+        ("https://127.0.0.1/callback", false),
+        ("https://localhost/callback", false),
+    ] {
+        let client =
+            &resolve(&[redirecting(ClientKind::Public, redirect, false)]).expect("admitted")[0];
+        assert_eq!(assured, client.assured_by(redirect), "{redirect}");
+    }
+}
+
+#[test]
+fn a_confidential_client_is_assured_whatever_its_redirect() {
+    let redirect = "com.example.app:/callback";
+    let client = &resolve(&[redirecting(
+        ClientKind::ConfidentialAsymmetric,
+        redirect,
+        false,
+    )])
+    .expect("admitted")[0];
+    assert!(
+        client.assured_by(redirect),
+        "it authenticates at the token endpoint"
+    );
+}
+
+// NOTE: RFC 8252 §8.6, config check warns of a first-party public app no sign-in
+// can assure, since every one would show the consent page.
+#[test]
+fn a_first_party_public_app_without_a_claimed_https_redirect_is_warned_of() {
+    let warned = |kind, redirect, first_party| {
+        let clients = resolve(&[redirecting(kind, redirect, first_party)]).expect("admitted");
+        ferrosmart::clients::unassured_first_party(&clients)
+    };
+    let warnings = warned(ClientKind::Public, "com.example.app:/callback", true);
+    assert_eq!(1, warnings.len(), "{warnings:?}");
+    assert!(warnings[0].contains("\"app\""), "{warnings:?}");
+    assert!(
+        warned(ClientKind::Public, "http://127.0.0.1:8400/callback", true).len() == 1,
+        "a loopback redirect"
+    );
+    assert!(
+        warned(ClientKind::Public, "https://app.example.org/callback", true).is_empty(),
+        "a claimed https redirect"
+    );
+    assert!(
+        warned(ClientKind::Public, "com.example.app:/callback", false).is_empty(),
+        "no first-party approval"
+    );
+    assert!(
+        warned(
+            ClientKind::ConfidentialAsymmetric,
+            "com.example.app:/callback",
+            true
+        )
+        .is_empty(),
+        "a confidential client"
+    );
+}

@@ -205,6 +205,29 @@ impl Smart {
     /// Starts the server of [`Smart::start_with`] over the
     /// `[[ferrosmart.resource]]` tables `resource`.
     async fn start_over(grants: &str, ceiling: &str, role: &str, resource: &str) -> Self {
+        Self::start_full(grants, ceiling, role, resource, &[REDIRECT]).await
+    }
+
+    /// Starts the server of [`Smart::start_with`] whose app registers the
+    /// redirect URIs `redirects`.
+    async fn start_redirecting(
+        grants: &str,
+        ceiling: &str,
+        role: &str,
+        redirects: &[&str],
+    ) -> Self {
+        Self::start_full(grants, ceiling, role, "", redirects).await
+    }
+
+    /// Starts the server of [`Smart::start_over`] whose app registers the
+    /// redirect URIs `redirects`.
+    async fn start_full(
+        grants: &str,
+        ceiling: &str,
+        role: &str,
+        resource: &str,
+        redirects: &[&str],
+    ) -> Self {
         let provider = Provider::start().await;
         let keys = Keys::new();
         let database = Database::create().await;
@@ -217,7 +240,7 @@ impl Smart {
              [[ferrosmart.client]]\nclient_id = \"app\"\nname = \"Synthetic App\"\nkind = \"public\"\n\
              client_uri = \"https://app.example.org/\"\nlogo_uri = \"https://cdn.example.org/app.png\"\n\
              policy_uri = \"https://app.example.org/privacy\"\ntos_uri = \"https://app.example.org/terms\"\n\
-             redirect_uris = [{REDIRECT:?}]\npost_logout_redirect_uris = [{POST_LOGOUT:?}]\n\
+             redirect_uris = {redirects:?}\npost_logout_redirect_uris = [{POST_LOGOUT:?}]\n\
              grant_types = {grants}\nscopes = {ceiling}",
             secrecy::ExposeSecret::expose_secret(&database.url),
             provider.server.uri()
@@ -2484,6 +2507,7 @@ mod paired_picker;
 mod picker_purpose;
 mod preset;
 mod providers;
+mod public_redirect;
 mod saml;
 mod secret_basic;
 

@@ -107,6 +107,60 @@ the professional's. The product's own SMART document describes
 FerroSMART, and its own rules still apply on top of the token's scopes.
 Each product's book has the details of its `[auth]` section.
 
+### Why a token was refused
+
+A product refuses a token with `401` and `error="invalid_token"`, or a
+request its token does not permit with `403` and
+`error="insufficient_scope"`. The `WWW-Authenticate` header carries a
+stable reason code as `error_description` (RFC 6750 §3), and the product
+logs the same code at info with the token's issuer, client id and key id:
+
+```text
+WWW-Authenticate: Bearer realm="ehr", error="invalid_token", error_description="audience-mismatch"
+INFO a request was refused reason="audience-mismatch" status=401 issuer="https://smart.example.org" client_id="growth-chart" kid="k-2026-11"
+```
+
+A missing credential carries no code (RFC 6750 §3.1 asks for none), and a
+Basic challenge carries none either. The codes:
+
+| Code | The check that refused |
+|---|---|
+| `credential-missing` | no credential of a scheme the server admits (log only) |
+| `two-credentials` | two `Authorization` header fields |
+| `malformed-header` | an `Authorization` value that is no scheme and credential |
+| `not-b64token` | a bearer value outside the RFC 6750 §2.1 syntax |
+| `malformed-token` | not a JWS in compact serialization |
+| `algorithm-refused` | an algorithm outside the configured set |
+| `type-mismatch` | a `typ` that names another kind of token (RFC 9068 §4) |
+| `key-unknown` | no key of the issuer's set |
+| `signature-invalid` | the signature does not verify |
+| `expired`, `not-yet-valid`, `issued-in-future` | `exp`, `nbf`, `iat` |
+| `issuer-mismatch` | `iss` is not the issuer the key set belongs to |
+| `issuer-unknown` | `iss` names no issuer the server trusts |
+| `audience-mismatch` | `aud` names none of the server's audiences |
+| `claim-missing` | a claim the issuer's profile requires is absent |
+| `subject-not-string`, `subject-blank` | `sub` is not a string, or blank |
+| `token-inactive` | introspection answered `active: false` (RFC 7662 §2.2) |
+| `key-set-unavailable`, `upstream-unavailable` | the key set or another upstream could not be read (`503`, log only) |
+| `basic-malformed`, `basic-rejected`, `basic-incomplete` | the Basic credential (log only) |
+| `scope-not-granted` | the token holds and grants nothing for the request (`403`) |
+| `route-unclassified` | the route is one the server does not classify (`403`) |
+| `party-source-unavailable` | the party source could not answer (`503`, log only) |
+| `claim-unexpected`, `user-claim-missing` | a claim the profile expects holds another value, or a user claim is absent |
+| `impersonation`, `app-only-markers-disagree`, `scope-form` | the profile's impersonation marker, app-only markers or scope form |
+| `not-patient-context`, `patient-actor-refused` | a patients token that does not name only its subject, or names an actor |
+| `not-app-only`, `client-missing` | a machines token that is not app-only, a persons token with no client |
+| `delegate-not-granted`, `actor-not-granted` | the client, or the `act` actor, is neither first party nor a delegate |
+| `actor-chain-refused`, `representation-with-act`, `representation-through-delegate` | the `act` chain, or a representation claim beside it |
+| `professional-incomplete`, `required-fields-missing`, `attribute-out-of-bounds`, `attribute-refused`, `sources-disagree` | a federation token's attributes |
+| `authorization-details-refused`, `organisation-statement-missing`, `assurance-too-low`, `presentations-unreadable`, `contact-point-refused` | a federation token's grants and assertions |
+| `kind-unclassified` | no step classifies a token of the issuer's kind |
+| `refused-unbound`, `refused-wrong-marker`, `refused-ambiguous`, `refused-inactive`, `refused-abandoned`, `refused-deprovisioned`, `refused-key-claim-missing`, `refused-groups-unavailable` | the product refuses the login's party binding (`403`) |
+| `dpop-…`, `certificate-…`, `confirmation-unknown`, `sender-constraint-required` | a `DPoP` proof or a sender-constrained token (RFC 9449, RFC 8705) |
+
+A code names a check, never a claim value, and keeps its meaning once
+published.
+
 For a server of your own in Rust, add the crate with its axum layer:
 
 ```sh

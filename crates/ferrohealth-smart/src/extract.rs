@@ -14,7 +14,7 @@ use http::header;
 use http::request::Parts;
 
 use crate::guard::Render;
-use crate::refusal::Refusal;
+use crate::refusal::Denied;
 use crate::resource::Access;
 
 /// A handler ran outside the guard: no [`Access`] is on the request.
@@ -60,15 +60,15 @@ impl HeaderOnly {
         }
     }
 
-    /// Returns the response of `refusal` with `body`.
+    /// Returns the response of `denied` with `body`.
     ///
     /// A product with a body of its own builds on this: the status and the
-    /// challenge are the refusal's, the body the product's.
+    /// challenge are the denial's, the body the product's.
     #[must_use]
-    pub fn respond(&self, refusal: &Refusal, body: Body) -> Response {
+    pub fn respond(&self, denied: &Denied, body: Body) -> Response {
         let mut response = Response::new(body);
-        *response.status_mut() = refusal.status();
-        if let Some(challenge) = refusal.challenge(self.realm.as_deref())
+        *response.status_mut() = denied.refusal().status();
+        if let Some(challenge) = denied.challenge(self.realm.as_deref())
             && let Ok(value) = header::HeaderValue::from_str(&challenge)
         {
             response
@@ -80,7 +80,7 @@ impl HeaderOnly {
 }
 
 impl Render for HeaderOnly {
-    fn render(&self, refusal: &Refusal, _parts: &Parts) -> Response {
-        self.respond(refusal, Body::empty())
+    fn render(&self, denied: &Denied, _parts: &Parts) -> Response {
+        self.respond(denied, Body::empty())
     }
 }

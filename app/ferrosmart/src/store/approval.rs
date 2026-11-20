@@ -36,22 +36,6 @@ impl Store {
             })
             .collect()
     }
-
-    /// Returns the clients `subject` holds a live grant of under their
-    /// standing organisation approval, by client id.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Database`] when the query fails.
-    pub async fn approved_apps(&self, subject: &str) -> Result<Vec<(String, String)>, StoreError> {
-        self.scopes_by_client(
-            "SELECT DISTINCT ON (g.client_id) g.client_id, g.scope \
-             FROM authorization_grant g JOIN client c ON c.client_id = g.client_id \
-             WHERE g.subject = $1 AND g.revoked_at IS NULL AND g.approved_at = c.approved_at \
-             ORDER BY g.client_id, g.created_at DESC",
-            subject,
-        )
-        .await
-    }
 }
 
 impl Transaction {

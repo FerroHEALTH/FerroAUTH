@@ -708,27 +708,35 @@ the format the request negotiates (the `Accept` header, a FHIR `_format`). The s
   `§2.1`). No `error` attribute: "If the request lacks any authentication
   information …, the resource server SHOULD NOT include an error code or
   other error information" (`rfc6750 §3.1`).
-- **A credential that does not hold:** one `401` for every cause, with
-  `error="invalid_token"` for a bearer token, which `rfc9068 §4` makes a
-  MUST "in case of any failure in the validation checks", and with no
-  `error_description`. A bearer value outside the `b64token` syntax of
-  `rfc6750 §2.1` is one such token, "malformed" in the words of `rfc6750
-  §3.1`. The reason (which check failed) reaches the product as the typed
-  `Reason` of the `Denied` that `Gate::authenticate` returns, for its own
-  log, and nothing else: a refusal that names the failed claim teaches a forger
-  which claim to fix next. No specification requires the omission: our own
-  design. FerroTERM's `error_description` with the reason and FerroEHR's
-  per-cause variants collapse into this one answer. A Basic credential that
-  does not verify gets the same `401` and the same two challenges.
+- **A credential that does not hold:** `401` with `error="invalid_token"`
+  for a bearer token, which `rfc9068 §4` makes a MUST "in case of any
+  failure in the validation checks", and with the stable reason code of the
+  failed check as `error_description` (`rfc6750 §3`, #729). A bearer value
+  outside the `b64token` syntax of `rfc6750 §2.1` is one such token,
+  "malformed" in the words of `rfc6750 §3.1`, with the code
+  `not-b64token`. The gate logs every refusal at info with the code, the
+  token's `iss`, its client (`client_id`, else `azp`) and its header's
+  `kid`, read without checking anything and left out unless visible ASCII
+  of a bounded length; never the token or a claim that names a person. The
+  owner's decision of 2026-11-20 (#729) weighs an operator's need to see
+  why a token was refused above hiding the failed check from a forger: the
+  code names a check, never a claim value, and a forger learns no key or
+  secret from it. A Basic credential that does not verify gets the same
+  `401` and the Basic challenge, which carries no `error_description`
+  (`rfc7617 §2` defines no such parameter). The book lists every code
+  (`A server behind FerroSMART`).
 - **A credential that holds and does not permit:** `403` with
-  `error="insufficient_scope"` and no `scope` attribute (`rfc6750 §3.1`
-  makes the attribute a MAY). The body names no scope either, so a refusal
+  `error="insufficient_scope"`, the code `scope-not-granted` (or the
+  product's party code, `refused-unbound`) as `error_description`, and no
+  `scope` attribute (`rfc6750 §3.1` makes the attribute a MAY). The body
+  names no scope either, so a refusal
   teaches a caller nothing about the grants it lacks; no specification
   requires the omission: our own design, FerroBRIDGE's.
 - **A `DPoP` request that does not hold** (3.15): `401` under the `DPoP`
   scheme, `error="invalid_dpop_proof"` for a proof that fails `rfc9449
   §4.3`, and `error="invalid_token"` for a token or a key binding that fails
-  (`rfc9449 §7.1`, Figure 16), with no `error_description`. A surface that
+  (`rfc9449 §7.1`, Figure 16), with the reason code as
+  `error_description`. A surface that
   admits `DPoP` adds a `DPoP realm="<realm>"` challenge to the no-credential
   answer, after the `Bearer` one (`rfc9449 §7.2`, Figure 17).
 - **Two credentials, or a malformed `Authorization` value:** `400` with
@@ -741,7 +749,7 @@ the format the request negotiates (the `Accept` header, a FHIR `_format`). The s
 - **A credential that holds, from an authentication event the resource
   does not accept:** `401` with `error="insufficient_user_authentication"`
   and, when the product names them, `acr_values` and `max_age` (`rfc9470
-  §3`), and no `error_description`. What a resource requires is the
+  §3`), and the code as `error_description`. What a resource requires is the
   product's ("out of scope", `rfc9470 §3`); `StepUp::satisfied_by` checks it
   against the token's `acr` and `auth_time` (`rfc9470 §6`, `rfc9068 §2.2.1`)
   and `Refusal::StepUp` renders it (#60).
@@ -1486,8 +1494,8 @@ scheme.
 **The wire.** A proof that fails is `401` with `DPoP error="invalid_dpop_proof"`,
 a `DPoP` request whose token or binding fails `401` with `DPoP
 error="invalid_token"` (`rfc9449 §7.1`, Figure 16), and a missing credential
-is challenged with `Bearer` and `DPoP` beside each other (Figure 17). No
-`error_description` is sent (3.7), and the `algs` parameter, a SHOULD, is
+is challenged with `Bearer` and `DPoP` beside each other (Figure 17). The
+reason code is the `error_description` (3.7), and the `algs` parameter, a SHOULD, is
 left out. Outside the gate, `ResourceServer::authenticate_bound`,
 `Introspector::authenticate_bound` and `Verifier::verify_bound` take the
 `sender::Binding` a request proves, and `ProofCheck::authenticate` runs the
@@ -2253,7 +2261,7 @@ four agree on and settles each difference:
 | `aud` | one configured, required | version bases, optional | list, required | one, required | list, required (3.3) |
 | Unknown `kid` | one refetch per interval | one refetch per cooldown | TTL cache | one refetch per interval, max age | both bounds (3.2) |
 | No `kid` | single key of the family | single usable key | single usable key | single usable key | single candidate, else refuse (3.2) |
-| Refusal reason on the wire | no | `error_description` | one challenge, a body per cause | a stable code per cause in the body | never (3.7) |
+| Refusal reason on the wire | no | `error_description` | one challenge, a body per cause | a stable code per cause in the body | a stable code as `error_description` (3.7) |
 | `403` names the scope | no | `scope=` when one | no | no | never (3.7) |
 | Key set unreadable | `503` | `401` | `503` | `503` | `503` (3.2) |
 | Basic | no | no | Argon2id, decoy | no | Argon2id, decoy, scopes (3.5) |
@@ -2630,7 +2638,7 @@ discovery and token shapes for the two SaaS providers.
   |---|---|---|---|
   | a code issued | `110114` | `authorization-code` | `C` |
   | a consent remembered | `110113` | `110137`, `consent-remembered` | `C` |
-  | a consent withdrawn, with what it covered | `110113` | `110137`, `consent-withdrawn` | `D` |
+  | an app disconnected at the management page, with the remembered consent and the grants it ended | `110113` | `110137`, `consent-withdrawn` | `D` |
   | a code issued with no page, on the client's organisation approval (13.6 item 6) | `110113` | `110137`, `consent-organisation-approved` | `C` |
   | a code issued with no page, on the first-party approval of the organisation's own app (13.6 item 6) | `110113` | `110137`, `consent-first-party-approved` | `C` |
   | an organisation approval withdrawn, with the grants issued on it | `110113` | `110137`, `organisation-approval-withdrawn` | `D` |
@@ -3187,8 +3195,7 @@ specification governs.
    the approval. Each skipped page commits a `consent-organisation-approved`
    record, or `consent-first-party-approved` for a first-party approval,
    naming the approver and the time; the management page lists the app as
-   approved by the organisation, or as the organisation's own app, with no
-   withdraw form. Clearing or changing the
+   approved by the organisation, or as the organisation's own app. Clearing or changing the
    approval in the configuration withdraws it at the next start: every
    grant issued on it is revoked with its tokens, with an
    `organisation-approval-withdrawn` record. Backend Services has no user and
@@ -3200,7 +3207,26 @@ specification governs.
    view which applications currently have access to data and can make
    adjustments to these access rights" (`smart conformance`, Metadata), and
    revoking it revokes the grants it covered. Remembering is our own
-   design.
+   design. The management page lists every app holding live access, a
+   live refresh token or access token, organisation-approved and
+   first-party apps included, each with a Disconnect form (owner,
+   2026-11-20, #725): it forgets the person's remembered consent for the
+   app and revokes every grant, refresh token and access token of the app
+   about them, with a `consent-withdrawn` record naming the grants revoked,
+   and leaves the organisation approval standing, so the next sign-in
+   follows it again. `offline_access` lasts "as long as the authorization
+   server and end-user will allow" (`smart scopes`, `offline_access`), so
+   no app holds lasting access the person cannot end.
+   Neither an approval nor a remembered consent answers for a
+   public client unless the request's redirect URI is a claimed `https`
+   URI, `https` with a host that is not `localhost` or a loopback address
+   (`rfc8252 §8.6`, "SHOULD NOT process authorization requests
+   automatically without user consent or interaction, except when the
+   identity of the client can be assured", and `§7.2`; `rfc6749 §10.2`):
+   a custom-scheme or loopback redirect shows the page, the remember box
+   ticked when a consent was remembered, and `ferrosmart config check`
+   warns of a first-party public client with no claimed `https` redirect
+   (owner, 2026-11-20, #726).
 7. **`online_access`.** "As long as the end-user remains online" has no
    mechanism in SMART. FerroSMART ties an online refresh token to the
    upstream login session: it ends at upstream logout and after the
@@ -3393,7 +3419,7 @@ differently.
 | `POST /introspect` | RFC 7662 | `rfc7662 §2` |
 | `POST /revoke` | RFC 7009 | `rfc7009 §2` |
 | `POST /launch` | the EHR launch API | our own design (13.6) |
-| `GET /manage` | the user's grants, with revoke (`management_endpoint`) | `smart conformance`, Metadata |
+| `GET /manage` | the apps holding the user's consent or live access, each with Disconnect (`management_endpoint`) | `smart conformance`, Metadata |
 | `GET /brands` | the deployment's User Access Brands Bundle, when `[ferrosmart.brand]` is set | `smart brands`, Conformance Overview |
 | `/admin/clients`, `/admin/keys` | the registry and the key ring, behind a `ferrohealth-smart` guard | our own design |
 | `/healthz`, `/readyz` | `ferrohealth-health` | the family |

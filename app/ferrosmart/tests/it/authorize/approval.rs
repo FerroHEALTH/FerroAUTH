@@ -4,7 +4,8 @@
 //! An organisation's approval of its own app: a professional's standalone
 //! launch skips the consent page within the approved set, a request beyond
 //! it, a `patient/` request and a patient's own login each show the page,
-//! and withdrawing the approval revokes what was issued on it
+//! a person disconnects an approved app and keeps its approval, and
+//! withdrawing the approval revokes what was issued on it
 //! (`docs/architecture.md` §13.6 item 6; SMART App Launch 2.2.0, Obtain
 //! authorization code, Response).
 
@@ -120,7 +121,7 @@ async fn a_professional_s_launch_of_an_approved_app_skips_the_page_within_four_b
     );
 
     // NOTE: SMART App Launch 2.2.0, Conformance, management_endpoint: the app is
-    // listed as approved by the organisation, with no withdraw form.
+    // listed as approved by the organisation, with its Disconnect form.
     let (_cookie, page) = manage_visit(&smart).await;
     assert!(page.contains("Synthetic App"), "{page}");
     assert!(
@@ -128,8 +129,8 @@ async fn a_professional_s_launch_of_an_approved_app_skips_the_page_within_four_b
         "{page}"
     );
     assert!(
-        !page.contains("name=\"client_id\""),
-        "the person cannot withdraw it"
+        page.contains("name=\"client_id\" value=\"app\"") && page.contains("Disconnect"),
+        "the person can disconnect it: {page}"
     );
 
     // NOTE: docs/architecture.md §13.6 item 6, the administrator clears the
@@ -303,12 +304,12 @@ async fn a_patient_s_launch_of_a_first_party_app_skips_the_page_and_is_withdrawn
     );
 
     // NOTE: SMART App Launch 2.2.0, Conformance, management_endpoint: the app is
-    // listed as the organisation's own, and the patient cannot withdraw it.
+    // listed as the organisation's own, with its Disconnect form.
     let (_cookie, page) = manage_visit(&smart).await;
     assert!(page.contains("This is your organisation"), "{page}");
     assert!(
-        !page.contains("name=\"client_id\""),
-        "the patient cannot withdraw it"
+        page.contains("name=\"client_id\" value=\"app\"") && page.contains("Disconnect"),
+        "the patient can disconnect it: {page}"
     );
 
     // NOTE: docs/architecture.md §13.6 item 6, the administrator clears the mark,
@@ -376,6 +377,84 @@ async fn a_patient_s_launch_of_a_third_party_approved_app_shows_the_page() {
         "/consent",
         back.path(),
         "an app without the first-party mark never skips a patient's page"
+    );
+    smart.stop().await;
+}
+
+#[tokio::test]
+async fn a_patient_disconnects_the_organisation_s_own_app_and_its_approval_stays() {
+    let smart = Smart::start_with(
+        "[\"authorization_code\", \"refresh_token\"]",
+        "[\"openid\", \"fhirUser\", \"offline_access\", \"patient/Observation.rs\"]\n\
+         [ferrosmart.client.organisation_approval]\n\
+         scopes = [\"openid\", \"fhirUser\", \"offline_access\", \"patient/Observation.rs\"]\n\
+         approved_by = \"Synthetic Administrator\"\napproved_at = \"2026-11-19T09:00:00Z\"\n\
+         first_party = true",
+        "[\"patient/Observation.rs\"]",
+    )
+    .await;
+    let back = login(
+        &smart,
+        "openid fhirUser offline_access",
+        "Patient/synthetic-2",
+    )
+    .await;
+    assert!(back.as_str().starts_with(REDIRECT), "no page: {back}");
+    let body = exchange(&smart, &back).await;
+    let token = body["refresh_token"].as_str().expect("a refresh token");
+
+    // NOTE: SMART App Launch 2.2.0, Scopes and Launch Context, offline_access lasts
+    // "as long as the authorization server and end-user will allow".
+    let (cookie, page) = manage_visit(&smart).await;
+    assert!(
+        page.contains("This is your organisation")
+            && page.contains("This app stays connected after you sign out"),
+        "{page}"
+    );
+    let (status, _, _) = smart
+        .post(
+            "/manage",
+            &[
+                ("form_token", form_token(&page).as_str()),
+                ("client_id", "app"),
+            ],
+            Some(&cookie),
+        )
+        .await;
+    assert_eq!(StatusCode::SEE_OTHER, status, "disconnected");
+    let (status, refused) = refresh(&smart, token).await;
+    assert_eq!(StatusCode::BAD_REQUEST, status, "{refused}");
+    assert_eq!(json!("invalid_grant"), refused["error"]);
+    let (_, _, page) = smart.get("/manage", Some(&cookie)).await;
+    assert!(page.contains("No app keeps access to your data."), "{page}");
+
+    // NOTE: docs/architecture.md §13.2, the disconnect commits with its record.
+    let kept = records(&smart.store).await;
+    let disconnect = kept
+        .iter()
+        .find(|record| {
+            events(std::slice::from_ref(*record)).contains(&String::from("consent-withdrawn"))
+        })
+        .expect("the disconnect is recorded");
+    let text = serde_json::to_string(disconnect).expect("JSON");
+    assert!(
+        text.contains("grants"),
+        "the revoked grants are named: {text}"
+    );
+
+    // NOTE: docs/architecture.md §13.6 item 6, the approval is an administrator's;
+    // the next sign-in follows it again.
+    let approvals = smart.store.approvals().await.expect("read");
+    assert_eq!(1, approvals.len(), "the approval stands");
+    let back = login(
+        &smart,
+        "openid fhirUser offline_access",
+        "Patient/synthetic-2",
+    )
+    .await;
+    assert!(
+        back.as_str().starts_with(REDIRECT),
+        "the approval answers the next sign-in: {back}"
     );
     smart.stop().await;
 }
