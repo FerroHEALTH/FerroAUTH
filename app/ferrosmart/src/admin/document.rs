@@ -20,10 +20,45 @@ use crate::clients::{
 use crate::store::admin::Registered;
 
 /// A client as an administrator sends it to `POST /admin/clients` or
-/// `PUT /admin/clients/{client_id}`.
+/// `PUT /admin/clients/{client_id}`: a JSON object alone, never the
+/// positional array serde would also read a struct from.
+#[derive(Debug, Clone, Default)]
+pub struct ClientDocument(Fields);
+
+impl<'de> Deserialize<'de> for ClientDocument {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        deserializer.deserialize_map(ObjectOnly).map(Self)
+    }
+}
+
+/// The visitor that reads a [`ClientDocument`] from an object and refuses
+/// every other JSON value.
+struct ObjectOnly;
+
+impl<'de> serde::de::Visitor<'de> for ObjectOnly {
+    type Value = Fields;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a client document object")
+    }
+
+    fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<Fields, A::Error> {
+        Fields::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+    }
+}
+
+impl ClientDocument {
+    /// Returns the `client_id` the document names; empty when it names none.
+    #[must_use]
+    pub fn client_id(&self) -> &str {
+        &self.0.client_id
+    }
+}
+
+/// The members of a [`ClientDocument`].
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct ClientDocument {
+pub struct Fields {
     /// The `client_id`; on an update absent or the path's.
     pub client_id: String,
     /// The name shown to the person who approves the client.
@@ -85,6 +120,18 @@ impl ClientDocument {
     /// seconds since the epoch.
     #[must_use]
     pub fn registration(
+        self,
+        client_id: &str,
+        stored: Option<&Client>,
+        now: i64,
+    ) -> (ClientSection, Material) {
+        self.0.registration(client_id, stored, now)
+    }
+}
+
+impl Fields {
+    /// Returns the registration [`ClientDocument::registration`] makes.
+    fn registration(
         self,
         client_id: &str,
         stored: Option<&Client>,
