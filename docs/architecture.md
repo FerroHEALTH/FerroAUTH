@@ -3327,7 +3327,7 @@ always builds against the libraries of the same commit. Its modules:
 | `keys` | the signing key ring, the `Signer` trait with the file and KMS signers, rotation |
 | `clients` | the registry, client authentication (secret, `private_key_jwt`, the client JWK Set fetch and cache), the admin API |
 | `authorize` | the authorization endpoint, the pending request, the scope narrowing |
-| `upstream` | the login at the upstream OpenID Connect provider through `ferrohealth_smart::oidc` and the claim mapping |
+| `upstream` | the login at an upstream provider: OpenID Connect through `ferrohealth_smart::oidc`, SAML 2.0 through `saml` (13.26), and the claim mapping |
 | `consent` | the consent page and the consent records |
 | `picker` | the patient picker over FHIR and ITS-REST |
 | `launch` | the EHR launch API and the signed launch JWT |
@@ -3356,6 +3356,8 @@ differently.
 | `GET /jwks` | the public signing keys, bare JWKs | `rfc7517 §5`; `smart scopes-and-launch-context` |
 | `GET`, `POST /authorize` | the authorization endpoint | `smart app-launch`; `rfc6749 §3.1` |
 | `GET /callback` | the upstream provider's redirect back, completed with the settings of the provider the request went to | `oidc core §3.1.2.5` |
+| `GET /saml/metadata` | FerroSMART's SAML 2.0 service provider metadata (`application/samlmetadata+xml`), when `[ferrosmart.saml]` is set | `saml-metadata §2.4.4`, `§4.1.1` |
+| `GET`, `POST /saml/acs` | the assertion consumer service: a `SAMLResponse` posted, or a `SAMLart` posted or redirected and resolved over mutual TLS, with the `RelayState` that names the pending request (13.26) | `saml-bindings §3.5`, `§3.6`; `saml-profiles §4.1.4` |
 | `GET`, `POST /login` | the chooser of a request whose client may use more than one `[[ferrosmart.upstream]]` provider: one button per provider, whose post sends the browser to that provider's login | our own design (#678) |
 | `POST /backchannel-logout` | the back-channel logout URI registered at the upstream provider, which ends the `online_access` grants of a login | `backchannel §2.5` to `§2.8` |
 | `GET /frontchannel-logout` | the front-channel logout URI registered at the upstream provider: with its `iss` and `sid`, it ends the sessions of that `sid` and their `online_access` grants; never cached, framed only by the provider's origins | `frontchannel §2` |
@@ -3396,6 +3398,7 @@ stored as their SHA-256, client secrets as Argon2id hashes.
 | `consent` | subject, client | the scope set the user chose to remember, times, revocation |
 | `upstream_session` | id | upstream issuer, upstream `sid` and `sub`, last seen, end |
 | `seen_jti` | issuer, `jti` | client assertions and launch JWTs, until their `exp` |
+| `seen_saml_assertion` | identity provider, assertion `ID` | the SAML assertions a login was admitted with, until the bearer confirmation's `NotOnOrAfter` (`saml-profiles §4.1.4.5`) |
 | `pending_logout` | random id (the logout cookie) | a logout waiting for the person's answer: the client, the hint's `sub`, the registered post-logout redirect and its `state`, the form token, the `state` sent upstream, expiry |
 | `brand_bundle` | one row for the contents and one per resource, by `Type/id` | the digest a replica last started with, and when it became so: the Bundle's `timestamp` and each resource's `meta.lastUpdated` |
 
@@ -3436,7 +3439,7 @@ kind = "fhir"                                 # or "openehr"
 
 [[ferrosmart.upstream]]                       # one entry per provider people log in at, each discovered at start
 name = "idp"                                   # the provider's name, which a client's `upstreams` names
-protocol = "oidc"                             # OpenID Connect, the one protocol today
+protocol = "oidc"                             # OpenID Connect, or "saml" with [ferrosmart.upstream.saml] (13.26)
 
 [ferrosmart.upstream.oidc]
 issuer = "https://idp.example.org/realms/hospital"
@@ -3455,6 +3458,38 @@ algorithm = "RS256"                           # the one the provider's registrat
 [ferrosmart.upstream.oidc.private_key_jwt.keys]    # the assertion ring, apart from the token keys
 private_key_file = "/run/secrets/upstream-assertion.pem"
 # kid = "..."                                 # the id the provider knows the key by; its thumbprint when unset
+
+# [ferrosmart.saml]                           # FerroSMART as one SAML 2.0 service provider (13.26)
+# entity_id = "https://smart.example.org/saml/metadata"   # the default: {issuer}/saml/metadata
+# signing_key_file = "/run/secrets/saml-signing.pem"      # signs every AuthnRequest and ArtifactResolve
+# signing_certificate_file = "/run/secrets/saml-signing.crt"
+# [[ferrosmart.saml.decryption]]              # a key an identity provider encrypts for
+# key_file = "/run/secrets/saml-decryption.pem"
+# certificate_file = "/run/secrets/saml-decryption.crt"
+# [ferrosmart.saml.tls]                       # the client identity of artifact resolution, extra trust roots
+# client_identity_file = "/run/secrets/saml-tls.pem"
+
+# [[ferrosmart.upstream]]
+# name = "saml-idp"
+# protocol = "saml"
+# [ferrosmart.upstream.saml]
+# entity_id = "https://idp.example.org/saml"  # the identity provider's entity ID
+# metadata_url = "https://idp.example.org/saml/metadata"   # or metadata_file
+# metadata_signing_certificate_files = []     # the keys that must sign the metadata; empty trusts it as read
+# metadata_refresh = "24h"                    # read again, so a rolled-over key is trusted
+# request_binding = "redirect"                # or "post"
+# response_binding = "post"                   # or "artifact", resolved over mutual TLS
+# force_authn = false
+# name_id_format = "urn:oasis:names:tc:SAML:2.0:nameid-format:persistent"
+# authn_contexts = ["<a class at or above the provider's minimum>"]   # asked for exactly; any other refused
+# clock_skew = "3min"
+# subject_attribute = ""                      # the attribute holding the identifier; empty takes the NameID
+# fhir_user_claim = "fhir_user"               # a claim of the table below
+# role_claims = ["roles"]
+# [ferrosmart.upstream.saml.claims]           # claim name = attribute Name
+# name = "<attribute of the display name>"
+# roles = "<attribute of the roles>"
+# fhir_user = "<attribute of the fhirUser>"
 
 [[ferrosmart.role]]                           # policy as content: what a role may be granted
 name = "clinician"
@@ -3524,9 +3559,9 @@ Every secret is a `_file` key read through `ferrohealth-secret`; the
 
 **Several upstream providers** (owner, 2026-11-19, #678). Each
 `[[ferrosmart.upstream]]` entry is a provider by `name`, with a `protocol`
-and that protocol's table; `oidc` is the one protocol today, and its
-claim names (`fhir_user_claim`, `role_claims`) sit in its table, since
-each protocol names what its login carries in its own terms. Nothing in
+and that protocol's table, `oidc` or `saml` (13.26); the claim names
+(`fhir_user_claim`, `role_claims`) sit in that table, since each protocol
+names what its login carries in its own terms. Nothing in
 SMART App Launch 2.2.0 limits a server to one provider. Each entry has an
 issuer of its own (`oidc discovery §4.3` holds each to its metadata), so a
 person's pairwise `sub` (13.6 item 9) is per provider. A client's
@@ -3541,9 +3576,11 @@ its `iss` to the provider whose keys check it, and the end-session
 endpoint forwards to the provider the person last logged in at. The
 management page may use every provider. The upstream login sits behind
 one seam in `upstream`: the `Protocol` and `Login` enums and the
-provider registry, which a second protocol (SAML 2.0, #688) joins with a
-variant, a table and a callback route of its own. No specification
-governs the chooser: our own design.
+provider registry, which SAML 2.0 (#688) joins with a variant, a table
+and the routes of 13.26. What the login says reaches the steps after it
+as one protocol-neutral identity: the issuer, the person's identifier,
+the claims, the session and the time of the authentication. No
+specification governs the chooser: our own design.
 
 ### 13.11 Key handling
 
@@ -4557,13 +4594,54 @@ national (owner decision 2026-11-19 on FerroHEALTH/FerroSMART#687 and
 settings; which attribute or name identifier becomes the person's
 identifier is deployment configuration (#674). The protocol machinery is
 `app/ferrosmart/src/saml/`; it holds no configuration and does no I/O. The
-protocol-neutral provider entry of #678 drives it: the `protocol = "saml"`
-entry, the login routes, the store record of each admitted assertion `ID`
-and the login audit record land with that entry. Citation keys: `saml-core`,
+protocol-neutral provider entry of #678 drives it (#688), from
+`app/ferrosmart/src/upstream/saml.rs` (the tables, the metadata read and
+read again, the artifact resolution) and `app/ferrosmart/src/authorize/saml.rs`
+(the routes). Citation keys: `saml-core`,
 `saml-bindings`, `saml-profiles` and `saml-metadata` are the 2005 OASIS
 Standard documents and `errata E26` an entry of SAML V2.0 Errata 05, all
 under `docs/specs/oasis-saml/`; `xmldsig-core1`, `xmlenc-core1` and
 `Exc-C14N` are the W3C Recommendations under `docs/specs/w3c-xmlsec/`.
+
+**The configuration.** FerroSMART is one service provider for every
+SAML provider: `[ferrosmart.saml]` names its entity ID (by default its
+metadata URL, `{issuer}/saml/metadata`), the key that signs every request,
+the keys an identity provider encrypts for, and under `tls` the client
+identity artifact resolution presents. One entity for every partner is our
+own design: the metadata and the assertion consumer service then have one
+address each. Each `protocol = "saml"` entry's `[ferrosmart.upstream.saml]`
+names the identity provider's entity ID, its metadata by `https` URL or
+file with the certificates that must sign it, the two bindings, `ForceAuthn`,
+the name identifier format, and `authn_contexts`, the classes at or above
+the provider's minimum assurance in its own vocabulary. A minimum is a
+generic setting: SAML defines no order of classes, so the deployment lists
+the classes it accepts. The `claims` table maps attribute `Name`s to the
+claims the steps after the login read (`name`, `preferred_username`,
+`email`, the claims of `fhir_user_claim` and `role_claims`, and any claim a
+`fhirUser` lookup names), and `subject_attribute` names the attribute of
+the person's identifier, the `NameID` when empty. The configuration is
+refused at load when an entry has no `[ferrosmart.saml]`, no metadata or
+two, a claim name the table does not map, a non-`https` metadata URL, or the
+artifact binding without a TLS client identity. At start the metadata is
+read and must name a single sign-on service for the request binding; it is
+read again every `metadata_refresh`, and a failed read keeps the last good
+copy until its `validUntil`.
+
+**The login.** The request's `RelayState` is 256 random bits, which find
+the pending authorization; its `ID` is stored with it, so the response
+must answer it. The browser is bound to the request by a cookie of its own
+on the assertion consumer service's path, `SameSite=None`, since the
+identity provider's post is cross-site and a `Lax` cookie is not sent with
+it; the assertion consumer service refuses a response from another browser
+as the OpenID Connect callback does (`rfc9700 §4.7`). `prompt=login` and a
+login older than `max_age` ask the provider again with `ForceAuthn`. The
+identifier is the subject attribute's one value or the `NameID`; a
+transient `NameID` (`saml-core §8.3.8`) with no subject attribute is
+refused, since no grant or consent could find the person again. A response
+posted to a provider asked for an artifact, or the reverse, is refused.
+Each outcome is a DICOM `110122` Login record (13.2), a refusal naming its
+check, and a provider status other than success sends the app
+`access_denied`, any other failure `server_error`.
 
 **What FerroSMART does.**
 

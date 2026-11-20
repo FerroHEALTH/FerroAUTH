@@ -5,16 +5,19 @@
 //!
 //! Each is a named `[[ferrosmart.upstream]]` entry with its protocol and
 //! that protocol's settings (`docs/architecture.md` §13.2). OpenID Connect is
-//! the one protocol today, reached through `ferrohealth-smart`'s relying
-//! party; a second protocol is a second [`Protocol`] variant and a table of
-//! its own, with no change to the entry or to the login flow.
+//! reached through `ferrohealth-smart`'s relying party, and SAML 2.0 through
+//! [`saml`]; each protocol is a [`Protocol`] variant and a table of its own,
+//! with no change to the entry or to the login flow.
 //!
 //! What FerroSMART takes from a provider's login is configured per entry
 //! too: the claim that holds the user's `fhirUser` and the claims that hold
 //! the user's roles. The user's FerroSMART `sub` is pairwise per upstream
 //! issuer (13.6 item 9).
 
+pub mod saml;
+
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -46,6 +49,10 @@ pub struct UpstreamSection {
     /// `protocol = "oidc"`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub oidc: Option<OidcSection>,
+    /// `[ferrosmart.upstream.saml]`: the SAML 2.0 settings, with
+    /// `protocol = "saml"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub saml: Option<saml::SamlSection>,
 }
 
 /// The protocol of an upstream provider.
@@ -54,6 +61,8 @@ pub struct UpstreamSection {
 pub enum ProtocolName {
     /// OpenID Connect Core 1.0.
     Oidc,
+    /// The SAML 2.0 Web Browser SSO profile (saml-profiles-2.0-os §4.1).
+    Saml,
 }
 
 /// `[ferrosmart.upstream.oidc]`.
@@ -174,7 +183,7 @@ pub struct AssertionKeys {
     /// certificate when one is configured.
     pub signer: Box<AssertionKey>,
     /// The ring the key is current in.
-    pub ring: std::sync::Arc<ferrohealth_smart::client::keys::KeyRing>,
+    pub ring: Arc<ferrohealth_smart::client::keys::KeyRing>,
 }
 
 /// Why a provider's login could not be set up.
@@ -192,6 +201,12 @@ pub enum UpstreamError {
         /// The method the entry names.
         method: &'static str,
     },
+    /// A SAML provider's metadata cannot be read or used.
+    #[error("the SAML provider's metadata cannot be used")]
+    Saml(#[from] saml::SamlError),
+    /// A SAML provider is configured without `[ferrosmart.saml]`.
+    #[error("a SAML provider needs `[ferrosmart.saml]`")]
+    NoServiceProvider,
 }
 
 /// An upstream provider, resolved.
@@ -215,15 +230,19 @@ pub struct Upstream {
 pub enum Protocol {
     /// OpenID Connect.
     Oidc(OidcUpstream),
+    /// SAML 2.0.
+    Saml(saml::SamlUpstream),
 }
 
 impl Upstream {
-    /// Returns the provider's issuer: the OpenID Provider's issuer
-    /// identifier, which a person's pairwise `sub` is derived under.
+    /// Returns the provider's issuer, which a person's pairwise `sub` is
+    /// derived under: the OpenID Provider's issuer identifier, or the SAML
+    /// identity provider's entity ID.
     #[must_use]
     pub fn issuer(&self) -> &str {
         match &self.protocol {
             Protocol::Oidc(oidc) => &oidc.issuer,
+            Protocol::Saml(saml) => &saml.entity_id,
         }
     }
 
@@ -236,6 +255,7 @@ impl Upstream {
                 Authentication::PrivateKeyJwt(keys) => Some(keys.ring.published()),
                 Authentication::ClientSecretBasic(_) => None,
             },
+            Protocol::Saml(_) => None,
         }
     }
 }
@@ -290,6 +310,64 @@ impl OidcUpstream {
     }
 }
 
+/// What a provider's login says about the person, whatever its protocol:
+/// what the steps after the login read.
+#[derive(Clone)]
+pub struct Identity {
+    /// The provider's issuer identifier or entity ID.
+    pub issuer: String,
+    /// The person's identifier at the provider.
+    pub subject: String,
+    /// Their full name, when the provider gives one.
+    pub name: Option<String>,
+    /// The name they go by at the provider, when it gives one.
+    pub preferred_username: Option<String>,
+    /// The name a page greets them by: `name`, else `preferred_username`,
+    /// each trimmed and skipped when empty.
+    pub display_name: Option<String>,
+    /// Every claim the login yields, by name: an ID Token's, or those a
+    /// SAML provider's `claims` table maps from its attributes.
+    pub claims: serde_json::Map<String, serde_json::Value>,
+    /// The provider's session `sid`, which its logout names; none for a
+    /// SAML login, whose Single Logout FerroSMART does not take.
+    pub session: Option<String>,
+    /// When the person authenticated, in seconds since the epoch, when the
+    /// provider says.
+    pub auth_time: Option<i64>,
+}
+
+impl std::fmt::Debug for Identity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Identity")
+            .field("issuer", &self.issuer)
+            .finish_non_exhaustive()
+    }
+}
+
+impl Identity {
+    /// Returns what the ID Token `claims` say.
+    #[must_use]
+    pub fn from_id_token(claims: &ferrohealth_smart::oidc::IdTokenClaims) -> Self {
+        Self {
+            issuer: claims.issuer.clone(),
+            subject: claims.subject.clone(),
+            name: claims.name.clone(),
+            preferred_username: claims.preferred_username.clone(),
+            display_name: claims.display_name().map(str::to_owned),
+            claims: claims.other.clone(),
+            session: claims
+                .other
+                .get("sid")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            auth_time: claims
+                .other
+                .get("auth_time")
+                .and_then(serde_json::Value::as_i64),
+        }
+    }
+}
+
 /// Returns the FerroSMART `sub` of the user `subject` of the provider
 /// `issuer`.
 ///
@@ -310,7 +388,9 @@ pub fn pairwise(issuer: &str, subject: &str) -> String {
 #[derive(Debug)]
 pub enum Login {
     /// The OpenID Connect relying party.
-    Oidc(RelyingParty),
+    Oidc(Box<RelyingParty>),
+    /// The SAML 2.0 service provider's login at one identity provider.
+    Saml(Box<saml::SamlLogin>),
 }
 
 /// A provider people log in at: its settings and its login.
@@ -338,25 +418,44 @@ impl LoginProvider {
     /// Returns the OpenID Connect relying party, when the provider speaks
     /// OpenID Connect.
     #[must_use]
-    #[expect(
-        clippy::unnecessary_wraps,
-        reason = "a provider of a second protocol (SAML 2.0, #688) has no relying party"
-    )]
-    pub const fn oidc(&self) -> Option<&RelyingParty> {
+    pub fn oidc(&self) -> Option<&RelyingParty> {
         match &self.login {
             Login::Oidc(party) => Some(party),
+            Login::Saml(_) => None,
+        }
+    }
+
+    /// Returns the SAML login, when the provider speaks SAML 2.0.
+    #[must_use]
+    pub fn saml(&self) -> Option<&saml::SamlLogin> {
+        match &self.login {
+            Login::Saml(login) => Some(login),
+            Login::Oidc(_) => None,
+        }
+    }
+
+    /// Returns where the browser goes to log in: the OpenID Provider's
+    /// authorization endpoint, or the SAML provider's single sign-on
+    /// location.
+    #[must_use]
+    pub fn login_endpoint(&self) -> Option<Url> {
+        match &self.login {
+            Login::Oidc(party) => Some(party.provider().authorization_endpoint().clone()),
+            Login::Saml(login) => login.single_sign_on(),
         }
     }
 
     /// Returns the origins the provider's own pages are served from: its
-    /// issuer's and its end-session endpoint's.
+    /// issuer's, and its end-session endpoint's or its single sign-on
+    /// location's.
     #[must_use]
     pub fn origins(&self) -> Vec<String> {
         let issuer = Url::parse(self.upstream.issuer()).ok();
-        let end_session = self
-            .oidc()
-            .and_then(|party| party.provider().end_session_endpoint().cloned());
-        origins_of(issuer.iter().chain(end_session.iter()))
+        let pages = match &self.login {
+            Login::Oidc(party) => party.provider().end_session_endpoint().cloned(),
+            Login::Saml(login) => login.single_sign_on(),
+        };
+        origins_of(issuer.iter().chain(pages.iter()))
     }
 }
 
@@ -383,8 +482,9 @@ pub struct Providers {
 
 impl Providers {
     /// Discovers every provider `upstreams` names and returns their logins,
-    /// each sending the browser back to `callback` and, after its own
-    /// logout, to `post_logout` (RP-Initiated Logout 1.0 §3).
+    /// each OpenID Connect one sending the browser back to `callback` and,
+    /// after its own logout, to `post_logout` (RP-Initiated Logout 1.0 §3),
+    /// and each SAML one through FerroSMART's service provider `saml`.
     ///
     /// # Errors
     /// Returns the [`UpstreamError`] of the first provider whose login
@@ -393,15 +493,22 @@ impl Providers {
         upstreams: &[Upstream],
         callback: &Url,
         post_logout: &Url,
+        saml: Option<&Arc<saml::ServiceProviderSettings>>,
     ) -> Result<Self, UpstreamError> {
         let mut providers = Vec::with_capacity(upstreams.len());
         for upstream in upstreams {
             let login = match &upstream.protocol {
-                Protocol::Oidc(oidc) => Login::Oidc(
+                Protocol::Oidc(oidc) => Login::Oidc(Box::new(
                     oidc.relying_party(callback.clone())
                         .await?
                         .with_post_logout_redirect_uri(post_logout.clone()),
-                ),
+                )),
+                Protocol::Saml(entry) => {
+                    let sp = saml.ok_or(UpstreamError::NoServiceProvider)?;
+                    Login::Saml(Box::new(
+                        saml::SamlLogin::connect(entry, Arc::clone(sp)).await?,
+                    ))
+                }
             };
             providers.push(LoginProvider {
                 upstream: upstream.clone(),

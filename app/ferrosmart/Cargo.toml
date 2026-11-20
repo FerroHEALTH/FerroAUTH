@@ -88,6 +88,10 @@ tower = { workspace = true, features = ["util"] }
 wiremock.workspace = true
 # The certificate of the key a case authenticates upstream with.
 rcgen.workspace = true
+# The artifact resolution service of the SAML cases, a rustls server that
+# requires the client certificate FerroSMART presents (#688).
+rustls.workspace = true
+tokio-rustls.workspace = true
 # The screenshot capture behind FERROSMART_SCREENSHOTS (#623).
 thirtyfour.workspace = true
 rustix.workspace = true

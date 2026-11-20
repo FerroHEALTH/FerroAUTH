@@ -502,6 +502,7 @@ pub(crate) async fn providers(settings: &Settings) -> ferrosmart::upstream::Prov
         &settings.upstreams,
         &settings.endpoint_url(ferrosmart::authorize::CALLBACK_ROUTE),
         &settings.endpoint_url(ferrosmart::logout::end_session::END_SESSION_RETURN_ROUTE),
+        settings.saml.as_ref(),
     )
     .await
     .expect("the providers are discovered")

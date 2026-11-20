@@ -111,3 +111,6 @@ logout-refused-client = The app is not registered here, or the sign-in token was
 logout-refused-redirect = The app asked to be sent back to an address it did not register. Go back to the app, or ask its supplier.
 chooser-title = Choose how to sign in
 chooser-intro = Sign in with the account you use for this app.
+saml-post-title = Continue to sign in
+saml-post-intro = Your sign-in continues at your identity provider.
+saml-post-continue = Continue

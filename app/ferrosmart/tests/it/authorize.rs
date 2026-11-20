@@ -2483,6 +2483,7 @@ mod logout;
 mod paired_picker;
 mod preset;
 mod providers;
+mod saml;
 mod secret_basic;
 
 /// The capabilities FerroSMART supports with a FHIR resource server and a

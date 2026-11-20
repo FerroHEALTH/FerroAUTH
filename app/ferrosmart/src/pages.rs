@@ -27,6 +27,7 @@ use http::{HeaderMap, HeaderValue, StatusCode, header};
 use url::Url;
 
 pub mod logout;
+pub mod saml;
 
 use crate::authorize::{CONSENT_ROUTE, MANAGE_ROUTE};
 use crate::clients::Client;
@@ -587,8 +588,7 @@ pub fn chooser(
     ));
     let endpoints: Vec<Url> = providers
         .iter()
-        .filter_map(|provider| provider.oidc())
-        .map(|party| party.provider().authorization_endpoint().clone())
+        .filter_map(|provider| provider.login_endpoint())
         .collect();
     let reach = crate::upstream::origins_of(endpoints.iter());
     let body = Html::join([

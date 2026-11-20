@@ -182,6 +182,7 @@ async fn listen_and_serve(settings: Settings) -> Result<ExitCode, Failure> {
         &settings.upstreams,
         &settings.endpoint_url(crate::authorize::CALLBACK_ROUTE),
         &settings.endpoint_url(crate::logout::end_session::END_SESSION_RETURN_ROUTE),
+        settings.saml.as_ref(),
     )
     .await
     .map_err(|error| Failure::not_up(error).with_context("cannot reach an upstream provider"))?;

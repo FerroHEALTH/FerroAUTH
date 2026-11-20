@@ -131,7 +131,7 @@ entry, nobody logs in and FerroSMART answers Backend Services alone.
 |---|---|
 | `name` | The provider's name, of letters, digits and `-`, unique among the entries; a client's `upstreams` names it |
 | `label` | The words the chooser page shows for the provider; its `name` when empty |
-| `protocol` | `oidc`, OpenID Connect, the one protocol today; its settings are the `[ferrosmart.upstream.oidc]` table of the entry |
+| `protocol` | `oidc`, OpenID Connect, with its settings in the entry's `[ferrosmart.upstream.oidc]` table, or `saml`, SAML 2.0, with its settings in `[ferrosmart.upstream.saml]` |
 
 Each entry has its own issuer, and two entries never share one. A client
 lists the providers its people may log in at in `upstreams`; with none
@@ -167,6 +167,42 @@ The `private_key_jwt` table:
 | `algorithm` | The JWS algorithm the provider's registration names; `RS256` by default |
 | `certificate_file` | The X.509 certificate of the current assertion key, for a provider that knows the key by its certificate; each assertion then names it by `x5t#S256` |
 | `[ferrosmart.upstream.oidc.private_key_jwt.keys]` | The assertion ring, with the same keys as `[ferrosmart.keys]`; it may share no key with the token ring. Its `kid` is the id the provider knows the key by, such as ZITADEL's key id |
+
+`[ferrosmart.upstream.saml]`, for a SAML 2.0 identity provider
+([SAML 2.0 providers](../install/upstream.md#saml-20)):
+
+| Key | What it is |
+|---|---|
+| `entity_id` | The identity provider's entity ID, an absolute URI |
+| `metadata_url` | The `https` URL its metadata is read from; exclusive with `metadata_file` |
+| `metadata_file` | The file its metadata is read from |
+| `metadata_signing_certificate_files` | The PEM certificates whose keys must sign the metadata; empty trusts it as read |
+| `metadata_refresh` | How often the metadata is read again; `24h` by default. A failed read keeps the last good copy until its `validUntil` |
+| `request_binding` | `redirect` (the default) or `post`: how the browser carries the signed `AuthnRequest` |
+| `response_binding` | `post` (the default) or `artifact`: how the provider answers. An artifact is resolved over mutual TLS with the identity of `[ferrosmart.saml.tls]` |
+| `force_authn` | Whether every request asks the provider to authenticate the person afresh; `prompt=login` and `max_age` ask it per request |
+| `name_id_format` | The name identifier format asked for; empty asks for none |
+| `authn_contexts` | The authentication context classes at or above the provider's minimum assurance, in its own vocabulary. FerroSMART asks for them as an exact match and refuses a login of any other class; empty accepts any |
+| `clock_skew` | The clock skew admitted at each time bound; `3min` by default, at most one hour |
+| `subject_attribute` | The attribute whose one value is the person's identifier; empty takes the `NameID`, which must not be transient |
+| `claims` | A table of claim name to attribute `Name`: the claims the login yields, a string for one value and an array for more. `name`, `preferred_username` and `email` are read as the ID Token claims of those names are |
+| `fhir_user_claim` | The claim of `claims` holding the person's `fhirUser`; empty for none |
+| `role_claims` | The claims of `claims` holding the person's roles |
+
+## `[ferrosmart.saml]`
+
+FerroSMART as one SAML 2.0 service provider, which every `protocol =
+"saml"` entry needs. FerroSMART serves its metadata at
+`{issuer}/saml/metadata` and takes the provider's answer at
+`{issuer}/saml/acs`.
+
+| Key | What it is |
+|---|---|
+| `entity_id` | FerroSMART's entity ID; `{issuer}/saml/metadata` by default |
+| `signing_key_file` | The PKCS#8 PEM key that signs every `AuthnRequest` and `ArtifactResolve`: RSA of 2048 bits or more, or ECDSA on P-256 or P-384 |
+| `signing_certificate_file` | The PEM certificate of that key, which the metadata publishes |
+| `[[ferrosmart.saml.decryption]]` | `key_file` and `certificate_file` of an RSA key a provider encrypts assertions, identifiers and attributes for |
+| `[ferrosmart.saml.tls]` | `client_identity_file`, the certificate and key artifact resolution presents, and `trust_roots_file`, roots beside the platform's for every call to a provider |
 
 ## `[[ferrosmart.role]]` and `[[ferrosmart.client]]`
 

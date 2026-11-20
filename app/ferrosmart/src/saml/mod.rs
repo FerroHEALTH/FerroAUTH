@@ -160,6 +160,10 @@ pub enum Refusal {
     /// The response carries more than one assertion.
     #[error("the response carries more than one assertion")]
     MultipleAssertions,
+    /// The response arrived by a binding other than the one the request
+    /// named as its `ProtocolBinding` (saml-core-2.0-os §3.4.1).
+    #[error("the response arrived by a binding the request did not ask for")]
+    Binding,
 }
 
 /// Writes `value` with the five characters XML 1.0 §2.4 and §3.1 reserve in

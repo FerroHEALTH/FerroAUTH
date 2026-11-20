@@ -17,6 +17,7 @@ pub mod consent;
 pub mod manage;
 mod oidc;
 pub mod request;
+pub mod saml;
 
 use axum::response::{IntoResponse, Response};
 use base64::Engine as _;

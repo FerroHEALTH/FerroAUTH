@@ -59,6 +59,10 @@ pub enum Error {
         /// The rule broken.
         rule: &'static str,
     },
+    /// A SAML table breaks a rule, or names a key or file that cannot be
+    /// used.
+    #[error(transparent)]
+    Saml(#[from] crate::upstream::saml::SamlConfigError),
     /// `ferrosmart.branding.smart_style_url` is no https URL.
     #[error("`ferrosmart.branding.smart_style_url` is no https URL")]
     StyleUrl,

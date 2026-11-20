@@ -21,6 +21,7 @@ use crate::form::Params;
 use crate::pages::{self, Fault};
 use crate::server::AppState;
 use crate::store::{Asking, Login, Pending, Purpose};
+use crate::upstream::{Identity, LoginProvider};
 
 use super::consent::{Basis, FhirUser, approve, offer};
 use super::{
@@ -103,18 +104,28 @@ pub async fn callback(
             });
         }
     };
-    let upstream_at = signed_in
-        .claims
-        .other
-        .get("auth_time")
-        .and_then(serde_json::Value::as_i64);
-    let auth_time = match freshness(&pending.asking, upstream_at, now()) {
+    let identity = Identity::from_id_token(&signed_in.claims);
+    complete(&state, &pending, provider, &identity, from).await
+}
+
+/// Goes on once the person logged in at `provider` as `identity`: the
+/// login judged against the request's `max_age`, and on to [`proceed`].
+pub(super) async fn complete(
+    state: &AppState,
+    pending: &Pending,
+    provider: &LoginProvider,
+    identity: &Identity,
+    from: IpAddr,
+) -> Response {
+    let upstream = provider.upstream();
+    let back = Back::of(state, pending);
+    let auth_time = match freshness(&pending.asking, identity.auth_time, now()) {
         Fresh::At(auth_time) => auth_time,
-        Fresh::Again => return again(&state, &pending, party).await,
+        Fresh::Again => return again(state, pending, provider).await,
         Fresh::Stale => {
-            forget(&state, &pending).await;
+            forget(state, pending).await;
             if let Err(response) =
-                record_login(&state, upstream, Err("the login is older than max_age")).await
+                record_login(state, upstream, Err("the login is older than max_age")).await
             {
                 return *response;
             }
@@ -128,10 +139,10 @@ pub async fn callback(
     };
     let signed_in = SignedIn {
         upstream,
-        claims: &signed_in.claims,
+        identity,
         auth_time,
     };
-    proceed(&state, &pending, &back, &signed_in, from).await
+    proceed(state, pending, &back, &signed_in, from).await
 }
 
 /// A person's login at a provider, as the steps after it read it.
@@ -139,8 +150,8 @@ pub async fn callback(
 struct SignedIn<'a> {
     /// The provider's settings.
     upstream: &'a crate::upstream::Upstream,
-    /// What the provider's ID Token states.
-    claims: &'a ferrohealth_smart::oidc::IdTokenClaims,
+    /// What the provider's login states.
+    identity: &'a Identity,
     /// When the person authenticated, in seconds since the epoch.
     auth_time: i64,
 }
@@ -176,31 +187,25 @@ fn freshness(asking: &Asking, upstream: Option<i64>, now: i64) -> Fresh {
     }
 }
 
-/// Begins the upstream login of `pending` again with `prompt=login`, as
-/// its authentication was older than the request's `max_age`.
-async fn again(
-    state: &AppState,
-    pending: &Pending,
-    party: &ferrohealth_smart::oidc::RelyingParty,
-) -> Response {
-    let Ok(upstream) = party.authorization_request() else {
-        return pages::fault(state, Fault::Server);
-    };
+/// Begins the upstream login of `pending` at `provider` again with
+/// `prompt=login` (a SAML request's `ForceAuthn`), as its authentication
+/// was older than the request's `max_age`.
+async fn again(state: &AppState, pending: &Pending, provider: &LoginProvider) -> Response {
     let mut asking = pending.asking.clone();
     asking.prompt.login = true;
+    let Ok((departure, [upstream_state, nonce, verifier])) =
+        super::choose::sign_in_at(provider, &asking)
+    else {
+        return pages::fault(state, Fault::Server);
+    };
     if let Err(error) = state
         .store()
-        .reauthenticate(
-            &pending.id,
-            upstream.pending.state(),
-            upstream.pending.nonce(),
-            upstream.pending.verifier().expose(),
-        )
+        .reauthenticate(&pending.id, &upstream_state, &nonce, &verifier)
         .await
     {
         return pages::server_error(state, &error);
     }
-    see_other(super::oidc::upstream(upstream.url, &asking).as_str())
+    departure.respond(state, &pending.id)
 }
 
 /// The person's `fhirUser`: the provider's claim, or for an authorization
@@ -216,12 +221,12 @@ async fn fhir_user_of(
         .upstream
         .fhir_user_claim
         .as_deref()
-        .and_then(|claim| ferrohealth_smart::roles::claim_text(&signed_in.claims.other, claim))
+        .and_then(|claim| ferrohealth_smart::roles::claim_text(&signed_in.identity.claims, claim))
         .map(str::to_owned);
     match claimed {
         Some(claimed) => Some(claimed),
         None if pending.purpose == Purpose::Authorize => {
-            looked_up(state, pending, subject, signed_in.claims, from).await
+            looked_up(state, pending, subject, &signed_in.identity.claims, from).await
         }
         None => None,
     }
@@ -239,13 +244,13 @@ async fn proceed(
 ) -> Response {
     let SignedIn {
         upstream,
-        claims,
+        identity,
         auth_time,
     } = *signed_in;
-    let held = ferrohealth_smart::roles::from_claims(&claims.other, &upstream.role_claims);
-    let subject = crate::upstream::pairwise(&claims.issuer, &claims.subject);
+    let held = ferrohealth_smart::roles::from_claims(&identity.claims, &upstream.role_claims);
+    let subject = crate::upstream::pairwise(&identity.issuer, &identity.subject);
     let upstream_session = match pending.purpose {
-        Purpose::Authorize => match begin_session(state, claims).await {
+        Purpose::Authorize => match begin_session(state, identity).await {
             Ok(session) => Some(session),
             Err(response) => return *response,
         },
@@ -255,12 +260,12 @@ async fn proceed(
     let mut login = Login {
         subject,
         fhir_user,
-        display_name: claims.display_name().map(str::to_owned),
+        display_name: identity.display_name.clone(),
         offered_scope: String::new(),
         auth_time,
         upstream_session,
         roles: mapped(&held, &state.settings().roles),
-        person_claims: crate::store::PersonClaims::from_claims(claims),
+        person_claims: crate::store::PersonClaims::from_identity(identity),
     };
     let person = Person {
         issuer: &state.settings().issuer,
@@ -340,7 +345,7 @@ async fn looked_up(
     state: &AppState,
     pending: &Pending,
     subject: &str,
-    claims: &ferrohealth_smart::oidc::IdTokenClaims,
+    claims: &serde_json::Map<String, serde_json::Value>,
     from: IpAddr,
 ) -> Option<String> {
     let asking = Pending {
@@ -348,8 +353,7 @@ async fn looked_up(
         ..pending.clone()
     };
     let resolved =
-        crate::picker::fhir_user::resolve(state, &asking, from, &pending.audience, &claims.other)
-            .await?;
+        crate::picker::fhir_user::resolve(state, &asking, from, &pending.audience, claims).await?;
     tracing::info!(
         target: "ferrosmart::audit",
         event = "fhir_user.lookup",
@@ -511,19 +515,20 @@ fn mapped(held: &[String], roles: &std::collections::BTreeMap<String, Vec<String
         .collect()
 }
 
-/// Records the upstream login `claims` describe as a session, with the
-/// provider's `sid` when its ID Token carries one, and returns its id: the
-/// session an `online_access` grant lives in (`docs/architecture.md` §13.6
-/// item 7), which the provider's back-channel logout ends.
-async fn begin_session(
-    state: &AppState,
-    claims: &ferrohealth_smart::oidc::IdTokenClaims,
-) -> Result<String, Box<Response>> {
+/// Records the upstream login `identity` describes as a session, with the
+/// provider's `sid` when it names one, and returns its id: the session an
+/// `online_access` grant lives in (`docs/architecture.md` §13.6 item 7),
+/// which the provider's back-channel logout ends.
+async fn begin_session(state: &AppState, identity: &Identity) -> Result<String, Box<Response>> {
     let session = random().map_err(|error| Box::new(pages::server_error(state, &error)))?;
-    let sid = claims.other.get("sid").and_then(serde_json::Value::as_str);
     state
         .store()
-        .begin_session(&session, &claims.issuer, &claims.subject, sid)
+        .begin_session(
+            &session,
+            &identity.issuer,
+            &identity.subject,
+            identity.session.as_deref(),
+        )
         .await
         .map_err(|error| Box::new(pages::server_error(state, &error)))?;
     Ok(session)
@@ -545,7 +550,7 @@ fn read_callback(query: &str) -> Result<Callback, crate::form::Repeated> {
 /// Records the login `answer` at the upstream provider, or returns the page
 /// of a login that could not be recorded: a login whose record is not
 /// stored does not go on (no specification governs this: our own design).
-async fn record_login(
+pub(super) async fn record_login(
     state: &AppState,
     upstream: &crate::upstream::Upstream,
     answer: Result<Person<'_>, &str>,
