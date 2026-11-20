@@ -63,16 +63,26 @@ requires_sender_constraint = true
 # §B.4a.3: the purpose travels in every entry. §B.4a.4: for "the query use
 # case", which a federated query is, the "Organization type must travel".
 # §B.4a.1: the URA is "the system-wide unique organization identifier".
-required_fields = ["purpose_of_use", "nl.organisation_type", "nl.ura"]
+# The organisation type is the generic facility type, and the URA the
+# generic provider identifier: no field name says which country a value
+# comes from, its code system does.
+required_fields = [
+  "purpose_of_use",
+  "provider.facility_type",
+  "provider.healthcare_provider_identifier",
+]
 
 # §B.4a.3 example entries. The access token is signed by the requesting
 # organisation itself (§B.4a.2), so its URA is the issuer's identity: the
-# deployment sets `"nl.ura" = [{ constant = "…" }]` in the issuer's
-# `[auth.issuer.<name>.federation.fields]` table.
+# deployment sets it with its code system, the URA register's OID of the
+# §B.4a.3 example, in the issuer's `[auth.issuer.<name>.federation.fields]`
+# table: `"provider.healthcare_provider_identifier" = [{ constant = "…",
+# system = "urn:oid:2.16.528.1.1007.3.3" }]`. The organisation type travels
+# as the `system|code` text of the §B.4a.3 example.
 # Annex B does not define the entry's `locations_organization_id`; read
 # with RFC 9396 §2.2 `locations` it names the organisation at the resource
 # server, this node's (our own reading), so it is not read as the
 # requester's.
 [federation.fields]
 "purpose_of_use" = [{ authorization_details = "purpose_of_use" }]
-"nl.organisation_type" = [{ authorization_details = "subject_organisation_type" }]
+"provider.facility_type" = [{ authorization_details = "subject_organisation_type" }]

@@ -12,6 +12,7 @@ use std::error::Error as StdError;
 use ferrohealth_smart::config::AuthSection;
 use ferrohealth_smart::config::ConfigError;
 use ferrohealth_smart::federation::Attribute;
+use ferrohealth_smart::federation::Code;
 use ferrohealth_smart::federation::FederationError;
 use ferrohealth_smart::federation::Field;
 use ferrohealth_smart::kind::CallerKind;
@@ -46,6 +47,8 @@ const ISSUER: &str = "https://zorgaanbieder-a.example.org";
 const AUDIENCE: &str = "https://fhir.zorgaanbieder-b.nl/fhir";
 /// The requesting care provider's URA, configured on its issuer table.
 const URA: &str = "87654321";
+/// The code system of the URA register, the OID of the §B.4a.3 example.
+const URA_SYSTEM: &str = "urn:oid:2.16.528.1.1007.3.3";
 /// The client the requesting care provider's system authenticates as.
 const CLIENT: &str = "zorgaanbieder-a-system";
 /// The synthetic DER bytes of the client certificate the token is bound to.
@@ -139,7 +142,7 @@ jwks_file = "{jwks}"
         self.config(
             "kind = \"federation\"\nsender_constraint = \"required\"",
             "token_types = [\"at+jwt\"]",
-            &format!("[issuer.i1.federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"),
+            &format!("[issuer.i1.federation.fields]\n\"provider.healthcare_provider_identifier\" = [{{ constant = \"{URA}\", system = \"{URA_SYSTEM}\" }}]"),
         )
     }
 
@@ -197,8 +200,15 @@ async fn the_query_example_is_an_external_organisation() -> Outcome {
     };
     let text = |field| organisation.field(field).and_then(Attribute::text);
     assert_eq!(Some(PURPOSE), text(Field::PurposeOfUse));
-    assert_eq!(Some(ORGANISATION_TYPE), text(Field::NlOrganisationType));
-    assert_eq!(Some(URA), text(Field::NlUra), "the issuer's configured URA");
+    assert_eq!(Some(ORGANISATION_TYPE), text(Field::ProviderFacilityType));
+    assert_eq!(
+        Some(&Attribute::Codes(vec![Code {
+            system: Some(String::from(URA_SYSTEM)),
+            code: String::from(URA),
+        }])),
+        organisation.field(Field::ProviderHealthcareProviderIdentifier),
+        "the issuer's configured URA, with its code system"
+    );
     assert_eq!(CLIENT, organisation.remote_subject());
     assert!(
         organisation
@@ -222,7 +232,7 @@ async fn the_directed_sending_example_lacks_the_organisation_type_a_query_needs(
     let outcome = h.admit(&h.deployed(), &token(&directed())).await;
     assert_eq!(
         Some(Unclassified::RequiredFields {
-            missing: vec!["nl.organisation_type"]
+            missing: vec!["provider.facility_type"]
         }),
         refused(outcome)
     );
@@ -236,8 +246,8 @@ async fn a_deployment_that_only_receives_directed_sending_relaxes_the_required_f
         "kind = \"federation\"\nsender_constraint = \"required\"",
         "token_types = [\"at+jwt\"]",
         &format!(
-            "required_fields = [\"purpose_of_use\", \"nl.ura\"]\n\
-             [issuer.i1.federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"
+            "required_fields = [\"purpose_of_use\", \"provider.healthcare_provider_identifier\"]\n\
+             [issuer.i1.federation.fields]\n\"provider.healthcare_provider_identifier\" = [{{ constant = \"{URA}\", system = \"{URA_SYSTEM}\" }}]"
         ),
     );
     let caller = h.admit(&config, &token(&directed())).await?;
@@ -332,7 +342,7 @@ fn the_profile_fails_to_load_without_the_type_or_the_ura() {
     assert!(matches!(
         Harness::refusal(&no_ura),
         Some(ResourceError::Federation(FederationError::NoSource {
-            field: "nl.ura"
+            field: "provider.healthcare_provider_identifier"
         }))
     ));
 }
@@ -345,7 +355,7 @@ fn the_profile_is_refused_on_an_issuer_of_another_kind() {
         .replace("kind = \"federation\"", "kind = \"persons\"")
         .replace("[issuer.i1.federation]\n", "")
         .replace(
-            &format!("[issuer.i1.federation.fields]\n\"nl.ura\" = [{{ constant = \"{URA}\" }}]"),
+            &format!("[issuer.i1.federation.fields]\n\"provider.healthcare_provider_identifier\" = [{{ constant = \"{URA}\", system = \"{URA_SYSTEM}\" }}]"),
             "",
         );
     assert!(matches!(

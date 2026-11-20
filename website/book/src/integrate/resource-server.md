@@ -134,7 +134,7 @@ sender_constraint = "required"
 token_types = ["at+jwt"]
 
 [auth.issuer.provider_a.federation.fields]
-"nl.ura" = [{ constant = "87654321" }]
+"provider.healthcare_provider_identifier" = [{ constant = "87654321", system = "urn:oid:2.16.528.1.1007.3.3" }]
 ```
 
 The products ship no country content. This example file maps the Dutch

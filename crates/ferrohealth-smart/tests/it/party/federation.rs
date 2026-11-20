@@ -119,7 +119,7 @@ pub(super) async fn externals() -> Result<Vec<Caller>, Box<dyn StdError>> {
     let mut organisation_section = section();
     organisation_section.mapping = None;
     organisation_section.fields = BTreeMap::from([(
-        Field::NlUra,
+        Field::ProviderFacilityType,
         vec![Source::AuthorizationDetails(String::from("ura"))],
     )]);
     let mut header = Header::new(Algorithm::ES256);

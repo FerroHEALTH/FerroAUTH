@@ -221,6 +221,99 @@ async fn an_iua_token_is_an_external_person_as_asserted() -> Outcome {
     Ok(())
 }
 
+// NOTE: no field names a country (#492): a Dutch UZI token and another token
+// carry the professional's identifier and role in the same generic fields, each
+// value with its own code system (2026/2099 Annex Table 1).
+#[tokio::test]
+async fn a_uzi_token_and_another_token_share_the_generic_fields() -> Outcome {
+    let section = FederationSection {
+        fields: {
+            let mut fields = iua().fields;
+            fields.insert(
+                Field::ProfessionalHpIdentifier,
+                vec![Source::Claim(String::from(
+                    "extensions.ihe_iua.hp_identifier",
+                ))],
+            );
+            fields
+        },
+        ..iua()
+    };
+    let token = |identifier: Value, role: Value| {
+        let mut claims = professional();
+        claims["extensions"]["ihe_iua"]["hp_identifier"] = identifier;
+        claims["extensions"]["ihe_iua"]["subject_role"] = role;
+        claims
+    };
+    let coded = |system: &str, code: &str| {
+        Attribute::Codes(vec![Code {
+            system: Some(String::from(system)),
+            code: String::from(code),
+        }])
+    };
+    for (case, system, number, role_system, role) in [
+        (
+            "a UZI token",
+            "urn:oid:2.16.528.1.1007.3.1",
+            "900012345",
+            "urn:oid:2.16.840.1.113883.2.4.15.111",
+            "17.000",
+        ),
+        (
+            "another token",
+            "urn:oid:1.2.250.1.71.4.2.1",
+            "810000123456",
+            "urn:oid:1.2.250.1.213.1.1.4.5",
+            "10",
+        ),
+    ] {
+        let claims = token(
+            json!([{ "system": system, "code": number }]),
+            json!([{ "system": role_system, "code": role }]),
+        );
+        let caller = Harness::new().admit(section.clone(), &claims).await?;
+        let person = external(&caller).ok_or("an external party")?;
+        assert_eq!(
+            Some(&coded(system, number)),
+            person.field(Field::ProfessionalHpIdentifier),
+            "{case}"
+        );
+        assert_eq!(
+            Some(&coded(role_system, role)),
+            person.field(Field::ProfessionalHpProfessionalRole),
+            "{case}"
+        );
+    }
+    let unsystemed = token(json!(["900012345"]), json!(["17.000"]));
+    let caller = Harness::new().admit(section, &unsystemed).await?;
+    let person = external(&caller).ok_or("an external party")?;
+    assert_eq!(
+        Some(&Attribute::Codes(vec![Code {
+            system: None,
+            code: String::from("17.000"),
+        }])),
+        person.field(Field::ProfessionalHpProfessionalRole),
+        "a value without a code system is kept unsystemed, for a consumer to refuse"
+    );
+    Ok(())
+}
+
+// NOTE: the products ship no country content (owner rule, #492): no field of the
+// federation model is named after a country.
+#[test]
+fn no_field_names_a_country() -> Outcome {
+    let text = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/federation/mod.rs"),
+    )?;
+    for country in ["\"nl.", "\"de.", "\"be.", "\"fr.", " Nl", "Dutch"] {
+        assert!(
+            !text.contains(country),
+            "the federation model names {country:?}"
+        );
+    }
+    Ok(())
+}
+
 // NOTE: 2026/2099 Annex Table 1 makes every professional field mandatory, so a
 // partial professional is refused naming each missing field, never an organisation.
 #[tokio::test]
@@ -278,7 +371,7 @@ async fn an_organisation_needs_an_attested_statement() -> Outcome {
         organisation_types: vec![String::from("nl_organisation_access")],
         authorization_details_type: Some(String::from("nl_organisation_access")),
         fields: BTreeMap::from([(
-            Field::NlUra,
+            Field::ProviderFacilityType,
             vec![Source::AuthorizationDetails(String::from("ura"))],
         )]),
         ..unattested
@@ -318,7 +411,7 @@ async fn an_organisation_needs_an_attested_statement() -> Outcome {
 fn an_authorization_details_source_without_the_attestation_fails_to_load() {
     let section = FederationSection {
         fields: BTreeMap::from([(
-            Field::NlUra,
+            Field::ProviderFacilityType,
             vec![Source::AuthorizationDetails(String::from("ura"))],
         )]),
         ..iua()

@@ -35,7 +35,7 @@ pub(crate) fn classify(
     let fields = read_fields(section.sources(), |_field, source| {
         Ok(match source {
             Source::Claim(path) => lookup(claims, path).and_then(attribute),
-            Source::Constant(value) => Some(Attribute::Text(value.clone())),
+            Source::Constant(_) | Source::Coded { .. } => source.configured(),
             Source::AuthorizationDetails(path) => entry
                 .and_then(|entry| lookup(entry, path))
                 .and_then(attribute),

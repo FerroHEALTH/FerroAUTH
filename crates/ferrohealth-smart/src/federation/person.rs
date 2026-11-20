@@ -85,7 +85,7 @@ impl AttributesSection {
             }
             for source in sources {
                 match source {
-                    Source::Claim(_) | Source::Constant(_) => {}
+                    Source::Claim(_) | Source::Constant(_) | Source::Coded { .. } => {}
                     Source::AuthorizationDetails(_) => return Err(FederationError::Unattested),
                     Source::Presentation(_) => return Err(FederationError::Presentations),
                 }
@@ -137,7 +137,7 @@ impl AttributesSection {
                     None => None,
                     Some(value) => Some(shaped(field, value)?),
                 },
-                Source::Constant(value) => Some(Attribute::Text(value.clone())),
+                Source::Constant(_) | Source::Coded { .. } => source.configured(),
                 Source::AuthorizationDetails(_) | Source::Presentation(_) => None,
             })
         })?;
