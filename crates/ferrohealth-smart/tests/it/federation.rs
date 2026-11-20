@@ -231,7 +231,9 @@ async fn a_uzi_token_and_another_token_share_the_generic_fields() -> Outcome {
             let mut fields = iua().fields;
             fields.insert(
                 Field::ProfessionalHpIdentifier,
-                vec![Source::Claim(String::from("extensions.ihe_iua.hp_identifier"))],
+                vec![Source::Claim(String::from(
+                    "extensions.ihe_iua.hp_identifier",
+                ))],
             );
             fields
         },
@@ -304,7 +306,10 @@ fn no_field_names_a_country() -> Outcome {
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/federation/mod.rs"),
     )?;
     for country in ["\"nl.", "\"de.", "\"be.", "\"fr.", " Nl", "Dutch"] {
-        assert!(!text.contains(country), "the federation model names {country:?}");
+        assert!(
+            !text.contains(country),
+            "the federation model names {country:?}"
+        );
     }
     Ok(())
 }

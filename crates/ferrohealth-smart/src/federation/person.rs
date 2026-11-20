@@ -138,10 +138,10 @@ impl AttributesSection {
                     Some(value) => Some(shaped(field, value)?),
                 },
                 Source::Constant(value) => Some(Attribute::Text(value.clone())),
-            Source::Coded { system, code } => Some(Attribute::Codes(vec![Code {
-                system: Some(system.clone()),
-                code: code.clone(),
-            }])),
+                Source::Coded { system, code } => Some(Attribute::Codes(vec![Code {
+                    system: Some(system.clone()),
+                    code: code.clone(),
+                }])),
                 Source::AuthorizationDetails(_) | Source::Presentation(_) => None,
             })
         })?;
