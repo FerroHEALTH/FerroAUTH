@@ -21,6 +21,7 @@ use axum::response::Response;
 use http::HeaderMap;
 use serde_json::Value;
 
+use super::purpose::{self, Declared};
 use super::{PickerError, enter, is_fhir_id, openehr, read_patient};
 use crate::config::settings::Pairing;
 use crate::form::Params;
@@ -47,17 +48,22 @@ pub(super) async fn choose(
     let Some(id) = form.get("patient").filter(|id| is_fhir_id(id)) else {
         return pages::fault(state, Fault::BadRequest);
     };
-    match context_of(state, pending, from, pairing, id).await {
-        Ok(Some(context)) => enter(state, pending, &context, from).await,
-        Ok(None) => pages::picker(state, headers, pending, None, None, Some(NO_EHR)),
+    let (kept, declared) = match purpose::declared(state, pending, form).await {
+        Ok(declared) => declared,
+        Err(response) => return *response,
+    };
+    match context_of(state, &kept, from, pairing, (id, declared)).await {
+        Ok(Some(context)) => enter(state, &kept, &context, from).await,
+        Ok(None) => pages::picker(state, headers, &kept, None, None, Some(NO_EHR)),
         Err(response) => *response,
     }
 }
 
 /// Reads the patient `id` at the FHIR server of `pairing` again as the
 /// person and looks their EHR up at the openEHR server of `pending`,
-/// returning the context with both, or `None` when the patient has no EHR
-/// the person may see.
+/// declaring the purpose of use `declared` when it names one, and returns
+/// the context with both, or `None` when the patient has no EHR the person
+/// may see.
 ///
 /// # Errors
 /// Returns the page that says why the patient or the EHR could not be read.
@@ -66,7 +72,7 @@ pub(super) async fn context_of(
     pending: &Pending,
     from: IpAddr,
     pairing: &Pairing,
-    id: &str,
+    (id, declared): (&str, Option<Declared<'_>>),
 ) -> Result<Option<Context>, Box<Response>> {
     let Some(namespace) = state.settings().subject_namespaces.get(&pending.audience) else {
         return Err(Box::new(pages::fault(state, Fault::Server)));
@@ -79,7 +85,7 @@ pub(super) async fn context_of(
     };
     // NOTE: SMART on openEHR draft, Context Selection, `ehrId` names the EHR of the
     // selected FHIR Patient, which is looked up as the person.
-    match openehr::by_subject(state, pending, from, namespace, subject_id).await {
+    match openehr::by_subject(state, pending, from, namespace, (subject_id, declared)).await {
         Ok(Some(found)) => Ok(Some(Context {
             patient: Some(id.to_owned()),
             ehr_id: Some(found.ehr_id),

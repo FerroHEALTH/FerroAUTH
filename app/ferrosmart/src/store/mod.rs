@@ -550,6 +550,9 @@ pub struct Pending {
     pub roles: Vec<String>,
     /// The upstream ID Token's standard claims, once they logged in.
     pub person_claims: PersonClaims,
+    /// The code of the purpose of use a professional chose on the patient
+    /// picker of an openEHR base, once a lookup declared it.
+    pub purpose_of_use: Option<String>,
     /// What the app asked of the login under OpenID Connect Core 1.0
     /// §3.1.2.1.
     pub asking: Asking,

@@ -222,6 +222,7 @@ fn encounter_ask<'a>(url: &'a Url, audience: &'a str, patient: &'a str, action: 
                 request: fhir_request(url, action, "Encounter"),
             }
         }),
+        purpose: None,
     }
 }
 

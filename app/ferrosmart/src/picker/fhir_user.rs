@@ -94,6 +94,7 @@ pub(crate) async fn resolve(
                 subject: DataSubject::default(),
                 request: fhir_request(asked, Action::Query, kind),
             }),
+            purpose: None,
         };
         match as_person(state, pending, from, &ask).await {
             Ok(bundle) => found.extend(

@@ -3080,6 +3080,32 @@ specification governs.
    identifiers of the system with different values, or a failed lookup,
    are an error page. The draft does not say how a `Patient` names its
    EHR's subject, so the identifier system per base is our own design.
+
+   Every picker token carries the person's mapped `roles`, the list the
+   access token of the same sign-in carries (RFC 9068 §2.2.3.1, #649), so
+   an openEHR server such as FerroEHR decides a professional's lookup by
+   their roles as it decides their other reads (#716). Such a server also
+   reads a declared purpose of use from a header, so an openEHR base's
+   table may list the purposes it accepts as
+   `[[ferrosmart.resource.purpose]]` entries (a `code`, its `system` and
+   the `display` the page shows) with the header in `purpose_header`
+   (default `x-purpose-of-use`). A code is a header value, visible ASCII
+   with no comma (RFC 9110 §5.5), checked at load. With purposes listed,
+   the professional chooses one on the picker page, preselected when only
+   one is listed: in the identifier form at an unpaired base, beside the
+   patient choice at a paired one. The EHR lookup and the look-up-again of
+   the choice send its code in the header. The pending request keeps the
+   first lookup's code (migration 0021), so the look-up-again, and any
+   later search, declares the same one; a request naming another code, a
+   code the base does not list, or none while several are listed is a
+   `400` page and asks nothing. A patient's lookup of their own record
+   declares no purpose. Each lookup's access record names the purpose
+   with its system, which the BALP record carries as `purposeOfEvent` and
+   in `agent[user].purposeOfUse`, and names the person's roles. FerroSMART
+   puts no purpose claim in the token, which would bind it to one purpose
+   before the person chose, and does not read the accepted purposes from
+   the server, since no published standard names such a route. No
+   specification governs a picker's purpose: our own design.
 5. **Scope narrowing.** The granted scope is the intersection of the
    request, the client's registered ceiling, the user's roles mapped to
    scopes by configuration, and the consent the user gave; SMART allows the
@@ -3432,6 +3458,11 @@ kind = "fhir"                                 # or "openehr"
 # subject_namespace = "examples"              # openEHR only: the EHR subjects' namespace the picker looks up in
 # fhir_base = "https://ehr.example.org/fhir"  # openEHR only: the platform's FHIR base the picker finds the patient at
 # subject_system = "urn:example:mrn"          # with fhir_base: the Patient.identifier system that names the EHR's subject
+# purpose_header = "x-purpose-of-use"         # openEHR only, with purpose: the header a picker lookup declares it in
+# [[ferrosmart.resource.purpose]]             # openEHR only: a purpose of use a professional's picker lookup may declare
+# code = "TREAT"                              # the header's value, visible ASCII with no comma
+# system = "http://terminology.hl7.org/CodeSystem/v3-ActReason"
+# display = "Treatment"                       # the words the picker page shows
 # [[ferrosmart.resource.fhir_user_lookup]]    # FHIR only: find fhirUser when the provider sends none (13.6 item 9)
 # resource_type = "Practitioner"              # or PractitionerRole, Patient, RelatedPerson, Person
 # claim = "staff_id"                          # the upstream ID Token claim holding the identifier's value

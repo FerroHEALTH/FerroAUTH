@@ -244,6 +244,27 @@ pub struct ResourceSection {
     /// is found there by an identifier (`docs/architecture.md` §13.6
     /// item 9); empty, no search is made.
     pub fhir_user_lookup: Vec<FhirUserLookupSection>,
+    /// For an openEHR server, the HTTP header a professional's patient
+    /// picker lookup declares its purpose of use in; unset,
+    /// `x-purpose-of-use`. Only with `purpose`.
+    pub purpose_header: Option<String>,
+    /// For an openEHR server, the purposes of use it accepts, one of which
+    /// a professional chooses on the patient picker (`docs/architecture.md`
+    /// §13.6 item 4); empty, the lookup declares none.
+    pub purpose: Vec<PurposeSection>,
+}
+
+/// One `[[ferrosmart.resource.purpose]]` table: a purpose of use an openEHR
+/// server accepts in its purpose header.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PurposeSection {
+    /// The code, sent as the header's value: visible ASCII with no comma.
+    pub code: String,
+    /// The code system, an absolute URI.
+    pub system: String,
+    /// The words the picker page shows for it.
+    pub display: String,
 }
 
 /// One `[[ferrosmart.resource.fhir_user_lookup]]` table: a FHIR search by

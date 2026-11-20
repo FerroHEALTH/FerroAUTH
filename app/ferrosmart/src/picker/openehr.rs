@@ -22,6 +22,7 @@ use secrecy::SecretString;
 use serde_json::Value;
 use url::Url;
 
+use super::purpose::{self, Declared};
 use super::{Access, Ask, PickerError, as_person};
 use crate::form::Params;
 use crate::launch::context::Context;
@@ -76,8 +77,12 @@ pub(super) async fn look_up(
     if subject_id.len() > MAX_ID {
         return pages::fault(state, Fault::BadRequest);
     }
-    match by_subject(state, pending, from, namespace, subject_id).await {
-        Ok(found) => pages::ehr_picker(state, headers, pending, Some((subject_id, found.as_ref()))),
+    let (kept, declared) = match purpose::declared(state, pending, params).await {
+        Ok(declared) => declared,
+        Err(response) => return *response,
+    };
+    match by_subject(state, &kept, from, namespace, (subject_id, declared)).await {
+        Ok(found) => pages::ehr_picker(state, headers, &kept, Some((subject_id, found.as_ref()))),
         Err(error) => pages::server_error(state, &error),
     }
 }
@@ -105,9 +110,10 @@ pub(super) async fn choose(
         .get("ehr_id")
         .filter(|id| is_ehr_id(id))
         .ok_or_else(refuse)?;
+    let (_, declared) = purpose::declared(state, pending, form).await?;
     // NOTE: SMART on openEHR draft, Context Selection, `ehrId` is the EHR of the
     // patient chosen, so the choice is looked up again as the person.
-    match by_subject(state, pending, from, namespace, subject_id).await {
+    match by_subject(state, pending, from, namespace, (subject_id, declared)).await {
         Ok(Some(found)) if found.ehr_id == ehr_id => Ok(Context {
             ehr_id: Some(found.ehr_id),
             ..Context::default()
@@ -118,13 +124,14 @@ pub(super) async fn choose(
 }
 
 /// Looks up the EHR of `subject_id` in `namespace` as the person of
-/// `pending`: `None` when the server holds none they may see.
+/// `pending`, declaring the purpose of use `declared` when it names one:
+/// `None` when the server holds none they may see.
 pub(super) async fn by_subject(
     state: &AppState,
     pending: &Pending,
     from: IpAddr,
     namespace: &str,
-    subject_id: &str,
+    (subject_id, declared): (&str, Option<Declared<'_>>),
 ) -> Result<Option<FoundEhr>, PickerError> {
     let mut url = ehr_url(&pending.audience)?;
     url.query_pairs_mut()
@@ -138,6 +145,7 @@ pub(super) async fn by_subject(
         scope: EHR_SCOPE,
         accept: "application/json",
         describe: Box::new(move |fetched| access(audience, namespace, subject_id, asked, fetched)),
+        purpose: declared,
     };
     match as_person(state, pending, from, &ask).await {
         Ok(ehr) => found(subject_id, &ehr).map(Some),

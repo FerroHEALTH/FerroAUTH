@@ -98,6 +98,8 @@ of the tokens issued for it. At least one is required, and no base twice.
 | `fhir_base` | openEHR only: the base of the same platform's FHIR server, one of the FHIR bases configured here. The patient picker then searches that server for the patient and looks their EHR up, so the app gets both `patient` and `ehrId`. Needs `subject_namespace` and `subject_system` |
 | `subject_system` | With `fhir_base`: the `system` of the `Patient.identifier` whose value is the subject id of the patient's EHR in `subject_namespace` |
 | `fhir_user_lookup` | FHIR only, a list of tables: how to find a person's `fhirUser` when the identity provider sends none (below) |
+| `purpose` | openEHR only, a list of tables: the purposes of use the server accepts, one of which a professional chooses on the patient picker (below). Empty, a lookup declares none |
+| `purpose_header` | openEHR only, with `purpose`: the header a picker lookup declares the purpose in. Default `x-purpose-of-use`, FerroEHR's default `[audit] purpose_header` |
 
 When the identity provider sends no `fhirUser` claim, FerroSMART can find
 the person at a FHIR server by an identifier. Each
@@ -119,6 +121,38 @@ base = "https://ehr.example.org/fhir"
 resource_type = "Practitioner"
 claim = "staff_id"
 system = "urn:example:staff"
+```
+
+An openEHR server such as FerroEHR decides a professional's request by
+their roles and by the purpose of use the request declares in a header.
+The patient picker's token carries the person's roles, and each
+`[[ferrosmart.resource.purpose]]` names a purpose the server accepts: the
+`code` sent as the header's value (visible ASCII, no comma, one of the
+server's accepted codes, FerroEHR's `[audit] purpose_codes`), its code
+`system` (an absolute URI) and the `display` the picker page shows. The
+professional chooses one on the picker page (it is preselected when only
+one is listed), and the EHR lookup and the look-up-again of the choice
+both send it. The choice is kept for the rest of the request, so the two
+always declare the same purpose. A patient looking up their own record
+declares none. FerroSMART's access record of each lookup names the
+purpose.
+
+```toml
+[[ferrosmart.resource]]
+base = "https://ehr.example.org/openehr/v1"
+kind = "openehr"
+subject_namespace = "examples"
+purpose_header = "x-purpose-of-use"
+
+[[ferrosmart.resource.purpose]]
+code = "TREAT"
+system = "http://terminology.hl7.org/CodeSystem/v3-ActReason"
+display = "Treatment"
+
+[[ferrosmart.resource.purpose]]
+code = "ETREAT"
+system = "http://terminology.hl7.org/CodeSystem/v3-ActReason"
+display = "Emergency treatment"
 ```
 
 ## `[[ferrosmart.upstream]]`

@@ -590,3 +590,85 @@ fn a_role_may_grant_an_extension_scope_and_no_other_non_smart_scope() {
         );
     }
 }
+
+// NOTE: docs/architecture.md §13.6 item 4 (#716), an openEHR base lists the purposes
+// of use its server accepts, each a header value, and the header they go in.
+#[test]
+fn the_purposes_of_use_belong_to_an_openehr_base_and_each_is_a_header_value() {
+    let keys = Keys::new();
+    let with = |kind: &str, table: &str| {
+        config(
+            &format!(
+                "[ferrosmart]\nissuer = \"https://smart.example.org\"\n\
+                 [[ferrosmart.resource]]\nbase = \"https://ehr.example.org/openehr/v1\"\n\
+                 kind = {kind:?}\n{table}"
+            ),
+            &keys,
+        )
+        .resolve()
+        .map_err(Box::new)
+    };
+    let purpose = |code: &str, system: &str, display: &str| {
+        format!(
+            "[[ferrosmart.resource.purpose]]\ncode = {code:?}\nsystem = {system:?}\n\
+             display = {display:?}\n"
+        )
+    };
+    let treatment = purpose(
+        "TREAT",
+        "http://terminology.hl7.org/CodeSystem/v3-ActReason",
+        "Treatment",
+    );
+    let settings = with("openehr", &treatment).expect("resolves");
+    let purposes = settings
+        .purposes
+        .get("https://ehr.example.org/openehr/v1")
+        .expect("listed");
+    assert_eq!("x-purpose-of-use", purposes.header.as_str(), "the default");
+    assert_eq!("Treatment", purposes.get("TREAT").expect("TREAT").display);
+    let named = with(
+        "openehr",
+        &format!("purpose_header = \"X-Purpose\"\n{treatment}"),
+    )
+    .expect("resolves");
+    assert_eq!(
+        Some("x-purpose"),
+        named
+            .purposes
+            .get("https://ehr.example.org/openehr/v1")
+            .map(|purposes| purposes.header.as_str())
+    );
+    assert!(
+        with("openehr", "").expect("resolves").purposes.is_empty(),
+        "no purposes, no header"
+    );
+    for (kind, table) in [
+        ("fhir", treatment.clone()),
+        (
+            "openehr",
+            String::from("purpose_header = \"x-purpose-of-use\"\n"),
+        ),
+        (
+            "openehr",
+            format!("purpose_header = \"bad header\"\n{treatment}"),
+        ),
+        (
+            "openehr",
+            purpose("TREAT,ETREAT", "urn:example:purpose", "Both"),
+        ),
+        (
+            "openehr",
+            purpose("TRE AT", "urn:example:purpose", "Spaced"),
+        ),
+        ("openehr", purpose("", "urn:example:purpose", "Empty")),
+        ("openehr", purpose("TREAT", "not a uri", "Treatment")),
+        ("openehr", purpose("TREAT", "urn:example:purpose", " ")),
+        ("openehr", format!("{treatment}{treatment}")),
+    ] {
+        let refused = with(kind, &table).map(|_| ()).map_err(|error| *error);
+        assert!(
+            matches!(refused, Err(Error::Resource { .. })),
+            "{kind} {table}"
+        );
+    }
+}

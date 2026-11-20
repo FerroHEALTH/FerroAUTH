@@ -66,6 +66,10 @@ The server checks each token as an RFC 9068 JWT:
   trusts FerroSMART for roles (FerroEHR's `role_issuers`), and a privileged
   role such as an emergency access role needs its own `[[ferrosmart.role]]`
   table to reach it.
+  The patient picker's own short-lived token carries the same `roles`,
+  and at an openEHR server that lists purposes of use its lookups declare
+  the professional's chosen purpose in the server's purpose header
+  ([configuration](../configure/configuration.md#ferrosmartresource)).
 
 A server that cannot read JWTs introspects instead
 ([the flows](flows.md#refresh-introspection-and-revocation)), as a
