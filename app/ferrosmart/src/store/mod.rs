@@ -33,6 +33,11 @@ use crate::launch::context::Context;
 /// it is unavailable. No specification governs the value: our own design.
 pub const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// The oldest PostgreSQL the store runs on, as a `server_version_num`
+/// (PostgreSQL 19 docs, "Preset Options"). No specification governs the
+/// minimum: our own design, the release every FerroHEALTH product pins.
+pub const MINIMUM_SERVER_VERSION: i32 = 190_000;
+
 /// Why the store failed.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -42,6 +47,16 @@ pub enum StoreError {
     /// A migration failed.
     #[error("the database could not be migrated")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+    /// The database runs a PostgreSQL older than the store supports.
+    #[error(
+        "the database runs PostgreSQL server_version_num {found}, and FerroSMART needs {required} or newer"
+    )]
+    UnsupportedServer {
+        /// The `server_version_num` the database reported.
+        found: i32,
+        /// [`MINIMUM_SERVER_VERSION`].
+        required: i32,
+    },
     /// An audited write was to commit without its audit record.
     #[error("an audited write has no audit record")]
     Unrecorded,
@@ -61,10 +76,13 @@ pub struct Store {
 }
 
 impl Store {
-    /// Connects to the database `url` names with at most `max_connections`.
+    /// Connects to the database `url` names with at most `max_connections`
+    /// and refuses a server older than [`MINIMUM_SERVER_VERSION`].
     ///
     /// # Errors
-    /// Returns [`StoreError::Database`] when the database cannot be reached.
+    /// Returns [`StoreError::Database`] when the database cannot be reached
+    /// and [`StoreError::UnsupportedServer`] when it runs an older
+    /// PostgreSQL.
     pub async fn connect(
         url: &secrecy::SecretString,
         max_connections: u32,
@@ -74,6 +92,10 @@ impl Store {
             .acquire_timeout(ACQUIRE_TIMEOUT)
             .connect(url.expose_secret())
             .await?;
+        let found: i32 = sqlx::query_scalar("SELECT current_setting('server_version_num')::int")
+            .fetch_one(&pool)
+            .await?;
+        supported(found)?;
         Ok(Self { pool })
     }
 
@@ -921,5 +943,44 @@ impl Transaction {
     /// Returns [`StoreError::Database`] when the statement fails.
     pub async fn insert_token(&mut self, token: &IssuedToken<'_>) -> Result<(), StoreError> {
         insert_token(&mut *self.tx, token).await
+    }
+}
+
+/// Refuses a `server_version_num` older than [`MINIMUM_SERVER_VERSION`].
+fn supported(found: i32) -> Result<(), StoreError> {
+    if found < MINIMUM_SERVER_VERSION {
+        return Err(StoreError::UnsupportedServer {
+            found,
+            required: MINIMUM_SERVER_VERSION,
+        });
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{StoreError, supported};
+
+    #[test]
+    fn a_server_older_than_postgresql_19_is_refused_with_both_versions() {
+        let refused = supported(180_007).expect_err("PostgreSQL 18.7 is refused");
+        assert!(matches!(
+            refused,
+            StoreError::UnsupportedServer {
+                found: 180_007,
+                required: 190_000
+            }
+        ));
+        assert_eq!(
+            "the database runs PostgreSQL server_version_num 180007, and FerroSMART needs 190000 or newer",
+            refused.to_string()
+        );
+    }
+
+    #[test]
+    fn postgresql_19_and_newer_are_accepted() {
+        for found in [190_000, 190_003, 200_000] {
+            assert!(supported(found).is_ok(), "{found}");
+        }
     }
 }
