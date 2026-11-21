@@ -11,6 +11,17 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-21
+
+### Changed
+
+- Breaking: with `server-tls`, requires `ferrohealth-server` 0.12.0 (caret
+  `0.12.0`) in place of `0.11.0`, whose `tls_client::TlsClient`
+  `config::TlsBuilder` carries. ferrohealth-server 0.12 can decode a gzip or
+  Brotli request body under the body limit (`server.request_decompression`)
+  (FerroHEALTH/FerroSYS#408). Upgrade: move `ferrohealth-server` to 0.12
+  with this crate, so one copy links (#760).
+
 ## [0.32.0] - 2026-11-20
 
 ### Added
@@ -2553,7 +2564,8 @@ it issues no token and holds no key that signs one.
   `TODO(#N)` guards, the issue and pull request templates, the labels, the
   rulesets and the `crates-io` environment.
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.32.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.33.0...HEAD
+[0.33.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.32.0...ferrohealth-smart-v0.33.0
 [0.32.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.31.0...ferrohealth-smart-v0.32.0
 [0.31.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.2...ferrohealth-smart-v0.31.0
 [0.30.2]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrohealth-smart-v0.30.1...ferrohealth-smart-v0.30.2
