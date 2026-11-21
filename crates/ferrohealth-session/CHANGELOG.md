@@ -14,6 +14,8 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.28.0] - Unreleased
+
 ## [0.27.0] - 2026-11-20
 
 Releases beside `ferrohealth-smart` 0.32.0, whose changelog lists every

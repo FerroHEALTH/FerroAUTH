@@ -1,0 +1,1 @@
+- FerroSMART moves to `ferrohealth-server` 0.12: `[server] request_decompression`, off by default, decodes a request body sent in gzip or Brotli under the body limit (FerroHEALTH/FerroSYS#408, #760).
