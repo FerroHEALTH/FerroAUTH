@@ -33,9 +33,11 @@ use crate::launch::context::Context;
 /// it is unavailable. No specification governs the value: our own design.
 pub const ACQUIRE_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The oldest PostgreSQL the store runs on, as a `server_version_num`
-/// (PostgreSQL 19 docs, "Preset Options"). No specification governs the
-/// minimum: our own design, the release every FerroHEALTH product pins.
+/// The oldest PostgreSQL the store runs on, as a `server_version_num`.
+///
+/// The setting is described in PostgreSQL 19 docs, "Preset Options". No
+/// specification governs the minimum: our own design, the release every
+/// product of the family pins.
 pub const MINIMUM_SERVER_VERSION: i32 = 190_000;
 
 /// Why the store failed.
