@@ -513,7 +513,7 @@ self_test() {
   expect "the version of a server tag" "$(version_of ferrosmart-v0.1.0-rc.1)" "0.1.0-rc.1"
   expect "the changelog of a server tag" "$(changelog_of ferrosmart-v0.1.0)" "app/ferrosmart/CHANGELOG.md"
   # shellcheck disable=SC2016 # the compose interpolation is the input text
-  got="$(printf '%s\n' '    image: ghcr.io/ferrohealth/ferrosmart:${FERROSMART_VERSION:-0.1.0}' '    image: postgres:18.6@sha256:00' | compose_pin)"
+  got="$(printf '%s\n' '    image: ghcr.io/ferrohealth/ferrosmart:${FERROSMART_VERSION:-0.1.0}' '    image: postgres:19.0@sha256:00' | compose_pin)"
   expect "the quickstart's image pin" "$got" "0.1.0"
   # shellcheck disable=SC2016 # the compose interpolation is the input text
   got="$(printf '%s\n' '    image: ghcr.io/ferrohealth/ferrosmart:0.1.0' '# image: ghcr.io/ferrohealth/ferrosmart:${FERROSMART_VERSION:-9.9.9}' | compose_pin)"
