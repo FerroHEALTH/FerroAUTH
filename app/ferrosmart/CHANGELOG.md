@@ -12,6 +12,111 @@ and this project adheres to
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-21
+
+### Added
+
+- Breaking: `[[ferrosmart.client]]` takes `resources`, the
+  `[[ferrosmart.resource]]` bases the client's tokens may name in `aud`.
+  An authorization request, a client credentials request, a refresh, a code
+  redemption or a launch registration naming any other base is refused
+  `invalid_target` (RFC 8707 §2), and a client credentials request without
+  `resource` takes the one base the client lists alone. A client that lists
+  none reaches no resource server, only FerroSMART's own endpoints, so every
+  client table adds the bases it is for; a base no
+  `[[ferrosmart.resource]]` table configures is refused at load. The admin
+  API's client document carries `resources` too, and a base taken off a
+  client's list is refused from its next request (#682).
+- The admin API: `GET` and `POST /admin/clients`, `GET` and
+  `PUT /admin/clients/{client_id}`, `POST .../disable`, `POST .../enable`
+  and `DELETE .../organisation_approval` change the client registry while
+  FerroSMART runs, and `GET /admin/keys` lists the signing keys with their
+  states. Each request needs an access token FerroSMART issued for its own
+  issuer with the new `system/admin` scope, confirmed against the store on
+  every request, and each change commits with its audit record
+  (`client-created`, `client-updated`, `client-disabled`,
+  `client-enabled`). Withdrawing an organisation approval or disabling a
+  client revokes its grants, refresh tokens and access tokens at once, at
+  every replica, with no restart (#683).
+- An OpenID Connect `[[ferrosmart.upstream]]` entry may name
+  `preset = "keycloak"`, `"entra"`, `"okta"` or `"zitadel"`: the scopes,
+  the `fhirUser` and role claims and the assertion algorithm of
+  FerroSMART's tested setup with that provider, read from a data file
+  under `app/ferrosmart/presets/` with the vendor's documentation cited
+  beside each value. A key the entry's `[ferrosmart.upstream.oidc]` table
+  sets wins over the preset, and the examples for the four providers use
+  them (#733).
+- `ferrosmart subject --upstream <name> --sub <sub>` prints the
+  FerroSMART `sub` of a person from their subject at that provider, the
+  pairwise identifier a resource server binds them by
+  (`docs/architecture.md` §13.6 item 9), and the management page shows the
+  signed-in person their own (#733).
+- `ferrosmart upstream registration <name>` prints what the provider must
+  be configured with: the redirect and logout URIs, the client
+  authentication with its JWK Set URL or certificate, PKCE `S256`, the
+  scopes, the claims and the roles, or for SAML 2.0 the entity IDs, the
+  assertion consumer service and the attributes. Both commands read the
+  configuration alone, with no key, secret or database (#733).
+
+### Changed
+
+- The `[[ferrosmart.client]]` tables seed the registry: a client the admin
+  API created or changed keeps the store as its source, its table is no
+  longer written at start, and start logs a warning naming it. A disabled
+  client is found by no request, and its people's remembered consents are
+  forgotten (#683).
+- The management page lists every app holding live access to the person's
+  data, organisation-approved and first-party apps included, each with a
+  Disconnect button. Disconnect forgets the person's remembered consent and
+  revokes the app's grants, refresh tokens and access tokens about them at
+  once, and leaves the organisation approval standing; the
+  `consent-withdrawn` record names the grants revoked (SMART App Launch
+  2.2.0, `offline_access` and `management_endpoint`) (#725).
+- A public client gets an authorization code with no consent page, on an
+  organisation approval or a remembered consent, only when the request's
+  redirect URI is a claimed `https` URI. A custom-scheme or loopback
+  redirect shows the page, with a remembered choice ticked, and
+  `ferrosmart config check` warns of a first-party public client with no
+  claimed `https` redirect (RFC 8252 §8.6, §7.2; RFC 6749 §10.2).
+  Confidential clients are unchanged (#726).
+- A remembered consent is bound to the resource server it was given for:
+  it answers only for the same client, the same `aud` and scopes it fully
+  covers. The store migration drops the consents kept under the old key,
+  so each person is asked once again (#727).
+- Every `authorization-code` audit record names the basis of the code as
+  its `basis` detail: `page`, `remembered`, `organisation` or
+  `first-party` (#727).
+- An organisation approval may list `patient/` scopes for staff, and it
+  covers them in a professional's EHR launch with no consent page
+  (OpenID Connect Core 1.0 §3.1.2.4). A standalone request for `patient/`
+  scopes and every patient keep the page, unless the app is first party (#727).
+- A client's ceiling and a role's scopes admit a requested `patient/`,
+  `user/` or `system/` scope whose permission letters are a subset of a
+  listed scope's, in the same context, on the same resource or under the
+  wildcard `*`, and with the same query parameters, or any when the listed
+  scope names none (SMART App Launch 2.2.0, SMART v2 scopes). A ceiling of
+  `patient/Composition.crs` admits `patient/Composition.rs` and `.r`, so a
+  deployment lists each resource once. A query-restricted ceiling still
+  never admits the unrestricted scope (#731).
+- Breaking: the `protocol` key of `[[ferrosmart.upstream]]` is removed, and
+  the table present names the protocol: `[ferrosmart.upstream.oidc]` for
+  OpenID Connect or `[ferrosmart.upstream.saml]` for SAML 2.0, exactly one
+  per entry. A configuration that still sets `protocol` is refused as an
+  unknown key; delete the line (and `FERROSMART__…__PROTOCOL` from the
+  environment). `private_key_jwt` is taken when an entry names no client
+  authentication table, so the empty
+  `[ferrosmart.upstream.oidc.private_key_jwt]` header goes too and
+  `[ferrosmart.upstream.oidc.private_key_jwt.keys]` alone is enough; an
+  entry without the assertion key is refused for that missing key (#733).
+
+### Fixed
+
+- The RFC 8414 and OpenID Connect metadata list `refresh_token` in
+  `grant_types_supported`, since the token endpoint serves that grant (RFC
+  8414 §2). The token endpoint refuses every grant its metadata leaves out
+  as `unsupported_grant_type`, so without a login the authorization code
+  grant is refused (#735).
+
 ## [0.2.0] - 2026-11-20
 
 ### Added
@@ -560,6 +665,7 @@ and this project adheres to
   read its token response (SMART App Launch 2.2.0, Considerations for CORS
   support). Every other origin gets no CORS header (#560).
 
-[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrosmart-v0.2.0...HEAD
+[Unreleased]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrosmart-v0.3.0...HEAD
+[0.3.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrosmart-v0.2.0...ferrosmart-v0.3.0
 [0.2.0]: https://github.com/FerroHEALTH/FerroSMART/compare/ferrosmart-v0.1.0...ferrosmart-v0.2.0
 [0.1.0]: https://github.com/FerroHEALTH/FerroSMART/releases/tag/ferrosmart-v0.1.0
